@@ -96,7 +96,7 @@ def process_query_model(
                     results=hog_result.result,
                     bytecode=hog_result.bytecode,
                     coloredBytecode=color_bytecode(hog_result.bytecode),
-                    stdout="".join(hog_result.stdout),
+                    stdout="\n".join(hog_result.stdout),
                 )
             except Exception as e:
                 result = HogQueryResponse(results=f"ERROR: {str(e)}")

@@ -325,9 +325,10 @@ class TestBytecodeExecute:
                 """
                 let j := 0
                 for (let i := 0; i < 3; i := i + 1) {
-                    print(i) -- loops 3 times
+                    print(i) -- prints 3 times
                     j := j + 2
                 }
+                print(i) -- global does not print
                 return j
                 """
             )

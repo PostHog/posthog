@@ -268,15 +268,15 @@ class BytecodeBuilder(Visitor):
         return response
 
     def visit_for_statement(self, node: ast.ForStatement):
+        if node.initializer:
+            self._start_scope()
+
         initializer = self.visit(node.initializer) or []
         condition = self.visit(node.condition) or []
         increment = self.visit(node.increment) or []
         body = self.visit(node.body) or []
 
         response: list = []
-        if initializer is not None:
-            self._start_scope()
-
         response.extend(initializer)
         response.extend(condition)
         response.extend([Operation.JUMP_IF_FALSE, len(body) + len(increment) + 2])
@@ -284,7 +284,7 @@ class BytecodeBuilder(Visitor):
         response.extend(increment)
         response.extend([Operation.JUMP, -len(increment) - len(body) - 2 - len(condition) - 2])
 
-        if initializer is not None:
+        if node.initializer:
             response.extend(self._end_scope())
         return response
 
