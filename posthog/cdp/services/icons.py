@@ -14,14 +14,38 @@ class CDPIconsService:
         if not self.supported:
             return []
 
-        res = requests.get(
-            f"https://search.logo.dev/api/icons",
-            params={
-                "token": settings.LOGO_DEV_TOKEN,
-                "query": query,
-            },
-        )
-        data = res.json()
+        # Query could be full of noise so we try and find words that seem like they could be a domain
+
+        good_query_options: list[str] = []
+        possible_queries = query.strip().split(" ")
+
+        if len(possible_queries) == 1:
+            good_query_options = possible_queries
+        else:
+            for term in possible_queries:
+                if "." in query:
+                    # Looks like a domain - lets just use this
+                    good_query_options = [query]
+                    break
+                if len(query) < 5:
+                    continue
+
+                good_query_options.append(term)
+
+                if len(good_query_options) >= 3:
+                    break
+
+        results = []
+        for q in good_query_options:
+            res = requests.get(
+                f"https://search.logo.dev/api/icons",
+                params={
+                    "token": settings.LOGO_DEV_TOKEN,
+                    "query": q,
+                },
+            )
+            if res.status_code == 200:
+                results += res.json()
 
         parsed = [
             {
@@ -29,7 +53,7 @@ class CDPIconsService:
                 "name": item["name"],
                 "url": f"{icon_url_base}{item['domain']}",
             }
-            for item in data
+            for item in results
         ]
 
         return parsed
