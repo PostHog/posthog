@@ -127,6 +127,7 @@ export const PlanComparison = ({
     const { reportSurveyShown, setSurveyResponse } = useActions(billingProductLogic({ product }))
     const { featureFlags } = useValues(featureFlagLogic)
 
+    const ctaAction = featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] ? 'Upgrade' : 'Subscribe'
     const upgradeButtons = plans?.map((plan, i) => {
         return (
             <td key={`${plan.plan_key}-cta`} className="PlanTable__td__upgradeButton">
@@ -182,10 +183,10 @@ export const PlanComparison = ({
                         : plan.included_if == 'has_subscription' &&
                           i >= currentPlanIndex &&
                           !billing?.has_active_subscription
-                        ? 'Upgrade'
+                        ? ctaAction
                         : plan.free_allocation && !plan.tiers
                         ? 'Select' // Free plan
-                        : 'Upgrade'}
+                        : ctaAction}
                 </BillingUpgradeCTA>
                 {!plan.current_plan && !plan.free_allocation && includeAddons && product.addons?.length > 0 && (
                     <p className="text-center ml-0 mt-2 mb-0">
@@ -238,7 +239,9 @@ export const PlanComparison = ({
                                     : plan.contact_support
                                     ? 'Custom'
                                     : plan.included_if == 'has_subscription'
-                                    ? 'Usage-based - starts at $0'
+                                    ? featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS]
+                                        ? 'Usage-based - starting at $0'
+                                        : 'Free, included with any product subscription'
                                     : '$0 per month'}
                                 {isProrated && (
                                     <p className="text-xxs text-muted font-normal italic mt-2">
