@@ -7,7 +7,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
-import { ViewLinkModal } from 'scenes/data-warehouse/ViewLinkModal'
 import { urls } from 'scenes/urls'
 
 import { DatabaseSchemaTable, DataTableNode, NodeKind } from '~/queries/schema'
@@ -49,7 +48,6 @@ export function DatabaseTablesContainer(): JSX.Element {
                     )
                 }}
             />
-            <ViewLinkModal />
         </>
     )
 }

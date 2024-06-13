@@ -12,10 +12,12 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
+import { DatabaseSchemaTable } from '~/queries/schema'
 
+import { viewLinkLogic } from '../viewLinkLogic'
 import { ViewLinkModal } from '../ViewLinkModal'
 import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
-import { TableData } from './TableData'
+import { DeleteTableModal, TableData } from './TableData'
 
 export const DataWarehouseTables = (): JSX.Element => {
     // insightLogic
@@ -50,7 +52,6 @@ export const DataWarehouseTables = (): JSX.Element => {
                     />
                 </div>
             </BindLogic>
-            <ViewLinkModal />
         </>
     )
 }
@@ -60,11 +61,68 @@ interface DatabaseTableTreeProps {
 }
 
 export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): JSX.Element => {
-    const { dataWarehouseTablesBySourceType, posthogTables, databaseLoading, views, selectedRow } =
+    const { dataWarehouseTablesBySourceType, posthogTables, databaseLoading, views, selectedRow, schemaModalIsOpen } =
         useValues(dataWarehouseSceneLogic)
-    const { selectRow } = useActions(dataWarehouseSceneLogic)
+    const { selectRow, deleteDataWarehouseSavedQuery, deleteDataWarehouseTable, toggleSchemaModal } =
+        useActions(dataWarehouseSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const [collapsed, setCollapsed] = useState(false)
+    const { toggleJoinTableModal, selectSourceTable } = useActions(viewLinkLogic)
+    const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
+
+    const deleteButton = (table: DatabaseSchemaTable | null): JSX.Element => {
+        if (!table) {
+            return <></>
+        }
+
+        if (table.type === 'view' || table.type === 'data_warehouse') {
+            return (
+                <LemonButton
+                    data-attr="schema-list-item-delete"
+                    status="danger"
+                    onClick={() => {
+                        selectRow(table)
+                        setIsDeleteModalOpen(true)
+                    }}
+                    fullWidth
+                >
+                    Delete
+                </LemonButton>
+            )
+        }
+
+        if (table.type === 'posthog') {
+            return <></>
+        }
+
+        return <></>
+    }
+
+    const dropdownOverlay = (table: DatabaseSchemaTable): JSX.Element => (
+        <>
+            <LemonButton
+                onClick={() => {
+                    selectRow(table)
+                    toggleSchemaModal()
+                }}
+                data-attr="schema-list-item-schema"
+                fullWidth
+            >
+                View table schema
+            </LemonButton>
+            <LemonButton
+                onClick={() => {
+                    selectSourceTable(table.name)
+                    toggleJoinTableModal()
+                }}
+                data-attr="schema-list-item-join"
+                fullWidth
+            >
+                Add join
+            </LemonButton>
+            {deleteButton(table)}
+        </>
+    )
 
     const treeItems = (): TreeItem[] => {
         if (inline) {
@@ -76,6 +134,7 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                         items: dataWarehouseTablesBySourceType[source_type].map((table) => ({
                             name: table.name,
                             table: table,
+                            dropdownOverlay: dropdownOverlay(table),
                             items: Object.values(table.fields).map((column) => ({
                                 name: column.name,
                                 type: column.type,
@@ -91,6 +150,7 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                     items: posthogTables.map((table) => ({
                         name: table.name,
                         table: table,
+                        dropdownOverlay: dropdownOverlay(table),
                         items: Object.values(table.fields).map((column) => ({
                             name: column.name,
                             type: column.type,
@@ -107,6 +167,7 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                     items: views.map((table) => ({
                         name: table.name,
                         table: table,
+                        dropdownOverlay: dropdownOverlay(table),
                         items: Object.values(table.fields).map((column) => ({
                             name: column.name,
                             type: column.type,
@@ -203,9 +264,34 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                     <DatabaseTableTree onSelectRow={selectRow} items={treeItems()} selectedRow={selectedRow} />
                 </>
             )}
-            <LemonModal width="50rem" isOpen={!!selectedRow} onClose={() => selectRow(null)} title="Table Schema">
+            <LemonModal
+                width="50rem"
+                isOpen={!!selectedRow && schemaModalIsOpen}
+                onClose={() => {
+                    selectRow(null)
+                    toggleSchemaModal()
+                }}
+                title="Table Schema"
+            >
                 <TableData />
             </LemonModal>
+            <ViewLinkModal />
+            {selectedRow && (
+                <DeleteTableModal
+                    table={selectedRow}
+                    isOpen={isDeleteModalOpen}
+                    setIsOpen={setIsDeleteModalOpen}
+                    onDelete={() => {
+                        if (selectedRow) {
+                            if (selectedRow.type === 'view') {
+                                deleteDataWarehouseSavedQuery(selectedRow.id)
+                            } else {
+                                deleteDataWarehouseTable(selectedRow.id)
+                            }
+                        }
+                    }}
+                />
+            )}
         </div>
     )
 }

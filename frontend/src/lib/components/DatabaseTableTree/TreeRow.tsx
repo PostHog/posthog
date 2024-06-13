@@ -1,4 +1,4 @@
-import { IconChevronDown, IconGear } from '@posthog/icons'
+import { IconChevronDown, IconEllipsis } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 import { useCallback, useState } from 'react'
 
@@ -58,9 +58,10 @@ export interface TreeFolderRowProps {
     depth: number
     onClick?: (row: DatabaseSchemaTable) => void
     selectedRow?: DatabaseSchemaTable | null
+    dropdownOverlay?: React.ReactNode
 }
 
-export function TreeFolderRow({ item, depth, onClick, selectedRow }: TreeFolderRowProps): JSX.Element {
+export function TreeFolderRow({ item, depth, onClick, selectedRow, dropdownOverlay }: TreeFolderRowProps): JSX.Element {
     const { name, items, emptyLabel } = item
 
     const isColumnType = items.length > 0 && 'type' in items[0]
@@ -78,15 +79,15 @@ export function TreeFolderRow({ item, depth, onClick, selectedRow }: TreeFolderR
                 fullWidth
                 onClick={_onClick}
                 sideAction={
-                    isColumnType
+                    dropdownOverlay
                         ? {
-                              icon: <IconGear className="text-muted-alt self-center" />,
-                              tooltip: `View Table Schema`,
-                              onClick: () => {
-                                  onClick && item.table && onClick(item.table)
+                              icon: <IconEllipsis fontSize={12} />,
+
+                              dropdown: {
+                                  overlay: dropdownOverlay,
                               },
                           }
-                        : {}
+                        : undefined
                 }
                 icon={<IconChevronDown className={collapsed ? 'rotate-270' : undefined} />}
             >
