@@ -20,9 +20,12 @@ class SessionRecordingsMixin(BaseParamMixin):
         return self._data.get("console_search_query", None)
 
     @cached_property
+    def operand(self) -> Literal["AND"] | Literal["OR"]:
+        return self._data.get("operand", "AND")
+
+    @cached_property
     def global_operand(self) -> type[Union[ast.And, ast.Or]]:
-        operand = self._data.get("operand", "AND")
-        return ast.And if operand == "AND" else ast.Or
+        return ast.And if self.operand == "AND" else ast.Or
 
     @cached_property
     def console_logs_filter(self) -> list[Literal["error", "warn", "info"]]:

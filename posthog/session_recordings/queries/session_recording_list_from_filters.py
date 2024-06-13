@@ -281,7 +281,7 @@ class SessionRecordingListFromFilters:
 
         return (
             PropertyGroup(
-                type=PropertyOperatorType.AND,
+                type=PropertyOperatorType.AND if self._filter.operand == "AND" else PropertyOperatorType.OR,
                 values=property_groups_to_keep,
             )
             if property_groups_to_keep
@@ -319,7 +319,7 @@ class PersonsPropertiesSubQuery:
         person_property_groups = [g for g in self._filter.property_groups.flat if is_person_property(g)]
         return (
             PropertyGroup(
-                type=PropertyOperatorType.AND,
+                type=PropertyOperatorType.AND if self._filter.operand == "AND" else PropertyOperatorType.OR,
                 values=person_property_groups,
             )
             if person_property_groups
@@ -477,7 +477,7 @@ class EventsSubQuery:
             exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.In,
-                    left=ast.Constant(value="`$session_id`"),
+                    left=ast.Field(chain=["$session_id"]),
                     right=ast.Constant(value=self._filter.session_ids),
                 )
             )
