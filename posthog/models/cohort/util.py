@@ -8,6 +8,7 @@ from django.conf import settings
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
+from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.client import sync_execute
 from posthog.constants import PropertyOperatorType
@@ -324,6 +325,7 @@ def recalculate_cohortpeople(
             "new_version": pending_version,
         },
         settings={"optimize_on_insert": 0},
+        workload=Workload.OFFLINE,
     )
 
     count = get_cohort_size(cohort, override_version=pending_version)
