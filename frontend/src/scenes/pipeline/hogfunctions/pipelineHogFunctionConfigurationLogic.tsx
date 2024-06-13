@@ -253,7 +253,7 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
                 enabled: false,
             })
         },
-        loadHogFunctionSuccess: () => actions.resetForm(),
+        loadHogFunctionSuccess: ({ hogFunction }) => actions.resetForm(hogFunction!),
 
         resetForm: ({ configuration }) => {
             const savedValue = configuration
