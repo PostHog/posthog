@@ -11,7 +11,7 @@ export const UnsubscribeCard = ({ product }: { product: BillingProductV2Type }):
     const { reportSurveyShown, setSurveyResponse } = useActions(billingProductLogic({ product }))
 
     return (
-        <div className="bg-bg-light p-5 border gap-4 rounded my-4 flex justify-start w-1/2">
+        <div className="bg-bg-light p-5 border gap-4 rounded flex justify-start w-1/2">
             <div className="">
                 <h3>You're subscribed to the paid plan</h3>
                 <p>

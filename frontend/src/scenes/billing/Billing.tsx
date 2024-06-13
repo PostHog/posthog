@@ -150,7 +150,7 @@ export function Billing(): JSX.Element {
                         })}
                     >
                         {!isOnboarding && billing?.billing_period && (
-                            <div className="flex-1">
+                            <div className="flex-1 pt-2">
                                 <div className="space-y-2">
                                     {billing?.has_active_subscription && (
                                         <>
