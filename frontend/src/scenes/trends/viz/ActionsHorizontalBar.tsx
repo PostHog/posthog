@@ -32,6 +32,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
         showValuesOnSeries,
         isDataWarehouseSeries,
         querySource,
+        breakdownFilter,
     } = useValues(trendsDataLogic(insightProps))
 
     function updateData(): void {
@@ -47,12 +48,10 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
                 breakdownValues: _data.map((item) => item.breakdown_value),
                 breakdownLabels: _data.map((item) => {
                     return formatBreakdownLabel(
-                        cohorts,
-                        formatPropertyValueForDisplay,
                         item.breakdown_value,
-                        item.filter?.breakdown,
-                        item.filter?.breakdown_type,
-                        false
+                        breakdownFilter,
+                        cohorts,
+                        formatPropertyValueForDisplay
                     )
                 }),
                 compareLabels: _data.map((item) => item.compare_label),

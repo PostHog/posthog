@@ -3790,9 +3790,13 @@ export interface DataWarehouseViewLink {
     created_at?: string | null
 }
 
-export const externalDataSources = ['Stripe', 'Hubspot', 'Postgres', 'Zendesk', 'Snowflake', 'Manual'] as const
+export const externalDataSources = ['Stripe', 'Hubspot', 'Postgres', 'Zendesk', 'Snowflake'] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
+
+export const manualLinkSources = ['aws', 'google-cloud', 'cloudflare-r2']
+
+export type ManualLinkSourceType = (typeof manualLinkSources)[number]
 
 export interface ExternalDataSourceCreatePayload {
     source_type: ExternalDataSourceType
