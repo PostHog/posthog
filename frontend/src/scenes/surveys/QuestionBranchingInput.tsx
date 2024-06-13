@@ -131,8 +131,8 @@ function QuestionResponseBasedBranchingInput({
                             className="w-full whitespace-nowrap"
                             value={getResponseBasedBranchingDropdownValue(questionIndex, question, value)}
                             data-attr={`branching-question-${questionIndex}`}
-                            onSelect={(branchingToValue) =>
-                                setResponseBasedBranchingForQuestion(questionIndex, value, branchingToValue)
+                            onSelect={(nextStep) =>
+                                setResponseBasedBranchingForQuestion(questionIndex, value, nextStep)
                             }
                             options={[
                                 ...(questionIndex < survey.questions.length - 1

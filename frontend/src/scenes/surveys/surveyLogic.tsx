@@ -158,10 +158,10 @@ export const surveyLogic = kea<surveyLogicType>([
             isEditingThankYouMessage,
         }),
         setQuestionBranchingType: (questionIndex, type) => ({ questionIndex, type }),
-        setResponseBasedBranchingForQuestion: (questionIndex, responseValue, branchingToValue) => ({
+        setResponseBasedBranchingForQuestion: (questionIndex, responseValue, nextStep) => ({
             questionIndex,
             responseValue,
-            branchingToValue,
+            nextStep,
         }),
         archiveSurvey: true,
         setWritingHTMLDescription: (writingHTML: boolean) => ({ writingHTML }),
@@ -704,7 +704,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         questions: newQuestions,
                     }
                 },
-                setResponseBasedBranchingForQuestion: (state, { questionIndex, responseValue, branchingToValue }) => {
+                setResponseBasedBranchingForQuestion: (state, { questionIndex, responseValue, nextStep }) => {
                     const newQuestions = [...state.questions]
                     const question = newQuestions[questionIndex]
 
@@ -724,13 +724,13 @@ export const surveyLogic = kea<surveyLogicType>([
                     }
 
                     if ('responseValues' in question.branching) {
-                        if (branchingToValue === SurveyQuestionBranchingType.NextQuestion) {
+                        if (nextStep === SurveyQuestionBranchingType.NextQuestion) {
                             delete question.branching.responseValues[responseValue]
-                        } else if (branchingToValue === SurveyQuestionBranchingType.ConfirmationMessage) {
+                        } else if (nextStep === SurveyQuestionBranchingType.ConfirmationMessage) {
                             question.branching.responseValues[responseValue] =
                                 SurveyQuestionBranchingType.ConfirmationMessage
-                        } else if (branchingToValue.startsWith(SurveyQuestionBranchingType.SpecificQuestion)) {
-                            const nextQuestionIndex = parseInt(branchingToValue.split(':')[1])
+                        } else if (nextStep.startsWith(SurveyQuestionBranchingType.SpecificQuestion)) {
+                            const nextQuestionIndex = parseInt(nextStep.split(':')[1])
                             question.branching.responseValues[responseValue] = nextQuestionIndex
                         }
                     }
