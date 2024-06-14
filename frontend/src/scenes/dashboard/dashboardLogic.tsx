@@ -1022,13 +1022,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 const queryId = `${dashboardQueryId}::${uuid()}`
                 const queryStartTime = performance.now()
                 const apiUrl = `api/projects/${values.currentTeamId}/insights/${insight.id}/?${toParams({
-                    refresh: values.featureFlags[FEATURE_FLAGS.HOGQL_DASHBOARD_ASYNC]
-                        ? hardRefreshWithoutCache
-                            ? 'force_async'
-                            : 'async'
-                        : hardRefreshWithoutCache
-                        ? 'force_blocking'
-                        : 'blocking',
+                    refresh: hardRefreshWithoutCache ? 'force_async' : 'async',
                     from_dashboard: dashboardId, // needed to load insight in correct context
                     client_query_id: queryId,
                     session_id: currentSessionId(),
