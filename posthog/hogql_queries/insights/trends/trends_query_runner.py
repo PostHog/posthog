@@ -15,6 +15,7 @@ from posthog.caching.insights_api import (
     REAL_TIME_INSIGHT_REFRESH_INTERVAL,
 )
 from posthog.caching.utils import is_stale
+from posthog.clickhouse import query_tagging
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext, MAX_SELECT_RETURNED_ROWS, BREAKDOWN_VALUES_LIMIT
@@ -294,8 +295,16 @@ class TrendsQueryRunner(QueryRunner):
         errors: list[Exception] = []
         debug_errors: list[str] = []
 
-        def run(index: int, query: ast.SelectQuery | ast.SelectUnionQuery, is_parallel: bool):
+        def run(
+            index: int,
+            query: ast.SelectQuery | ast.SelectUnionQuery,
+            is_parallel: bool,
+            query_tags: Optional[dict] = None,
+        ):
             try:
+                if query_tags:
+                    query_tagging.tag_queries(**query_tags)
+
                 series_with_extra = self.series[index]
 
                 response = execute_hogql_query(
@@ -328,7 +337,10 @@ class TrendsQueryRunner(QueryRunner):
         elif len(queries) == 1:
             run(0, queries[0], False)
         else:
-            jobs = [threading.Thread(target=run, args=(index, query, True)) for index, query in enumerate(queries)]
+            jobs = [
+                threading.Thread(target=run, args=(index, query, True, query_tagging.get_query_tags()))
+                for index, query in enumerate(queries)
+            ]
 
             # Start the threads
             for j in jobs:
