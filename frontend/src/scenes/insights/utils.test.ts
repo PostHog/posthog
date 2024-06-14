@@ -267,7 +267,7 @@ describe('formatBreakdownLabel()', () => {
             breakdown_type: 'event',
             breakdown_histogram_bin_count: 10,
         }
-        expect(formatBreakdownLabel('$$_posthog_breakdown_other_$$', breakdownFilter, [], identity)).toEqual(
+        expect(formatBreakdownLabel('$$_posthog_breakdown_null_$$', breakdownFilter, [], identity)).toEqual(
             'None (i.e. no value)'
         )
     })
