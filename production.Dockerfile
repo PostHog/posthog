@@ -83,7 +83,7 @@ RUN corepack enable && \
 #
 # ---------------------------------------------------------
 #
-FROM python:3.11.9-slim-bullseye AS posthog-build
+FROM python:3.10.10-slim-bullseye AS posthog-build
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
@@ -134,6 +134,7 @@ RUN apt-get update && \
     mkdir share && \
     ( curl -s -L "https://mmdbcdn.posthog.net/" --http1.1 | brotli --decompress --output=./share/GeoLite2-City.mmdb ) && \
     chmod -R 755 ./share/GeoLite2-City.mmdb
+
 
 #
 # ---------------------------------------------------------
