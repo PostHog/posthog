@@ -175,7 +175,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
                         kind: NodeKind.InsightActorsQueryOptions,
                         source: query,
                     }
-                    const response = await performQuery(optionsQuery)
+                    const response = await performQuery(optionsQuery, { async: false })
 
                     return Object.fromEntries(
                         Object.entries(response).filter(([key, _]) =>

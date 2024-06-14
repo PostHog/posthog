@@ -1,7 +1,9 @@
 import { JSONContent } from '@tiptap/core'
+import { isEmptyObject } from 'lib/utils'
 
 import {
     breakdownFilterToQuery,
+    compareFilterToQuery,
     exlusionEntityToNode,
     funnelsFilterToQuery,
     lifecycleFilterToQuery,
@@ -19,7 +21,16 @@ import {
     isLegacyStickinessFilter,
     isLegacyTrendsFilter,
 } from '~/queries/nodes/InsightQuery/utils/legacy'
-import { InsightVizNode, NodeKind } from '~/queries/schema'
+import {
+    InsightVizNode,
+    NodeKind,
+    STICKINESS_FILTER_PROPERTIES,
+    StickinessFilter,
+    StickinessFilterLegacy,
+    TRENDS_FILTER_PROPERTIES,
+    TrendsFilter,
+    TrendsFilterLegacy,
+} from '~/queries/schema'
 import { FunnelExclusionLegacy, NotebookNodeType, NotebookType } from '~/types'
 
 // NOTE: Increment this number when you add a new content migration
@@ -102,7 +113,19 @@ function convertInsightQueriesToNewSchema(content: JSONContent[]): JSONContent[]
          * Insight filters
          */
         if (query.kind === NodeKind.TrendsQuery && isLegacyTrendsFilter(query.trendsFilter as any)) {
-            query.trendsFilter = trendsFilterToQuery(query.trendsFilter as any)
+            const compareFilter = compareFilterToQuery(query.trendsFilter as any)
+            if (!isEmptyObject(compareFilter)) {
+                query.compareFilter = compareFilter
+            }
+
+            delete (query.trendsFilter as TrendsFilterLegacy).compare
+            delete (query.trendsFilter as TrendsFilterLegacy).compare_to
+
+            query.trendsFilter = Object.fromEntries(
+                Object.entries(query.trendsFilter as TrendsFilter)
+                    .filter(([k, _]) => TRENDS_FILTER_PROPERTIES.has(k))
+                    .concat(Object.entries(trendsFilterToQuery(query.trendsFilter as any)))
+            )
         }
 
         if (query.kind === NodeKind.FunnelsQuery) {
@@ -127,7 +150,19 @@ function convertInsightQueriesToNewSchema(content: JSONContent[]): JSONContent[]
         }
 
         if (query.kind === NodeKind.StickinessQuery && isLegacyStickinessFilter(query.stickinessFilter as any)) {
-            query.stickinessFilter = stickinessFilterToQuery(query.stickinessFilter as any)
+            const compareFilter = compareFilterToQuery(query.stickinessFilter as any)
+            if (!isEmptyObject(compareFilter)) {
+                query.compareFilter = compareFilter
+            }
+            delete (query.stickinessFilter as StickinessFilterLegacy).compare
+            delete (query.stickinessFilter as StickinessFilterLegacy).compare_to
+
+            // This has to come after compare, because it removes compare
+            query.stickinessFilter = Object.fromEntries(
+                Object.entries(query.stickinessFilter as StickinessFilter)
+                    .filter(([k, _]) => STICKINESS_FILTER_PROPERTIES.has(k))
+                    .concat(Object.entries(stickinessFilterToQuery(query.stickinessFilter as any)))
+            )
         }
 
         if (query.kind === NodeKind.LifecycleQuery && isLegacyLifecycleFilter(query.lifecycleFilter as any)) {

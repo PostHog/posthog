@@ -32,6 +32,7 @@ from posthog.schema import (
     StickinessFilter,
     StickinessQuery,
     StickinessQueryResponse,
+    CompareFilter,
 )
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.base import APIBaseTest, _create_event, _create_person
@@ -201,6 +202,7 @@ class TestStickinessQueryRunner(APIBaseTest):
         filters: Optional[StickinessFilter] = None,
         filter_test_accounts: Optional[bool] = False,
         limit_context: Optional[LimitContext] = None,
+        compare_filters: Optional[CompareFilter] = None,
     ):
         query_series: list[EventsNode | ActionsNode] = [EventsNode(event="$pageview")] if series is None else series
         query_date_from = date_from or self.default_date_from
@@ -213,6 +215,7 @@ class TestStickinessQueryRunner(APIBaseTest):
             interval=query_interval,
             properties=properties,
             stickinessFilter=filters,
+            compareFilter=compare_filters,
             filterTestAccounts=filter_test_accounts,
         )
         return StickinessQueryRunner(team=self.team, query=query, limit_context=limit_context).calculate()
@@ -509,13 +512,31 @@ class TestStickinessQueryRunner(APIBaseTest):
     def test_compare(self):
         self._create_test_events()
 
-        response = self._run_query(filters=StickinessFilter(compare=True))
+        response = self._run_query(filters=StickinessFilter(), compare_filters=CompareFilter(compare=True))
 
         assert response.results[0]["count"] == 2
         assert response.results[0]["compare_label"] == "current"
 
         assert response.results[1]["count"] == 0
         assert response.results[1]["compare_label"] == "previous"
+
+    def test_compare_to(self):
+        self._create_test_events()
+
+        response = self._run_query(
+            date_from="2020-01-12",
+            date_to="2020-01-20",
+            filters=StickinessFilter(),
+            compare_filters=CompareFilter(compare=True, compare_to="-1d"),
+        )
+
+        assert response.results[0]["count"] == 2
+        assert response.results[0]["compare_label"] == "current"
+        assert response.results[0]["data"] == [0, 0, 0, 1, 0, 0, 0, 1, 0]
+
+        assert response.results[1]["count"] == 2
+        assert response.results[1]["compare_label"] == "previous"
+        assert response.results[1]["data"] == [0, 0, 0, 0, 1, 0, 0, 0, 1]
 
     def test_filter_test_accounts(self):
         self._create_test_events()
