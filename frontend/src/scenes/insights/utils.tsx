@@ -212,7 +212,11 @@ export function formatBreakdownLabel(
     cohorts: CohortType[] | undefined,
     formatPropertyValueForDisplay: FormatPropertyValueForDisplayFunction | undefined
 ): string {
-    if (breakdownFilter?.breakdown_histogram_bin_count != null && typeof breakdown_value === 'string') {
+    if (
+        breakdownFilter?.breakdown_histogram_bin_count != null &&
+        typeof breakdown_value === 'string' &&
+        breakdown_value.length > 0
+    ) {
         // replace nan with null
         const bucketValues = breakdown_value.replace(/\bnan\b/g, 'null')
         const [bucketStart, bucketEnd] = JSON.parse(bucketValues)

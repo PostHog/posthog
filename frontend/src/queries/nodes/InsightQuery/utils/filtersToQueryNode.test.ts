@@ -370,6 +370,7 @@ describe('filtersToQueryNode', () => {
                 show_legend: true,
                 hidden_legend_keys: { 0: true, 10: true },
                 compare: true,
+                compare_to: '-4d',
                 aggregation_axis_format: 'numeric',
                 aggregation_axis_prefix: '£',
                 aggregation_axis_postfix: '%',
@@ -389,7 +390,6 @@ describe('filtersToQueryNode', () => {
                     smoothingIntervals: 1,
                     showLegend: true,
                     hidden_legend_indexes: [0, 10],
-                    compare: true,
                     aggregationAxisFormat: 'numeric',
                     aggregationAxisPrefix: '£',
                     aggregationAxisPostfix: '%',
@@ -400,6 +400,10 @@ describe('filtersToQueryNode', () => {
                 },
                 breakdownFilter: {
                     breakdown_histogram_bin_count: 1,
+                },
+                compareFilter: {
+                    compare: true,
+                    compare_to: '-4d',
                 },
                 series: [],
             }
@@ -609,6 +613,7 @@ describe('filtersToQueryNode', () => {
             const filters: Partial<StickinessFilterType> = {
                 insight: InsightType.STICKINESS,
                 compare: true,
+                compare_to: '-4d',
                 show_legend: true,
                 hidden_legend_keys: { 0: true, 10: true },
                 shown_as: ShownAsValue.STICKINESS,
@@ -620,10 +625,13 @@ describe('filtersToQueryNode', () => {
             const query: StickinessQuery = {
                 kind: NodeKind.StickinessQuery,
                 stickinessFilter: {
-                    compare: true,
                     showLegend: true,
                     hidden_legend_indexes: [0, 10],
                     display: ChartDisplayType.ActionsLineGraph,
+                },
+                compareFilter: {
+                    compare: true,
+                    compare_to: '-4d',
                 },
                 series: [],
             }
@@ -967,8 +975,10 @@ describe('filtersToQueryNode', () => {
                 },
                 filterTestAccounts: true,
                 trendsFilter: {
-                    compare: true,
                     display: ChartDisplayType.BoldNumber,
+                },
+                compareFilter: {
+                    compare: true,
                 },
             }
             expect(result).toEqual(query)
