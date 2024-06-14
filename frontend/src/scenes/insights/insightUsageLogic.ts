@@ -1,0 +1,64 @@
+import { actions, connect, kea, key, listeners, path, props } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+
+import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { Node } from '~/queries/schema'
+import { InsightLogicProps } from '~/types'
+
+import { insightLogic } from './insightLogic'
+import { insightSceneLogic } from './insightSceneLogic'
+import type { insightUsageLogicType } from './insightUsageLogicType'
+import { keyForInsightLogicProps } from './sharedUtils'
+
+const IS_TEST_MODE = process.env.NODE_ENV === 'test'
+
+export const insightUsageLogic = kea<insightUsageLogicType>([
+    props({} as InsightLogicProps),
+    key(keyForInsightLogicProps('new')),
+    path((key) => ['scenes', 'insights', 'insightUsageLogic', key]),
+    connect((props: InsightLogicProps) => ({
+        values: [
+            insightLogic(props),
+            ['queryBasedInsight'],
+            dataNodeLogic({ key: insightVizDataNodeKey(props) } as DataNodeLogicProps),
+            ['query'],
+        ],
+        actions: [eventUsageLogic, ['reportInsightViewed']],
+    })),
+    actions({
+        onQueryChange: (query: Node | null, previousQuery?: Node | null) => ({
+            query,
+            previousQuery,
+        }),
+    }),
+    listeners(({ actions, values }) => ({
+        onQueryChange: async ({ query, previousQuery }, breakpoint) => {
+            // debounce to avoid noisy events from the query changing multiple times
+            await breakpoint(IS_TEST_MODE ? 1 : 500)
+
+            // we only want to report direct views on the insights page
+            if (
+                !insightSceneLogic.isMounted() ||
+                insightSceneLogic.values.activeScene !== 'Insight' ||
+                insightSceneLogic.values.insight?.short_id !== values.queryBasedInsight?.short_id
+            ) {
+                return
+            }
+
+            actions.reportInsightViewed(values.queryBasedInsight, query, true, 0)
+            //     actions.setNotFirstLoad()
+
+            // record a second view after 10 seconds
+            await breakpoint(IS_TEST_MODE ? 1 : 10000)
+
+            actions.reportInsightViewed(values.queryBasedInsight, query, true, 10)
+        },
+    })),
+    subscriptions(({ actions }) => ({
+        query: (query, oldQuery) => {
+            actions.onQueryChange(query, oldQuery)
+        },
+    })),
+])

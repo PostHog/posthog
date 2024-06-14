@@ -21,6 +21,7 @@ import { ExportContext, FilterType, InsightLogicProps, InsightType } from '~/typ
 import type { insightDataLogicType } from './insightDataLogicType'
 import { insightDataTimingLogic } from './insightDataTimingLogic'
 import { insightLogic } from './insightLogic'
+import { insightUsageLogic } from './insightUsageLogic'
 import { cleanFilters, setTestAccountFilterForNewInsight } from './utils/cleanFilters'
 import { compareFilters } from './utils/compareFilters'
 
@@ -74,7 +75,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             dataNodeLogic({ key: insightVizDataNodeKey(props) } as DataNodeLogicProps),
             ['loadData', 'loadDataSuccess', 'loadDataFailure', 'setResponse as setInsightData'],
         ],
-        logic: [insightDataTimingLogic(props)],
+        logic: [insightDataTimingLogic(props), insightUsageLogic(props)],
     })),
 
     actions({
