@@ -1851,7 +1851,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             IntervalType.DAY,
             [EventsNode(event="$pageview")],
             None,
-            None,
+            BreakdownFilter(breakdown_type=None, breakdown=None),
         )
         response = runner.to_actors_query_options()
 
