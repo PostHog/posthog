@@ -146,24 +146,22 @@ export class HogExecutor {
             globals: invocation.globals,
         }
 
-        const errorRes: HogFunctionInvocationResult = {
+        const errorRes = (error = 'Something went wrong'): HogFunctionInvocationResult => ({
             ...baseInvocation,
             hogFunctionId: invocation.hogFunctionId,
             teamId: invocation.teamId,
             success: false,
-            error: 'Something went wrong',
+            error,
+            // TODO: Probably useful to save a log as well?
             logs: [],
-        }
+        })
 
         if (!hogFunction) {
-            errorRes.error = `Hog Function with ID ${invocation.hogFunctionId} not found`
-            return errorRes
+            return errorRes(`Hog Function with ID ${invocation.hogFunctionId} not found`)
         }
 
         if (!invocation.vmState || invocation.error) {
-            // TODO: Maybe add a log as well?
-            errorRes.error = invocation.error ?? new Error('No VM state provided for async response')
-            return errorRes
+            return errorRes(invocation.error ?? 'No VM state provided for async response')
         }
         invocation.vmState.stack.push(convertJSToHog(invocation.vmResponse ?? null))
 
