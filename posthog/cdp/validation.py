@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Optional, Set
+from typing import Any, Optional
 from rest_framework import serializers
 
 from posthog.hogql.bytecode import create_bytecode

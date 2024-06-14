@@ -16,10 +16,10 @@ class BaseHogFunctionTemplateTest(BaseTest):
         super().setUp()
         self.compiled_hog = compile_hog(self.template.hog, supported_functions={"fetch", "print", "replace"})
 
-        self.mock_print = MagicMock(side_effect=lambda *args: print("[DEBUG HogFunctionPrint]", *args))
+        self.mock_print = MagicMock(side_effect=lambda *args: print("[DEBUG HogFunctionPrint]", *args))  # noqa: T201
         # Side effect - log the fetch call and return  with sensible output
         self.mock_fetch = MagicMock(
-            side_effect=lambda *args: print("[DEBUG HogFunctionFetch]", *args) or self.mock_fetch_response(*args)
+            side_effect=lambda *args: print("[DEBUG HogFunctionFetch]", *args) or self.mock_fetch_response(*args)  # noqa: T201
         )
 
     mock_fetch_response = lambda *args: {"status": 200, "body": {}}

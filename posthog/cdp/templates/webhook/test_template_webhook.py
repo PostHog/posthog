@@ -1,5 +1,3 @@
-import json
-from unittest.mock import call
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.webhook.template_webhook import template as template_webhook
 
@@ -13,13 +11,13 @@ class TestTemplateWebhook(BaseHogFunctionTemplateTest):
                 "url": "https://posthog.com",
                 "method": "GET",
                 "headers": {},
-                "body": json.dumps({"hello": "world"}),
+                "body": {"hello": "world"},
             }
         )
 
         assert res.result is None
 
-        assert self.mock_fetch.mock_calls[0] == call(
+        assert self.get_mock_fetch_calls()[0] == (
             "https://posthog.com",
             {
                 "headers": {},

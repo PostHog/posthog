@@ -11,7 +11,10 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     hog="""
 fetch(inputs.url, {
   'body': inputs.body,
-  'method': 'POST'
+  'method': 'POST',
+  'headers': {
+    'Content-Type': 'application/json'
+  }
 });
 """.strip(),
     inputs_schema=[

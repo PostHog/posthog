@@ -1,4 +1,3 @@
-from unittest.mock import call
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.customerio.template_customerio import template as template_customerio
 

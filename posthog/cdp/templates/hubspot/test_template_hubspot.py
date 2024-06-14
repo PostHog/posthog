@@ -1,5 +1,3 @@
-from unittest.mock import call
-
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.hubspot.template_hubspot import template as template_hubspot
 
@@ -44,7 +42,6 @@ class TestTemplateHubspot(BaseHogFunctionTemplateTest):
 
             assert res.result is None
             assert self.get_mock_fetch_calls() == []
-            print(self.get_mock_print_calls())
             assert self.get_mock_print_calls() == [("`email` input is empty. Not creating a contact.",)]
 
     def test_handles_updates(self):
