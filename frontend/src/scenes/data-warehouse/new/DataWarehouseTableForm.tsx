@@ -83,6 +83,7 @@ export function DatawarehouseTableForm(): JSX.Element {
                         options={[
                             { label: 'Parquet (recommended)', value: 'Parquet' },
                             { label: 'CSV', value: 'CSV' },
+                            { label: 'CSV with headers', value: 'CSVWithNames' },
                             { label: 'JSON', value: 'JSONEachRow' },
                         ]}
                     />
