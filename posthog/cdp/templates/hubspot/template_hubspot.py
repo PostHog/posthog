@@ -12,7 +12,7 @@ let props := inputs.properties
 let email := inputs.email
 
 if (email == null or email == '') {
-    print('ERROR - Email couldn't be found!')
+    print('ERROR - Email not found!')
     return
 }
 
