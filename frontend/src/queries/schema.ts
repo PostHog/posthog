@@ -253,6 +253,7 @@ export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
 export interface HogQueryResponse {
     results: any
     bytecode?: any[]
+    coloredBytecode?: any[]
     stdout?: string
 }
 
@@ -678,8 +679,6 @@ export type TrendsFilterLegacy = Omit<
 export type TrendsFilter = {
     /** @default 1 */
     smoothingIntervals?: integer
-    /** @default false */
-    compare?: TrendsFilterLegacy['compare']
     formula?: TrendsFilterLegacy['formula']
     /** @default ActionsLineGraph */
     display?: TrendsFilterLegacy['display']
@@ -699,6 +698,22 @@ export type TrendsFilter = {
     hidden_legend_indexes?: TrendsFilterLegacy['hidden_legend_indexes']
 }
 
+export const TRENDS_FILTER_PROPERTIES = new Set([
+    'smoothingIntervals',
+    'formula',
+    'display',
+    'showLegend',
+    'breakdown_histogram_bin_count',
+    'aggregationAxisFormat',
+    'aggregationAxisPrefix',
+    'aggregationAxisPostfix',
+    'decimalPlaces',
+    'showValuesOnSeries',
+    'showLabelsOnSeries',
+    'showPercentStackView',
+    'hidden_legend_indexes',
+])
+
 export interface TrendsQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}
 
 export type CachedTrendsQueryResponse = CachedQueryResponse<TrendsQueryResponse>
@@ -717,6 +732,8 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     trendsFilter?: TrendsFilter
     /** Breakdown of the events and actions */
     breakdownFilter?: BreakdownFilter
+    /** Compare to date range */
+    compareFilter?: CompareFilter
 }
 
 /** `FunnelsFilterType` minus everything inherited from `FilterType` and persons modal related params
@@ -896,6 +913,14 @@ export type StickinessFilter = {
     hidden_legend_indexes?: StickinessFilterLegacy['hidden_legend_indexes']
 }
 
+export const STICKINESS_FILTER_PROPERTIES = new Set([
+    'compare',
+    'display',
+    'showLegend',
+    'showValuesOnSeries',
+    'hidden_legend_indexes',
+])
+
 export interface StickinessQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}
 
 export type CachedStickinessQueryResponse = CachedQueryResponse<StickinessQueryResponse>
@@ -912,6 +937,8 @@ export interface StickinessQuery
     series: AnyEntityNode[]
     /** Properties specific to the stickiness insight */
     stickinessFilter?: StickinessFilter
+    /** Compare to date range */
+    compareFilter?: CompareFilter
 }
 
 /** `LifecycleFilterType` minus everything inherited from `FilterType` */
@@ -1534,6 +1561,11 @@ export interface BreakdownFilter {
     breakdown_group_type_index?: integer | null
     breakdown_histogram_bin_count?: integer // trends breakdown histogram bin
     breakdown_hide_other_aggregation?: boolean | null // hides the "other" field for trends
+}
+
+export interface CompareFilter {
+    compare?: boolean
+    compare_to?: string
 }
 
 // TODO: Rename to `DashboardFilters` for consistency with `HogQLFilters`

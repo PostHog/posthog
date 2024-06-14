@@ -155,17 +155,16 @@ async function expectStoryToMatchSnapshot(
         await Promise.all(waitForSelector.map((selector) => page.waitForSelector(selector)))
     }
 
-    await page.waitForTimeout(400) // Wait for effects to finish
-
-    // Wait for all images to load
-    await page.waitForFunction(() =>
-        Array.from(document.querySelectorAll('img')).every((i: HTMLImageElement) => i.complete)
-    )
-
     // snapshot light theme
     await page.evaluate(() => {
         document.body.setAttribute('theme', 'light')
     })
+
+    // Wait for all images to load
+    await page.waitForFunction(() => Array.from(document.images).every((i: HTMLImageElement) => i.complete))
+    await waitForPageReady(page)
+    await page.waitForLoadState('networkidle')
+    await page.waitForTimeout(2000)
 
     await check(page, context, browser, 'light', storyContext.parameters?.testOptions?.snapshotTargetSelector)
 
@@ -173,6 +172,12 @@ async function expectStoryToMatchSnapshot(
     await page.evaluate(() => {
         document.body.setAttribute('theme', 'dark')
     })
+
+    // Wait for all images to load
+    await page.waitForFunction(() => Array.from(document.images).every((i: HTMLImageElement) => i.complete))
+    await waitForPageReady(page)
+    await page.waitForLoadState('networkidle')
+    await page.waitForTimeout(100)
 
     await check(page, context, browser, 'dark', storyContext.parameters?.testOptions?.snapshotTargetSelector)
 }

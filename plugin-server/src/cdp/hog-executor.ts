@@ -246,7 +246,7 @@ export class HogExecutor {
                     log('warn', `Function was not finished but also had no async function to execute.`)
                 }
             } else {
-                log('debug', `Function completed (${hogFunction.id}) (${hogFunction.name})!`)
+                log('debug', `Function completed`)
             }
         } catch (err) {
             error = err
