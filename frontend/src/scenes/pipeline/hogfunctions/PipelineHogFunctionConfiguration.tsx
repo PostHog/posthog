@@ -274,28 +274,27 @@ export function PipelineHogFunctionConfiguration({
 
                                     {showSource ? (
                                         <>
-                                            <div className="flex">
-                                                <LemonButton
-                                                    icon={<IconPlus />}
-                                                    size="small"
-                                                    type="secondary"
-                                                    onClick={() => {
-                                                        setConfigurationValue('inputs_schema', [
-                                                            ...(configuration.inputs_schema ?? []),
-                                                            {
-                                                                type: 'string',
-                                                                key: `input_${
-                                                                    (configuration.inputs_schema?.length ?? 0) + 1
-                                                                }`,
-                                                                label: '',
-                                                                required: false,
-                                                            },
-                                                        ])
-                                                    }}
-                                                >
-                                                    Add input variable
-                                                </LemonButton>
-                                            </div>
+                                            <LemonButton
+                                                icon={<IconPlus />}
+                                                size="small"
+                                                type="secondary"
+                                                className="my-4"
+                                                onClick={() => {
+                                                    setConfigurationValue('inputs_schema', [
+                                                        ...(configuration.inputs_schema ?? []),
+                                                        {
+                                                            type: 'string',
+                                                            key: `input_${
+                                                                (configuration.inputs_schema?.length ?? 0) + 1
+                                                            }`,
+                                                            label: '',
+                                                            required: false,
+                                                        },
+                                                    ])
+                                                }}
+                                            >
+                                                Add input variable
+                                            </LemonButton>
                                             <LemonField name="hog">
                                                 {({ value, onChange }) => (
                                                     <>

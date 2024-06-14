@@ -388,6 +388,12 @@ export function HogFunctionInputWithSchema({ schema }: HogFunctionInputWithSchem
         setConfigurationValue('inputs_schema', inputsSchema)
     }
 
+    useEffect(() => {
+        if (!showSource) {
+            setEditing(false)
+        }
+    }, [showSource])
+
     if (!editing) {
         return (
             <LemonField name={`inputs.${schema.key}`} help={schema.description}>
