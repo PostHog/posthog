@@ -1,3 +1,5 @@
+import './HogFunctionInputs.scss'
+
 import { Monaco } from '@monaco-editor/react'
 import { IconPencil, IconPlus, IconX } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSelect } from '@posthog/lemon-ui'
@@ -5,6 +7,7 @@ import { useValues } from 'kea'
 import { CodeEditor } from 'lib/components/CodeEditors'
 import { languages } from 'monaco-editor'
 import { useEffect, useMemo, useState } from 'react'
+import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 
 import { groupsModel } from '~/models/groupsModel'
 import { HogFunctionInputSchemaType } from '~/types'
@@ -74,10 +77,20 @@ function JsonConfigField(props: {
     onChange?: (value: string) => void
     className: string
     autoFocus: boolean
-    value?: string | object
+    value?: string
 }): JSX.Element {
     const suggestions = useAutocompleteOptions()
     const [monaco, setMonaco] = useState<Monaco>()
+
+    const [height, setHeight] = useState(200)
+    const [manualHeight, setManualHeight] = useState<number>()
+
+    useEffect(() => {
+        const value = typeof props.value !== 'string' ? JSON.stringify(props.value, null, 2) : props.value
+        const lineCount = (value?.split('\n').length ?? 1) + 1
+        const lineHeight = 18
+        setHeight(lineHeight * lineCount)
+    }, [props.value])
 
     useEffect(() => {
         if (!monaco) {
@@ -125,34 +138,64 @@ function JsonConfigField(props: {
     }, [suggestions, monaco])
 
     return (
-        <CodeEditor
-            className="border rounded min-h-60"
-            language="json"
-            value={typeof props.value !== 'string' ? JSON.stringify(props.value, null, 2) : props.value}
-            onChange={(v) => props.onChange?.(v ?? '')}
-            options={{
-                lineNumbers: 'off',
-                minimap: {
-                    enabled: false,
-                },
-                quickSuggestions: {
-                    other: true,
-                    strings: true,
-                },
-                suggest: {
-                    showWords: false,
-                    showFields: false,
-                    showKeywords: false,
-                },
-                scrollbar: {
-                    vertical: 'hidden',
-                    verticalScrollbarSize: 0,
-                },
+        <div
+            className="HogFunctionInputCode relative border rounded min-h-50 max-h-200"
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{
+                height: manualHeight ?? height,
             }}
-            onMount={(_editor, monaco) => {
-                setMonaco(monaco)
-            }}
-        />
+        >
+            <AutoSizer disableWidth>
+                {({ height }) => (
+                    <CodeEditor
+                        language="json"
+                        value={typeof props.value !== 'string' ? JSON.stringify(props.value, null, 2) : props.value}
+                        onChange={(v) => props.onChange?.(v ?? '')}
+                        height={height - 2} // Account for border
+                        options={{
+                            lineNumbers: 'off',
+                            minimap: {
+                                enabled: false,
+                            },
+                            quickSuggestions: {
+                                other: true,
+                                strings: true,
+                            },
+                            suggest: {
+                                showWords: false,
+                                showFields: false,
+                                showKeywords: false,
+                            },
+                            scrollbar: {
+                                vertical: 'hidden',
+                                verticalScrollbarSize: 0,
+                            },
+                        }}
+                        onMount={(_editor, monaco) => {
+                            setMonaco(monaco)
+                        }}
+                    />
+                )}
+            </AutoSizer>
+
+            {/* Using a standard resize css means we need overflow-hidden which hides parts of the editor unnecessarily */}
+            <div
+                className="absolute bottom-0 right-0 z-10 resize-y h-5 w-5 cursor-s-resize overflow-hidden"
+                onMouseDown={(e) => {
+                    const startY = e.clientY
+                    const startHeight = height
+                    const onMouseMove = (event: MouseEvent): void => {
+                        setManualHeight(startHeight + event.clientY - startY)
+                    }
+                    const onMouseUp = (): void => {
+                        window.removeEventListener('mousemove', onMouseMove)
+                        window.removeEventListener('mouseup', onMouseUp)
+                    }
+                    window.addEventListener('mousemove', onMouseMove)
+                    window.addEventListener('mouseup', onMouseUp)
+                }}
+            />
+        </div>
     )
 }
 
