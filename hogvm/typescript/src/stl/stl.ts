@@ -121,6 +121,12 @@ export const STL: Record<string, (args: any[], name: string, timeout: number) =>
     decodeURLComponent(args) {
         return decodeURIComponent(args[0])
     },
+    replaceOne(args) {
+        return args[0].replace(args[1], args[2])
+    },
+    replaceAll(args) {
+        return args[0].replaceAll(args[1], args[2])
+    },
 }
 
 export const ASYNC_STL: Record<string, (args: any[], name: string, timeout: number) => Promise<any>> = {
