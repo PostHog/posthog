@@ -1,7 +1,7 @@
 import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { query } from '~/queries/query'
+import { performQuery } from '~/queries/query'
 import {
     DatabaseSchemaDataWarehouseTable,
     DatabaseSchemaQuery,
@@ -23,7 +23,7 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
             null as Required<DatabaseSchemaQueryResponse> | null,
             {
                 loadDatabase: async (): Promise<Required<DatabaseSchemaQueryResponse> | null> =>
-                    await query({ kind: NodeKind.DatabaseSchemaQuery } as DatabaseSchemaQuery),
+                    await performQuery({ kind: NodeKind.DatabaseSchemaQuery } as DatabaseSchemaQuery),
             },
         ],
     }),

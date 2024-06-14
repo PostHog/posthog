@@ -60,7 +60,6 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 'interval',
                 'insightData',
                 'insightDataError',
-                'isHogQLInsight',
             ],
             groupsModel,
             ['aggregationLabel'],

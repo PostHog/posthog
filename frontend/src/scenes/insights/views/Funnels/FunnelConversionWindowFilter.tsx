@@ -82,8 +82,7 @@ export function FunnelConversionWindowFilter({ insightProps }: Pick<EditorFilter
                     fullWidth={false}
                     min={intervalBounds[0]}
                     max={intervalBounds[1]}
-                    defaultValue={funnelWindowInterval}
-                    value={localConversionWindow.funnelWindowInterval}
+                    value={localConversionWindow.funnelWindowInterval || funnelWindowInterval}
                     onChange={(funnelWindowInterval) => {
                         setLocalConversionWindow((state) => ({
                             ...state,
