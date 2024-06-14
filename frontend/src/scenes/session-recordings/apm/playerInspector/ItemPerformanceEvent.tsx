@@ -189,6 +189,7 @@ export function ItemPerformanceEvent({
                         <NavigationItem item={item} expanded={expanded} navigationURL={shortEventName} />
                     ) : (
                         <div className="flex gap-2 items-start p-2 text-xs cursor-pointer">
+                            <MethodTag item={item} />
                             <PerformanceEventLabel expanded={expanded} name={item.name} />
                             {/* We only show the status if it exists and is an error status */}
                             {otherProps.response_status && otherProps.response_status >= 400 ? (
