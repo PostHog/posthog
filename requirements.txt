@@ -6,7 +6,7 @@ aiobotocore==2.7.0
     # via
     #   aioboto3
     #   s3fs
-aiohttp==3.9.5
+aiohttp==3.9.3
     # via
     #   -r requirements.in
     #   aiobotocore
@@ -35,7 +35,9 @@ asn1crypto==1.5.1
 astunparse==1.6.3
     # via dlt
 async-generator==1.10
-    # via trio-websocket
+    # via
+    #   trio
+    #   trio-websocket
 async-timeout==4.0.2
     # via
     #   aiokafka
@@ -73,14 +75,14 @@ celery==5.3.4
     #   sentry-sdk
 celery-redbeat==2.1.1
     # via -r requirements.in
-certifi==2024.6.2
+certifi==2019.11.28
     # via
     #   httpcore
     #   httpx
     #   requests
-    #   selenium
     #   sentry-sdk
     #   snowflake-connector-python
+    #   urllib3
 cffi==1.14.5
     # via
     #   cryptography
@@ -118,6 +120,7 @@ cryptography==37.0.2
     #   pyopenssl
     #   snowflake-connector-python
     #   social-auth-core
+    #   urllib3
 cssselect==1.1.0
     # via toronado
 cssutils==1.0.2
@@ -287,6 +290,7 @@ idna==2.8
     #   requests
     #   snowflake-connector-python
     #   trio
+    #   urllib3
     #   yarl
 infi-clickhouse-orm @ git+https://github.com/PostHog/infi.clickhouse_orm@9578c79f29635ee2c1d01b7979e89adab8383de2
     # via -r requirements.in
@@ -439,7 +443,9 @@ pyjwt==2.4.0
 pynacl==1.5.0
     # via paramiko
 pyopenssl==22.0.0
-    # via snowflake-connector-python
+    # via
+    #   snowflake-connector-python
+    #   urllib3
 pypng==0.20220715.0
     # via qrcode
 pysocks==1.7.1
@@ -526,7 +532,7 @@ scikit-learn==1.4.0
     # via -r requirements.in
 scipy==1.12.0
     # via scikit-learn
-selenium==4.21.0
+selenium==4.1.5
     # via -r requirements.in
 semantic-version==2.8.5
     # via -r requirements.in
@@ -553,7 +559,7 @@ slack-sdk==3.17.1
     # via -r requirements.in
 smmap==5.0.1
     # via gitdb
-sniffio==1.3.0
+sniffio==1.2.0
     # via
     #   anyio
     #   httpx
@@ -615,7 +621,7 @@ toronado==0.1.0
     # via -r requirements.in
 tqdm==4.64.1
     # via openai
-trio==0.25.1
+trio==0.20.0
     # via
     #   selenium
     #   trio-websocket
@@ -625,7 +631,7 @@ types-protobuf==4.22.0.0
     # via temporalio
 types-setuptools==69.0.0.0
     # via requirements-parser
-typing-extensions==4.12.2
+typing-extensions==4.7.1
     # via
     #   dlt
     #   openai
@@ -633,7 +639,6 @@ typing-extensions==4.12.2
     #   pydantic
     #   pydantic-core
     #   qrcode
-    #   selenium
     #   snowflake-connector-python
     #   stripe
     #   temporalio
@@ -657,6 +662,8 @@ urllib3==1.26.18
     #   requests
     #   selenium
     #   sentry-sdk
+urllib3-secure-extra==0.1.0
+    # via urllib3
 vine==5.0.0
     # via
     #   amqp
