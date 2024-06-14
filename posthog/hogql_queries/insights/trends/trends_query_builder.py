@@ -418,8 +418,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                         parse_expr("(select min(breakdown_value) from min_max) as min_num"),
                         parse_expr("max_num - min_num as diff"),
                         parse_expr(f"{histogram_bin_count} as bins"),
-                        parse_expr(
-                            """
+                        parse_expr("""
                         arrayMap(
                             x -> [
                                ((diff / bins) * x) + min_num,
@@ -427,16 +426,13 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                             ],
                             range(bins)
                         ) as buckets
-                    """
-                        ),
-                        parse_expr(
-                            """arrayFilter(
+                    """),
+                        parse_expr("""arrayFilter(
                             x ->
                                 x[1] <= breakdown_value and breakdown_value < x[2],
                         buckets
                         )[1] as breakdown_value
-                    """
-                        ),
+                    """),
                     ]
                 )
             else:
