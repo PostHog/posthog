@@ -89,7 +89,6 @@ export const insightLogic = kea<insightLogicType>([
         }),
         reportInsightViewedForRecentInsights: () => true,
         setIsLoading: (isLoading: boolean) => ({ isLoading }),
-        setNotFirstLoad: true,
         setInsight: (insight: Partial<InsightModel>, options: SetInsightOptions) => ({
             insight,
             options,
@@ -322,15 +321,6 @@ export const insightLogic = kea<insightLogicType>([
                 loadInsight: () => true,
                 loadInsightSuccess: () => false,
                 loadInsightFailure: () => false,
-            },
-        ],
-        /*
-        isFirstLoad determines if this is the first graph being shown after the component is mounted (used for analytics)
-        */
-        isFirstLoad: [
-            true,
-            {
-                setNotFirstLoad: () => false,
             },
         ],
         insightSaving: [

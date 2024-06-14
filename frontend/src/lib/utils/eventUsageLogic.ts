@@ -5,6 +5,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import type { Dayjs } from 'lib/dayjs'
 import { now } from 'lib/dayjs'
 import { isCoreFilter, PROPERTY_KEYS } from 'lib/taxonomy'
+import { objectClean } from 'lib/utils'
 import posthog from 'posthog-js'
 import { isFilterWithDisplay, isFunnelsFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -12,15 +13,19 @@ import { EventIndex } from 'scenes/session-recordings/player/eventIndex'
 import { SurveyTemplateType } from 'scenes/surveys/constants'
 import { userLogic } from 'scenes/userLogic'
 
-import { getBreakdown, getDisplay, getFormula, getInterval, getSeries } from '~/queries/nodes/InsightViz/utils'
-import { InsightQueryNode, Node } from '~/queries/schema'
+import { Node } from '~/queries/schema'
 import {
+    getBreakdown,
+    getCompareFilter,
+    getDisplay,
+    getFormula,
+    getInterval,
+    getSeries,
     isActionsNode,
     isDataWarehouseNode,
     isEventsNode,
     isFunnelsQuery,
     isInsightQueryNode,
-    isInsightVizNode,
 } from '~/queries/utils'
 import {
     AccessLevel,
@@ -601,43 +606,38 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 // date range and sampling
                 payload.date_from = dateRange?.date_from || undefined
                 payload.date_to = dateRange?.date_to || undefined
-                // payload.interval = getInterval(query)
+                payload.interval = getInterval(query)
                 payload.samplingFactor = samplingFactor || undefined
 
                 // series
-                // payload.series_length = getSeries(query)?.length
-                //     payload.event_entity_count = getSeries(query.source)?.filter((e) => isEventsNode(e)).length
-                //     payload.action_entity_count = getSeries(query.source)?.filter((e) => isActionsNode(e)).length
-                //     payload.data_warehouse_entity_count = getSeries(query.source)?.filter((e) =>
-                //         isDataWarehouseNode(e)
-                //     ).length
+                payload.series_length = getSeries(query)?.length
+                payload.event_entity_count = getSeries(query)?.filter((e) => isEventsNode(e)).length
+                payload.action_entity_count = getSeries(query)?.filter((e) => isActionsNode(e)).length
+                payload.data_warehouse_entity_count = getSeries(query)?.filter((e) => isDataWarehouseNode(e)).length
 
                 // properties
                 payload.has_properties = !!properties
                 payload.filter_test_accounts = filterTestAccounts
 
                 // breakdown
-                //     payload.breakdown_type = getBreakdown(query.source)?.breakdown_type || undefined
-                //     payload.breakdown_limit = getBreakdown(query.source)?.breakdown_limit || undefined
-                //     payload.breakdown_hide_other_aggregation =
-                //         getBreakdown(query.source)?.breakdown_hide_other_aggregation || undefined
+                payload.breakdown_type = getBreakdown(query)?.breakdown_type || undefined
+                payload.breakdown_limit = getBreakdown(query)?.breakdown_limit || undefined
+                payload.breakdown_hide_other_aggregation =
+                    getBreakdown(query)?.breakdown_hide_other_aggregation || undefined
 
                 // trends like
-                //     payload.has_formula = !!getFormula(query.source)
-                //     payload.display = getDisplay(query.source)
-                //     payload.compare = getCompare(query.source)
+                payload.has_formula = !!getFormula(query)
+                payload.display = getDisplay(query)
+                payload.compare = getCompareFilter(query)?.compare
+                payload.compare_to = getCompareFilter(query)?.compare_to
 
                 // funnels
-                //     payload.funnel_viz_type = isFunnelsQuery(query.source)
-                //         ? query.source.funnelsFilter?.funnelVizType
-                //         : undefined
-                //     payload.funnel_order_type = isFunnelsQuery(query.source)
-                //         ? query.source.funnelsFilter?.funnelOrderType
-                //         : undefined
+                payload.funnel_viz_type = isFunnelsQuery(query) ? query.funnelsFilter?.funnelVizType : undefined
+                payload.funnel_order_type = isFunnelsQuery(query) ? query.funnelsFilter?.funnelOrderType : undefined
             }
             const eventName = delay ? 'insight analyzed' : 'insight viewed'
             // // posthog.capture(eventName, payload)
-            console.debug('capture', eventName, payload)
+            console.debug('capture', eventName, objectClean(payload))
         },
         reportPersonsModalViewed: async ({ params }) => {
             posthog.capture('insight person modal viewed', params)
