@@ -1,32 +1,46 @@
-import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { UniversalFiltersGroup } from 'lib/components/UniversalFilters/UniversalFilters'
 
-import { HogQLQuery, NodeKind } from '~/queries/schema'
+import { DateRange, ErrorTrackingOrder, HogQLQuery, NodeKind, QuerySchema } from '~/queries/schema'
 import { hogql } from '~/queries/utils'
-import { ErrorTrackingFilters, ErrorTrackingGroup, FilterLogicalOperator } from '~/types'
+import { ErrorTrackingGroup, FilterLogicalOperator } from '~/types'
 
 import type { errorTrackingSceneLogicType } from './errorTrackingSceneLogicType'
-
-const DEFAULT_ERROR_TRACKING_FILTERS: ErrorTrackingFilters = {
-    date_from: '-7d',
-    date_to: null,
-    filter_test_accounts: false,
-    filter_group: { type: FilterLogicalOperator.And, values: [] },
-    order: 'last_seen',
-}
 
 export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
     path(['scenes', 'error-tracking', 'errorTrackingSceneLogic']),
 
     actions({
-        setFilters: (filters: ErrorTrackingFilters) => ({ filters }),
+        setDateRange: (dateRange: DateRange) => ({ dateRange }),
+        setOrder: (order: ErrorTrackingOrder) => ({ order }),
+        setFilterGroup: (filterGroup: UniversalFiltersGroup) => ({ filterGroup }),
+        setFilterTestAccounts: (filterTestAccounts: boolean) => ({ filterTestAccounts }),
     }),
     reducers({
-        filters: [
-            DEFAULT_ERROR_TRACKING_FILTERS,
+        dateRange: [
+            { date_from: '-7d', date_to: null } as DateRange,
             {
-                setFilters: (_, { filters }) => filters,
+                setDateRange: (_, { dateRange }) => dateRange,
+            },
+        ],
+        order: [
+            'last_seen' as ErrorTrackingOrder,
+            {
+                setOrder: (_, { order }) => order,
+            },
+        ],
+        filterGroup: [
+            { type: FilterLogicalOperator.And, values: [] } as UniversalFiltersGroup,
+            {
+                setFilterGroup: (_, { filterGroup }) => filterGroup,
+            },
+        ],
+        filterTestAccounts: [
+            false as boolean,
+            {
+                setFilterTestAccounts: (_, { filterTestAccounts }) => filterTestAccounts,
             },
         ],
     }),
@@ -63,8 +77,23 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
         ],
     })),
 
+    selectors(() => ({
+        query: [
+            (s) => [s.dateRange, s.order, s.filterGroup, s.filterTestAccounts],
+            (dateRange, order, filterGroup, filterTestAccounts): QuerySchema => {
+                return {
+                    kind: NodeKind.ErrorTrackingGroupsQuery,
+                    dateRange: dateRange,
+                    order: order,
+                    filter_group: filterGroup,
+                    filter_test_accounts: filterTestAccounts,
+                }
+            },
+        ],
+    })),
+
     listeners(({ actions }) => ({
-        setFilters: () => actions.loadErrorGroups(),
+        setQuery: () => actions.loadErrorGroups(),
     })),
 
     afterMount(({ actions }) => {

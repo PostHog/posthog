@@ -1,3 +1,5 @@
+import { UniversalFiltersGroup } from 'lib/components/UniversalFilters/UniversalFilters'
+
 import {
     AnyPersonScopeFilter,
     AnyPropertyFilter,
@@ -84,6 +86,9 @@ export enum NodeKind {
     WebTopClicksQuery = 'WebTopClicksQuery',
     WebStatsTableQuery = 'WebStatsTableQuery',
 
+    // Error tracking queries
+    ErrorTrackingGroupsQuery = 'ErrorTrackingGroupsQuery',
+
     // Time to see data
     TimeToSeeDataSessionsQuery = 'TimeToSeeDataSessionsQuery',
     TimeToSeeDataQuery = 'TimeToSeeDataQuery',
@@ -134,6 +139,7 @@ export type QuerySchema =
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebTopClicksQuery
+    | ErrorTrackingGroupsQuery
 
     // Interface nodes
     | DataVisualizationNode
@@ -1188,6 +1194,27 @@ export interface WebTopClicksQueryResponse extends AnalyticsQueryResponseBase<un
 }
 
 export type CachedWebTopClicksQueryResponse = CachedQueryResponse<WebTopClicksQueryResponse>
+
+export type ErrorTrackingOrder = 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
+
+export interface ErrorTrackingGroupsQuery extends DataNode {
+    kind: NodeKind.ErrorTrackingGroupsQuery
+    dateRange: DateRange
+    order: ErrorTrackingOrder
+    filter_group: UniversalFiltersGroup
+    filter_test_accounts: boolean
+}
+
+export type ErrorTrackingGroup = {
+    id: string
+    title: string
+    description: string
+    occurrences: number
+    uniqueSessions: number
+    uniqueUsers: number
+}
+
+export interface ErrorTrackingGroupsQueryResponse extends AnalyticsQueryResponseBase<ErrorTrackingGroup[]> {}
 
 export enum WebStatsBreakdown {
     Page = 'Page',

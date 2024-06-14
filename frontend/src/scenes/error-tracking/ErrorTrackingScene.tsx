@@ -1,15 +1,14 @@
-import { LemonSelect, LemonTable } from '@posthog/lemon-ui'
+import { LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
+import { Query } from '~/queries/Query/Query'
 import { AnyPropertyFilter } from '~/types'
 
 import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
@@ -20,86 +19,44 @@ export const scene: SceneExport = {
 }
 
 export function ErrorTrackingScene(): JSX.Element {
-    const { errorGroups, errorGroupsLoading } = useValues(errorTrackingSceneLogic)
+    const { query } = useValues(errorTrackingSceneLogic)
 
     return (
         <div className="space-y-4">
             <Filters />
-            <LemonTable
-                columns={[
-                    {
-                        dataIndex: 'title',
-                        width: '50%',
-                        render: (_, group) => (
-                            <LemonTableLink
-                                title={group.title}
-                                description={<div className="line-clamp-1">{group.description}</div>}
-                                to={urls.errorTrackingGroup(group.id)}
-                            />
-                        ),
-                    },
-                    {
-                        title: 'Occurrences',
-                        dataIndex: 'occurrences',
-                        sorter: (a, b) => a.occurrences - b.occurrences,
-                    },
-                    {
-                        title: 'Sessions',
-                        dataIndex: 'uniqueSessions',
-                        sorter: (a, b) => a.uniqueSessions - b.uniqueSessions,
-                    },
-                    {
-                        title: 'Users',
-                        dataIndex: 'uniqueUsers',
-                        sorter: (a, b) => a.uniqueUsers - b.uniqueUsers,
-                    },
-                ]}
-                loading={errorGroupsLoading}
-                dataSource={errorGroups}
-            />
+            <Query query={query} />
         </div>
     )
 }
 
 const Filters = (): JSX.Element => {
-    const { filters } = useValues(errorTrackingSceneLogic)
-    const { setFilters } = useActions(errorTrackingSceneLogic)
+    const { dateRange, order, filterGroup, filterTestAccounts } = useValues(errorTrackingSceneLogic)
+    const { setDateRange, setOrder, setFilterGroup, setFilterTestAccounts } = useActions(errorTrackingSceneLogic)
 
     return (
         <UniversalFilters
             rootKey="session-recordings"
-            group={filters.filter_group}
+            group={filterGroup}
             taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]}
             onChange={(filterGroup) => {
-                setFilters({
-                    ...filters,
-                    filter_group: filterGroup,
-                })
+                setFilterGroup(filterGroup)
             }}
         >
             <div className="divide-y bg-bg-light rounded border">
                 <div className="flex justify-between px-2 py-1.5">
                     <div className="flex space-x-1">
                         <DateFilter
-                            dateFrom={filters.date_from}
-                            dateTo={filters.date_to}
+                            dateFrom={dateRange.date_from}
+                            dateTo={dateRange.date_to}
                             onChange={(changedDateFrom, changedDateTo) => {
-                                setFilters({
-                                    ...filters,
-                                    date_from: changedDateFrom,
-                                    date_to: changedDateTo,
-                                })
+                                setDateRange({ date_from: changedDateFrom, date_to: changedDateTo })
                             }}
                             size="small"
                         />
                         <LemonSelect
-                            onSelect={(newValue) => {
-                                setFilters({ ...filters, order: newValue })
-                            }}
-                            onChange={(value) => {
-                                setFilters({ ...filters, order: value })
-                            }}
-                            value={filters.order}
+                            onSelect={setOrder}
+                            onChange={setOrder}
+                            value={order}
                             options={[
                                 {
                                     value: 'last_seen',
@@ -126,25 +83,17 @@ const Filters = (): JSX.Element => {
                         />
                         <div>
                             <TestAccountFilter
-                                filters={filters}
-                                onChange={(testFilters) => {
-                                    setFilters({
-                                        ...filters,
-                                        filter_test_accounts: testFilters.filter_test_accounts || false,
-                                    })
+                                filters={{ filter_test_accounts: filterTestAccounts }}
+                                onChange={({ filter_test_accounts }) => {
+                                    setFilterTestAccounts(filter_test_accounts || false)
                                 }}
                                 size="small"
                             />
                         </div>
                     </div>
                     <AndOrFilterSelect
-                        onChange={(type) => {
-                            setFilters({
-                                ...filters,
-                                filter_group: { type: type, values: filters.filter_group.values },
-                            })
-                        }}
-                        value={filters.filter_group.type}
+                        onChange={(type) => setFilterGroup({ ...filterGroup, type: type })}
+                        value={filterGroup.type}
                         topLevelFilter={true}
                         suffix={['filter', 'filters']}
                     />

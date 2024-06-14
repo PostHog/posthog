@@ -995,14 +995,6 @@ export interface SessionRecordingsResponse {
     has_next: boolean
 }
 
-export type ErrorTrackingFilters = {
-    date_from: string | null
-    date_to: string | null
-    filter_test_accounts: boolean
-    order: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
-    filter_group: UniversalFiltersGroup
-}
-
 export type ErrorCluster = {
     cluster: number
     sample: string
@@ -1013,15 +1005,6 @@ export type ErrorCluster = {
     viewed: number
 }
 export type ErrorClusterResponse = ErrorCluster[] | null
-
-export type ErrorTrackingGroup = {
-    id: string
-    title: string
-    description: string
-    occurrences: number
-    uniqueSessions: number
-    uniqueUsers: number
-}
 
 export type EntityType = 'actions' | 'events' | 'data_warehouse' | 'new_entity'
 

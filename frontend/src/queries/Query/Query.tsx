@@ -2,6 +2,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
 import { useEffect, useState } from 'react'
 import { HogDebug } from 'scenes/debug/HogDebug'
+import { ErrorTrackingGroups } from 'scenes/error-tracking/ErrorTrackingGroups'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { DataNode } from '~/queries/nodes/DataNode/DataNode'
@@ -18,6 +19,7 @@ import { TimeToSeeData } from '../nodes/TimeToSeeData/TimeToSeeData'
 import {
     isDataTableNode,
     isDataVisualizationNode,
+    isErrorTrackingGroupsQuery,
     isHogQuery,
     isInsightVizNode,
     isSavedInsightNode,
@@ -114,6 +116,8 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
         component = <TimeToSeeData query={query} cachedResults={props.cachedResults} />
     } else if (isWebOverviewQuery(query)) {
         component = <WebOverview query={query} cachedResults={props.cachedResults} context={queryContext} />
+    } else if (isErrorTrackingGroupsQuery(query)) {
+        component = <ErrorTrackingGroups query={query} cachedResults={props.cachedResults} />
     } else if (isHogQuery(query)) {
         component = (
             <HogDebug

@@ -10,6 +10,7 @@ import {
     DataVisualizationNode,
     DataWarehouseNode,
     DateRange,
+    ErrorTrackingGroupsQuery,
     EventsNode,
     EventsQuery,
     FunnelsQuery,
@@ -146,6 +147,10 @@ export function isWebStatsTableQuery(node?: Record<string, any> | null): node is
 
 export function isWebTopClicksQuery(node?: Record<string, any> | null): node is WebTopClicksQuery {
     return node?.kind === NodeKind.WebTopClicksQuery
+}
+
+export function isErrorTrackingGroupsQuery(node?: Record<string, any> | null): node is ErrorTrackingGroupsQuery {
+    return node?.kind === NodeKind.ErrorTrackingGroupsQuery
 }
 
 export function containsHogQLQuery(node?: Record<string, any> | null): boolean {
