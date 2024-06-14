@@ -27,8 +27,11 @@ export const insightCommandLogic = kea<insightCommandLogicType>([
                             icon: IconTrending,
                             display: 'Toggle "Compare Previous" on Graph',
                             executor: () => {
-                                const compare = insightVizDataLogic(props).values.compare
-                                insightVizDataLogic(props).actions.updateInsightFilter({ compare: !compare })
+                                const compareFilter = insightVizDataLogic(props).values.compareFilter
+                                insightVizDataLogic(props).actions.updateCompareFilter({
+                                    compare: !compareFilter?.compare,
+                                    compare_to: compareFilter?.compare_to,
+                                })
                             },
                         },
                         ...dateMapping.map(({ key, values }) => ({

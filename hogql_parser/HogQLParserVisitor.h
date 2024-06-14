@@ -37,6 +37,8 @@ public:
 
     virtual std::any visitWhileStmt(HogQLParser::WhileStmtContext *context) = 0;
 
+    virtual std::any visitForStmt(HogQLParser::ForStmtContext *context) = 0;
+
     virtual std::any visitFuncStmt(HogQLParser::FuncStmtContext *context) = 0;
 
     virtual std::any visitVarAssignment(HogQLParser::VarAssignmentContext *context) = 0;
