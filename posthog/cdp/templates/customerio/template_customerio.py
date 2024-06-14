@@ -71,8 +71,17 @@ trackIdentify()
         {
             "key": "host",
             "type": "choice",
-            "choices": ["track.customer.io", "track-eu.customer.io"],
-            "label": "Tracking endpoint",
+            "choices": [
+                {
+                    "label": "US (track.customer.io)",
+                    "value": "track.customer.io",
+                },
+                {
+                    "label": "EU (track-eu.customer.io)",
+                    "value": "track-eu.customer.io",
+                },
+            ],
+            "label": "Customer.io region",
             "description": "Use the EU variant if your Customer.io account is based in the EU region",
             "default": "track.customer.io",
             "secret": False,
