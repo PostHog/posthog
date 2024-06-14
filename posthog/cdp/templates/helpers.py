@@ -11,6 +11,7 @@ class BaseHogFunctionTemplateTest(BaseTest):
     compiled_hog: Any
 
     mock_fetch = MagicMock()
+    mock_print = MagicMock()
 
     def setUp(self):
         super().setUp()
@@ -32,5 +33,6 @@ class BaseHogFunctionTemplateTest(BaseTest):
             globals,
             functions={
                 "fetch": self.mock_fetch,
+                "print": self.mock_print,
             },
         )

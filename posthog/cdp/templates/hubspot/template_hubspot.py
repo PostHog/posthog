@@ -12,7 +12,7 @@ let props := inputs.properties
 let email := inputs.email
 
 if (email == null or email == '') {
-    print('ERROR - Email not found!')
+    print('`email` input is empty. Not creating a contact.')
     return
 }
 
@@ -25,12 +25,17 @@ let fetchPayload := {
   'body': { 'properties': props }
 }
 
-print(props, fetchPayload)
+let res := fetch('https://api.hubapi.com/crm/v3/objects/contacts', fetchPayload)
 
+if (res.status != 200 or res.body.status == 'error') {
+    if (res.status === 409) {
+        print('Contact already exists. Attempting to update instead...')
+        print(res)
+    }
+}
 
-let addContactResponse := fetch('https://api.hubapi.com/crm/v3/objects/contacts', fetchPayload)
+print("Contact created successfully!")
 
-print(addContactResponse)
 """.strip(),
     inputs_schema=[
         {

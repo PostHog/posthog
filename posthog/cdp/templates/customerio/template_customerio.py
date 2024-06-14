@@ -31,7 +31,7 @@ fn trackIdentify() {
         'type': 'person',
         'identifiers': {
             // TODO: Make the id input configurable
-        'id': inputs.identifier'
+            'id': inputs.identifier'
         },
         'action': 'identify',
         'attributes': inputs.properties
