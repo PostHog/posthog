@@ -76,11 +76,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_create_hog_function(self, *args):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
-            data={
-                "name": "Fetch URL",
-                "description": "Test description",
-                "hog": "fetch(inputs.url);",
-            },
+            data={"name": "Fetch URL", "description": "Test description", "hog": "fetch(inputs.url);", "inputs": {}},
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["created_by"]["id"] == self.user.id
@@ -123,6 +119,31 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "hog": template_webhook.hog,
             "filters": None,
         }
+
+    @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
+    def test_deletes_via_update(self, *args):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={"name": "Fetch URL", "description": "Test description", "hog": "fetch(inputs.url);"},
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        list_res = self.client.get(f"/api/projects/{self.team.id}/hog_functions/")
+        assert list_res.status_code == status.HTTP_200_OK, list_res.json()
+        # Assert that it isn't in the list
+        assert (
+            next((item for item in list_res.json()["results"] if item["id"] == response.json()["id"]), None) is not None
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{response.json()['id']}/",
+            data={"deleted": True},
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        list_res = self.client.get(f"/api/projects/{self.team.id}/hog_functions/")
+        assert list_res.status_code == status.HTTP_200_OK, list_res.json()
+        assert next((item for item in list_res.json()["results"] if item["id"] == response.json()["id"]), None) is None
 
     @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
     def test_inputs_required(self, *args):
