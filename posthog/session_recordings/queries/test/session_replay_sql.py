@@ -105,7 +105,7 @@ def produce_replay_summary(
     distinct_id: Optional[str] = None,
     first_timestamp: Optional[str | datetime] = None,
     last_timestamp: Optional[str | datetime] = None,
-    first_url: Optional[str | None] = None,
+    first_url: Optional[str | None] = "https://not-provided-by-test.com",
     click_count: Optional[int] = None,
     keypress_count: Optional[int] = None,
     mouse_activity_count: Optional[int] = None,
