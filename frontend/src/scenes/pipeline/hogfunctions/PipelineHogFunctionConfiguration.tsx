@@ -3,6 +3,7 @@ import {
     LemonButton,
     LemonDropdown,
     LemonInput,
+    LemonLabel,
     LemonSwitch,
     LemonTextArea,
     Link,
@@ -260,18 +261,6 @@ export function PipelineHogFunctionConfiguration({
 
                         <div className="flex-2 min-w-100 space-y-4">
                             <div className="border bg-bg-light rounded p-3 space-y-2">
-                                <div className="flex items-center justify-between">
-                                    <h4 className="m-0">Function configuration</h4>
-
-                                    <LemonButton
-                                        size="small"
-                                        type="secondary"
-                                        onClick={() => setShowSource(!showSource)}
-                                    >
-                                        {showSource ? 'Hide advanced configuration' : 'Advanced Configuration'}
-                                    </LemonButton>
-                                </div>
-
                                 <div className="space-y-2">
                                     {configuration?.inputs_schema?.length ? (
                                         configuration?.inputs_schema.map((schema, index) => {
@@ -307,30 +296,52 @@ export function PipelineHogFunctionConfiguration({
                                                     Add input variable
                                                 </LemonButton>
                                             </div>
-                                            <LemonField name="hog" label="Hog source code">
+                                            <LemonField name="hog">
                                                 {({ value, onChange }) => (
-                                                    <CodeEditorResizeable
-                                                        language="rust"
-                                                        value={value ?? ''}
-                                                        onChange={(v) => onChange(v ?? '')}
-                                                        options={{
-                                                            minimap: {
-                                                                enabled: false,
-                                                            },
-                                                            wordWrap: 'on',
-                                                            scrollBeyondLastLine: false,
-                                                            automaticLayout: true,
-                                                            fixedOverflowWidgets: true,
-                                                            suggest: {
-                                                                showInlineDetails: true,
-                                                            },
-                                                            quickSuggestionsDelay: 300,
-                                                        }}
-                                                    />
+                                                    <>
+                                                        <div className="flex justify-between gap-2">
+                                                            <LemonLabel>Function source code</LemonLabel>
+                                                            <LemonButton
+                                                                size="xsmall"
+                                                                type="secondary"
+                                                                onClick={() => setShowSource(false)}
+                                                            >
+                                                                Hide source code
+                                                            </LemonButton>
+                                                        </div>
+                                                        <CodeEditorResizeable
+                                                            language="rust"
+                                                            value={value ?? ''}
+                                                            onChange={(v) => onChange(v ?? '')}
+                                                            options={{
+                                                                minimap: {
+                                                                    enabled: false,
+                                                                },
+                                                                wordWrap: 'on',
+                                                                scrollBeyondLastLine: false,
+                                                                automaticLayout: true,
+                                                                fixedOverflowWidgets: true,
+                                                                suggest: {
+                                                                    showInlineDetails: true,
+                                                                },
+                                                                quickSuggestionsDelay: 300,
+                                                            }}
+                                                        />
+                                                    </>
                                                 )}
                                             </LemonField>
                                         </>
-                                    ) : null}
+                                    ) : (
+                                        <div className="flex justify-end mt-2">
+                                            <LemonButton
+                                                size="xsmall"
+                                                type="secondary"
+                                                onClick={() => setShowSource(true)}
+                                            >
+                                                Show function source code
+                                            </LemonButton>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                             <div className="flex gap-2 justify-end">{saveButtons}</div>

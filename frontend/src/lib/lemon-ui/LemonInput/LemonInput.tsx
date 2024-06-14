@@ -49,7 +49,6 @@ interface LemonInputPropsBase
     'aria-label'?: string
     /** Whether to stop propagation of events from the input */
     stopPropagation?: boolean
-    inputClassName?: string
 }
 
 export interface LemonInputPropsText extends LemonInputPropsBase {
@@ -87,7 +86,6 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
         transparentBackground = false,
         size = 'medium',
         stopPropagation = false,
-        inputClassName,
         ...props
     },
     ref
@@ -161,7 +159,7 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
         >
             {prefix}
             <input
-                className={clsx('LemonInput__input', inputClassName)}
+                className="LemonInput__input"
                 ref={inputRef}
                 type={(type === 'password' && passwordVisible ? 'text' : type) || 'text'}
                 value={value}
