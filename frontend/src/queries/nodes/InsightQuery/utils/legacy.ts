@@ -14,6 +14,8 @@ export const isLegacyTrendsFilter = (filters: Record<string, any> | undefined): 
         'show_values_on_series',
         'show_percent_stack_view',
         'show_labels_on_series',
+        'compare',
+        'compare_to',
     ]
     return legacyKeys.some((key) => key in filters)
 }
@@ -87,7 +89,7 @@ export const isLegacyStickinessFilter = (filters: Record<string, any> | undefine
         return false
     }
 
-    const legacyKeys = ['show_legend', 'hidden_legend_keys', 'show_values_on_series']
+    const legacyKeys = ['show_legend', 'hidden_legend_keys', 'show_values_on_series', 'compare', 'compare_to']
     return legacyKeys.some((key) => key in filters)
 }
 

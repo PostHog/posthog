@@ -34,6 +34,7 @@
                 "BILLING_SERVICE_URL": "https://billing.dev.posthog.dev",
                 "CLOUD_DEPLOYMENT": "dev"
             },
+            "envFile": "${workspaceFolder}/.env",
             "console": "integratedTerminal",
             "python": "${workspaceFolder}/env/bin/python",
             "cwd": "${workspaceFolder}",

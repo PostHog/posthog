@@ -21,6 +21,7 @@ class TeamAdmin(admin.ModelAdmin):
     list_select_related = ("organization", "project")
     search_fields = (
         "id",
+        "uuid",
         "name",
         "organization__id",
         "organization__name",
@@ -28,7 +29,15 @@ class TeamAdmin(admin.ModelAdmin):
         "project__name",
         "api_token",
     )
-    readonly_fields = ["id", "organization", "primary_dashboard", "test_account_filters", "created_at", "updated_at"]
+    readonly_fields = [
+        "id",
+        "uuid",
+        "organization",
+        "primary_dashboard",
+        "test_account_filters",
+        "created_at",
+        "updated_at",
+    ]
     autocomplete_fields = ["project"]
 
     inlines = [GroupTypeMappingInline, ActionInline]
@@ -36,7 +45,7 @@ class TeamAdmin(admin.ModelAdmin):
         (
             None,
             {
-                "fields": ["name", "organization", "project"],
+                "fields": ["name", "id", "uuid", "organization", "project"],
             },
         ),
         (

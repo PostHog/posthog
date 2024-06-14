@@ -30,10 +30,12 @@ describe('postgres parity', () => {
     let teamId = 10 // Incremented every test. Avoids late ingestion causing issues
 
     beforeAll(async () => {
+        console.log('[TEST] Resetting kafka')
         await resetKafka(extraServerConfig)
     })
 
     beforeEach(async () => {
+        console.log('[TEST] Resetting tests databases')
         await resetTestDatabase(`
             async function processEvent (event) {
                 event.properties.processed = 'hell yes'
@@ -42,10 +44,12 @@ describe('postgres parity', () => {
             }
         `)
         await resetTestDatabaseClickhouse(extraServerConfig)
+        console.log('[TEST] Starting plugins server')
         const startResponse = await startPluginsServer(extraServerConfig, makePiscina)
         hub = startResponse.hub
         stopServer = startResponse.stop
         teamId++
+        console.log('[TEST] Setting up seed data')
         await createUserTeamAndOrganization(
             hub.db.postgres,
             teamId,
@@ -54,9 +58,11 @@ describe('postgres parity', () => {
             new UUIDT().toString(),
             new UUIDT().toString()
         )
+        console.log('[TEST] BeforeEach complete')
     })
 
     afterEach(async () => {
+        console.log('[TEST] Stopping server')
         await stopServer()
     })
 

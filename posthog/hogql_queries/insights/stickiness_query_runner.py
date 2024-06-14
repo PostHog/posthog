@@ -16,6 +16,7 @@ from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 from posthog.models import Team
@@ -242,7 +243,7 @@ class StickinessQueryRunner(QueryRunner):
                 }
 
                 # Modifications for when comparing to previous period
-                if self.query.stickinessFilter is not None and self.query.stickinessFilter.compare:
+                if self.query.compareFilter is not None and self.query.compareFilter.compare:
                     series_object["compare"] = True
                     series_object["compare_label"] = (
                         "previous" if series_with_extra.is_previous_period_series else "current"
@@ -355,7 +356,7 @@ class StickinessQueryRunner(QueryRunner):
             for series in self.query.series
         ]
 
-        if self.query.stickinessFilter is not None and self.query.stickinessFilter.compare:
+        if self.query.compareFilter is not None and self.query.compareFilter.compare:
             updated_series = []
             for series in series_with_extras:
                 updated_series.append(
@@ -377,7 +378,6 @@ class StickinessQueryRunner(QueryRunner):
     def date_range(self, series: SeriesWithExtras):
         if series.is_previous_period_series:
             return self.query_previous_date_range
-
         return self.query_date_range
 
     @cached_property
@@ -391,6 +391,14 @@ class StickinessQueryRunner(QueryRunner):
 
     @cached_property
     def query_previous_date_range(self):
+        if self.query.compareFilter is not None and isinstance(self.query.compareFilter.compare_to, str):
+            return QueryCompareToDateRange(
+                date_range=self.query.dateRange,
+                team=self.team,
+                interval=self.query.interval,
+                now=datetime.now(),
+                compare_to=self.query.compareFilter.compare_to,
+            )
         return QueryPreviousPeriodDateRange(
             date_range=self.query.dateRange,
             team=self.team,

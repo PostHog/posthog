@@ -54,8 +54,9 @@ export type HogFunctionInvocationGlobals = {
     }
     person?: {
         uuid: string
-        properties: Record<string, any>
+        name: string
         url: string
+        properties: Record<string, any>
     }
     groups?: Record<
         string,
@@ -122,12 +123,18 @@ export type HogFunctionInvocationResult = HogFunctionInvocation & {
 }
 
 export type HogFunctionInvocationAsyncRequest = HogFunctionInvocation & {
+    teamId: number
     hogFunctionId: HogFunctionType['id']
-    vmState: VMState
+    vmState?: VMState
+    asyncFunctionName: string // TODO: Type this all more strongly
+    asyncFunctionArgs?: any[]
 }
 
 export type HogFunctionInvocationAsyncResponse = HogFunctionInvocationAsyncRequest & {
-    response: any
+    /** An error message to indicate something went wrong and the invocation should be stopped */
+    error?: any
+    /** The data to be passed to the Hog function from the response */
+    vmResponse?: any
 }
 
 // Mostly copied from frontend types
