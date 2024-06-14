@@ -111,7 +111,7 @@ def source_string_column(column_name: str) -> str:
     return f"JSONExtractString(properties, '{column_name}')"
 
 
-RAW_SESSION_TABLE_MV_SELECT_SQL = (
+RAW_SESSION_TABLE_BACKFILL_SELECT_SQL = (
     lambda: """
 SELECT
     team_id,
@@ -147,15 +147,87 @@ SELECT
     initializeAggregation('argMinState', {ttclid}, timestamp) as initial_ttclid,
 
     if(event='$pageview', 1, 0) as pageview_count,
-    initializeAggregation('uniqState', if(event='$pageview', uuid, NULL)) as pageview_uniq,
+    initializeAggregation('uniqIfState', uuid, event='$pageview') as pageview_uniq,
     if(event='$autocapture', 1, 0) as autocapture_count,
-    initializeAggregation('uniqState', if(event='$autocapture', uuid, NULL)) as autocapture_uniq,
+    initializeAggregation('uniqIfState', uuid, event='$autocapture') as autocapture_uniq,
     if(event='$screen', 1, 0) as screen_count,
-    initializeAggregation('uniqState', if(event='$screen', uuid, NULL)) as screen_uniq,
+    initializeAggregation('uniqIfState', uuid, event='$screen') as screen_uniq,
 
     false as has_session_replay
 FROM {database}.sharded_events
-WHERE bitAnd(bitShiftRight(accurateCastOrNull(events.`$session_id`, 'UUID'), 76), 0xF) == 7 -- has a session id and is valid uuidv7
+WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7
+""".format(
+        database=settings.CLICKHOUSE_DATABASE,
+        current_url=source_url_column("$current_url"),
+        current_url_string=source_string_column("$current_url"),
+        referring_domain=source_string_column("$referring_domain"),
+        utm_source=source_string_column("utm_source"),
+        utm_campaign=source_string_column("utm_campaign"),
+        utm_medium=source_string_column("utm_medium"),
+        utm_term=source_string_column("utm_term"),
+        utm_content=source_string_column("utm_content"),
+        gclid=source_string_column("gclid"),
+        gad_source=source_string_column("gad_source"),
+        gclsrc=source_string_column("gclsrc"),
+        dclid=source_string_column("dclid"),
+        gbraid=source_string_column("gbraid"),
+        wbraid=source_string_column("wbraid"),
+        fbclid=source_string_column("fbclid"),
+        msclkid=source_string_column("msclkid"),
+        twclid=source_string_column("twclid"),
+        la_fat_id=source_string_column("la_fat_id"),
+        mc_cid=source_string_column("mc_cid"),
+        igshid=source_string_column("igshid"),
+        ttclid=source_string_column("ttclid"),
+    )
+)
+
+
+RAW_SESSION_TABLE_MV_SELECT_SQL = (
+    lambda: """
+SELECT
+    team_id,
+    toUInt128(toUUID(`$session_id`)) as session_id_v7,
+
+    argMaxState(distinct_id, timestamp) as distinct_id,
+
+    min(timestamp) AS min_timestamp,
+    max(timestamp) AS max_timestamp,
+
+    groupUniqArray({current_url}) AS urls,
+    argMinState({current_url_string}, timestamp) as entry_url,
+    argMaxState({current_url_string}, timestamp) as exit_url,
+
+    argMinState({referring_domain}, timestamp) as initial_referring_domain,
+    argMinState({utm_source}, timestamp) as initial_utm_source,
+    argMinState({utm_campaign}, timestamp) as initial_utm_campaign,
+    argMinState({utm_medium}, timestamp) as initial_utm_medium,
+    argMinState({utm_term}, timestamp) as initial_utm_term,
+    argMinState({utm_content}, timestamp) as initial_utm_content,
+    argMinState({gclid}, timestamp) as initial_gclid,
+    argMinState({gad_source}, timestamp) as initial_gad_source,
+    argMinState({gclsrc}, timestamp) as initial_gclsrc,
+    argMinState({dclid}, timestamp) as initial_dclid,
+    argMinState({gbraid}, timestamp) as initial_gbraid,
+    argMinState({wbraid}, timestamp) as initial_wbraid,
+    argMinState({fbclid}, timestamp) as initial_fbclid,
+    argMinState({msclkid}, timestamp) as initial_msclkid,
+    argMinState({twclid}, timestamp) as initial_twclid,
+    argMinState({la_fat_id}, timestamp) as initial_li_fat_id,
+    argMinState({mc_cid}, timestamp) as initial_mc_cid,
+    argMinState({igshid}, timestamp) as initial_igshid,
+    argMinState({ttclid}, timestamp) as initial_ttclid,
+
+    sumIf(1, event='$pageview') as pageview_count,
+    uniqState(if(event='$pageview', uuid, NULL)) as pageview_uniq,
+    sumIf(1, event='$autocapture') as autocapture_count,
+    uniqState(if(event='$autocapture', uuid, NULL)) as autocapture_uniq,
+    sumIf(1, event='$screen') as screen_count,
+    uniqState(if(event='$screen', uuid, NULL)) as screen_uniq,
+
+    false as has_session_replay
+FROM {database}.sharded_events
+WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7
 GROUP BY `$session_id`, team_id
 """.format(
         database=settings.CLICKHOUSE_DATABASE,
