@@ -248,7 +248,7 @@ class BytecodeBuilder(Visitor):
 
         response = []
         response.extend(expr)
-        response.extend([Operation.JUMP_IF_FALSE, len(then) + 2])  # + else's OP_JUMP + count
+        response.extend([Operation.JUMP_IF_FALSE, len(then) + (2 if else_ else 0)])
         response.extend(then)
         if else_:
             response.extend([Operation.JUMP, len(else_)])
