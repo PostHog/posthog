@@ -6,7 +6,6 @@ import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { compare as compareFn } from 'natural-orderby'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
@@ -55,7 +54,7 @@ export function InsightsTable({
         insightDataLoading,
         indexedResults,
         isNonTimeSeriesDisplay,
-        compare,
+        compareFilter,
         isTrends,
         display,
         interval,
@@ -104,7 +103,7 @@ export function InsightsTable({
                     item={item}
                     indexedResults={indexedResults}
                     canEditSeriesNameInline={canEditSeriesNameInline}
-                    compare={compare}
+                    compare={!!compareFilter?.compare}
                     handleEditClick={handleSeriesEditClick}
                     hasMultipleSeries={!isSingleSeries}
                 />
@@ -131,14 +130,7 @@ export function InsightsTable({
 
     if (breakdownFilter?.breakdown) {
         const formatItemBreakdownLabel = (item: IndexedTrendResult): string =>
-            formatBreakdownLabel(
-                cohorts,
-                formatPropertyValueForDisplay,
-                item.breakdown_value,
-                item.filter?.breakdown,
-                item.filter?.breakdown_type,
-                item.filter && isTrendsFilter(item.filter) && item.filter?.breakdown_histogram_bin_count !== undefined
-            )
+            formatBreakdownLabel(item.breakdown_value, breakdownFilter, cohorts, formatPropertyValueForDisplay)
 
         columns.push({
             title: <BreakdownColumnTitle breakdownFilter={breakdownFilter} />,
@@ -206,7 +198,7 @@ export function InsightsTable({
                     <ValueColumnTitle
                         index={index}
                         indexedResults={indexedResults}
-                        compare={compare}
+                        compare={!!compareFilter?.compare}
                         interval={interval}
                     />
                 ),
@@ -235,7 +227,7 @@ export function InsightsTable({
             emptyState="No insight results"
             data-attr="insights-table-graph"
             useURLForSorting={insightMode !== ItemMode.Edit}
-            rowRibbonColor={isLegend ? (item) => getSeriesColor(item.seriesIndex, compare || false) : undefined}
+            rowRibbonColor={isLegend ? (item) => getSeriesColor(item.seriesIndex, !!compareFilter?.compare) : undefined}
             firstColumnSticky
             maxHeaderWidth="20rem"
         />

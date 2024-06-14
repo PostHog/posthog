@@ -54,7 +54,7 @@ describe('entityFilterLogic', () => {
                 logic.actions.renameFilter('Custom event name')
             }).toDispatchActions(['renameFilter', 'updateFilter', 'setFilters'])
 
-            expect(logic.props.setFilters).toBeCalledWith(
+            expect(logic.props.setFilters).toHaveBeenCalledWith(
                 expect.objectContaining({
                     events: expect.arrayContaining([
                         expect.objectContaining({

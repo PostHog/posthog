@@ -279,7 +279,7 @@
                     "$ref": "#/definitions/CohortPropertyFilter"
                 },
                 {
-                    "$ref": "#/definitions/RecordingDurationFilter"
+                    "$ref": "#/definitions/RecordingPropertyFilter"
                 },
                 {
                     "$ref": "#/definitions/GroupPropertyFilter"
@@ -489,7 +489,16 @@
             ]
         },
         "BreakdownType": {
-            "enum": ["cohort", "person", "event", "group", "session", "hogql", "data_warehouse"],
+            "enum": [
+                "cohort",
+                "person",
+                "event",
+                "group",
+                "session",
+                "hogql",
+                "data_warehouse",
+                "data_warehouse_person_property"
+            ],
             "type": "string"
         },
         "BreakdownValueInt": {
@@ -500,6 +509,9 @@
             "properties": {
                 "cache_key": {
                     "type": ["string", "null"]
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus"
                 }
             },
             "required": ["cache_key"],
@@ -530,6 +542,7 @@
                     "type": "boolean"
                 },
                 "last_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "limit": {
@@ -543,10 +556,15 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "next_allowed_client_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "offset": {
                     "type": "integer"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
                     "items": {
@@ -612,6 +630,7 @@
                     "type": "boolean"
                 },
                 "last_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "limit": {
@@ -622,10 +641,15 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "next_allowed_client_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "offset": {
                     "type": "integer"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
                     "items": {
@@ -689,6 +713,7 @@
                     "type": "boolean"
                 },
                 "last_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "limit": {
@@ -699,10 +724,15 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "next_allowed_client_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "offset": {
                     "type": "integer"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
                     "$ref": "#/definitions/FunnelCorrelationResult"
@@ -750,6 +780,7 @@
                     "type": "boolean"
                 },
                 "last_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "modifiers": {
@@ -757,7 +788,12 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "next_allowed_client_refresh": {
+                    "format": "date-time",
                     "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
                     "anyOf": [
@@ -833,6 +869,7 @@
                     "type": "boolean"
                 },
                 "last_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "limit": {
@@ -847,6 +884,7 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "next_allowed_client_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "offset": {
@@ -855,6 +893,10 @@
                 "query": {
                     "description": "Input query string",
                     "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
                     "items": {},
@@ -978,10 +1020,16 @@
                     "type": "boolean"
                 },
                 "last_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "next_allowed_client_refresh": {
+                    "format": "date-time",
                     "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "series": {
                     "items": {
@@ -1040,6 +1088,7 @@
                     "type": "boolean"
                 },
                 "last_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "modifiers": {
@@ -1047,7 +1096,12 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "next_allowed_client_refresh": {
+                    "format": "date-time",
                     "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
                     "items": {
@@ -1094,6 +1148,7 @@
                     "type": "boolean"
                 },
                 "last_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "modifiers": {
@@ -1101,7 +1156,12 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "next_allowed_client_refresh": {
+                    "format": "date-time",
                     "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
                     "items": {
@@ -1148,6 +1208,7 @@
                     "type": "boolean"
                 },
                 "last_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "modifiers": {
@@ -1155,7 +1216,12 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "next_allowed_client_refresh": {
+                    "format": "date-time",
                     "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
                     "items": {
@@ -1205,6 +1271,7 @@
                     "type": "boolean"
                 },
                 "last_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "modifiers": {
@@ -1212,7 +1279,12 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "next_allowed_client_refresh": {
+                    "format": "date-time",
                     "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
                     "items": {
@@ -1259,6 +1331,7 @@
                     "type": "boolean"
                 },
                 "last_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "modifiers": {
@@ -1266,7 +1339,12 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "next_allowed_client_refresh": {
+                    "format": "date-time",
                     "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
                     "items": {
@@ -1313,6 +1391,7 @@
                     "type": "boolean"
                 },
                 "last_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "modifiers": {
@@ -1320,7 +1399,12 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "next_allowed_client_refresh": {
+                    "format": "date-time",
                     "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
                     "items": {
@@ -1373,6 +1457,7 @@
                     "type": "boolean"
                 },
                 "last_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "modifiers": {
@@ -1380,7 +1465,12 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "next_allowed_client_refresh": {
+                    "format": "date-time",
                     "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
                     "items": {
@@ -1437,6 +1527,7 @@
                     "type": "boolean"
                 },
                 "last_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "limit": {
@@ -1447,10 +1538,15 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "next_allowed_client_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "offset": {
                     "type": "integer"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
                     "items": {},
@@ -1506,6 +1602,7 @@
                     "type": "boolean"
                 },
                 "last_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "modifiers": {
@@ -1513,7 +1610,12 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "next_allowed_client_refresh": {
+                    "format": "date-time",
                     "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
                     "items": {},
@@ -1613,6 +1715,18 @@
                 }
             },
             "required": ["key", "type", "value"],
+            "type": "object"
+        },
+        "CompareFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "compare": {
+                    "type": "boolean"
+                },
+                "compare_to": {
+                    "type": "string"
+                }
+            },
             "type": "object"
         },
         "CountPerActorMathType": {
@@ -2566,6 +2680,10 @@
         },
         "Day": {
             "type": "integer"
+        },
+        "DurationType": {
+            "enum": ["duration", "active_seconds", "inactive_seconds"],
+            "type": "string"
         },
         "ElementPropertyFilter": {
             "additionalProperties": false,
@@ -3851,6 +3969,33 @@
             "required": ["results"],
             "type": "object"
         },
+        "GenericCachedQueryResponse": {
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "timezone": {
+                    "type": "string"
+                }
+            },
+            "required": ["cache_key", "is_cached", "last_refresh", "next_allowed_client_refresh", "timezone"],
+            "type": "object"
+        },
         "GoalLine": {
             "additionalProperties": false,
             "properties": {
@@ -4145,6 +4290,10 @@
             "additionalProperties": false,
             "description": "HogQL Query Options are automatically set per team. However, they can be overriden in the query.",
             "properties": {
+                "bounceRatePageViewMode": {
+                    "enum": ["count_pageviews", "uniq_urls"],
+                    "type": "string"
+                },
                 "dataWarehouseEventsModifiers": {
                     "items": {
                         "$ref": "#/definitions/DataWarehouseEventsModifier"
@@ -4281,6 +4430,10 @@
             "additionalProperties": false,
             "properties": {
                 "bytecode": {
+                    "items": {},
+                    "type": "array"
+                },
+                "coloredBytecode": {
                     "items": {},
                     "type": "array"
                 },
@@ -5548,6 +5701,7 @@
             "additionalProperties": false,
             "properties": {
                 "async": {
+                    "deprecated": "Use `refresh` instead.",
                     "description": "(Experimental) Whether to run the query asynchronously. Defaults to False. If True, the `id` of the query can be used to check the status and to cancel it.",
                     "examples": [true],
                     "type": "boolean"
@@ -5561,7 +5715,7 @@
                     "description": "Submit a JSON string representing a query for PostHog data analysis, for example a HogQL query.\n\nExample payload:\n\n```\n\n{\"query\": {\"kind\": \"HogQLQuery\", \"query\": \"select * from events limit 100\"}}\n\n```\n\nFor more details on HogQL queries, see the [PostHog HogQL documentation](/docs/hogql#api-access)."
                 },
                 "refresh": {
-                    "type": "boolean"
+                    "$ref": "#/definitions/RefreshType"
                 }
             },
             "required": ["query"],
@@ -5851,6 +6005,10 @@
                     "additionalProperties": false,
                     "properties": {
                         "bytecode": {
+                            "items": {},
+                            "type": "array"
+                        },
+                        "coloredBytecode": {
                             "items": {},
                             "type": "array"
                         },
@@ -6862,6 +7020,16 @@
             "required": ["id", "query_async", "team_id", "error", "complete", "error_message"],
             "type": "object"
         },
+        "QueryStatusResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus"
+                }
+            },
+            "required": ["query_status"],
+            "type": "object"
+        },
         "QueryTiming": {
             "additionalProperties": false,
             "properties": {
@@ -6877,12 +7045,23 @@
             "required": ["k", "t"],
             "type": "object"
         },
-        "RecordingDurationFilter": {
+        "RecordingPropertyFilter": {
             "additionalProperties": false,
             "properties": {
                 "key": {
-                    "const": "duration",
-                    "type": "string"
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/DurationType"
+                        },
+                        {
+                            "const": "console_log_level",
+                            "type": "string"
+                        },
+                        {
+                            "const": "console_log_query",
+                            "type": "string"
+                        }
+                    ]
                 },
                 "label": {
                     "type": "string"
@@ -6895,11 +7074,42 @@
                     "type": "string"
                 },
                 "value": {
-                    "type": "number"
+                    "$ref": "#/definitions/PropertyFilterValue"
                 }
             },
-            "required": ["key", "operator", "type", "value"],
+            "required": ["key", "operator", "type"],
             "type": "object"
+        },
+        "RefreshType": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "const": "async",
+                    "type": "string"
+                },
+                {
+                    "const": "blocking",
+                    "type": "string"
+                },
+                {
+                    "const": "force_async",
+                    "type": "string"
+                },
+                {
+                    "const": "force_blocking",
+                    "type": "string"
+                },
+                {
+                    "const": "force_cache",
+                    "type": "string"
+                },
+                {
+                    "const": "lazy_async",
+                    "type": "string"
+                }
+            ]
         },
         "RetentionEntity": {
             "additionalProperties": false,
@@ -7377,6 +7587,9 @@
                 "compare": {
                     "type": "boolean"
                 },
+                "compare_to": {
+                    "type": "string"
+                },
                 "display": {
                     "$ref": "#/definitions/ChartDisplayType"
                 },
@@ -7398,6 +7611,10 @@
         "StickinessQuery": {
             "additionalProperties": false,
             "properties": {
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter",
+                    "description": "Compare to date range"
+                },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
                     "description": "Date range for the query"
@@ -7539,6 +7756,7 @@
                     "type": "boolean"
                 },
                 "last_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "modifiers": {
@@ -7546,7 +7764,12 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "next_allowed_client_refresh": {
+                    "format": "date-time",
                     "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
                     "items": {},
@@ -7720,10 +7943,6 @@
                 "breakdown_histogram_bin_count": {
                     "type": "number"
                 },
-                "compare": {
-                    "default": false,
-                    "type": "boolean"
-                },
                 "decimalPlaces": {
                     "type": "number"
                 },
@@ -7781,6 +8000,9 @@
                 "compare": {
                     "type": "boolean"
                 },
+                "compare_to": {
+                    "type": "string"
+                },
                 "decimal_places": {
                     "type": "number"
                 },
@@ -7824,6 +8046,10 @@
                 "breakdownFilter": {
                     "$ref": "#/definitions/BreakdownFilter",
                     "description": "Breakdown of the events and actions"
+                },
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter",
+                    "description": "Compare to date range"
                 },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",

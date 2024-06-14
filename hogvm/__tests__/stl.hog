@@ -1,0 +1,16 @@
+print('-- empty, notEmpty, length, lower, upper, reverse --')
+if (empty('') and notEmpty('234')) print(length('123'))
+if (lower('Tdd4gh') == 'tdd4gh') print(upper('test'))
+print(reverse('spinner'))
+
+print(encodeURLComponent('http://www.google.com'))
+print(encodeURLComponent('tom & jerry'))
+
+print(decodeURLComponent(encodeURLComponent('http://www.google.com')))
+print(decodeURLComponent(encodeURLComponent('tom & jerry')))
+
+print(base64Encode('http://www.google.com'))
+print(base64Encode('tom & jerry'))
+
+print(base64Decode(base64Encode('http://www.google.com')))
+print(base64Decode(base64Encode('tom & jerry')))

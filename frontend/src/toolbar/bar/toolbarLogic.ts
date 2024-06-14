@@ -31,6 +31,10 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 'setHeatmapFixedPositionMode',
                 'setHeatmapColorPalette',
                 'setCommonFilters',
+                'toggleClickmapsEnabled',
+                'loadHeatmap',
+                'loadHeatmapSuccess',
+                'loadHeatmapFailure',
             ],
         ],
     })),
@@ -280,6 +284,17 @@ export const toolbarLogic = kea<toolbarLogicType>([
         createAction: () => {
             actions.setVisibleMenu('actions')
         },
+        loadHeatmap: () => {
+            window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_HEATMAP_LOADING }, '*')
+        },
+        loadHeatmapSuccess: () => {
+            // if embedded we need to signal start and finish of heatmap loading to the parent
+            window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_HEATMAP_LOADED }, '*')
+        },
+        loadHeatmapFailure: () => {
+            // if embedded we need to signal start and finish of heatmap loading to the parent
+            window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_HEATMAP_FAILED }, '*')
+        },
     })),
     afterMount(({ actions, values, cache }) => {
         cache.clickListener = (e: MouseEvent): void => {
@@ -288,8 +303,12 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 actions.setIsBlurred(true)
             }
         }
+        window.addEventListener('mousedown', cache.clickListener)
 
-        // Post message up to parent in case we are embedded in an app
+        // the toolbar can be run within the posthog parent app
+        // if it is then it listens to parent messages
+        const isInIframe = window !== window.parent
+
         cache.iframeEventListener = (e: MessageEvent): void => {
             // TODO: Probably need to have strict checks here
             const type: PostHogAppToolbarEvent = e?.data?.type
@@ -305,6 +324,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
                     actions.setHeatmapColorPalette(e.data.payload.colorPalette)
                     actions.setHeatmapFixedPositionMode(e.data.payload.fixedPositionMode)
                     actions.setCommonFilters(e.data.payload.commonFilters)
+                    actions.toggleClickmapsEnabled(false)
                     window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_READY }, '*')
                     return
                 case PostHogAppToolbarEvent.PH_HEATMAPS_CONFIG:
@@ -326,10 +346,14 @@ export const toolbarLogic = kea<toolbarLogicType>([
                     console.warn(`[PostHog Toolbar] Received unknown parent window message: ${type}`)
             }
         }
-        window.addEventListener('mousedown', cache.clickListener)
-        window.addEventListener('message', cache.iframeEventListener, false)
-        // Tell the parent window that we are ready
-        window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_INIT }, '*')
+
+        if (isInIframe) {
+            window.addEventListener('message', cache.iframeEventListener, false)
+            // Post message up to parent in case we are embedded in an app
+            // Tell the parent window that we are ready
+            // we check if we're in an iframe before this setup to avoid logging warnings to the console
+            window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_INIT }, '*')
+        }
     }),
     beforeUnmount(({ cache }) => {
         window.removeEventListener('mousedown', cache.clickListener)

@@ -1,4 +1,4 @@
-import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
@@ -8,7 +8,7 @@ import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { humanFriendlyDuration } from 'lib/utils'
-import { DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 export const LastRefreshText = (): JSX.Element => {
     const { newestRefreshed } = useValues(dashboardLogic)
@@ -27,7 +27,8 @@ const INTERVAL_OPTIONS = [
 ]
 
 export function DashboardReloadAction(): JSX.Element {
-    const { itemsLoading, autoRefresh, refreshMetrics, blockRefresh } = useValues(dashboardLogic)
+    const { itemsLoading, autoRefresh, refreshMetrics, blockRefresh, oldestClientRefreshAllowed } =
+        useValues(dashboardLogic)
     const { refreshAllDashboardItemsManual, setAutoRefresh, setPageVisibility } = useActions(dashboardLogic)
 
     usePageVisibility((pageIsVisible) => {
@@ -42,7 +43,7 @@ export function DashboardReloadAction(): JSX.Element {
     })
 
     return (
-        <>
+        <div className="relative">
             <LemonButton
                 onClick={() => refreshAllDashboardItemsManual()}
                 type="secondary"
@@ -51,7 +52,7 @@ export function DashboardReloadAction(): JSX.Element {
                 data-attr="dashboard-items-action-refresh"
                 disabledReason={
                     blockRefresh
-                        ? `Dashboards can only be refreshed every ${DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES} minutes.`
+                        ? `Next refresh possible ${dayjs(oldestClientRefreshAllowed).fromNow()}`
                         : itemsLoading
                         ? 'Refreshing...'
                         : ''
@@ -114,6 +115,17 @@ export function DashboardReloadAction(): JSX.Element {
                     )}
                 </span>
             </LemonButton>
-        </>
+            <LemonBadge
+                size="small"
+                content={
+                    <>
+                        <IconRefresh className="mr-0" /> {humanFriendlyDuration(autoRefresh.interval)}
+                    </>
+                }
+                visible={autoRefresh.enabled}
+                position="top-right"
+                status="muted"
+            />
+        </div>
     )
 }

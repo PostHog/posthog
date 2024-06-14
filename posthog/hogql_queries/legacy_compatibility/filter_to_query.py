@@ -28,6 +28,7 @@ from posthog.schema import (
     TrendsFilter,
     TrendsQuery,
     FunnelVizType,
+    CompareFilter,
 )
 from posthog.types import InsightQueryNode
 from posthog.utils import str_to_bool
@@ -40,16 +41,16 @@ class MathAvailability(str, Enum):
 
 
 actors_only_math_types = [
-    BaseMathType.dau,
-    BaseMathType.weekly_active,
-    BaseMathType.monthly_active,
+    BaseMathType.DAU,
+    BaseMathType.WEEKLY_ACTIVE,
+    BaseMathType.MONTHLY_ACTIVE,
     "unique_group",
     "hogql",
 ]
 
 
 def clean_display(display: str):
-    if display not in ChartDisplayType.__members__:
+    if display not in [c.value for c in ChartDisplayType]:
         return None
     else:
         return display
@@ -81,7 +82,7 @@ def legacy_entity_to_node(
             and math_availability == MathAvailability.ActorsOnly
             and entity.math not in actors_only_math_types
         ):
-            shared = {**shared, "math": BaseMathType.dau}
+            shared = {**shared, "math": BaseMathType.DAU}
         else:
             shared = {
                 **shared,
@@ -291,6 +292,21 @@ def _breakdown_filter(_filter: dict):
     return {"breakdownFilter": BreakdownFilter(**breakdownFilter)}
 
 
+def _compare_filter(_filter: dict):
+    if _insight_type(_filter) != "TRENDS" and _insight_type(_filter) != "STICKINESS":
+        return {}
+
+    compareFilter = {
+        "compare": _filter.get("compare"),
+        "compare_to": _filter.get("compare_to"),
+    }
+
+    if len(CompareFilter(**compareFilter).model_dump(exclude_defaults=True)) == 0:
+        return {}
+
+    return {"compareFilter": CompareFilter(**compareFilter)}
+
+
 def _group_aggregation_filter(filter: dict):
     if _insight_type(filter) == "STICKINESS" or _insight_type(filter) == "LIFECYCLE":
         return {}
@@ -304,7 +320,6 @@ def _insight_filter(filter: dict):
                 smoothingIntervals=filter.get("smoothing_intervals"),
                 showLegend=filter.get("show_legend"),
                 # hidden_legend_indexes=cleanHiddenLegendIndexes(filter.get('hidden_legend_keys')),
-                compare=filter.get("compare"),
                 aggregationAxisFormat=filter.get("aggregation_axis_format"),
                 aggregationAxisPrefix=filter.get("aggregation_axis_prefix"),
                 aggregationAxisPostfix=filter.get("aggregation_axis_postfix"),
@@ -321,7 +336,7 @@ def _insight_filter(filter: dict):
         # Backwards compatibility
         # Before Filter.funnel_viz_type funnel trends were indicated by Filter.display being TRENDS_LINEAR
         if funnel_viz_type is None and filter.get("display") == "ActionsLineGraph":
-            funnel_viz_type = FunnelVizType.trends
+            funnel_viz_type = FunnelVizType.TRENDS
 
         insight_filter = {
             "funnelsFilter": FunnelsFilter(
@@ -390,7 +405,6 @@ def _insight_filter(filter: dict):
     elif _insight_type(filter) == "STICKINESS":
         insight_filter = {
             "stickinessFilter": StickinessFilter(
-                compare=filter.get("compare"),
                 showLegend=filter.get("show_legend"),
                 # hidden_legend_indexes: cleanHiddenLegendIndexes(filter.get('hidden_legend_keys')),
                 showValuesOnSeries=filter.get("show_values_on_series"),
@@ -441,6 +455,7 @@ def filter_to_query(filter: dict) -> InsightQueryNode:
         **_filter_test_accounts(filter),
         **_properties(filter),
         **_breakdown_filter(filter),
+        **_compare_filter(filter),
         **_group_aggregation_filter(filter),
         **_insight_filter(filter),
     }

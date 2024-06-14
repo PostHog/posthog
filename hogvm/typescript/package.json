@@ -1,9 +1,9 @@
 {
     "name": "@posthog/hogvm",
-    "version": "1.0.6",
-    "description": "PostHog HogQL Virtual Machine",
-    "types": "dist/bytecode.d.ts",
-    "main": "dist/bytecode.js",
+    "version": "1.0.12",
+    "description": "PostHog Hog Virtual Machine",
+    "types": "dist/index.d.ts",
+    "main": "dist/index.js",
     "packageManager": "pnpm@8.3.1",
     "scripts": {
         "test": "jest --runInBand --forceExit",
@@ -18,11 +18,11 @@
     "author": "PostHog <hey@posthog.com>",
     "repository": "https://github.com/PostHog/posthog-plugin-server",
     "license": "MIT",
-    "dependencies": {},
     "devDependencies": {
         "@swc-node/register": "^1.9.1",
         "@swc/core": "^1.5.7",
         "@swc/jest": "^0.2.36",
+        "@types/node": "^20.14.2",
         "jest": "^28.1.1",
         "prettier": "^3.2.5",
         "typescript": "^5.4.5"

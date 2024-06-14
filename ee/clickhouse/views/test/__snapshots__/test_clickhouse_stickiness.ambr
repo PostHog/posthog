@@ -582,15 +582,10 @@
 # name: TestClickhouseStickiness.test_stickiness_with_person_on_events_v2
   '''
   
-  SELECT distinct_id,
-         person_id
+  SELECT DISTINCT person_id
   FROM events
   WHERE team_id = 2
-    AND distinct_id IN ('person1',
-                        'person2')
-  GROUP BY distinct_id,
-           person_id
-  ORDER BY if(distinct_id = 'person1', -1, 0)
+    AND distinct_id = 'person2'
   '''
 # ---
 # name: TestClickhouseStickiness.test_stickiness_with_person_on_events_v2.1
@@ -599,15 +594,16 @@
   SELECT countDistinct(aggregation_target),
          num_intervals
   FROM
-    (SELECT if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) AS aggregation_target,
+    (SELECT if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) AS aggregation_target,
             countDistinct(toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'))) as num_intervals
      FROM events e
      LEFT OUTER JOIN
-       (SELECT argMax(override_person_id, version) as person_id,
-               old_person_id
-        FROM person_overrides
-        WHERE team_id = 2
-        GROUP BY old_person_id) AS overrides ON e.person_id = overrides.old_person_id
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 2)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
      WHERE team_id = 2
        AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')

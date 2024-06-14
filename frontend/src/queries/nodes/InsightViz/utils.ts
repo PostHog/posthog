@@ -5,19 +5,24 @@ import { getEventNamesForAction, isEmptyObject } from 'lib/utils'
 import {
     ActionsNode,
     BreakdownFilter,
+    CompareFilter,
     DataWarehouseNode,
     EventsNode,
     InsightQueryNode,
+    InsightVizNode,
+    Node,
+    NodeKind,
     TrendsQuery,
 } from '~/queries/schema'
 import {
     isInsightQueryWithBreakdown,
+    isInsightQueryWithCompare,
     isInsightQueryWithSeries,
     isLifecycleQuery,
     isStickinessQuery,
     isTrendsQuery,
 } from '~/queries/utils'
-import { ActionType, ChartDisplayType, InsightModel, IntervalType } from '~/types'
+import { ActionType, ChartDisplayType, FilterType, InsightModel, IntervalType, QueryBasedInsightModel } from '~/types'
 
 import { filtersToQueryNode } from '../InsightQuery/utils/filtersToQueryNode'
 import { seriesToActionsAndEvents } from '../InsightQuery/utils/queryNodeToFilter'
@@ -48,15 +53,6 @@ export const getDisplay = (query: InsightQueryNode): ChartDisplayType | undefine
     return undefined
 }
 
-export const getCompare = (query: InsightQueryNode): boolean | undefined => {
-    if (isStickinessQuery(query)) {
-        return query.stickinessFilter?.compare
-    } else if (isTrendsQuery(query)) {
-        return query.trendsFilter?.compare
-    }
-    return undefined
-}
-
 export const getFormula = (query: InsightQueryNode): string | undefined => {
     if (isTrendsQuery(query)) {
         return query.trendsFilter?.formula
@@ -81,6 +77,13 @@ export const getInterval = (query: InsightQueryNode): IntervalType | undefined =
 export const getBreakdown = (query: InsightQueryNode): BreakdownFilter | undefined => {
     if (isInsightQueryWithBreakdown(query)) {
         return query.breakdownFilter
+    }
+    return undefined
+}
+
+export const getCompareFilter = (query: InsightQueryNode): CompareFilter | undefined => {
+    if (isInsightQueryWithCompare(query)) {
+        return query.compareFilter
     }
     return undefined
 }
@@ -124,15 +127,61 @@ export const getCachedResults = (
     cachedInsight: Partial<InsightModel> | undefined | null,
     query: InsightQueryNode
 ): Partial<InsightModel> | undefined => {
-    if (!cachedInsight || cachedInsight.filters === undefined || isEmptyObject(cachedInsight.filters)) {
+    if (!cachedInsight) {
+        return undefined
+    }
+
+    let cachedQueryNode: Node | undefined
+
+    if (cachedInsight.query) {
+        cachedQueryNode = cachedInsight.query
+        if ('source' in cachedInsight.query) {
+            cachedQueryNode = cachedInsight.query.source as Node
+        }
+    } else if (cachedInsight.filters && !isEmptyObject(cachedInsight.filters)) {
+        cachedQueryNode = filtersToQueryNode(cachedInsight.filters)
+    } else {
         return undefined
     }
 
     // only set the cached result when the filters match the currently set ones
-    const cachedQueryNode = filtersToQueryNode(cachedInsight.filters)
     if (!equal(cachedQueryNode, query)) {
         return undefined
     }
 
     return cachedInsight
+}
+
+// these types exist so that the return type reflects the input model
+// i.e. when given a partial model the return model is types as
+// partial as well
+type InputInsightModel = InsightModel | Partial<InsightModel>
+
+type ReturnInsightModel<T> = T extends InsightModel
+    ? QueryBasedInsightModel
+    : T extends Partial<InsightModel>
+    ? Partial<QueryBasedInsightModel>
+    : never
+
+/** Get an insight with `query` only. Eventual `filters` will be converted.  */
+export function getQueryBasedInsightModel<T extends InputInsightModel>(insight: T): ReturnInsightModel<T> {
+    const { filters, ...baseInsight } = insight
+    return { ...baseInsight, query: getQueryFromInsightLike(insight) } as unknown as ReturnInsightModel<T>
+}
+
+/** Get a `query` from an object that potentially has `filters` instead of a `query`.  */
+export function getQueryFromInsightLike(insight: {
+    query?: Node<Record<string, any>> | null
+    filters?: Partial<FilterType>
+}): Node<Record<string, any>> | null {
+    let query
+    if (insight.query) {
+        query = insight.query
+    } else if (insight.filters && Object.keys(insight.filters).filter((k) => k != 'filter_test_accounts').length > 0) {
+        query = { kind: NodeKind.InsightVizNode, source: filtersToQueryNode(insight.filters) } as InsightVizNode
+    } else {
+        query = null
+    }
+
+    return query
 }

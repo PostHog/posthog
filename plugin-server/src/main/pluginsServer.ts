@@ -10,7 +10,8 @@ import { Counter } from 'prom-client'
 import v8Profiler from 'v8-profiler-next'
 
 import { getPluginServerCapabilities } from '../capabilities'
-import { buildIntegerMatcher, defaultConfig, sessionRecordingConsumerConfig } from '../config/config'
+import { CdpFunctionCallbackConsumer, CdpProcessedEventsConsumer } from '../cdp/cdp-processed-events-consumer'
+import { defaultConfig, sessionRecordingConsumerConfig } from '../config/config'
 import { Hub, PluginServerCapabilities, PluginsServerConfig } from '../types'
 import { createHub, createKafkaClient, createKafkaProducerWrapper } from '../utils/db/hub'
 import { PostgresRouter } from '../utils/db/postgres'
@@ -105,6 +106,8 @@ export async function startPluginsServer(
     let onEventHandlerConsumer: KafkaJSIngestionConsumer | undefined
     let stopWebhooksHandlerConsumer: () => Promise<void> | undefined
 
+    const shutdownCallbacks: (() => Promise<void>)[] = []
+
     // Kafka consumer. Handles events that we couldn't find an existing person
     // to associate. The buffer handles delaying the ingestion of these events
     // (default 60 seconds) to allow for the person to be created in the
@@ -157,6 +160,7 @@ export async function startPluginsServer(
             stopSessionRecordingBlobOverflowConsumer?.(),
             schedulerTasksConsumer?.disconnect(),
             personOverridesPeriodicTask?.stop(),
+            ...shutdownCallbacks.map((cb) => cb()),
         ])
 
         if (piscina) {
@@ -370,14 +374,7 @@ export async function startPluginsServer(
             const teamManager = hub?.teamManager ?? new TeamManager(postgres, serverConfig)
             const organizationManager = hub?.organizationManager ?? new OrganizationManager(postgres, teamManager)
             const KafkaProducerWrapper = hub?.kafkaProducer ?? (await createKafkaProducerWrapper(serverConfig))
-            const rustyHook =
-                hub?.rustyHook ??
-                new RustyHook(
-                    buildIntegerMatcher(serverConfig.RUSTY_HOOK_FOR_TEAMS, true),
-                    serverConfig.RUSTY_HOOK_ROLLOUT_PERCENTAGE,
-                    serverConfig.RUSTY_HOOK_URL,
-                    serverConfig.EXTERNAL_REQUEST_TIMEOUT_MS
-                )
+            const rustyHook = hub?.rustyHook ?? new RustyHook(serverConfig)
             const appMetrics =
                 hub?.appMetrics ??
                 new AppMetrics(
@@ -492,6 +489,36 @@ export async function startPluginsServer(
                 shutdownOnConsumerExit(batchConsumer)
                 healthChecks['session-recordings-blob-overflow'] = () => ingester.isHealthy() ?? false
             }
+        }
+
+        if (capabilities.cdpProcessedEvents) {
+            ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, capabilities)
+            const consumer = new CdpProcessedEventsConsumer(serverConfig, hub)
+            await consumer.start()
+
+            if (consumer.batchConsumer) {
+                shutdownOnConsumerExit(consumer.batchConsumer)
+            }
+
+            shutdownCallbacks.push(async () => {
+                await consumer.stop()
+            })
+            healthChecks['cdp-processed-events'] = () => consumer.isHealthy() ?? false
+        }
+
+        if (capabilities.cdpFunctionCallbacks) {
+            ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, capabilities)
+            const consumer = new CdpFunctionCallbackConsumer(serverConfig, hub)
+            await consumer.start()
+
+            if (consumer.batchConsumer) {
+                shutdownOnConsumerExit(consumer.batchConsumer)
+            }
+
+            shutdownCallbacks.push(async () => {
+                await consumer.stop()
+            })
+            healthChecks['cdp-function-callbacks'] = () => consumer.isHealthy() ?? false
         }
 
         if (capabilities.personOverrides) {

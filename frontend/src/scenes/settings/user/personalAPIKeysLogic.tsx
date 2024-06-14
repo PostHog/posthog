@@ -306,7 +306,9 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                     <>
                         <p className="mb-4">You can now use key "{key.label}" for authentication:</p>
 
-                        <CodeSnippet thing="personal API key">{value}</CodeSnippet>
+                        <CodeSnippet className="ph-no-capture" thing="personal API key">
+                            {value}
+                        </CodeSnippet>
 
                         <LemonBanner type="warning" className="mt-4">
                             For security reasons the value above <em>will never be shown again</em>.

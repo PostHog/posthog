@@ -53,6 +53,7 @@ KEY: K E Y;
 LAST: L A S T;
 LEADING: L E A D I N G;
 LEFT: L E F T;
+LET: L E T;
 LIKE: L I K E;
 LIMIT: L I M I T;
 MINUTE: M I N U T E;
@@ -95,7 +96,6 @@ TRUNCATE: T R U N C A T E;
 UNBOUNDED: U N B O U N D E D;
 UNION: U N I O N;
 USING: U S I N G;
-VAR: V A R;
 WEEK: W E E K;
 WHEN: W H E N;
 WHERE: W H E R E;
@@ -217,7 +217,7 @@ UNDERSCORE: '_';
 // Comments and whitespace
 
 MULTI_LINE_COMMENT: '/*' .*? '*/' -> skip;
-SINGLE_LINE_COMMENT: '--' ~('\n'|'\r')* ('\n' | '\r' | EOF) -> skip;
+SINGLE_LINE_COMMENT: ('--' | '//') ~('\n'|'\r')* ('\n' | '\r' | EOF) -> skip;
 // whitespace is hidden and not skipped so that it's preserved in ANTLR errors like "no viable alternative"
 WHITESPACE: [ \u000B\u000C\t\r\n] -> channel(HIDDEN);
 

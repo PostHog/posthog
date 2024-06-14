@@ -1,4 +1,5 @@
-import { LemonTableColumns } from '@posthog/lemon-ui'
+import { TZLabel } from '@posthog/apps-common'
+import { LemonTableColumns, Link } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { LOGS_PORTION_LIMIT } from 'lib/constants'
@@ -28,13 +29,14 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
     key(({ id }) => id),
     path((key) => ['scenes', 'pipeline', 'pipelineNodeLogsLogic', key]),
     connect((props: PipelineNodeLogicProps) => ({
-        values: [teamLogic(), ['currentTeamId'], pipelineNodeLogic(props), ['nodeBackend']],
+        values: [teamLogic(), ['currentTeamId'], pipelineNodeLogic(props), ['node']],
     })),
     actions({
         setSelectedLogLevels: (levels: PipelineLogLevel[]) => ({
             levels,
         }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        setInstanceId: (instanceId: string | null) => ({ instanceId }),
         clearBackgroundLogs: true,
         markLogsEnd: true,
     }),
@@ -44,15 +46,24 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
             {
                 loadLogs: async () => {
                     let results: LogEntry[]
-                    if (values.nodeBackend === PipelineBackend.BatchExport) {
+                    if (values.node.backend === PipelineBackend.BatchExport) {
                         results = await api.batchExportLogs.search(
-                            id as string,
+                            values.node.id,
                             values.searchTerm,
                             values.selectedLogLevels
                         )
+                    } else if (values.node.backend === PipelineBackend.HogFunction) {
+                        const res = await api.hogFunctions.searchLogs(values.node.id, {
+                            search: values.searchTerm,
+                            levels: values.selectedLogLevels,
+                            limit: LOGS_PORTION_LIMIT,
+                            instance_id: values.instanceId,
+                        })
+
+                        results = res.results
                     } else {
                         results = await api.pluginLogs.search(
-                            id as number,
+                            values.node.id,
                             values.searchTerm,
                             logLevelsToTypeFilters(values.selectedLogLevels)
                         )
@@ -66,13 +77,23 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                 },
                 loadMoreLogs: async () => {
                     let results: LogEntry[]
-                    if (values.nodeBackend === PipelineBackend.BatchExport) {
+                    if (values.node.backend === PipelineBackend.BatchExport) {
                         results = await api.batchExportLogs.search(
                             id as string,
                             values.searchTerm,
                             values.selectedLogLevels,
                             values.trailingEntry as BatchExportLogEntry | null
                         )
+                    } else if (values.node.backend === PipelineBackend.HogFunction) {
+                        const res = await api.hogFunctions.searchLogs(values.node.id, {
+                            search: values.searchTerm,
+                            levels: values.selectedLogLevels,
+                            limit: LOGS_PORTION_LIMIT,
+                            before: values.trailingEntry?.timestamp,
+                            instance_id: values.instanceId,
+                        })
+
+                        results = res.results
                     } else {
                         results = await api.pluginLogs.search(
                             id as number,
@@ -105,7 +126,7 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                     }
 
                     let results: LogEntry[]
-                    if (values.nodeBackend === PipelineBackend.BatchExport) {
+                    if (values.node.backend === PipelineBackend.BatchExport) {
                         results = await api.batchExportLogs.search(
                             id as string,
                             values.searchTerm,
@@ -113,6 +134,16 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                             null,
                             values.leadingEntry as BatchExportLogEntry | null
                         )
+                    } else if (values.node.backend === PipelineBackend.HogFunction) {
+                        const res = await api.hogFunctions.searchLogs(values.node.id, {
+                            search: values.searchTerm,
+                            levels: values.selectedLogLevels,
+                            limit: LOGS_PORTION_LIMIT,
+                            after: values.leadingEntry?.timestamp,
+                            instance_id: values.instanceId,
+                        })
+
+                        results = res.results
                     } else {
                         results = await api.pluginLogs.search(
                             id as number,
@@ -147,6 +178,12 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                 setSearchTerm: (_, { searchTerm }) => searchTerm,
             },
         ],
+        instanceId: [
+            null as null | string,
+            {
+                setInstanceId: (_, { instanceId }) => instanceId,
+            },
+        ],
         isThereMoreToLoad: [
             true,
             {
@@ -155,7 +192,7 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
             },
         ],
     }),
-    selectors({
+    selectors(({ actions }) => ({
         leadingEntry: [
             (s) => [s.logs, s.backgroundLogs],
             (logs: LogEntry[], backgroundLogs: LogEntry[]): LogEntry | null => {
@@ -181,26 +218,76 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
             },
         ],
         columns: [
-            (s) => [s.nodeBackend],
-            (nodeBackend): LemonTableColumns<LogEntry> => {
+            (s) => [s.node],
+            (node): LemonTableColumns<LogEntry> => {
                 return [
                     {
                         title: 'Timestamp',
                         key: 'timestamp',
                         dataIndex: 'timestamp',
                         sorter: (a: LogEntry, b: LogEntry) => dayjs(a.timestamp).unix() - dayjs(b.timestamp).unix(),
-                        render: (timestamp: string) => dayjs(timestamp).format('YYYY-MM-DD HH:mm:ss.SSS UTC'),
+                        render: (timestamp: string) => <TZLabel time={timestamp} />,
+                        width: 0,
                     },
                     {
-                        title: nodeBackend === PipelineBackend.BatchExport ? 'Run Id' : 'Source',
-                        dataIndex: nodeBackend === PipelineBackend.BatchExport ? 'run_id' : 'source',
-                        key: nodeBackend === PipelineBackend.BatchExport ? 'run_id' : 'source',
+                        width: 0,
+                        title:
+                            node.backend == PipelineBackend.HogFunction
+                                ? 'Invocation'
+                                : node.backend == PipelineBackend.BatchExport
+                                ? 'Run Id'
+                                : 'Source',
+                        dataIndex:
+                            node.backend == PipelineBackend.HogFunction
+                                ? 'instance_id'
+                                : node.backend == PipelineBackend.BatchExport
+                                ? 'run_id'
+                                : 'source',
+                        key:
+                            node.backend == PipelineBackend.HogFunction
+                                ? 'instance_id'
+                                : node.backend == PipelineBackend.BatchExport
+                                ? 'run_id'
+                                : 'source',
+
+                        render: (instanceId: string) => (
+                            <code className="whitespace-nowrap">
+                                {node.backend === PipelineBackend.HogFunction ? (
+                                    <Link
+                                        subtle
+                                        onClick={() => {
+                                            actions.setInstanceId(instanceId)
+                                        }}
+                                    >
+                                        {instanceId}
+                                    </Link>
+                                ) : (
+                                    instanceId
+                                )}
+                            </code>
+                        ),
                     },
                     {
+                        width: 100,
                         title: 'Level',
-                        key: nodeBackend === PipelineBackend.BatchExport ? 'level' : 'type',
-                        dataIndex: nodeBackend === PipelineBackend.BatchExport ? 'level' : 'type',
-                        render: nodeBackend === PipelineBackend.BatchExport ? LogLevelDisplay : LogTypeDisplay,
+                        key:
+                            node.backend == PipelineBackend.HogFunction
+                                ? 'level'
+                                : node.backend == PipelineBackend.BatchExport
+                                ? 'level'
+                                : 'type',
+                        dataIndex:
+                            node.backend == PipelineBackend.HogFunction
+                                ? 'level'
+                                : node.backend == PipelineBackend.BatchExport
+                                ? 'level'
+                                : 'type',
+                        render:
+                            node.backend == PipelineBackend.HogFunction
+                                ? LogLevelDisplay
+                                : node.backend == PipelineBackend.BatchExport
+                                ? LogLevelDisplay
+                                : LogTypeDisplay,
                     },
                     {
                         title: 'Message',
@@ -211,7 +298,7 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                 ] as LemonTableColumns<LogEntry>
             },
         ],
-    }),
+    })),
     listeners(({ actions }) => ({
         setSelectedLogLevels: () => {
             actions.loadLogs()
@@ -220,6 +307,9 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
             if (searchTerm) {
                 await breakpoint(1000)
             }
+            actions.loadLogs()
+        },
+        setInstanceId: async () => {
             actions.loadLogs()
         },
     })),

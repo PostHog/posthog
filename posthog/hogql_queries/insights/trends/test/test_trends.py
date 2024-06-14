@@ -52,6 +52,7 @@ from posthog.schema import (
     PropertyGroupFilter,
     TrendsFilter,
     TrendsQuery,
+    CompareFilter,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -193,10 +194,10 @@ def convert_filter_to_trends_query(filter: Filter) -> TrendsQuery:
         trendsFilter=TrendsFilter(
             display=filter.display,
             breakdown_histogram_bin_count=filter.breakdown_histogram_bin_count,
-            compare=filter.compare,
             formula=filter.formula,
             smoothingIntervals=filter.smoothing_intervals,
         ),
+        compareFilter=CompareFilter(compare=filter.compare, compare_to=filter.compare_to),
     )
 
     return tq
@@ -745,8 +746,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[2]["labels"][4], "1-Jan-2020")
         self.assertEqual(response[2]["data"], [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0])
 
-    @also_test_with_person_on_events_v2
     @snapshot_clickhouse_queries
+    @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True)
     def test_trends_breakdown_normalize_url(self):
         self._create_breakdown_url_events()
         with freeze_time("2020-01-04T13:00:01Z"):
@@ -1116,12 +1117,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
             self.assertEqual(
                 [(item["breakdown_value"], item["count"], item["data"]) for item in response],
-                [
-                    ("[4.95,10.05]", 2.0, [2.0, 0.0, 0.0, 0.0]),
-                    ("[0.0,4.95]", 1.0, [1.0, 0.0, 0.0, 0.0]),
-                    ("[10.05,15.01]", 1.0, [0.0, 1.0, 0.0, 0.0]),
-                    ('["",""]', 0.0, [0.0, 0.0, 0.0, 0.0]),
-                ],
+                [("[10,15.01]", 2.0, [1, 1, 0, 0]), ("[0,5]", 1.0, [1, 0, 0, 0]), ("[5,10]", 1.0, [1, 0, 0, 0])],
             )
 
     @also_test_with_person_on_events_v2
@@ -5172,9 +5168,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
 
         response = sorted(response, key=lambda x: x["label"])
-        self.assertEqual(len(response), 1)
-        self.assertEqual(response[0]["label"], "$$_posthog_breakdown_null_$$")
-        self.assertEqual(response[0]["count"], 0)
+        self.assertEqual(len(response), 0)
 
     @also_test_with_person_on_events_v2
     @snapshot_clickhouse_queries
@@ -5481,7 +5475,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ),
             self.team,
         )
-        self.assertEqual(action_response[0]["count"], 0)
+        self.assertEqual(len(action_response), 0)
 
     @also_test_with_person_on_events_v2
     @snapshot_clickhouse_queries
@@ -6505,9 +6499,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(response[0]["aggregated_value"], 1)
+        self.assertEqual(response[0]["aggregated_value"], 2)
         self.assertEqual(response[1]["aggregated_value"], 1)
-        self.assertEqual(response[2]["aggregated_value"], 2)  # the events without breakdown value
+        self.assertEqual(response[2]["aggregated_value"], 1)  # the events without breakdown value
         self.assertEqual(response[0]["days"], [])
 
     @also_test_with_materialized_columns(person_properties=["key", "key_2"], verify_no_jsonextract=False)

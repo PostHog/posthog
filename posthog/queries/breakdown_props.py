@@ -27,7 +27,7 @@ from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
 from posthog.queries.groups_join_query import GroupsJoinQuery
 from posthog.queries.insight import insight_sync_execute
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
-from posthog.queries.person_on_events_v2_sql import PERSON_OVERRIDES_JOIN_SQL
+from posthog.queries.person_on_events_v2_sql import PERSON_DISTINCT_ID_OVERRIDES_JOIN_SQL
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.query_date_range import QueryDateRange
 from posthog.schema import PersonsOnEventsMode
@@ -36,7 +36,7 @@ from posthog.queries.trends.sql import (
     HISTOGRAM_ELEMENTS_ARRAY_OF_KEY_SQL,
     TOP_ELEMENTS_ARRAY_OF_KEY_SQL,
 )
-from posthog.queries.util import PersonPropertiesMode
+from posthog.queries.util import PersonPropertiesMode, alias_poe_mode_for_legacy
 
 ALL_USERS_COHORT_ID = 0
 
@@ -86,7 +86,9 @@ def get_breakdown_prop_values(
     sessions_join_params: dict = {}
 
     null_person_filter = (
-        f"AND notEmpty(e.person_id)" if team.person_on_events_mode != PersonsOnEventsMode.disabled else ""
+        f"AND notEmpty(e.person_id)"
+        if alias_poe_mode_for_legacy(team.person_on_events_mode) != PersonsOnEventsMode.DISABLED
+        else ""
     )
 
     if person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:
@@ -104,7 +106,7 @@ def get_breakdown_prop_values(
         person_id_joined_alias = (
             "pdi.person_id"
             if person_properties_mode != PersonPropertiesMode.DIRECT_ON_EVENTS_WITH_POE_V2
-            else "if(notEmpty(overrides.person_id), overrides.person_id, e.person_id)"
+            else "if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id)"
         )
 
         person_query = PersonQuery(
@@ -114,7 +116,7 @@ def get_breakdown_prop_values(
             entity=entity if not use_all_funnel_entities else None,
         )
         if person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS_WITH_POE_V2:
-            person_join_clauses = PERSON_OVERRIDES_JOIN_SQL.format(
+            person_join_clauses = PERSON_DISTINCT_ID_OVERRIDES_JOIN_SQL.format(
                 event_table_alias="e", person_overrides_table_alias="overrides"
             )
         elif person_query.is_used:
@@ -277,12 +279,14 @@ def _to_value_expression(
             table="events" if direct_on_events else "groups",
             property_name=cast(str, breakdown),
             var="%(key)s",
-            column=f"group{breakdown_group_type_index}_properties"
-            if direct_on_events
-            else f"group_properties_{breakdown_group_type_index}",
-            materialised_table_column=f"group{breakdown_group_type_index}_properties"
-            if direct_on_events
-            else "group_properties",
+            column=(
+                f"group{breakdown_group_type_index}_properties"
+                if direct_on_events
+                else f"group_properties_{breakdown_group_type_index}"
+            ),
+            materialised_table_column=(
+                f"group{breakdown_group_type_index}_properties" if direct_on_events else "group_properties"
+            ),
         )
     elif breakdown_type == "hogql":
         from posthog.hogql.hogql import translate_hogql

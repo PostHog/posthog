@@ -22,16 +22,17 @@ export const dataWarehouseJoinsLogic = kea<dataWarehouseJoinsLogicType>([
         ],
     }),
     connect(() => ({
-        values: [databaseTableListLogic, ['dataWarehouseTablesMap']],
+        values: [databaseTableListLogic, ['allTablesMap']],
     })),
     selectors({
         personTableJoins: [(s) => [s.joins], (joins) => joins.filter((join) => join.source_table_name === 'persons')],
         tablesJoinedToPersons: [
-            (s) => [s.dataWarehouseTablesMap, s.personTableJoins],
-            (dataWarehouseTablesMap, personTableJoins) => {
+            (s) => [s.allTablesMap, s.personTableJoins],
+            (allTablesMap, personTableJoins) => {
                 return personTableJoins.map((join: DataWarehouseViewLink) => {
                     // valid join should have a joining table name
-                    const table = dataWarehouseTablesMap[join.joining_table_name as string]
+                    const table = allTablesMap[join.joining_table_name as string]
+
                     return {
                         table,
                         join,
@@ -46,8 +47,8 @@ export const dataWarehouseJoinsLogic = kea<dataWarehouseJoinsLogicType>([
                     if (table) {
                         acc.push(
                             ...Object.values(table.fields).map((column) => ({
-                                id: join.field_name + ': ' + column.name,
-                                name: join.field_name + ': ' + column.name,
+                                id: `${join.field_name}.${column.name}`,
+                                name: `${join.field_name}: ${column.name}`,
                                 table: join.field_name,
                                 property_type: capitalizeFirstLetter(column.type) as PropertyType,
                             }))

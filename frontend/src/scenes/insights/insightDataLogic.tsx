@@ -24,7 +24,7 @@ import { insightLogic } from './insightLogic'
 import { cleanFilters, setTestAccountFilterForNewInsight } from './utils/cleanFilters'
 import { compareFilters } from './utils/compareFilters'
 
-const queryFromFilters = (filters: Partial<FilterType>): InsightVizNode => ({
+export const queryFromFilters = (filters: Partial<FilterType>): InsightVizNode => ({
     kind: NodeKind.InsightVizNode,
     source: filtersToQueryNode(filters),
 })
@@ -102,11 +102,9 @@ export const insightDataLogic = kea<insightDataLogicType>([
     }),
 
     selectors({
-        isHogQLInsight: [
-            (s) => [s.featureFlags, s.query],
-            (featureFlags, query) => {
-                return isInsightVizNode(query) && !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS]
-            },
+        useQueryDashboardCards: [
+            (s) => [s.featureFlags],
+            (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_DASHBOARD_CARDS],
         ],
 
         query: [
@@ -133,8 +131,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
 
         exportContext: [
-            (s) => [s.query, s.insight, s.isHogQLInsight],
-            (query, insight, isHogQLInsight) => {
+            (s) => [s.query, s.insight],
+            (query, insight) => {
                 if (!query) {
                     // if we're here without a query then an empty query context is not the problem
                     return undefined
@@ -147,7 +145,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 }
 
                 return {
-                    ...queryExportContext(sourceQuery, undefined, undefined, !isHogQLInsight),
+                    ...queryExportContext(sourceQuery, undefined, undefined),
                     filename,
                 } as ExportContext
             },

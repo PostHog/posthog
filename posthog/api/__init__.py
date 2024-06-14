@@ -8,6 +8,7 @@ from ..heatmaps.heatmaps_api import LegacyHeatmapViewSet, HeatmapViewSet
 from .session import SessionViewSet
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
 from . import (
+    alert,
     activity_log,
     annotation,
     app_metrics,
@@ -19,6 +20,8 @@ from . import (
     event_definition,
     exports,
     feature_flag,
+    hog_function,
+    hog_function_template,
     ingestion_warnings,
     instance_settings,
     instance_status,
@@ -404,6 +407,27 @@ projects_router.register(
     r"comments",
     comments.CommentViewSet,
     "project_comments",
+    ["team_id"],
+)
+
+projects_router.register(
+    r"hog_functions",
+    hog_function.HogFunctionViewSet,
+    "project_hog_functions",
+    ["team_id"],
+)
+
+projects_router.register(
+    r"hog_function_templates",
+    hog_function_template.HogFunctionTemplateViewSet,
+    "project_hog_function_templates",
+    ["team_id"],
+)
+
+projects_router.register(
+    r"alerts",
+    alert.AlertViewSet,
+    "project_alerts",
     ["team_id"],
 )
 

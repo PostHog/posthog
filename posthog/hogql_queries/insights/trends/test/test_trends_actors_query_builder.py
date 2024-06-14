@@ -4,6 +4,7 @@ from typing import Optional, cast
 from freezegun import freeze_time
 from hogql_parser import parse_select
 from posthog.hogql import ast
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.printer import print_ast
@@ -18,6 +19,7 @@ from posthog.schema import (
     IntervalType,
     TrendsFilter,
     TrendsQuery,
+    CompareFilter,
 )
 from posthog.test.base import BaseTest
 
@@ -58,7 +60,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
             HogQLContext(team_id=self.team.pk, enable_select_queries=True),
             "hogql",
         )
-        return sql[sql.find("WHERE and(") + 10 : sql.find(") LIMIT 10000")]
+        return sql[sql.find("WHERE and(") + 10 : sql.find(f") LIMIT {MAX_SELECT_RETURNED_ROWS}")]
 
     def _get_date_where_sql(self, **kwargs):
         builder = self._get_builder(**kwargs)
@@ -101,7 +103,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
 
     def test_date_range_hourly(self):
         self.team.timezone = "Europe/Berlin"
-        trends_query = default_query.model_copy(update={"interval": IntervalType.hour}, deep=True)
+        trends_query = default_query.model_copy(update={"interval": IntervalType.HOUR}, deep=True)
 
         self.assertEqual(
             self._get_date_where_sql(trends_query=trends_query, time_frame="2023-05-08T15:00:00"),
@@ -110,15 +112,15 @@ class TestTrendsActorsQueryBuilder(BaseTest):
 
     def test_date_range_compare_previous(self):
         self.team.timezone = "Europe/Berlin"
-        trends_query = default_query.model_copy(update={"trendsFilter": TrendsFilter(compare=True)}, deep=True)
+        trends_query = default_query.model_copy(update={"compareFilter": CompareFilter(compare=True)}, deep=True)
 
         self.assertEqual(
-            self._get_date_where_sql(trends_query=trends_query, time_frame="2023-05-10", compare_value=Compare.current),
+            self._get_date_where_sql(trends_query=trends_query, time_frame="2023-05-10", compare_value=Compare.CURRENT),
             "greaterOrEquals(timestamp, toDateTime('2023-05-09 22:00:00.000000')), less(timestamp, toDateTime('2023-05-10 22:00:00.000000'))",
         )
         self.assertEqual(
             self._get_date_where_sql(
-                trends_query=trends_query, time_frame="2023-05-10", compare_value=Compare.previous
+                trends_query=trends_query, time_frame="2023-05-10", compare_value=Compare.PREVIOUS
             ),
             "greaterOrEquals(timestamp, toDateTime('2023-05-02 22:00:00.000000')), less(timestamp, toDateTime('2023-05-03 22:00:00.000000'))",
         )
@@ -126,25 +128,59 @@ class TestTrendsActorsQueryBuilder(BaseTest):
     def test_date_range_compare_previous_hourly(self):
         self.team.timezone = "Europe/Berlin"
         trends_query = default_query.model_copy(
-            update={"trendsFilter": TrendsFilter(compare=True), "interval": IntervalType.hour}, deep=True
+            update={"compareFilter": CompareFilter(compare=True), "interval": IntervalType.HOUR}, deep=True
         )
         self.assertEqual(
             self._get_date_where_sql(
-                trends_query=trends_query, time_frame="2023-05-10T15:00:00", compare_value=Compare.current
+                trends_query=trends_query, time_frame="2023-05-10T15:00:00", compare_value=Compare.CURRENT
             ),
             "greaterOrEquals(timestamp, toDateTime('2023-05-10 13:00:00.000000')), less(timestamp, toDateTime('2023-05-10 14:00:00.000000'))",
         )
         self.assertEqual(
             self._get_date_where_sql(
-                trends_query=trends_query, time_frame="2023-05-10T15:00:00", compare_value=Compare.previous
+                trends_query=trends_query, time_frame="2023-05-10T15:00:00", compare_value=Compare.PREVIOUS
             ),
             "greaterOrEquals(timestamp, toDateTime('2023-05-03 13:00:00.000000')), less(timestamp, toDateTime('2023-05-03 14:00:00.000000'))",
+        )
+
+    def test_date_range_compare_to(self):
+        self.team.timezone = "Europe/Berlin"
+        trends_query = default_query.model_copy(
+            update={"compareFilter": CompareFilter(compare=True, compare_to="-3d")}, deep=True
+        )
+
+        self.assertEqual(
+            self._get_date_where_sql(trends_query=trends_query, time_frame="2023-05-10", compare_value=Compare.CURRENT),
+            "greaterOrEquals(timestamp, toDateTime('2023-05-09 22:00:00.000000')), less(timestamp, toDateTime('2023-05-10 22:00:00.000000'))",
+        )
+        self.assertEqual(
+            self._get_date_where_sql(
+                trends_query=trends_query, time_frame="2023-05-10", compare_value=Compare.PREVIOUS
+            ),
+            "greaterOrEquals(timestamp, toDateTime('2023-05-06 22:00:00.000000')), less(timestamp, toDateTime('2023-05-07 22:00:00.000000'))",
+        )
+
+    def test_date_range_compare_to_hours(self):
+        self.team.timezone = "Europe/Berlin"
+        trends_query = default_query.model_copy(
+            update={"compareFilter": CompareFilter(compare=True, compare_to="-3h")}, deep=True
+        )
+
+        self.assertEqual(
+            self._get_date_where_sql(trends_query=trends_query, time_frame="2023-05-10", compare_value=Compare.CURRENT),
+            "greaterOrEquals(timestamp, toDateTime('2023-05-09 22:00:00.000000')), less(timestamp, toDateTime('2023-05-10 22:00:00.000000'))",
+        )
+        self.assertEqual(
+            self._get_date_where_sql(
+                trends_query=trends_query, time_frame="2023-05-10", compare_value=Compare.PREVIOUS
+            ),
+            "greaterOrEquals(timestamp, toDateTime('2023-05-09 19:00:00.000000')), less(timestamp, toDateTime('2023-05-10 19:00:00.000000'))",
         )
 
     def test_date_range_total_value(self):
         self.team.timezone = "Europe/Berlin"
         trends_query = default_query.model_copy(
-            update={"trendsFilter": TrendsFilter(display=ChartDisplayType.BoldNumber)}, deep=True
+            update={"trendsFilter": TrendsFilter(display=ChartDisplayType.BOLD_NUMBER)}, deep=True
         )
 
         with freeze_time("2022-06-15T12:00:00.000Z"):
@@ -156,23 +192,47 @@ class TestTrendsActorsQueryBuilder(BaseTest):
     def test_date_range_total_value_compare_previous(self):
         self.team.timezone = "Europe/Berlin"
         trends_query = default_query.model_copy(
-            update={"trendsFilter": TrendsFilter(display=ChartDisplayType.BoldNumber, compare=True)}, deep=True
+            update={
+                "trendsFilter": TrendsFilter(display=ChartDisplayType.BOLD_NUMBER),
+                "compareFilter": CompareFilter(compare=True),
+            },
+            deep=True,
         )
 
         with freeze_time("2022-06-15T12:00:00.000Z"):
             self.assertEqual(
-                self._get_date_where_sql(trends_query=trends_query, compare_value=Compare.current),
+                self._get_date_where_sql(trends_query=trends_query, compare_value=Compare.CURRENT),
                 "greaterOrEquals(timestamp, toDateTime('2022-06-07 22:00:00.000000')), lessOrEquals(timestamp, toDateTime('2022-06-15 21:59:59.999999'))",
             )
             self.assertEqual(
-                self._get_date_where_sql(trends_query=trends_query, compare_value=Compare.previous),
+                self._get_date_where_sql(trends_query=trends_query, compare_value=Compare.PREVIOUS),
                 "greaterOrEquals(timestamp, toDateTime('2022-05-31 22:00:00.000000')), lessOrEquals(timestamp, toDateTime('2022-06-08 21:59:59.999999'))",
+            )
+
+    def test_date_range_total_value_compare_to(self):
+        self.team.timezone = "Europe/Berlin"
+        trends_query = default_query.model_copy(
+            update={
+                "trendsFilter": TrendsFilter(display=ChartDisplayType.BOLD_NUMBER),
+                "compareFilter": CompareFilter(compare=True, compare_to="-3d"),
+            },
+            deep=True,
+        )
+
+        with freeze_time("2022-06-15T12:00:00.000Z"):
+            self.assertEqual(
+                self._get_date_where_sql(trends_query=trends_query, compare_value=Compare.CURRENT),
+                "greaterOrEquals(timestamp, toDateTime('2022-06-07 22:00:00.000000')), lessOrEquals(timestamp, toDateTime('2022-06-15 21:59:59.999999'))",
+            )
+            self.assertEqual(
+                self._get_date_where_sql(trends_query=trends_query, compare_value=Compare.PREVIOUS),
+                "greaterOrEquals(timestamp, toDateTime('2022-06-04 22:00:00.000000')), lessOrEquals(timestamp, toDateTime('2022-06-12 21:59:59.999999'))",
             )
 
     def test_date_range_weekly_active_users_math(self):
         self.team.timezone = "Europe/Berlin"
         trends_query = default_query.model_copy(
-            update={"series": [EventsNode(event="$pageview", math=BaseMathType.weekly_active)]}, deep=True
+            update={"series": [EventsNode(event="$pageview", math=BaseMathType.WEEKLY_ACTIVE)]}, deep=True
         )
 
         with freeze_time("2024-05-30T12:00:00.000Z"):
@@ -185,8 +245,8 @@ class TestTrendsActorsQueryBuilder(BaseTest):
         self.team.timezone = "Europe/Berlin"
         trends_query = default_query.model_copy(
             update={
-                "series": [EventsNode(event="$pageview", math=BaseMathType.weekly_active)],
-                "trendsFilter": TrendsFilter(compare=True),
+                "series": [EventsNode(event="$pageview", math=BaseMathType.WEEKLY_ACTIVE)],
+                "compareFilter": CompareFilter(compare=True),
             },
             deep=True,
         )
@@ -194,23 +254,47 @@ class TestTrendsActorsQueryBuilder(BaseTest):
         with freeze_time("2024-05-30T12:00:00.000Z"):
             self.assertEqual(
                 self._get_date_where_sql(
-                    trends_query=trends_query, time_frame="2024-05-27", compare_value=Compare.current
+                    trends_query=trends_query, time_frame="2024-05-27", compare_value=Compare.CURRENT
                 ),
                 "greaterOrEquals(timestamp, minus(toDateTime('2024-05-26 22:00:00.000000'), toIntervalDay(6))), less(timestamp, toDateTime('2024-05-27 22:00:00.000000'))",
             )
             self.assertEqual(
                 self._get_date_where_sql(
-                    trends_query=trends_query, time_frame="2024-05-27", compare_value=Compare.previous
+                    trends_query=trends_query, time_frame="2024-05-27", compare_value=Compare.PREVIOUS
                 ),
                 "greaterOrEquals(timestamp, minus(toDateTime('2024-05-19 22:00:00.000000'), toIntervalDay(6))), less(timestamp, toDateTime('2024-05-20 22:00:00.000000'))",
+            )
+
+    def test_date_range_weekly_active_users_math_compare_to(self):
+        self.team.timezone = "Europe/Berlin"
+        trends_query = default_query.model_copy(
+            update={
+                "series": [EventsNode(event="$pageview", math=BaseMathType.WEEKLY_ACTIVE)],
+                "compareFilter": CompareFilter(compare=True, compare_to="-3d"),
+            },
+            deep=True,
+        )
+
+        with freeze_time("2024-05-30T12:00:00.000Z"):
+            self.assertEqual(
+                self._get_date_where_sql(
+                    trends_query=trends_query, time_frame="2024-05-27", compare_value=Compare.CURRENT
+                ),
+                "greaterOrEquals(timestamp, minus(toDateTime('2024-05-26 22:00:00.000000'), toIntervalDay(6))), less(timestamp, toDateTime('2024-05-27 22:00:00.000000'))",
+            )
+            self.assertEqual(
+                self._get_date_where_sql(
+                    trends_query=trends_query, time_frame="2024-05-27", compare_value=Compare.PREVIOUS
+                ),
+                "greaterOrEquals(timestamp, minus(toDateTime('2024-05-23 22:00:00.000000'), toIntervalDay(6))), less(timestamp, toDateTime('2024-05-24 22:00:00.000000'))",
             )
 
     def test_date_range_weekly_active_users_math_total_value(self):
         self.team.timezone = "Europe/Berlin"
         trends_query = default_query.model_copy(
             update={
-                "series": [EventsNode(event="$pageview", math=BaseMathType.weekly_active)],
-                "trendsFilter": TrendsFilter(display=ChartDisplayType.BoldNumber),
+                "series": [EventsNode(event="$pageview", math=BaseMathType.WEEKLY_ACTIVE)],
+                "trendsFilter": TrendsFilter(display=ChartDisplayType.BOLD_NUMBER),
             },
             deep=True,
         )
@@ -225,22 +309,23 @@ class TestTrendsActorsQueryBuilder(BaseTest):
         self.team.timezone = "Europe/Berlin"
         trends_query = default_query.model_copy(
             update={
-                "series": [EventsNode(event="$pageview", math=BaseMathType.weekly_active)],
-                "trendsFilter": TrendsFilter(compare=True, display=ChartDisplayType.BoldNumber),
+                "series": [EventsNode(event="$pageview", math=BaseMathType.WEEKLY_ACTIVE)],
+                "trendsFilter": TrendsFilter(display=ChartDisplayType.BOLD_NUMBER),
+                "compareFilter": CompareFilter(compare=True),
             },
             deep=True,
         )
 
         with freeze_time("2024-05-30T12:00:00.000Z"):
             self.assertEqual(
-                self._get_date_where_sql(trends_query=trends_query, compare_value=Compare.previous),
+                self._get_date_where_sql(trends_query=trends_query, compare_value=Compare.PREVIOUS),
                 "greaterOrEquals(timestamp, minus(toDateTime('2024-05-23 21:59:59.999999'), toIntervalDay(6))), lessOrEquals(timestamp, toDateTime('2024-05-23 21:59:59.999999'))",
             )
 
     def test_date_range_monthly_active_users_math(self):
         self.team.timezone = "Europe/Berlin"
         trends_query = default_query.model_copy(
-            update={"series": [EventsNode(event="$pageview", math=BaseMathType.monthly_active)]}, deep=True
+            update={"series": [EventsNode(event="$pageview", math=BaseMathType.MONTHLY_ACTIVE)]}, deep=True
         )
 
         with freeze_time("2024-05-30T12:00:00.000Z"):
@@ -283,7 +368,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
         self.team.timezone = "Europe/Berlin"
         trends_query = default_query.model_copy(
             update={
-                "series": [EventsNode(event="$pageview", math=BaseMathType.monthly_active)],
+                "series": [EventsNode(event="$pageview", math=BaseMathType.MONTHLY_ACTIVE)],
                 "dateRange": InsightDateRange(
                     date_from="2024-05-08T14:29:13.634000Z", date_to="2024-05-08T14:32:57.692000Z", explicitDate=True
                 ),

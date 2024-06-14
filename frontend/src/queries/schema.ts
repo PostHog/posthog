@@ -203,6 +203,7 @@ export interface HogQLQueryModifiers {
     debug?: boolean
     s3TableUseInvalidColumns?: boolean
     personsJoinMode?: 'inner' | 'left'
+    bounceRatePageViewMode?: 'count_pageviews' | 'uniq_urls'
 }
 
 export interface DataWarehouseEventsModifier {
@@ -229,7 +230,8 @@ export interface HogQLQueryResponse extends AnalyticsQueryResponseBase<any[]> {
     limit?: integer
     offset?: integer
 }
-export type CachedHogQLQueryResponse = HogQLQueryResponse & CachedQueryResponseMixin
+
+export type CachedHogQLQueryResponse = CachedQueryResponse<HogQLQueryResponse>
 
 /** Filters object that will be converted to a HogQL {filters} placeholder */
 export interface HogQLFilters {
@@ -251,6 +253,7 @@ export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
 export interface HogQueryResponse {
     results: any
     bytecode?: any[]
+    coloredBytecode?: any[]
     stdout?: string
 }
 
@@ -426,7 +429,8 @@ export interface EventsQueryResponse extends AnalyticsQueryResponseBase<any[][]>
     limit?: integer
     offset?: integer
 }
-export type CachedEventsQueryResponse = EventsQueryResponse & CachedQueryResponseMixin
+
+export type CachedEventsQueryResponse = CachedQueryResponse<EventsQueryResponse>
 
 export interface EventsQueryPersonColumn {
     uuid: string
@@ -675,8 +679,6 @@ export type TrendsFilterLegacy = Omit<
 export type TrendsFilter = {
     /** @default 1 */
     smoothingIntervals?: integer
-    /** @default false */
-    compare?: TrendsFilterLegacy['compare']
     formula?: TrendsFilterLegacy['formula']
     /** @default ActionsLineGraph */
     display?: TrendsFilterLegacy['display']
@@ -696,8 +698,25 @@ export type TrendsFilter = {
     hidden_legend_indexes?: TrendsFilterLegacy['hidden_legend_indexes']
 }
 
+export const TRENDS_FILTER_PROPERTIES = new Set([
+    'smoothingIntervals',
+    'formula',
+    'display',
+    'showLegend',
+    'breakdown_histogram_bin_count',
+    'aggregationAxisFormat',
+    'aggregationAxisPrefix',
+    'aggregationAxisPostfix',
+    'decimalPlaces',
+    'showValuesOnSeries',
+    'showLabelsOnSeries',
+    'showPercentStackView',
+    'hidden_legend_indexes',
+])
+
 export interface TrendsQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}
-export type CachedTrendsQueryResponse = TrendsQueryResponse & CachedQueryResponseMixin
+
+export type CachedTrendsQueryResponse = CachedQueryResponse<TrendsQueryResponse>
 
 export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     kind: NodeKind.TrendsQuery
@@ -713,6 +732,8 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     trendsFilter?: TrendsFilter
     /** Breakdown of the events and actions */
     breakdownFilter?: BreakdownFilter
+    /** Compare to date range */
+    compareFilter?: CompareFilter
 }
 
 /** `FunnelsFilterType` minus everything inherited from `FilterType` and persons modal related params
@@ -789,7 +810,8 @@ export interface FunnelsQueryResponse
     extends AnalyticsQueryResponseBase<
         FunnelStepsResults | FunnelStepsBreakdownResults | FunnelTimeToConvertResults | FunnelTrendsResults
     > {}
-export type CachedFunnelsQueryResponse = FunnelsQueryResponse & CachedQueryResponseMixin
+
+export type CachedFunnelsQueryResponse = CachedQueryResponse<FunnelsQueryResponse>
 
 /** `RetentionFilterType` minus everything inherited from `FilterType` */
 export type RetentionFilterLegacy = Omit<RetentionFilterType, keyof FilterType>
@@ -818,7 +840,8 @@ export interface RetentionResult {
 }
 
 export interface RetentionQueryResponse extends AnalyticsQueryResponseBase<RetentionResult[]> {}
-export type CachedRetentionQueryResponse = RetentionQueryResponse & CachedQueryResponseMixin
+
+export type CachedRetentionQueryResponse = CachedQueryResponse<RetentionQueryResponse>
 
 export interface RetentionQuery extends InsightsQueryBase<RetentionQueryResponse> {
     kind: NodeKind.RetentionQuery
@@ -827,7 +850,8 @@ export interface RetentionQuery extends InsightsQueryBase<RetentionQueryResponse
 }
 
 export interface PathsQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}
-export type CachedPathsQueryResponse = PathsQueryResponse & CachedQueryResponseMixin
+
+export type CachedPathsQueryResponse = CachedQueryResponse<PathsQueryResponse>
 
 /** `PathsFilterType` minus everything inherited from `FilterType` and persons modal related params */
 export type PathsFilterLegacy = Omit<
@@ -889,8 +913,17 @@ export type StickinessFilter = {
     hidden_legend_indexes?: StickinessFilterLegacy['hidden_legend_indexes']
 }
 
+export const STICKINESS_FILTER_PROPERTIES = new Set([
+    'compare',
+    'display',
+    'showLegend',
+    'showValuesOnSeries',
+    'hidden_legend_indexes',
+])
+
 export interface StickinessQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}
-export type CachedStickinessQueryResponse = StickinessQueryResponse & CachedQueryResponseMixin
+
+export type CachedStickinessQueryResponse = CachedQueryResponse<StickinessQueryResponse>
 
 export interface StickinessQuery
     extends Omit<InsightsQueryBase<StickinessQueryResponse>, 'aggregation_group_type_index'> {
@@ -904,6 +937,8 @@ export interface StickinessQuery
     series: AnyEntityNode[]
     /** Properties specific to the stickiness insight */
     stickinessFilter?: StickinessFilter
+    /** Compare to date range */
+    compareFilter?: CompareFilter
 }
 
 /** `LifecycleFilterType` minus everything inherited from `FilterType` */
@@ -919,17 +954,27 @@ export type LifecycleFilter = {
     showLegend?: LifecycleFilterLegacy['show_legend']
 }
 
+export type RefreshType =
+    | boolean
+    | 'async'
+    | 'blocking'
+    | 'force_async'
+    | 'force_blocking'
+    | 'force_cache'
+    | 'lazy_async'
+
 export interface QueryRequest {
     /** Client provided query ID. Can be used to retrieve the status or cancel the query. */
     client_query_id?: string
-    refresh?: boolean
     /**
      * (Experimental)
      * Whether to run the query asynchronously. Defaults to False.
      * If True, the `id` of the query can be used to check the status and to cancel it.
      * @example true
+     * @deprecated Use `refresh` instead.
      */
     async?: boolean
+    refresh?: RefreshType
     /**
      * Submit a JSON string representing a query for PostHog data analysis,
      * for example a HogQL query.
@@ -966,19 +1011,32 @@ export interface AnalyticsQueryResponseBase<T> {
 
 interface CachedQueryResponseMixin {
     is_cached: boolean
+    /**  @format date-time */
     last_refresh: string
+    /**  @format date-time */
     next_allowed_client_refresh: string
     cache_key: string
     timezone: string
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus
+}
+
+type CachedQueryResponse<T> = T & CachedQueryResponseMixin
+
+export type GenericCachedQueryResponse = CachedQueryResponse<Record<string, any>>
+
+export interface QueryStatusResponse {
+    query_status: QueryStatus
 }
 
 /** @deprecated Only exported for use in test_query_runner.py! Don't use anywhere else. */
 export interface TestBasicQueryResponse extends AnalyticsQueryResponseBase<any[]> {}
 /** @deprecated Only exported for use in test_query_runner.py! Don't use anywhere else. */
-export type TestCachedBasicQueryResponse = TestBasicQueryResponse & CachedQueryResponseMixin
+export type TestCachedBasicQueryResponse = CachedQueryResponse<TestBasicQueryResponse>
 
 export interface CacheMissResponse {
     cache_key: string | null
+    query_status?: QueryStatus
 }
 
 export type ClickhouseQueryProgress = {
@@ -1015,7 +1073,8 @@ export type QueryStatus = {
 }
 
 export interface LifecycleQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}
-export type CachedLifecycleQueryResponse = LifecycleQueryResponse & CachedQueryResponseMixin
+
+export type CachedLifecycleQueryResponse = CachedQueryResponse<LifecycleQueryResponse>
 
 export interface LifecycleQuery extends InsightsQueryBase<LifecycleQueryResponse> {
     kind: NodeKind.LifecycleQuery
@@ -1039,7 +1098,8 @@ export interface ActorsQueryResponse extends AnalyticsQueryResponseBase<any[][]>
     offset: integer
     missing_actors_count?: integer
 }
-export type CachedActorsQueryResponse = ActorsQueryResponse & CachedQueryResponseMixin
+
+export type CachedActorsQueryResponse = CachedQueryResponse<ActorsQueryResponse>
 
 export interface ActorsQuery extends DataNode<ActorsQueryResponse> {
     kind: NodeKind.ActorsQuery
@@ -1066,7 +1126,8 @@ export interface TimelineEntry {
 export interface SessionsTimelineQueryResponse extends AnalyticsQueryResponseBase<TimelineEntry[]> {
     hasMore?: boolean
 }
-export type CachedSessionsTimelineQueryResponse = SessionsTimelineQueryResponse & CachedQueryResponseMixin
+
+export type CachedSessionsTimelineQueryResponse = CachedQueryResponse<SessionsTimelineQueryResponse>
 
 export interface SessionsTimelineQuery extends DataNode<SessionsTimelineQueryResponse> {
     kind: NodeKind.SessionsTimelineQuery
@@ -1114,7 +1175,8 @@ export interface WebOverviewQueryResponse extends AnalyticsQueryResponseBase<Web
     dateFrom?: string
     dateTo?: string
 }
-export type CachedWebOverviewQueryResponse = WebOverviewQueryResponse & CachedQueryResponseMixin
+
+export type CachedWebOverviewQueryResponse = CachedQueryResponse<WebOverviewQueryResponse>
 
 export interface WebTopClicksQuery extends WebAnalyticsQueryBase<WebTopClicksQueryResponse> {
     kind: NodeKind.WebTopClicksQuery
@@ -1124,7 +1186,8 @@ export interface WebTopClicksQueryResponse extends AnalyticsQueryResponseBase<un
     columns?: unknown[]
     samplingRate?: SamplingRate
 }
-export type CachedWebTopClicksQueryResponse = WebTopClicksQueryResponse & CachedQueryResponseMixin
+
+export type CachedWebTopClicksQueryResponse = CachedQueryResponse<WebTopClicksQueryResponse>
 
 export enum WebStatsBreakdown {
     Page = 'Page',
@@ -1161,7 +1224,8 @@ export interface WebStatsTableQueryResponse extends AnalyticsQueryResponseBase<u
     limit?: integer
     offset?: integer
 }
-export type CachedWebStatsTableQueryResponse = WebStatsTableQueryResponse & CachedQueryResponseMixin
+
+export type CachedWebStatsTableQueryResponse = CachedQueryResponse<WebStatsTableQueryResponse>
 
 export type InsightQueryNode =
     | TrendsQuery
@@ -1324,7 +1388,7 @@ export const insightActorsQueryOptionsResponseKeys: string[] = [
     'compare',
 ]
 
-export type CachedInsightActorsQueryOptionsResponse = InsightActorsQueryOptionsResponse & CachedQueryResponseMixin
+export type CachedInsightActorsQueryOptionsResponse = CachedQueryResponse<InsightActorsQueryOptionsResponse>
 
 export interface InsightActorsQueryOptions extends Node<InsightActorsQueryOptionsResponse> {
     kind: NodeKind.InsightActorsQueryOptions
@@ -1497,6 +1561,11 @@ export interface BreakdownFilter {
     breakdown_group_type_index?: integer | null
     breakdown_histogram_bin_count?: integer // trends breakdown histogram bin
     breakdown_hide_other_aggregation?: boolean | null // hides the "other" field for trends
+}
+
+export interface CompareFilter {
+    compare?: boolean
+    compare_to?: string
 }
 
 // TODO: Rename to `DashboardFilters` for consistency with `HogQLFilters`

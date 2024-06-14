@@ -296,7 +296,7 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
                 "filters_count",
                 op.STRING,
                 "properties",
-                op.FIELD,
+                op.GET_GLOBAL,
                 2,
                 op.CALL,
                 "toInt",
@@ -307,7 +307,7 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
                 "insight viewed",
                 op.STRING,
                 "event",
-                op.FIELD,
+                op.GET_GLOBAL,
                 1,
                 op.EQ,
                 # and

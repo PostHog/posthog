@@ -19,6 +19,7 @@ export function OrganizationEmailPreferences(): JSX.Element {
             checked={!!currentOrganization?.is_member_join_email_enabled}
             disabled={isRestricted || !currentOrganization}
             label="Email all current members when a new member joins"
+            disabledReason={isRestricted ? 'You need to be an admin or owner to change this setting.' : undefined}
             bordered
         />
     )

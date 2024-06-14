@@ -30,9 +30,14 @@ class Declaration(AST):
 
 @dataclass(kw_only=True)
 class VariableAssignment(Declaration):
+    left: Expr
+    right: Expr
+
+
+@dataclass(kw_only=True)
+class VariableDeclaration(Declaration):
     name: str
     expr: Optional[Expr] = None
-    is_declaration: bool
 
 
 @dataclass(kw_only=True)
@@ -42,7 +47,7 @@ class Statement(Declaration):
 
 @dataclass(kw_only=True)
 class ExprStatement(Statement):
-    expr: Expr
+    expr: Optional[Expr]
 
 
 @dataclass(kw_only=True)
@@ -60,6 +65,14 @@ class IfStatement(Statement):
 @dataclass(kw_only=True)
 class WhileStatement(Statement):
     expr: Expr
+    body: Statement
+
+
+@dataclass(kw_only=True)
+class ForStatement(Statement):
+    initializer: Optional[VariableDeclaration | VariableAssignment | Expr]
+    condition: Optional[Expr]
+    increment: Optional[Expr]
     body: Statement
 
 
@@ -495,6 +508,9 @@ class UnresolvedFieldType(Type):
     def has_child(self, name: str | int, context: HogQLContext) -> bool:
         return False
 
+    def resolve_constant_type(self, context: HogQLContext) -> ConstantType:
+        return UnknownType()
+
 
 @dataclass(kw_only=True)
 class PropertyType(Type):
@@ -709,6 +725,7 @@ class WindowExpr(Expr):
 class WindowFunction(Expr):
     name: str
     args: Optional[list[Expr]] = None
+    exprs: Optional[list[Expr]] = None
     over_expr: Optional[WindowExpr] = None
     over_identifier: Optional[str] = None
 

@@ -27,7 +27,6 @@ from posthog.temporal.batch_exports.batch_exports import (
     StartBatchExportRunInputs,
     default_fields,
     execute_batch_export_insert_activity,
-    finish_batch_export_run,
     get_data_interval,
     iter_records,
     start_batch_export_run,
@@ -46,7 +45,7 @@ from posthog.temporal.batch_exports.temporary_file import (
 )
 from posthog.temporal.batch_exports.utils import peek_first_and_rewind, try_set_batch_export_run_to_running
 from posthog.temporal.common.clickhouse import get_client
-from posthog.temporal.common.heartbeat import Heartbeatter
+from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 
 
@@ -342,6 +341,7 @@ class S3InsertInputs:
     # TODO: In Python 3.11, this could be a enum.StrEnum.
     file_format: str = "JSONLines"
     run_id: str | None = None
+    is_backfill: bool = False
 
 
 async def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tuple[S3MultiPartUpload, str]:
@@ -435,34 +435,40 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
         get_s3_key(inputs),
     )
 
-    await try_set_batch_export_run_to_running(run_id=inputs.run_id, logger=logger)
+    async with Heartbeater() as heartbeater:
+        await try_set_batch_export_run_to_running(run_id=inputs.run_id, logger=logger)
 
-    async with get_client(team_id=inputs.team_id) as client:
-        if not await client.is_alive():
-            raise ConnectionError("Cannot establish connection to ClickHouse")
+        async with get_client(team_id=inputs.team_id) as client:
+            if not await client.is_alive():
+                raise ConnectionError("Cannot establish connection to ClickHouse")
 
-        s3_upload, interval_start = await initialize_and_resume_multipart_upload(inputs)
+            s3_upload, interval_start = await initialize_and_resume_multipart_upload(inputs)
 
-        if inputs.batch_export_schema is None:
-            fields = s3_default_fields()
-            query_parameters = None
+            if inputs.batch_export_schema is None:
+                fields = s3_default_fields()
+                query_parameters = None
 
-        else:
-            fields = inputs.batch_export_schema["fields"]
-            query_parameters = inputs.batch_export_schema["values"]
+            else:
+                fields = inputs.batch_export_schema["fields"]
+                query_parameters = inputs.batch_export_schema["values"]
 
-        record_iterator = iter_records(
-            client=client,
-            team_id=inputs.team_id,
-            interval_start=interval_start,
-            interval_end=inputs.data_interval_end,
-            exclude_events=inputs.exclude_events,
-            include_events=inputs.include_events,
-            fields=fields,
-            extra_query_parameters=query_parameters,
-        )
+            record_iterator = iter_records(
+                client=client,
+                team_id=inputs.team_id,
+                interval_start=interval_start,
+                interval_end=inputs.data_interval_end,
+                exclude_events=inputs.exclude_events,
+                include_events=inputs.include_events,
+                fields=fields,
+                extra_query_parameters=query_parameters,
+                is_backfill=inputs.is_backfill,
+            )
 
-        async with Heartbeatter() as heartbeatter:
+            first_record_batch, record_iterator = peek_first_and_rewind(record_iterator)
+
+            if first_record_batch is None:
+                return 0
+
             async with s3_upload as s3_upload:
 
                 async def flush_to_s3(
@@ -484,9 +490,8 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
                     rows_exported.add(records_since_last_flush)
                     bytes_exported.add(bytes_since_last_flush)
 
-                    heartbeatter.details = (str(last_inserted_at), s3_upload.to_state())
+                    heartbeater.details = (str(last_inserted_at), s3_upload.to_state())
 
-                first_record_batch, record_iterator = peek_first_and_rewind(record_iterator)
                 first_record_batch = cast_record_batch_json_columns(first_record_batch)
                 column_names = first_record_batch.column_names
                 column_names.pop(column_names.index("_inserted_at"))
@@ -518,7 +523,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
 
                 await s3_upload.complete()
 
-        return writer.records_total
+            return writer.records_total
 
 
 def get_batch_export_writer(
@@ -630,8 +635,9 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             data_interval_end=data_interval_end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
+            is_backfill=inputs.is_backfill,
         )
-        run_id, records_total_count = await workflow.execute_activity(
+        run_id = await workflow.execute_activity(
             start_batch_export_run,
             start_batch_export_run_inputs,
             start_to_close_timeout=dt.timedelta(minutes=5),
@@ -649,20 +655,6 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             status=BatchExportRun.Status.COMPLETED,
             team_id=inputs.team_id,
         )
-
-        if records_total_count == 0:
-            await workflow.execute_activity(
-                finish_batch_export_run,
-                finish_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=5),
-                retry_policy=RetryPolicy(
-                    initial_interval=dt.timedelta(seconds=10),
-                    maximum_interval=dt.timedelta(seconds=60),
-                    maximum_attempts=0,
-                    non_retryable_error_types=["NotNullViolation", "IntegrityError"],
-                ),
-            )
-            return
 
         insert_inputs = S3InsertInputs(
             bucket_name=inputs.bucket_name,
@@ -682,6 +674,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             batch_export_schema=inputs.batch_export_schema,
             file_format=inputs.file_format,
             run_id=run_id,
+            is_backfill=inputs.is_backfill,
         )
 
         await execute_batch_export_insert_activity(

@@ -44,9 +44,9 @@ class FunnelUnordered(FunnelBase):
                 raise ValidationError("Partial Exclusions not allowed in unordered funnels")
 
         if self.context.breakdown and self.context.breakdownType in [
-            BreakdownType.person,
-            BreakdownType.event,
-            BreakdownType.group,
+            BreakdownType.PERSON,
+            BreakdownType.EVENT,
+            BreakdownType.GROUP,
         ]:
             return self._breakdown_other_subquery()
 
@@ -132,7 +132,7 @@ class FunnelUnordered(FunnelBase):
         for i in range(1, max_steps):
             exprs.append(
                 parse_expr(
-                    f"if(isNotNull(conversion_times[{i+1}]) AND conversion_times[{i+1}] <= toTimeZone(conversion_times[{i}], 'UTC') + INTERVAL {windowInterval} {windowIntervalUnit}, dateDiff('second', conversion_times[{i}], conversion_times[{i+1}]), NULL) step_{i}_conversion_time"
+                    f"if(isNotNull(conversion_times[{i+1}]) AND conversion_times[{i+1}] <= toTimeZone(conversion_times[{i}], 'UTC') + INTERVAL {windowInterval} {windowIntervalUnit}, dateDiff('second', conversion_times[{i}], conversion_times[{i+1}]), NULL) as step_{i}_conversion_time"
                 )
             )
             # array indices in ClickHouse are 1-based :shrug:

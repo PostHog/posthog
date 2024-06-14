@@ -473,7 +473,7 @@ class UserViewSet(
     def hedgehog_config(self, request, **kwargs):
         instance = self.get_object()
         if request.method == "GET":
-            return Response(instance.hedgehog_config)
+            return Response(instance.hedgehog_config or {})
         else:
             instance.hedgehog_config = request.data
             instance.save()

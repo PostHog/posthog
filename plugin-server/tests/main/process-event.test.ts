@@ -209,11 +209,20 @@ test('merge people', async () => {
     const p0 = await createPerson(hub, team, ['person_0'], { $os: 'Microsoft' })
     await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), 1)
 
-    await hub.db.updatePersonDeprecated(p0, { created_at: DateTime.fromISO('2020-01-01T00:00:00Z') })
+    const [_person0, kafkaMessages0] = await hub.db.updatePersonDeprecated(p0, {
+        created_at: DateTime.fromISO('2020-01-01T00:00:00Z'),
+    })
 
     const p1 = await createPerson(hub, team, ['person_1'], { $os: 'Chrome', $browser: 'Chrome' })
     await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), 2)
-    await hub.db.updatePersonDeprecated(p1, { created_at: DateTime.fromISO('2019-07-01T00:00:00Z') })
+    const [_person1, kafkaMessages1] = await hub.db.updatePersonDeprecated(p1, {
+        created_at: DateTime.fromISO('2019-07-01T00:00:00Z'),
+    })
+
+    await hub.db.kafkaProducer.queueMessages({
+        kafkaMessages: [...kafkaMessages0, ...kafkaMessages1],
+        waitForAck: true,
+    })
 
     await processEvent(
         'person_1',
@@ -387,6 +396,7 @@ test('capture new person', async () => {
             properties: personInitialAndUTMProperties({
                 distinct_id: 2,
                 token: team.api_token,
+                x: 123,
                 utm_medium: 'instagram',
                 $current_url: 'https://test.com/pricing',
                 $browser_version: 80,
@@ -395,6 +405,9 @@ test('capture new person', async () => {
                     { tag_name: 'a', nth_child: 1, nth_of_type: 2, attr__class: 'btn btn-sm' },
                     { tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' },
                 ],
+                $set: {
+                    x: 123, // to make sure update happens
+                },
             }),
         } as any as PluginEvent,
         team.id,
@@ -408,6 +421,7 @@ test('capture new person', async () => {
     expect(persons.length).toEqual(1)
     expect(persons[0].version).toEqual(1)
     expectedProps = {
+        x: 123,
         $creator_event_uuid: uuid,
         $initial_browser: 'Chrome',
         $initial_browser_version: '95',
@@ -439,6 +453,7 @@ test('capture new person', async () => {
     expect(JSON.parse(chPeople2[0].properties)).toEqual(expectedProps)
 
     expect(events[1].properties.$set).toEqual({
+        x: 123,
         utm_medium: 'instagram',
         $browser: 'Firefox',
         $browser_version: 80,
@@ -483,6 +498,9 @@ test('capture new person', async () => {
                     { tag_name: 'a', nth_child: 1, nth_of_type: 2, attr__class: 'btn btn-sm' },
                     { tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' },
                 ],
+                $set: {
+                    x: 123, // to make sure update happens
+                },
             }),
         } as any as PluginEvent,
         team.id,
@@ -499,6 +517,7 @@ test('capture new person', async () => {
     expect(persons[0].version).toEqual(1)
 
     expect(events[2].properties.$set).toEqual({
+        x: 123,
         $browser: 'Firefox',
         $current_url: 'https://test.com/pricing',
 

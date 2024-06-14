@@ -1,5 +1,4 @@
 import datetime
-import json
 import os
 from dataclasses import dataclass
 from enum import Enum
@@ -21,7 +20,7 @@ from posthog.models.organization import Organization
 from posthog.models.signals import mutable_receiver
 from posthog.models.team import Team
 from posthog.plugins.access import can_configure_plugins, can_install_plugins
-from posthog.plugins.reload import reload_plugins_on_workers
+from posthog.plugins.reload import populate_plugin_capabilities_on_workers, reload_plugins_on_workers
 from posthog.plugins.site import get_decide_site_apps
 from posthog.plugins.utils import (
     download_plugin_archive,
@@ -30,7 +29,6 @@ from posthog.plugins.utils import (
     load_json_file,
     parse_url,
 )
-from posthog.redis import get_client
 
 from .utils import UUIDModel, sane_repr
 
@@ -131,10 +129,8 @@ class PluginManager(models.Manager):
         plugin = Plugin.objects.create(**kwargs)
         if plugin_json:
             PluginSourceFile.objects.sync_from_plugin_archive(plugin, plugin_json)
-        get_client().publish(
-            "populate-plugin-capabilities",
-            json.dumps({"plugin_id": str(plugin.id)}),
-        )
+
+        populate_plugin_capabilities_on_workers(plugin.id)
         return plugin
 
 
@@ -336,7 +332,7 @@ class PluginSourceFileManager(models.Manager):
             },
         )
         # Save frontend.tsx
-        frontend_tsx_instance: Optional["PluginSourceFile"] = None
+        frontend_tsx_instance: Optional[PluginSourceFile] = None
         if frontend_tsx is not None:
             frontend_tsx_instance, _ = PluginSourceFile.objects.update_or_create(
                 plugin=plugin,
@@ -351,7 +347,7 @@ class PluginSourceFileManager(models.Manager):
         else:
             filenames_to_delete.append("frontend.tsx")
         # Save frontend.tsx
-        site_ts_instance: Optional["PluginSourceFile"] = None
+        site_ts_instance: Optional[PluginSourceFile] = None
         if site_ts is not None:
             site_ts_instance, _ = PluginSourceFile.objects.update_or_create(
                 plugin=plugin,
@@ -366,7 +362,7 @@ class PluginSourceFileManager(models.Manager):
         else:
             filenames_to_delete.append("site.ts")
         # Save index.ts
-        index_ts_instance: Optional["PluginSourceFile"] = None
+        index_ts_instance: Optional[PluginSourceFile] = None
         if index_ts is not None:
             # The original name of the file is not preserved, but this greatly simplifies the rest of the code,
             # and we don't need to model the whole filesystem (at this point)
