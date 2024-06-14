@@ -9,8 +9,7 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql_queries.insights.trends.breakdown_values import BREAKDOWN_OTHER_DISPLAY
-from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
+from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner, BREAKDOWN_OTHER_DISPLAY
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.property_definition import PropertyDefinition
 
@@ -811,7 +810,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             limit_context=LimitContext.QUERY_ASYNC,
         )
 
-        self.assertEqual(mock_sync_execute.call_count, 4)
+        self.assertEqual(mock_sync_execute.call_count, 2)
         for mock_execute_call_args in mock_sync_execute.call_args_list:
             self.assertIn(f" max_execution_time={HOGQL_INCREASED_MAX_EXECUTION_TIME},", mock_execute_call_args[0][0])
 
@@ -981,11 +980,11 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         breakdown_labels = [result["breakdown_value"] for result in response.results]
 
         assert len(response.results) == 4
-        assert breakdown_labels == ["[10.0,17.5]", "[17.5,25.0]", "[25.0,32.5]", "[32.5,40.01]"]
+        assert breakdown_labels == ["[10,17.5]", "[17.5,25]", "[25,32.5]", "[32.5,40.01]"]
 
-        assert response.results[0]["label"] == "[10.0,17.5]"
-        assert response.results[1]["label"] == "[17.5,25.0]"
-        assert response.results[2]["label"] == "[25.0,32.5]"
+        assert response.results[0]["label"] == "[10,17.5]"
+        assert response.results[1]["label"] == "[17.5,25]"
+        assert response.results[2]["label"] == "[25,32.5]"
         assert response.results[3]["label"] == "[32.5,40.01]"
 
         assert response.results[0]["data"] == [0, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1, 0]
@@ -1992,10 +1991,10 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.day is not None
         assert response.series == [InsightActorsQuerySeries(label="$pageview", value=0)]
         assert response.breakdown == [
-            BreakdownItem(label=BREAKDOWN_OTHER_DISPLAY, value="$$_posthog_breakdown_other_$$"),
             BreakdownItem(label="Chrome", value="Chrome"),
             BreakdownItem(label="Firefox", value="Firefox"),
-            BreakdownItem(label="Safari", value="Safari"),
+            BreakdownItem(label="Edge", value="Edge"),
+            BreakdownItem(label=BREAKDOWN_OTHER_DISPLAY, value="$$_posthog_breakdown_other_$$"),
         ]
 
     def test_to_actors_query_options_breakdowns_boolean(self):
@@ -2042,9 +2041,9 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.series == [InsightActorsQuerySeries(label="$pageview", value=0)]
 
         assert response.breakdown == [
-            BreakdownItem(label="[10.0,17.5]", value="[10.0,17.5]"),
-            BreakdownItem(label="[17.5,25.0]", value="[17.5,25.0]"),
-            BreakdownItem(label="[25.0,32.5]", value="[25.0,32.5]"),
+            BreakdownItem(label="[10,17.5]", value="[10,17.5]"),
+            BreakdownItem(label="[17.5,25]", value="[17.5,25]"),
+            BreakdownItem(label="[25,32.5]", value="[25,32.5]"),
             BreakdownItem(label="[32.5,40.01]", value="[32.5,40.01]"),
             BreakdownItem(label='["",""]', value='["",""]'),
         ]
@@ -2105,8 +2104,8 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.breakdown == [
             BreakdownItem(label="Chrome", value="Chrome"),
             BreakdownItem(label="Firefox", value="Firefox"),
-            BreakdownItem(label="Safari", value="Safari"),
             BreakdownItem(label="Edge", value="Edge"),
+            BreakdownItem(label="Safari", value="Safari"),
         ]
 
     def test_to_actors_query_options_bar_value(self):

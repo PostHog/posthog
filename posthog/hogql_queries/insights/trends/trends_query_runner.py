@@ -22,13 +22,13 @@ from posthog.hogql.constants import LimitContext, MAX_SELECT_RETURNED_ROWS, BREA
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
-from posthog.hogql_queries.insights.trends.breakdown_values import (
+from posthog.hogql_queries.insights.trends.display import TrendsDisplay
+from posthog.hogql_queries.insights.trends.breakdown import (
     BREAKDOWN_NULL_DISPLAY,
     BREAKDOWN_NULL_STRING_LABEL,
     BREAKDOWN_OTHER_DISPLAY,
     BREAKDOWN_OTHER_STRING_LABEL,
 )
-from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
 from posthog.hogql_queries.insights.trends.trends_actors_query_builder import TrendsActorsQueryBuilder
 from posthog.hogql_queries.insights.trends.series_with_extras import SeriesWithExtras
@@ -215,60 +215,65 @@ class TrendsQueryRunner(QueryRunner):
             ]
 
         # Breakdowns
-        for series in self.query.series:
-            # TODO: Add support for DataWarehouseNode
-            if isinstance(series, DataWarehouseNode):
-                continue
-
-            # TODO: Work out if we will have issues only getting breakdown values for
-            # the "current" period and not "previous" period for when "compare" is turned on
-            query_date_range = self.query_date_range
-
-            query_builder = TrendsQueryBuilder(
-                trends_query=self.query,
-                team=self.team,
-                query_date_range=query_date_range,
-                series=series,
-                timings=self.timings,
-                modifiers=self.modifiers,
-                limit_context=self.limit_context,
-            )
-
-            breakdown = query_builder._breakdown(is_actors_query=False)
-            if not breakdown.enabled:
-                break
-
-            is_boolean_breakdown = self._is_breakdown_field_boolean()
-            is_histogram_breakdown = breakdown.is_histogram_breakdown
-            breakdown_values: list[str | int]
+        if self.query.breakdownFilter is not None:
             res_breakdown = []
-
-            if is_histogram_breakdown:
-                buckets = breakdown._get_breakdown_histogram_buckets()
-                breakdown_values = [f"[{t[0]},{t[1]}]" for t in buckets]
-                # TODO: append this only if needed
-                breakdown_values.append('["",""]')
+            if self.query.breakdownFilter.breakdown_type == "cohort":
+                assert isinstance(self.query.breakdownFilter.breakdown, list)
+                for value in self.query.breakdownFilter.breakdown:
+                    if value != "all" and str(value) != "0":
+                        res_breakdown.append(
+                            BreakdownItem(label=Cohort.objects.get(pk=int(value), team=self.team).name, value=value)
+                        )
+                    else:
+                        res_breakdown.append(BreakdownItem(label="all users", value="all"))
             else:
-                breakdown_values = breakdown._breakdown_values
+                # TODO: Work out if we will have issues only getting breakdown values for
+                # the "current" period and not "previous" period for when "compare" is turned on
+                query_date_range = self.query_date_range
 
-            for value in breakdown_values:
-                if self.query.breakdownFilter is not None and self.query.breakdownFilter.breakdown_type == "cohort":
-                    is_all = value == "all" or str(value) == "0"
-                    label = "all users" if is_all else Cohort.objects.get(pk=value).name
-                    value = "all" if is_all else value
-                elif value == BREAKDOWN_OTHER_STRING_LABEL:
-                    label = BREAKDOWN_OTHER_DISPLAY
-                elif value == BREAKDOWN_NULL_STRING_LABEL:
-                    label = BREAKDOWN_NULL_DISPLAY
-                elif is_boolean_breakdown:
-                    label = self._convert_boolean(value)
-                else:
-                    label = str(value)
+                query_builder = TrendsQueryBuilder(
+                    trends_query=self.query,
+                    team=self.team,
+                    query_date_range=query_date_range,
+                    series=series,
+                    timings=self.timings,
+                    modifiers=self.modifiers,
+                    limit_context=self.limit_context,
+                )
 
-                item = BreakdownItem(label=label, value=value)
+                query = query_builder.build_query()
 
-                if item not in res_breakdown:
-                    res_breakdown.append(item)
+                breakdown = query_builder._breakdown(is_actors_query=False)
+
+                results = execute_hogql_query(
+                    query_type="TrendsActorsQueryOptions",
+                    query=query,
+                    team=self.team,
+                    # timings=timings,
+                    # modifiers=modifiers,
+                )
+                breakdown_values = [
+                    row[results.columns.index("breakdown_value") if results.columns else 2] for row in results.results
+                ]
+
+                if breakdown.is_histogram_breakdown:
+                    breakdown_values.append('["",""]')
+                is_boolean_breakdown = self._is_breakdown_field_boolean()
+
+                for value in breakdown_values:
+                    if value == BREAKDOWN_OTHER_STRING_LABEL:
+                        label = BREAKDOWN_OTHER_DISPLAY
+                    elif value == BREAKDOWN_NULL_STRING_LABEL:
+                        label = BREAKDOWN_NULL_DISPLAY
+                    elif is_boolean_breakdown:
+                        label = self._convert_boolean(value)
+                    else:
+                        label = str(value)
+
+                    item = BreakdownItem(label=label, value=value)
+
+                    if item not in res_breakdown:
+                        res_breakdown.append(item)
 
         return InsightActorsQueryOptionsResponse(
             series=res_series, breakdown=res_breakdown, day=res_days, compare=res_compare
