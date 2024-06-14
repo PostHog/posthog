@@ -87,11 +87,9 @@ export function SurveyEditQuestionHeader({
 
 export function SurveyEditQuestionGroup({ index, question }: { index: number; question: any }): JSX.Element {
     const { survey, descriptionContentType } = useValues(surveyLogic)
-    const { setDefaultForQuestionType, setSurveyValue } = useActions(surveyLogic)
+    const { setDefaultForQuestionType, setSurveyValue, resetBranchingForQuestion } = useActions(surveyLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
-    const hasBranching =
-        featureFlags[FEATURE_FLAGS.SURVEYS_BRANCHING_LOGIC] &&
-        (question.type === SurveyQuestionType.Rating || question.type === SurveyQuestionType.SingleChoice)
+    const hasBranching = featureFlags[FEATURE_FLAGS.SURVEYS_BRANCHING_LOGIC]
 
     const initialDescriptionContentType = descriptionContentType(index) ?? 'text'
 
@@ -134,6 +132,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                 editingDescription,
                                 editingThankYouMessage
                             )
+                            resetBranchingForQuestion(index)
                         }}
                         options={[
                             {
@@ -201,6 +200,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                         const newQuestions = [...survey.questions]
                                         newQuestions[index] = newQuestion
                                         setSurveyValue('questions', newQuestions)
+                                        resetBranchingForQuestion(index)
                                     }}
                                 />
                             </LemonField>
@@ -212,8 +212,17 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                             label: '1 - 5',
                                             value: 5,
                                         },
-                                        ...(question.display === 'number' ? [{ label: '0 - 10', value: 10 }] : []),
+                                        ...(question.display === 'number'
+                                            ? [{ label: '0 - 10 (Net Promoter Score)', value: 10 }]
+                                            : []),
                                     ]}
+                                    onChange={(val) => {
+                                        const newQuestion = { ...survey.questions[index], scale: val }
+                                        const newQuestions = [...survey.questions]
+                                        newQuestions[index] = newQuestion
+                                        setSurveyValue('questions', newQuestions)
+                                        resetBranchingForQuestion(index)
+                                    }}
                                 />
                             </LemonField>
                         </div>

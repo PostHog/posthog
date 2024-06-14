@@ -2660,6 +2660,11 @@ export interface SurveyQuestionBase {
     descriptionContentType?: SurveyQuestionDescriptionContentType
     optional?: boolean
     buttonText?: string
+    branching?:
+        | NextQuestionBranching
+        | ConfirmationMessageBranching
+        | ResponseBasedBranching
+        | SpecificQuestionBranching
 }
 
 export interface BasicSurveyQuestion extends SurveyQuestionBase {
@@ -2723,7 +2728,7 @@ interface ConfirmationMessageBranching {
 
 interface ResponseBasedBranching {
     type: SurveyQuestionBranchingType.ResponseBased
-    responseValue: Record<string, any>
+    responseValues: Record<string, any>
 }
 
 interface SpecificQuestionBranching {
