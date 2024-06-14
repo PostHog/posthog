@@ -86,6 +86,25 @@ export const STL: Record<string, (args: any[], name: string, timeout: number) =>
         }
         return JSON.stringify(convert(args[0]))
     },
+    base64Encode: (args) => {
+        return Buffer.from(args[0]).toString('base64')
+    },
+    base64Decode: (args) => {
+        return Buffer.from(args[0], 'base64').toString()
+    },
+    tryBase64Decode: (args) => {
+        try {
+            return Buffer.from(args[0], 'base64').toString()
+        } catch (e) {
+            return ''
+        }
+    },
+    encodeURLComponent(args) {
+        return encodeURIComponent(args[0])
+    },
+    decodeURLComponent(args) {
+        return decodeURIComponent(args[0])
+    },
 }
 
 export const ASYNC_STL: Record<string, (args: any[], name: string, timeout: number) => Promise<any>> = {

@@ -107,6 +107,34 @@ def jsonStringify(name: str, args: list[Any], team: Optional["Team"], stdout: Op
     return json.dumps(args[0])
 
 
+def base64Encode(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int) -> str:
+    import base64
+
+    return base64.b64encode(args[0].encode()).decode()
+
+
+def base64Decode(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int) -> str:
+    import base64
+
+    return base64.b64decode(args[0].encode()).decode()
+
+
+def encodeURLComponent(
+    name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int
+) -> str:
+    import urllib.parse
+
+    return urllib.parse.quote(args[0], safe="")
+
+
+def decodeURLComponent(
+    name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int
+) -> str:
+    import urllib.parse
+
+    return urllib.parse.unquote(args[0])
+
+
 STL: dict[str, Callable[[str, list[Any], Optional["Team"], list[str] | None, int], Any]] = {
     "concat": concat,
     "match": match,
@@ -126,4 +154,8 @@ STL: dict[str, Callable[[str, list[Any], Optional["Team"], list[str] | None, int
     "run": run,
     "jsonParse": jsonParse,
     "jsonStringify": jsonStringify,
+    "base64Encode": base64Encode,
+    "base64Decode": base64Decode,
+    "encodeURLComponent": encodeURLComponent,
+    "decodeURLComponent": decodeURLComponent,
 }
