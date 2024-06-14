@@ -1,5 +1,6 @@
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 
+# Based off of https://customer.io/docs/api/track/#operation/entity
 
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="alpha",
