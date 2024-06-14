@@ -16,7 +16,6 @@ if (email == null or email == '') {
     return
 }
 
-
 let fetchPayload := {
   'method': 'POST',
   'headers': {
