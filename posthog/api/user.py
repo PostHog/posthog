@@ -89,7 +89,6 @@ class UserSerializer(serializers.ModelSerializer):
     notification_settings = serializers.DictField(required=False)
     scene_personalisation = ScenePersonalisationBasicSerializer(many=True, read_only=True)
     anonymize_data = ClassicBehaviorBooleanFieldSerializer()
-    email_opt_in = ClassicBehaviorBooleanFieldSerializer()
 
     class Meta:
         model = User

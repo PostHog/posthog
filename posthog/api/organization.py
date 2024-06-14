@@ -10,7 +10,6 @@ from rest_framework.request import Request
 from posthog import settings
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
-from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer
 from posthog.cloud_utils import is_cloud
 from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX, AvailableFeature
 from posthog.event_usage import report_organization_deleted
@@ -70,8 +69,6 @@ class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSeriali
     teams = serializers.SerializerMethodField()
     metadata = serializers.SerializerMethodField()
     member_count = serializers.SerializerMethodField()
-    is_hipaa = ClassicBehaviorBooleanFieldSerializer()
-    never_drop_data = ClassicBehaviorBooleanFieldSerializer()
 
     class Meta:
         model = Organization
