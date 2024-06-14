@@ -215,7 +215,7 @@ class TrendsQueryRunner(QueryRunner):
             ]
 
         # Breakdowns
-        if self.query.breakdownFilter is not None:
+        if self.query.breakdownFilter is not None and self.query.breakdownFilter.breakdown is not None:
             res_breakdown = []
             if self.query.breakdownFilter.breakdown_type == "cohort":
                 assert isinstance(self.query.breakdownFilter.breakdown, list)
