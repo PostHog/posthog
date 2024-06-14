@@ -1,5 +1,5 @@
 import logging
-from typing import Any
+from typing import Any, Optional, Set
 from rest_framework import serializers
 
 from posthog.hogql.bytecode import create_bytecode
@@ -97,10 +97,10 @@ def validate_inputs(inputs_schema: list, inputs: dict) -> dict:
     return validated_inputs
 
 
-def compile_hog(hog: str) -> list[Any]:
+def compile_hog(hog: str, supported_functions: Optional[set[str]] = None) -> list[Any]:
     # Attempt to compile the hog
     try:
         program = parse_program(hog)
-        return create_bytecode(program, supported_functions={"fetch"})
+        return create_bytecode(program, supported_functions=supported_functions or {"fetch"})
     except Exception as e:
         raise serializers.ValidationError({"hog": "Hog code has errors." + str(e)})

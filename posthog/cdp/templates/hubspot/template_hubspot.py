@@ -8,33 +8,50 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Creates a new contact in Hubspot whenever an event is triggered.",
     icon_url="/api/projects/@current/hog_functions/icon/?id=hubspot.com",
     hog="""
-let props := inputs.properties
-let email := inputs.email
+let properties := inputs.properties
+properties.email := inputs.email
 
-if (email == null or email == '') {
+if (empty(properties.email)) {
     print('`email` input is empty. Not creating a contact.')
     return
 }
 
-let fetchPayload := {
-  'method': 'POST',
-  'headers': {
+let body := {
+    'properties': properties
+}
+
+let headers := {
     'Authorization': f'Bearer {inputs.access_token}',
     'Content-Type': 'application/json'
-  },
-  'body': { 'properties': props }
 }
 
-let res := fetch('https://api.hubapi.com/crm/v3/objects/contacts', fetchPayload)
+let res := fetch('https://api.hubapi.com/crm/v3/objects/contacts', {
+  'method': 'POST',
+  'headers': headers,
+  'body': body
+})
 
-if (res.status != 200 or res.body.status == 'error') {
-    if (res.status === 409) {
-        print('Contact already exists. Attempting to update instead...')
-        print(res)
+if (res.status == 409) {
+    let existingId := replace(res.body.message, 'Contact already exists. Existing ID: ', '')
+    let updateRes := fetch(f'https://api.hubapi.com/crm/v3/objects/contacts/{existingId}', {
+        'method': 'PATCH',
+        'headers': headers,
+        'body': body
+    })
+
+    if (updateRes.status != 200 or updateRes.body.status == 'error') {
+        print('Error updating contact:', updateRes.body)
+        return
     }
+    print('Contact updated successfully!')
+    return
+} else if (res.status != 200 or res.body.status == 'error') {
+    print('Error creating contact:', res.body)
+    return
+} else {
+    print('Contact created successfully!')
 }
 
-print("Contact created successfully!")
 
 """.strip(),
     inputs_schema=[
@@ -61,9 +78,8 @@ print("Contact created successfully!")
             "label": "Property mapping",
             "description": "Map any event properties to Hubspot properties.",
             "default": {
+                "name": "{person.properties.name}",
                 "company": "{person.properties.company}",
-                "lastname": "{person.properties.lastname}",
-                "firstname": "{person.properties.firstname}",
                 "phone": "{person.properties.phone}",
                 "website": "{person.properties.website}",
                 "domain": "{person.properties.website}",

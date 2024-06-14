@@ -26,7 +26,7 @@ import { EntityTypes } from '~/types'
 
 import { HogFunctionIconEditable } from './HogFunctionIcon'
 import { HogFunctionInput } from './HogFunctionInputs'
-import { HogFunctionInputsEditor } from './HogFunctionInputsEditor'
+import { HogFunctionInputSchema } from './HogFunctionInputsEditor'
 import { pipelineHogFunctionConfigurationLogic } from './pipelineHogFunctionConfigurationLogic'
 
 export function PipelineHogFunctionConfiguration({
@@ -262,13 +262,64 @@ export function PipelineHogFunctionConfiguration({
                                 </LemonButton>
                             </div>
 
-                            {showSource ? (
-                                <div className="space-y-2">
-                                    <LemonField name="inputs_schema" label="Input variables">
-                                        <HogFunctionInputsEditor />
-                                    </LemonField>
+                            <div className="space-y-2">
+                                {configuration?.inputs_schema?.length ? (
+                                    configuration?.inputs_schema.map((schema, index) => {
+                                        return (
+                                            <div key={index} className="space-y-2">
+                                                <LemonField
+                                                    name={`inputs.${schema.key}`}
+                                                    label={schema.label || schema.key}
+                                                    showOptional={!schema.required}
+                                                    help={schema.description}
+                                                >
+                                                    {({ value, onChange }) => {
+                                                        return (
+                                                            <HogFunctionInput
+                                                                schema={schema}
+                                                                value={value?.value}
+                                                                onChange={(val) => onChange({ value: val })}
+                                                            />
+                                                        )
+                                                    }}
+                                                </LemonField>
+                                                {showSource ? (
+                                                    <LemonField name="inputs_schema">
+                                                        {({ value, onChange }) => {
+                                                            return (
+                                                                <HogFunctionInputSchema
+                                                                    value={schema}
+                                                                    onChange={(val) => {
+                                                                        if (!val) {
+                                                                            onChange(
+                                                                                value.filter(
+                                                                                    (v) => v.key !== schema.key
+                                                                                )
+                                                                            )
+                                                                        } else {
+                                                                            onChange(
+                                                                                value.map((v) =>
+                                                                                    v.key === schema.key ? val : v
+                                                                                )
+                                                                            )
+                                                                        }
+                                                                    }}
+                                                                />
+                                                            )
+                                                        }}
+                                                    </LemonField>
+                                                ) : null}
+                                            </div>
+                                        )
+                                    })
+                                ) : (
+                                    <span className="italic text-muted-alt">
+                                        This function does not require any input variables.
+                                    </span>
+                                )}
 
-                                    <LemonField name="hog" label="Hog code">
+                                {showSource ? (
+                                    <LemonField name="hog" label="Hog source code">
                                         {({ value, onChange }) => (
                                             // TODO: Fix this so we don't have to click "update and run"
                                             <HogQueryEditor
@@ -282,39 +333,8 @@ export function PipelineHogFunctionConfiguration({
                                             />
                                         )}
                                     </LemonField>
-                                </div>
-                            ) : (
-                                <div className="space-y-2">
-                                    {configuration?.inputs_schema?.length ? (
-                                        configuration?.inputs_schema.map((schema) => {
-                                            return (
-                                                <div key={schema.key}>
-                                                    <LemonField
-                                                        name={`inputs.${schema.key}`}
-                                                        label={schema.label || schema.key}
-                                                        showOptional={!schema.required}
-                                                        help={schema.description}
-                                                    >
-                                                        {({ value, onChange }) => {
-                                                            return (
-                                                                <HogFunctionInput
-                                                                    schema={schema}
-                                                                    value={value?.value}
-                                                                    onChange={(val) => onChange({ value: val })}
-                                                                />
-                                                            )
-                                                        }}
-                                                    </LemonField>
-                                                </div>
-                                            )
-                                        })
-                                    ) : (
-                                        <span className="italic text-muted-alt">
-                                            This function does not require any input variables.
-                                        </span>
-                                    )}
-                                </div>
-                            )}
+                                ) : null}
+                            </div>
                         </div>
                         <div className="flex gap-2 justify-end">{saveButtons}</div>
                     </div>
