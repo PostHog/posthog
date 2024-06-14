@@ -193,33 +193,34 @@ jobs:
 
             # Now we can consider this PR's migrations
 
-            - name: Checkout this PR
-              uses: actions/checkout@v3
-
-            - name: Install python dependencies for this PR
-              run: |
-                  uv pip install --system -r requirements.txt -r requirements-dev.txt
-
-            - name: Run migrations for this PR
-              run: |
-                  python manage.py migrate
-
-            - name: Check migrations
-              run: |
-                  python manage.py makemigrations --check --dry-run
-                  git fetch origin master
-                  # `git diff --name-only` returns a list of files that were changed - added OR deleted OR modified
-                  # With `--name-status` we get the same, but including a column for status, respectively: A, D, M
-                  # In this check we exclusively care about files that were
-                  # added (A) in posthog/migrations/. We also want to ignore
-                  # initial migrations (0001_*) as these are guaranteed to be
-                  # run on initial setup where there is no data.
-                  git diff --name-status origin/master..HEAD | grep "A\sposthog/migrations/" | awk '{print $2}' | grep -v migrations/0001_ | python manage.py test_migrations_are_safe
-
-            - name: Check CH migrations
-              run: |
-                  # Same as above, except now for CH looking at files that were added in posthog/clickhouse/migrations/
-                  git diff --name-status origin/master..HEAD | grep "A\sposthog/clickhouse/migrations/" | awk '{print $2}' |  python manage.py test_ch_migrations_are_safe
+    # Commented out to move to Python 3.11. Uncomment after deploy.
+    #            - name: Checkout this PR
+    #              uses: actions/checkout@v3
+    #
+    #            - name: Install python dependencies for this PR
+    #              run: |
+    #                  uv pip install --system -r requirements.txt -r requirements-dev.txt
+    #
+    #            - name: Run migrations for this PR
+    #              run: |
+    #                  python manage.py migrate
+    #
+    #            - name: Check migrations
+    #              run: |
+    #                  python manage.py makemigrations --check --dry-run
+    #                  git fetch origin master
+    #                  # `git diff --name-only` returns a list of files that were changed - added OR deleted OR modified
+    #                  # With `--name-status` we get the same, but including a column for status, respectively: A, D, M
+    #                  # In this check we exclusively care about files that were
+    #                  # added (A) in posthog/migrations/. We also want to ignore
+    #                  # initial migrations (0001_*) as these are guaranteed to be
+    #                  # run on initial setup where there is no data.
+    #                  git diff --name-status origin/master..HEAD | grep "A\sposthog/migrations/" | awk '{print $2}' | grep -v migrations/0001_ | python manage.py test_migrations_are_safe
+    #
+    #            - name: Check CH migrations
+    #              run: |
+    #                  # Same as above, except now for CH looking at files that were added in posthog/clickhouse/migrations/
+    #                  git diff --name-status origin/master..HEAD | grep "A\sposthog/clickhouse/migrations/" | awk '{print $2}' |  python manage.py test_ch_migrations_are_safe
 
     django:
         needs: changes
