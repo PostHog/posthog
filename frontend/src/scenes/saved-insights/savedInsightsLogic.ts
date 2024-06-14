@@ -15,7 +15,7 @@ import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
-import { InsightModel, LayoutView, SavedInsightsTabs } from '~/types'
+import { InsightModel, LayoutView, QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import type { savedInsightsLogicType } from './savedInsightsLogicType'
@@ -73,7 +73,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             merge: boolean = true,
             debounce: boolean = true
         ) => ({ filters, merge, debounce }),
-        updateFavoritedInsight: (insight: InsightModel, favorited: boolean) => ({ insight, favorited }),
+        updateFavoritedInsight: (insight: QueryBasedInsightModel, favorited: boolean) => ({ insight, favorited }),
         renameInsight: (insight: InsightModel) => ({ insight }),
         duplicateInsight: (insight: InsightModel, redirectToInsight = false) => ({
             insight,

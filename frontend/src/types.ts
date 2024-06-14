@@ -2141,8 +2141,9 @@ export interface TrendsFilterType extends FilterType {
     // number of intervals, e.g. for a day interval, we may want to smooth over
     // 7 days to remove weekly variation. Smoothing is performed as a moving average.
     smoothing_intervals?: number
-    compare?: boolean
     formula?: string
+    compare_to?: string
+    compare?: boolean
     /** @deprecated */
     shown_as?: ShownAsValue
     display?: ChartDisplayType
@@ -2161,6 +2162,7 @@ export interface TrendsFilterType extends FilterType {
 }
 
 export interface StickinessFilterType extends FilterType {
+    compare_to?: string
     compare?: boolean
     /** @deprecated */
     shown_as?: ShownAsValue
@@ -4169,6 +4171,7 @@ export type HogFunctionInputSchemaType = {
 
 export type HogFunctionType = {
     id: string
+    icon_url?: string
     name: string
     description: string
     created_by: UserBasicType | null
@@ -4177,8 +4180,8 @@ export type HogFunctionType = {
     enabled: boolean
     hog: string
 
-    inputs_schema: HogFunctionInputSchemaType[]
-    inputs: Record<
+    inputs_schema?: HogFunctionInputSchemaType[]
+    inputs?: Record<
         string,
         {
             value: any
@@ -4191,8 +4194,16 @@ export type HogFunctionType = {
 
 export type HogFunctionTemplateType = Pick<
     HogFunctionType,
-    'id' | 'name' | 'description' | 'hog' | 'inputs_schema' | 'filters'
->
+    'id' | 'name' | 'description' | 'hog' | 'inputs_schema' | 'filters' | 'icon_url'
+> & {
+    status: 'alpha' | 'beta' | 'stable'
+}
+
+export type HogFunctionIconResponse = {
+    id: string
+    name: string
+    url: string
+}
 
 export interface AnomalyCondition {
     absoluteThreshold: {

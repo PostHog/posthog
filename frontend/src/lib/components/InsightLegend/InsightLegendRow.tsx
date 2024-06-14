@@ -27,7 +27,10 @@ export function InsightLegendRow({ rowIndex, item }: InsightLegendRowProps): JSX
 
     const { insightProps, hiddenLegendKeys, highlightedSeries } = useValues(insightLogic)
     const { toggleVisibility } = useActions(insightLogic)
-    const { compare, display, trendsFilter, breakdownFilter, isSingleSeries } = useValues(trendsDataLogic(insightProps))
+    const { display, trendsFilter, compareFilter, breakdownFilter, isSingleSeries } = useValues(
+        trendsDataLogic(insightProps)
+    )
+    const compare = compareFilter && !!compareFilter.compare
 
     const highlighted = shouldHighlightThisRow(hiddenLegendKeys, rowIndex, highlightedSeries)
     const highlightStyle: Record<string, any> = highlighted

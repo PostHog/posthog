@@ -4,8 +4,7 @@ import type { Locator, Page, LocatorScreenshotOptions } from '@playwright/test'
 import type { Mocks } from '~/mocks/utils'
 import { StoryContext } from '@storybook/csf'
 
-
-const DEFAULT_VIEWPORT = { width: 1280, height: 720 };
+const DEFAULT_VIEWPORT = { width: 1280, height: 720 }
 
 // 'firefox' is technically supported too, but as of June 2023 it has memory usage issues that make is unusable
 type SupportedBrowserName = 'chromium' | 'webkit'
@@ -81,10 +80,12 @@ module.exports = {
     async preVisit(page, context) {
         const storyContext = await getStoryContext(page, context)
         const viewport = storyContext.parameters?.testOptions?.viewport || DEFAULT_VIEWPORT
-        await page.setViewportSize(viewport);
-	},
+        await page.setViewportSize(viewport)
+    },
     async postVisit(page, context) {
         ATTEMPT_COUNT_PER_ID[context.id] = (ATTEMPT_COUNT_PER_ID[context.id] || 0) + 1
+        const storyContext = await getStoryContext(page, context)
+        const viewport = storyContext.parameters?.testOptions?.viewport || DEFAULT_VIEWPORT
         await page.evaluate(
             ([retry, id]) => console.log(`[${id}] Attempt ${retry}`),
             [ATTEMPT_COUNT_PER_ID[context.id], context.id]
@@ -93,10 +94,9 @@ module.exports = {
             // When retrying, resize the viewport and then resize again to default,
             // just in case the retry is due to a useResizeObserver fail
             await page.setViewportSize({ width: 1920, height: 1080 })
-            await page.setViewportSize(DEFAULT_VIEWPORT)
+            await page.setViewportSize(viewport)
         }
         const browserContext = page.context()
-        const storyContext = await getStoryContext(page, context)
         const { snapshotBrowsers = ['chromium'] } = storyContext.parameters?.testOptions ?? {}
 
         browserContext.setDefaultTimeout(PLAYWRIGHT_TIMEOUT_MS)
@@ -155,17 +155,16 @@ async function expectStoryToMatchSnapshot(
         await Promise.all(waitForSelector.map((selector) => page.waitForSelector(selector)))
     }
 
-    await page.waitForTimeout(400) // Wait for effects to finish
-
-    // Wait for all images to load
-    await page.waitForFunction(() =>
-        Array.from(document.querySelectorAll('img')).every((i: HTMLImageElement) => i.complete)
-    )
-
     // snapshot light theme
     await page.evaluate(() => {
         document.body.setAttribute('theme', 'light')
     })
+
+    // Wait for all images to load
+    await page.waitForFunction(() => Array.from(document.images).every((i: HTMLImageElement) => i.complete))
+    await waitForPageReady(page)
+    await page.waitForLoadState('networkidle')
+    await page.waitForTimeout(2000)
 
     await check(page, context, browser, 'light', storyContext.parameters?.testOptions?.snapshotTargetSelector)
 
@@ -173,6 +172,12 @@ async function expectStoryToMatchSnapshot(
     await page.evaluate(() => {
         document.body.setAttribute('theme', 'dark')
     })
+
+    // Wait for all images to load
+    await page.waitForFunction(() => Array.from(document.images).every((i: HTMLImageElement) => i.complete))
+    await waitForPageReady(page)
+    await page.waitForLoadState('networkidle')
+    await page.waitForTimeout(100)
 
     await check(page, context, browser, 'dark', storyContext.parameters?.testOptions?.snapshotTargetSelector)
 }

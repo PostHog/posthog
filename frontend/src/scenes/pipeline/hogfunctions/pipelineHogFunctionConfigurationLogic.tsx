@@ -1,3 +1,4 @@
+import { lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
@@ -17,11 +18,21 @@ import {
 } from '~/types'
 
 import type { pipelineHogFunctionConfigurationLogicType } from './pipelineHogFunctionConfigurationLogicType'
-import { HOG_FUNCTION_TEMPLATES } from './templates/hog-templates'
 
 export interface PipelineHogFunctionConfigurationLogicProps {
     templateId?: string
     id?: string
+}
+
+export type HogFunctionConfigurationType = Omit<HogFunctionType, 'created_at' | 'created_by' | 'updated_at'>
+
+const NEW_FUNCTION_TEMPLATE: HogFunctionTemplateType = {
+    id: 'new',
+    name: '',
+    description: '',
+    inputs_schema: [],
+    hog: "print('Hello, world!');",
+    status: 'stable',
 }
 
 function sanitizeFilters(filters?: FilterType): PluginConfigTypeNew['filters'] {
@@ -66,7 +77,10 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
     path((id) => ['scenes', 'pipeline', 'pipelineHogFunctionConfigurationLogic', id]),
     actions({
         setShowSource: (showSource: boolean) => ({ showSource }),
-        resetForm: true,
+        resetForm: (configuration?: HogFunctionConfigurationType) => ({ configuration }),
+        duplicate: true,
+        duplicateFromTemplate: true,
+        resetToTemplate: true,
     }),
     reducers({
         showSource: [
@@ -84,7 +98,14 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
                     if (!props.templateId) {
                         return null
                     }
-                    const res = HOG_FUNCTION_TEMPLATES.find((template) => template.id === props.templateId)
+
+                    if (props.templateId === 'new') {
+                        return {
+                            ...NEW_FUNCTION_TEMPLATE,
+                        }
+                    }
+
+                    const res = await api.hogFunctions.getTemplate(props.templateId)
 
                     if (!res) {
                         throw new Error('Template not found')
@@ -109,40 +130,48 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
     })),
     forms(({ values, props, actions }) => ({
         configuration: {
-            defaults: {} as HogFunctionType,
+            defaults: {} as HogFunctionConfigurationType,
             alwaysShowErrors: true,
             errors: (data) => {
                 return {
-                    name: !data.name ? 'Name is required' : null,
+                    name: !data.name ? 'Name is required' : undefined,
                     ...values.inputFormErrors,
                 }
             },
             submit: async (data) => {
-                const sanitizedInputs = {}
-
-                data.inputs_schema?.forEach((input) => {
-                    if (input.type === 'json' && typeof data.inputs[input.key].value === 'string') {
-                        try {
-                            sanitizedInputs[input.key] = {
-                                value: JSON.parse(data.inputs[input.key].value),
-                            }
-                        } catch (e) {
-                            // Ignore
-                        }
-                    } else {
-                        sanitizedInputs[input.key] = {
-                            value: data.inputs[input.key].value,
-                        }
-                    }
-                })
-
-                const payload = {
-                    ...data,
-                    filters: data.filters ? sanitizeFilters(data.filters) : null,
-                    inputs: sanitizedInputs,
-                }
-
                 try {
+                    const sanitizedInputs = {}
+
+                    data.inputs_schema?.forEach((input) => {
+                        const value = data.inputs?.[input.key]?.value
+
+                        if (input.type === 'json' && typeof value === 'string') {
+                            try {
+                                sanitizedInputs[input.key] = {
+                                    value: JSON.parse(value),
+                                }
+                            } catch (e) {
+                                // Ignore
+                            }
+                        } else {
+                            sanitizedInputs[input.key] = {
+                                value: value,
+                            }
+                        }
+                    })
+
+                    const payload: HogFunctionConfigurationType = {
+                        ...data,
+                        filters: data.filters ? sanitizeFilters(data.filters) : null,
+                        inputs: sanitizedInputs,
+                        icon_url: data.icon_url?.replace('&temp=true', ''), // Remove temp=true so it doesn't try and suggest new options next time
+                    }
+
+                    if (props.templateId) {
+                        // Only sent on create
+                        ;(payload as any).template_id = props.templateId
+                    }
+
                     if (!props.id) {
                         return await api.hogFunctions.create(payload)
                     }
@@ -161,7 +190,11 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
                                 [maybeValidationError.attr]: maybeValidationError.detail,
                             })
                         }
+                    } else {
+                        console.error(e)
+                        lemonToast.error('Error submitting configuration')
                     }
+
                     throw e
                 }
             },
@@ -204,13 +237,29 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
     })),
 
     listeners(({ actions, values, cache, props }) => ({
-        loadTemplateSuccess: () => actions.resetForm(),
-        loadHogFunctionSuccess: () => actions.resetForm(),
-        resetForm: () => {
-            const savedValue = values.hogFunction ?? values.template
+        loadTemplateSuccess: ({ template }) => {
+            // Fill defaults from template
+            const inputs = {}
+
+            template!.inputs_schema?.forEach((schema) => {
+                if (schema.default) {
+                    inputs[schema.key] = { value: schema.default }
+                }
+            })
+
+            actions.resetForm({
+                ...template!,
+                inputs,
+                enabled: false,
+            })
+        },
+        loadHogFunctionSuccess: ({ hogFunction }) => actions.resetForm(hogFunction!),
+
+        resetForm: ({ configuration }) => {
+            const savedValue = configuration
             actions.resetConfiguration({
                 ...savedValue,
-                inputs: (savedValue as any)?.inputs ?? {},
+                inputs: savedValue?.inputs ?? {},
                 ...(cache.configFromUrl || {}),
             })
         },
@@ -224,6 +273,44 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
                         PipelineNodeTab.Configuration
                     )
                 )
+            }
+        },
+
+        duplicate: async () => {
+            if (values.hogFunction) {
+                const newConfig = {
+                    ...values.configuration,
+                    name: `${values.configuration.name} (copy)`,
+                }
+                router.actions.push(
+                    urls.pipelineNodeNew(PipelineStage.Destination, `hog-template-helloworld`),
+                    undefined,
+                    {
+                        configuration: newConfig,
+                    }
+                )
+            }
+        },
+        duplicateFromTemplate: async () => {
+            if (values.hogFunction?.template) {
+                const newConfig = {
+                    ...values.hogFunction.template,
+                }
+                router.actions.push(
+                    urls.pipelineNodeNew(PipelineStage.Destination, `hog-${values.hogFunction.template.id}`),
+                    undefined,
+                    {
+                        configuration: newConfig,
+                    }
+                )
+            }
+        },
+        resetToTemplate: async () => {
+            if (values.hogFunction?.template) {
+                actions.resetForm({
+                    ...values.hogFunction.template,
+                    enabled: false,
+                })
             }
         },
     })),

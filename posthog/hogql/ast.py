@@ -69,6 +69,14 @@ class WhileStatement(Statement):
 
 
 @dataclass(kw_only=True)
+class ForStatement(Statement):
+    initializer: Optional[VariableDeclaration | VariableAssignment | Expr]
+    condition: Optional[Expr]
+    increment: Optional[Expr]
+    body: Statement
+
+
+@dataclass(kw_only=True)
 class Function(Statement):
     name: str
     params: list[str]
