@@ -125,9 +125,7 @@ function useInsightMocks(interval: string = 'day', timezone: string = 'UTC'): vo
         result: {},
         id: MOCK_INSIGHT_NUMERIC_ID,
         short_id: MOCK_INSIGHT_SHORT_ID,
-        filters: {
-            interval,
-        },
+        filters: { insight: 'TRENDS', interval },
         timezone,
     }
     useMocks({
