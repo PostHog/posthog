@@ -23,7 +23,6 @@ import {
     HogFunctionInvocationAsyncResponse,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationResult,
-    HogFunctionLogEntry,
     HogFunctionMessageToQueue,
 } from './types'
 import { convertToHogFunctionInvocationGlobals } from './utils'
