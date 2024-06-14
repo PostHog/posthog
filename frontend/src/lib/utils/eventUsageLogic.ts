@@ -588,7 +588,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             })
         },
         reportInsightViewed: ({ insightModel, query, isFirstLoad, delay }) => {
-            // console.debug('reportInsightViewed', query, isFirstLoad, delay)
             const payload: Record<string, string | number | boolean | undefined> = {
                 report_delay: delay,
                 is_first_component_load: isFirstLoad,
@@ -637,9 +636,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 payload.funnel_viz_type = isFunnelsQuery(query) ? query.funnelsFilter?.funnelVizType : undefined
                 payload.funnel_order_type = isFunnelsQuery(query) ? query.funnelsFilter?.funnelOrderType : undefined
             }
+
             const eventName = delay ? 'insight analyzed' : 'insight viewed'
-            // // posthog.capture(eventName, payload)
-            console.debug('capture', eventName, objectClean(payload))
+            posthog.capture(eventName, objectClean(payload))
         },
         reportPersonsModalViewed: async ({ params }) => {
             posthog.capture('insight person modal viewed', params)
