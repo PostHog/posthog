@@ -57,7 +57,7 @@ class TestTemplateHubspot(BaseHogFunctionTemplateTest):
                 else {"status": 200, "body": {"status": "success"}}
             )
 
-        self.mock_fetch_response = mock_fetch
+        self.mock_fetch_response = mock_fetch  # type: ignore
 
         res = self.run_function(inputs=self._inputs())
 
