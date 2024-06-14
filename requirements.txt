@@ -687,6 +687,8 @@ xmlsec==1.3.14
     #   -r requirements.in
     #   python3-saml
 yarl==1.9.4
-    # via aiohttp
+    # via
+    #   -r requirements.in
+    #   aiohttp
 zxcvbn==4.4.28
     # via -r requirements.in
