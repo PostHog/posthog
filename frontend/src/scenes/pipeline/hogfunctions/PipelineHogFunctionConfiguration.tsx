@@ -10,23 +10,21 @@ import {
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { CodeEditorResizeable } from 'lib/components/CodeEditors'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { HogQueryEditor } from 'scenes/debug/HogDebug'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import { groupsModel } from '~/models/groupsModel'
-import { NodeKind } from '~/queries/schema'
 import { EntityTypes } from '~/types'
 
 import { HogFunctionIconEditable } from './HogFunctionIcon'
 import { HogFunctionInput } from './HogFunctionInputs'
-import { HogFunctionInputSchema } from './HogFunctionInputsEditor'
 import { pipelineHogFunctionConfigurationLogic } from './pipelineHogFunctionConfigurationLogic'
 
 export function PipelineHogFunctionConfiguration({
@@ -258,7 +256,7 @@ export function PipelineHogFunctionConfiguration({
                                 <h4 className="m-0">Function configuration</h4>
 
                                 <LemonButton size="small" type="secondary" onClick={() => setShowSource(!showSource)}>
-                                    {showSource ? 'Hide source code' : 'Show source code'}
+                                    {showSource ? 'Hide advanced configuration' : 'Advanced Configuration'}
                                 </LemonButton>
                             </div>
 
@@ -283,32 +281,6 @@ export function PipelineHogFunctionConfiguration({
                                                         )
                                                     }}
                                                 </LemonField>
-                                                {showSource ? (
-                                                    <LemonField name="inputs_schema">
-                                                        {({ value, onChange }) => {
-                                                            return (
-                                                                <HogFunctionInputSchema
-                                                                    value={schema}
-                                                                    onChange={(val) => {
-                                                                        if (!val) {
-                                                                            onChange(
-                                                                                value.filter(
-                                                                                    (v) => v.key !== schema.key
-                                                                                )
-                                                                            )
-                                                                        } else {
-                                                                            onChange(
-                                                                                value.map((v) =>
-                                                                                    v.key === schema.key ? val : v
-                                                                                )
-                                                                            )
-                                                                        }
-                                                                    }}
-                                                                />
-                                                            )
-                                                        }}
-                                                    </LemonField>
-                                                ) : null}
                                             </div>
                                         )
                                     })
@@ -321,14 +293,22 @@ export function PipelineHogFunctionConfiguration({
                                 {showSource ? (
                                     <LemonField name="hog" label="Hog source code">
                                         {({ value, onChange }) => (
-                                            // TODO: Fix this so we don't have to click "update and run"
-                                            <HogQueryEditor
-                                                query={{
-                                                    kind: NodeKind.HogQuery,
-                                                    code: value ?? '',
-                                                }}
-                                                setQuery={(q) => {
-                                                    onChange(q.code)
+                                            <CodeEditorResizeable
+                                                language="rust"
+                                                value={value ?? ''}
+                                                onChange={(v) => onChange(v ?? '')}
+                                                options={{
+                                                    minimap: {
+                                                        enabled: false,
+                                                    },
+                                                    wordWrap: 'on',
+                                                    scrollBeyondLastLine: false,
+                                                    automaticLayout: true,
+                                                    fixedOverflowWidgets: true,
+                                                    suggest: {
+                                                        showInlineDetails: true,
+                                                    },
+                                                    quickSuggestionsDelay: 300,
                                                 }}
                                             />
                                         )}
