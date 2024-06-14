@@ -3,7 +3,7 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 # NOTE: Slack template is essentially just a webhook template with limited options
 
 template: HogFunctionTemplate = HogFunctionTemplate(
-    status="alpha",
+    status="beta",
     id="template-slack",
     name="Slack webhook",
     description="Sends a webhook templated by the incoming event data",
