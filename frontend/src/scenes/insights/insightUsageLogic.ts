@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, listeners, path, props } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
@@ -32,9 +32,18 @@ export const insightUsageLogic = kea<insightUsageLogicType>([
             query,
             previousQuery,
         }),
+        setNotFirstLoad: true,
+    }),
+    reducers({
+        isFirstLoad: [
+            true,
+            {
+                setNotFirstLoad: () => false,
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
-        onQueryChange: async ({ query, previousQuery }, breakpoint) => {
+        onQueryChange: async ({ query }, breakpoint) => {
             // debounce to avoid noisy events from the query changing multiple times
             await breakpoint(IS_TEST_MODE ? 1 : 500)
 
@@ -47,13 +56,13 @@ export const insightUsageLogic = kea<insightUsageLogicType>([
                 return
             }
 
-            actions.reportInsightViewed(values.queryBasedInsight, query, true, 0)
-            //     actions.setNotFirstLoad()
+            actions.reportInsightViewed(values.queryBasedInsight, query, values.isFirstLoad, 0)
+            actions.setNotFirstLoad()
 
             // record a second view after 10 seconds
             await breakpoint(IS_TEST_MODE ? 1 : 10000)
 
-            actions.reportInsightViewed(values.queryBasedInsight, query, true, 10)
+            actions.reportInsightViewed(values.queryBasedInsight, query, values.isFirstLoad, 10)
         },
     })),
     subscriptions(({ actions }) => ({
