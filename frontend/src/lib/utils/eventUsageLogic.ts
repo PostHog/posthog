@@ -14,7 +14,14 @@ import { userLogic } from 'scenes/userLogic'
 
 import { getBreakdown, getDisplay, getFormula, getInterval, getSeries } from '~/queries/nodes/InsightViz/utils'
 import { InsightQueryNode, Node } from '~/queries/schema'
-import { isActionsNode, isDataWarehouseNode, isEventsNode, isFunnelsQuery, isInsightVizNode } from '~/queries/utils'
+import {
+    isActionsNode,
+    isDataWarehouseNode,
+    isEventsNode,
+    isFunnelsQuery,
+    isInsightQueryNode,
+    isInsightVizNode,
+} from '~/queries/utils'
 import {
     AccessLevel,
     AnyPartialFilterType,
@@ -574,7 +581,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             })
         },
         reportInsightViewed: ({ insightModel, query, isFirstLoad, delay }) => {
-            console.debug('reportInsightViewed', query, isFirstLoad, delay)
+            // console.debug('reportInsightViewed', query, isFirstLoad, delay)
             const payload: Record<string, string | number | boolean | undefined> = {
                 report_delay: delay,
                 is_first_component_load: isFirstLoad,
@@ -586,42 +593,48 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 description_length: insightModel.description?.length ?? 0,
                 tags_count: insightModel.tags?.length ?? 0,
                 query_kind: query?.kind,
-                query_source_kind: (query as any)?.source?.kind,
             }
-            // if (isInsightVizNode(query)) {
-            //     const { dateRange, filterTestAccounts, samplingFactor, properties } = query.source
-            //     // date range and sampling
-            //     payload.date_from = dateRange?.date_from || undefined
-            //     payload.date_to = dateRange?.date_to || undefined
-            //     payload.interval = getInterval(query.source)
-            //     payload.samplingFactor = samplingFactor || undefined
-            //     // series
-            //     payload.series_length = getSeries(query.source)?.length
-            //     payload.event_entity_count = getSeries(query.source)?.filter((e) => isEventsNode(e)).length
-            //     payload.action_entity_count = getSeries(query.source)?.filter((e) => isActionsNode(e)).length
-            //     payload.data_warehouse_entity_count = getSeries(query.source)?.filter((e) =>
-            //         isDataWarehouseNode(e)
-            //     ).length
-            //     // properties
-            //     payload.has_properties = !!properties
-            //     payload.filter_test_accounts = filterTestAccounts
-            //     // breakdown
-            //     payload.breakdown_type = getBreakdown(query.source)?.breakdown_type || undefined
-            //     payload.breakdown_limit = getBreakdown(query.source)?.breakdown_limit || undefined
-            //     payload.breakdown_hide_other_aggregation =
-            //         getBreakdown(query.source)?.breakdown_hide_other_aggregation || undefined
-            //     // trends like
-            //     payload.has_formula = !!getFormula(query.source)
-            //     payload.display = getDisplay(query.source)
-            //     payload.compare = getCompare(query.source)
-            //     // funnels
-            //     payload.funnel_viz_type = isFunnelsQuery(query.source)
-            //         ? query.source.funnelsFilter?.funnelVizType
-            //         : undefined
-            //     payload.funnel_order_type = isFunnelsQuery(query.source)
-            //         ? query.source.funnelsFilter?.funnelOrderType
-            //         : undefined
-            // }
+
+            if (isInsightQueryNode(query)) {
+                const { dateRange, filterTestAccounts, samplingFactor, properties } = query
+
+                // date range and sampling
+                payload.date_from = dateRange?.date_from || undefined
+                payload.date_to = dateRange?.date_to || undefined
+                // payload.interval = getInterval(query)
+                payload.samplingFactor = samplingFactor || undefined
+
+                // series
+                // payload.series_length = getSeries(query)?.length
+                //     payload.event_entity_count = getSeries(query.source)?.filter((e) => isEventsNode(e)).length
+                //     payload.action_entity_count = getSeries(query.source)?.filter((e) => isActionsNode(e)).length
+                //     payload.data_warehouse_entity_count = getSeries(query.source)?.filter((e) =>
+                //         isDataWarehouseNode(e)
+                //     ).length
+
+                // properties
+                payload.has_properties = !!properties
+                payload.filter_test_accounts = filterTestAccounts
+
+                // breakdown
+                //     payload.breakdown_type = getBreakdown(query.source)?.breakdown_type || undefined
+                //     payload.breakdown_limit = getBreakdown(query.source)?.breakdown_limit || undefined
+                //     payload.breakdown_hide_other_aggregation =
+                //         getBreakdown(query.source)?.breakdown_hide_other_aggregation || undefined
+
+                // trends like
+                //     payload.has_formula = !!getFormula(query.source)
+                //     payload.display = getDisplay(query.source)
+                //     payload.compare = getCompare(query.source)
+
+                // funnels
+                //     payload.funnel_viz_type = isFunnelsQuery(query.source)
+                //         ? query.source.funnelsFilter?.funnelVizType
+                //         : undefined
+                //     payload.funnel_order_type = isFunnelsQuery(query.source)
+                //         ? query.source.funnelsFilter?.funnelOrderType
+                //         : undefined
+            }
             const eventName = delay ? 'insight analyzed' : 'insight viewed'
             // // posthog.capture(eventName, payload)
             console.debug('capture', eventName, payload)
