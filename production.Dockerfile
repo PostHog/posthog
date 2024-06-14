@@ -168,7 +168,7 @@ RUN apt-get install -y --no-install-recommends \
 
 # Install and use a non-root user.
 RUN groupadd -g 1000 posthog && \
-    useradd -u 999 -r -g posthog posthog && \
+    useradd -r -g posthog posthog && \
     chown posthog:posthog /code
 USER posthog
 
