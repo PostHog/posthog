@@ -1,5 +1,5 @@
 import copy
-from enum import Enum
+from enum import StrEnum
 import json
 from typing import Any, Literal
 from posthog.hogql_queries.legacy_compatibility.clean_properties import clean_entity_properties, clean_global_properties
@@ -34,7 +34,7 @@ from posthog.types import InsightQueryNode
 from posthog.utils import str_to_bool
 
 
-class MathAvailability(str, Enum):
+class MathAvailability(StrEnum):
     Unavailable = ("Unavailable",)
     All = ("All",)
     ActorsOnly = "ActorsOnly"

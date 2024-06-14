@@ -1,7 +1,7 @@
 import datetime as dt
 import math
 from dataclasses import dataclass, field
-from enum import Enum, auto
+from enum import auto, StrEnum
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -66,7 +66,7 @@ class HedgeboxSessionIntent(SimSessionIntent):
     DOWNGRADE_PLAN = auto()
 
 
-class HedgeboxPlan(str, Enum):
+class HedgeboxPlan(StrEnum):
     PERSONAL_FREE = "personal/free"
     PERSONAL_PRO = "personal/pro"
     BUSINESS_STANDARD = "business/standard"

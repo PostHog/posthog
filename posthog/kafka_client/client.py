@@ -1,5 +1,5 @@
 import json
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Optional
 from collections.abc import Callable
 
@@ -83,7 +83,7 @@ class KafkaConsumerForTests:
         return
 
 
-class _KafkaSecurityProtocol(str, Enum):
+class _KafkaSecurityProtocol(StrEnum):
     PLAINTEXT = "PLAINTEXT"
     SSL = "SSL"
     SASL_PLAINTEXT = "SASL_PLAINTEXT"

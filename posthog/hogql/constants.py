@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Optional, Literal, TypeAlias
 from uuid import UUID
 from pydantic import ConfigDict, BaseModel
@@ -45,7 +45,7 @@ BREAKDOWN_VALUES_LIMIT = 25
 BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES = 300
 
 
-class LimitContext(str, Enum):
+class LimitContext(StrEnum):
     QUERY = "query"
     QUERY_ASYNC = "query_async"
     EXPORT = "export"
