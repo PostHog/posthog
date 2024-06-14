@@ -199,7 +199,31 @@ describe('CDP Processed Events Consuner', () => {
             // Once for the async callback, twice for the logs
             expect(mockProducer.produce).toHaveBeenCalledTimes(3)
 
-            expect(decodeKafkaMessage(mockProducer.produce.mock.calls[0][0])).toEqual({
+            expect(decodeKafkaMessage(mockProducer.produce.mock.calls[0][0])).toMatchObject({
+                key: expect.any(String),
+                topic: 'log_entries_test',
+                value: {
+                    instance_id: expect.any(String),
+                    level: 'debug',
+                    log_source: 'hog_function',
+                    log_source_id: expect.any(String),
+                    message: 'Executing function',
+                    team_id: 2,
+                    timestamp: expect.any(String),
+                },
+                waitForAck: true,
+            })
+
+            expect(decodeKafkaMessage(mockProducer.produce.mock.calls[1][0])).toMatchObject({
+                topic: 'log_entries_test',
+                value: {
+                    log_source: 'hog_function',
+                    message: "Suspending function due to async function call 'fetch'",
+                    team_id: 2,
+                },
+            })
+
+            expect(decodeKafkaMessage(mockProducer.produce.mock.calls[2][0])).toEqual({
                 key: expect.any(String),
                 topic: 'cdp_function_callbacks_test',
                 value: {
@@ -242,30 +266,6 @@ describe('CDP Processed Events Consuner', () => {
                     },
                 },
                 waitForAck: true,
-            })
-
-            expect(decodeKafkaMessage(mockProducer.produce.mock.calls[1][0])).toMatchObject({
-                key: expect.any(String),
-                topic: 'log_entries_test',
-                value: {
-                    instance_id: expect.any(String),
-                    level: 'debug',
-                    log_source: 'hog_function',
-                    log_source_id: expect.any(String),
-                    message: 'Executing function',
-                    team_id: 2,
-                    timestamp: expect.any(String),
-                },
-                waitForAck: true,
-            })
-
-            expect(decodeKafkaMessage(mockProducer.produce.mock.calls[2][0])).toMatchObject({
-                topic: 'log_entries_test',
-                value: {
-                    log_source: 'hog_function',
-                    message: "Suspending function due to async function call 'fetch'",
-                    team_id: 2,
-                },
             })
         })
     })

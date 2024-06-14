@@ -79,6 +79,49 @@ abstract class CdpConsumerBase {
 
     public abstract handleEachBatch(messages: Message[], heartbeat: () => void): Promise<void>
 
+    protected async processInvocationResults(results: HogFunctionInvocationResult[]): Promise<void> {
+        // Processes any async functions and queues up produced messages
+
+        // TODO: Follow up - process metrics from the invocationResults
+        await runInstrumentedFunction({
+            statsKey: `cdpFunctionExecutor.handleEachBatch.produceResults`,
+            func: async () => {
+                const messagesToProduce: HogFunctionMessageToQueue[] = []
+
+                await Promise.all(
+                    results.map(async (result) => {
+                        result.logs.forEach((x) => {
+                            messagesToProduce.push({
+                                topic: KAFKA_LOG_ENTRIES,
+                                value: x,
+                                key: x.instance_id,
+                            })
+                        })
+
+                        if (result.asyncFunction) {
+                            const res = await this.asyncFunctionExecutor!.execute(result.asyncFunction)
+
+                            if (res) {
+                                messagesToProduce.push(res)
+                            }
+                        }
+                    })
+                )
+
+                await Promise.all(
+                    messagesToProduce.map((x) =>
+                        this.kafkaProducer!.produce({
+                            topic: x.topic,
+                            value: Buffer.from(JSON.stringify(x.value)),
+                            key: x.key,
+                            waitForAck: true,
+                        })
+                    )
+                )
+            },
+        })
+    }
+
     public async start(): Promise<void> {
         status.info('🔁', `${this.name} - starting`, {
             librdKafkaVersion: librdkafkaVersion,
@@ -208,32 +251,7 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
 
                 heartbeat()
 
-                // TODO: Follow up - process metrics from the invocationResults
-                await runInstrumentedFunction({
-                    statsKey: `cdpFunctionExecutor.handleEachBatch.queueMetrics`,
-                    func: async () => {
-                        const allLogs = invocationResults.reduce((acc, result) => {
-                            return [...acc, ...result.logs]
-                        }, [] as HogFunctionLogEntry[])
-
-                        await Promise.all(
-                            allLogs.map((x) =>
-                                this.kafkaProducer!.produce({
-                                    topic: KAFKA_LOG_ENTRIES,
-                                    value: Buffer.from(JSON.stringify(x)),
-                                    key: x.instance_id,
-                                    waitForAck: true,
-                                })
-                            )
-                        )
-
-                        if (allLogs.length) {
-                            status.info('🔁', `${this.name} - produced logs`, {
-                                size: allLogs.length,
-                            })
-                        }
-                    },
-                })
+                await this.processInvocationResults(invocationResults)
             },
         })
     }
@@ -318,44 +336,7 @@ export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
 
                 heartbeat()
 
-                // TODO: Follow up - process metrics from the invocationResults
-                await runInstrumentedFunction({
-                    statsKey: `cdpFunctionExecutor.handleEachBatch.produceResults`,
-                    func: async () => {
-                        const messagesToProduce: HogFunctionMessageToQueue[] = []
-
-                        await Promise.all(
-                            invocationResults.map(async (result) => {
-                                result.logs.forEach((x) => {
-                                    messagesToProduce.push({
-                                        topic: KAFKA_LOG_ENTRIES,
-                                        value: x,
-                                        key: x.instance_id,
-                                    })
-                                })
-
-                                if (result.asyncFunction) {
-                                    const res = await this.asyncFunctionExecutor!.execute(result.asyncFunction)
-
-                                    if (res) {
-                                        messagesToProduce.push(res)
-                                    }
-                                }
-                            })
-                        )
-
-                        await Promise.all(
-                            messagesToProduce.map((x) =>
-                                this.kafkaProducer!.produce({
-                                    topic: x.topic,
-                                    value: Buffer.from(JSON.stringify(x.value)),
-                                    key: x.key,
-                                    waitForAck: true,
-                                })
-                            )
-                        )
-                    },
-                })
+                await this.processInvocationResults(invocationResults)
             },
         })
     }
