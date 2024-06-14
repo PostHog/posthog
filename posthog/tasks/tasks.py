@@ -508,7 +508,7 @@ def monitoring_check_clickhouse_schema_drift() -> None:
     check_clickhouse_schema_drift()
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING)
+@shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value)
 def calculate_cohort() -> None:
     from posthog.tasks.calculate_cohort import calculate_cohorts
 
@@ -631,7 +631,7 @@ def schedule_cache_updates_task() -> None:
     retry_backoff_max=30,
     max_retries=3,
     retry_jitter=True,
-    queue=CeleryQueue.LONG_RUNNING,
+    queue=CeleryQueue.LONG_RUNNING.value,
 )
 def update_cache_task(caching_state_id: UUID) -> None:
     from posthog.caching.insight_cache import update_cache
