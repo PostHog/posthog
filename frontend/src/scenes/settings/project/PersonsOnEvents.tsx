@@ -1,4 +1,4 @@
-import { LemonTag } from '@posthog/lemon-ui'
+import { LemonTag, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
@@ -62,7 +62,15 @@ export function PersonsOnEvents(): JSX.Element {
 
     return (
         <>
-            <p>Choose the behavior of person property filters.</p>
+            <p>
+                Choose the behavior of person property filters.{' '}
+                <Link
+                    to="https://posthog.com/docs/how-posthog-works/queries#filtering-on-person-properties"
+                    target="blank"
+                >
+                    Learn about the details in our docs.
+                </Link>
+            </p>
             <LemonRadio value={poeMode} onChange={setPoeMode} options={POE_OPTIONS} />
             <div className="mt-4">
                 <LemonButton
