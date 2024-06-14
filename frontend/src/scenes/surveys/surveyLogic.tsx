@@ -157,11 +157,16 @@ export const surveyLogic = kea<surveyLogicType>([
             isEditingDescription,
             isEditingThankYouMessage,
         }),
-        setQuestionBranchingType: (questionIndex, type) => ({ questionIndex, type }),
-        setResponseBasedBranchingForQuestion: (questionIndex, responseValue, nextStep) => ({
+        setQuestionBranchingType: (questionIndex, type, specificQuestionIndex) => ({
+            questionIndex,
+            type,
+            specificQuestionIndex,
+        }),
+        setResponseBasedBranchingForQuestion: (questionIndex, responseValue, nextStep, specificQuestionIndex) => ({
             questionIndex,
             responseValue,
             nextStep,
+            specificQuestionIndex,
         }),
         resetBranchingForQuestion: (questionIndex) => ({ questionIndex }),
         archiveSurvey: true,
@@ -667,7 +672,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     const newTemplateSurvey = { ...NEW_SURVEY, ...template }
                     return newTemplateSurvey
                 },
-                setQuestionBranchingType: (state, { questionIndex, type }) => {
+                setQuestionBranchingType: (state, { questionIndex, type, specificQuestionIndex }) => {
                     const newQuestions = [...state.questions]
                     const question = newQuestions[questionIndex]
 
@@ -691,11 +696,10 @@ export const surveyLogic = kea<surveyLogicType>([
                             type: SurveyQuestionBranchingType.ResponseBased,
                             responseValues: {},
                         }
-                    } else if (type.startsWith(SurveyQuestionBranchingType.SpecificQuestion)) {
-                        const nextQuestionIndex = parseInt(type.split(':')[1])
+                    } else if (type === SurveyQuestionBranchingType.SpecificQuestion) {
                         question.branching = {
                             type: SurveyQuestionBranchingType.SpecificQuestion,
-                            index: nextQuestionIndex,
+                            index: specificQuestionIndex,
                         }
                     }
 
@@ -705,7 +709,10 @@ export const surveyLogic = kea<surveyLogicType>([
                         questions: newQuestions,
                     }
                 },
-                setResponseBasedBranchingForQuestion: (state, { questionIndex, responseValue, nextStep }) => {
+                setResponseBasedBranchingForQuestion: (
+                    state,
+                    { questionIndex, responseValue, nextStep, specificQuestionIndex }
+                ) => {
                     const newQuestions = [...state.questions]
                     const question = newQuestions[questionIndex]
 
@@ -730,9 +737,8 @@ export const surveyLogic = kea<surveyLogicType>([
                         } else if (nextStep === SurveyQuestionBranchingType.ConfirmationMessage) {
                             question.branching.responseValues[responseValue] =
                                 SurveyQuestionBranchingType.ConfirmationMessage
-                        } else if (nextStep.startsWith(SurveyQuestionBranchingType.SpecificQuestion)) {
-                            const nextQuestionIndex = parseInt(nextStep.split(':')[1])
-                            question.branching.responseValues[responseValue] = nextQuestionIndex
+                        } else if (nextStep === SurveyQuestionBranchingType.SpecificQuestion) {
+                            question.branching.responseValues[responseValue] = specificQuestionIndex
                         }
                     }
 

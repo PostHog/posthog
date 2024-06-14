@@ -36,7 +36,14 @@ export function QuestionBranchingInput({
                     className="max-w-80 whitespace-nowrap"
                     value={branchingDropdownValue}
                     data-attr={`branching-question-${questionIndex}`}
-                    onSelect={(type) => setQuestionBranchingType(questionIndex, type)}
+                    onSelect={(type) => {
+                        let specificQuestionIndex
+                        if (type.startsWith(SurveyQuestionBranchingType.SpecificQuestion)) {
+                            specificQuestionIndex = parseInt(type.split(':')[1])
+                            type = SurveyQuestionBranchingType.SpecificQuestion
+                        }
+                        setQuestionBranchingType(questionIndex, type, specificQuestionIndex)
+                    }}
                     options={[
                         ...(questionIndex < survey.questions.length - 1
                             ? [
@@ -89,7 +96,7 @@ function QuestionResponseBasedBranchingInput({
         }))
         .filter((_, idx) => questionIndex !== idx)
 
-    let config: { value: string; label: string }[] = []
+    let config: { value: string | number; label: string }[] = []
 
     if (question.type === SurveyQuestionType.Rating && question.scale === 3) {
         config = [
@@ -112,7 +119,7 @@ function QuestionResponseBasedBranchingInput({
         ]
     } else if (question.type === SurveyQuestionType.SingleChoice) {
         config = question.choices.map((choice, choiceIndex) => ({
-            value: choice,
+            value: choiceIndex,
             label: `Option ${choiceIndex + 1} ("${truncate(choice, 15)}")`,
         }))
     }
@@ -131,9 +138,19 @@ function QuestionResponseBasedBranchingInput({
                             className="w-full whitespace-nowrap"
                             value={getResponseBasedBranchingDropdownValue(questionIndex, question, value)}
                             data-attr={`branching-question-${questionIndex}`}
-                            onSelect={(nextStep) =>
-                                setResponseBasedBranchingForQuestion(questionIndex, value, nextStep)
-                            }
+                            onSelect={(nextStep) => {
+                                let specificQuestionIndex
+                                if (nextStep.startsWith(SurveyQuestionBranchingType.SpecificQuestion)) {
+                                    specificQuestionIndex = parseInt(nextStep.split(':')[1])
+                                    nextStep = SurveyQuestionBranchingType.SpecificQuestion
+                                }
+                                setResponseBasedBranchingForQuestion(
+                                    questionIndex,
+                                    value,
+                                    nextStep,
+                                    specificQuestionIndex
+                                )
+                            }}
                             options={[
                                 ...(questionIndex < survey.questions.length - 1
                                     ? [
