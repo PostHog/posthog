@@ -24,6 +24,7 @@ import {
     HogFunctionInvocationGlobals,
     HogFunctionInvocationResult,
     HogFunctionLogEntry,
+    HogFunctionMessageToQueue,
 } from './types'
 import { convertToHogFunctionInvocationGlobals } from './utils'
 
@@ -57,7 +58,7 @@ abstract class CdpConsumerBase {
     groupTypeManager: GroupTypeManager
     hogFunctionManager: HogFunctionManager
     asyncFunctionExecutor?: AsyncFunctionExecutor
-    hogExecutor?: HogExecutor
+    hogExecutor: HogExecutor
     appMetrics?: AppMetrics
     isStopping = false
 
@@ -73,6 +74,7 @@ abstract class CdpConsumerBase {
         this.organizationManager = new OrganizationManager(postgres, this.teamManager)
         this.groupTypeManager = new GroupTypeManager(postgres, this.teamManager)
         this.hogFunctionManager = new HogFunctionManager(postgres, config)
+        this.hogExecutor = new HogExecutor(this.config, this.hogFunctionManager)
     }
 
     public abstract handleEachBatch(messages: Message[], heartbeat: () => void): Promise<void>
@@ -94,8 +96,7 @@ abstract class CdpConsumerBase {
         )
 
         const rustyHook = this.hub?.rustyHook ?? new RustyHook(this.config)
-        this.asyncFunctionExecutor = new AsyncFunctionExecutor(this.config, rustyHook, this.kafkaProducer!)
-        this.hogExecutor = new HogExecutor(this.config, this.hogFunctionManager, this.asyncFunctionExecutor)
+        this.asyncFunctionExecutor = new AsyncFunctionExecutor(this.config, rustyHook)
 
         this.appMetrics =
             this.hub?.appMetrics ??
@@ -199,7 +200,7 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
                     statsKey: `cdpFunctionExecutor.handleEachBatch.consumeBatch`,
                     func: async () => {
                         const results = await Promise.all(
-                            events.map((e) => this.hogExecutor!.executeMatchingFunctions(e))
+                            events.map((e) => this.hogExecutor.executeMatchingFunctions(e))
                         )
                         invocationResults.push(...results.flat())
                     },
@@ -310,7 +311,7 @@ export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
                 await runInstrumentedFunction({
                     statsKey: `cdpFunctionExecutor.handleEachBatch.consumeBatch`,
                     func: async () => {
-                        const results = await Promise.all(events.map((e) => this.hogExecutor!.executeAsyncResponse(e)))
+                        const results = await Promise.all(events.map((e) => this.hogExecutor.executeAsyncResponse(e)))
                         invocationResults.push(...results.flat())
                     },
                 })
@@ -319,28 +320,40 @@ export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
 
                 // TODO: Follow up - process metrics from the invocationResults
                 await runInstrumentedFunction({
-                    statsKey: `cdpFunctionExecutor.handleEachBatch.queueMetrics`,
+                    statsKey: `cdpFunctionExecutor.handleEachBatch.produceResults`,
                     func: async () => {
-                        const allLogs = invocationResults.reduce((acc, result) => {
-                            return [...acc, ...result.logs]
-                        }, [] as HogFunctionLogEntry[])
+                        const messagesToProduce: HogFunctionMessageToQueue[] = []
 
                         await Promise.all(
-                            allLogs.map((x) =>
+                            invocationResults.map(async (result) => {
+                                result.logs.forEach((x) => {
+                                    messagesToProduce.push({
+                                        topic: KAFKA_LOG_ENTRIES,
+                                        value: x,
+                                        key: x.instance_id,
+                                    })
+                                })
+
+                                if (result.asyncFunction) {
+                                    const res = await this.asyncFunctionExecutor!.execute(result.asyncFunction)
+
+                                    if (res) {
+                                        messagesToProduce.push(res)
+                                    }
+                                }
+                            })
+                        )
+
+                        await Promise.all(
+                            messagesToProduce.map((x) =>
                                 this.kafkaProducer!.produce({
-                                    topic: KAFKA_LOG_ENTRIES,
-                                    value: Buffer.from(JSON.stringify(x)),
-                                    key: x.instance_id,
+                                    topic: x.topic,
+                                    value: Buffer.from(JSON.stringify(x.value)),
+                                    key: x.key,
                                     waitForAck: true,
                                 })
                             )
                         )
-
-                        if (allLogs.length) {
-                            status.info('🔁', `${this.name} - produced logs`, {
-                                size: allLogs.length,
-                            })
-                        }
                     },
                 })
             },

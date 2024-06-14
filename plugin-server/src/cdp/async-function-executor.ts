@@ -2,20 +2,19 @@ import { Webhook } from '@posthog/plugin-scaffold'
 
 import { KAFKA_CDP_FUNCTION_CALLBACKS } from '../config/kafka-topics'
 import { PluginsServerConfig } from '../types'
-import { KafkaProducerWrapper } from '../utils/db/kafka-producer-wrapper'
 import { trackedFetch } from '../utils/fetch'
 import { status } from '../utils/status'
 import { RustyHook } from '../worker/rusty-hook'
-import { HogFunctionInvocationAsyncRequest, HogFunctionInvocationAsyncResponse } from './types'
+import {
+    HogFunctionInvocationAsyncRequest,
+    HogFunctionInvocationAsyncResponse,
+    HogFunctionMessageToQueue,
+} from './types'
 
 export class AsyncFunctionExecutor {
-    constructor(
-        private serverConfig: PluginsServerConfig,
-        private rustyHook: RustyHook,
-        private kafkaProducer: KafkaProducerWrapper
-    ) {}
+    constructor(private serverConfig: PluginsServerConfig, private rustyHook: RustyHook) {}
 
-    async execute(request: HogFunctionInvocationAsyncRequest): Promise<HogFunctionInvocationAsyncRequest> {
+    async execute(request: HogFunctionInvocationAsyncRequest): Promise<HogFunctionMessageToQueue | undefined> {
         const loggingContext = {
             hogFunctionId: request.hogFunctionId,
             invocationId: request.id,
@@ -25,16 +24,15 @@ export class AsyncFunctionExecutor {
 
         switch (request.asyncFunctionName) {
             case 'fetch':
-                await this.asyncFunctionFetch(request)
-                break
+                return await this.asyncFunctionFetch(request)
             default:
                 status.error('🦔', `[HogExecutor] Unknown async function: ${request.asyncFunctionName}`, loggingContext)
         }
-
-        return request
     }
 
-    private async asyncFunctionFetch(request: HogFunctionInvocationAsyncRequest): Promise<any> {
+    private async asyncFunctionFetch(
+        request: HogFunctionInvocationAsyncRequest
+    ): Promise<HogFunctionMessageToQueue | undefined> {
         // TODO: validate the args
         const args = request.asyncFunctionArgs ?? []
         const url: string = args[0]
@@ -95,13 +93,11 @@ export class AsyncFunctionExecutor {
                 response.error = 'Something went wrong with the fetch request.'
             }
 
-            // NOTE: This feels like overkill but is basically simulating rusty hook's callback that will eventually be implemented
-            await this.kafkaProducer!.produce({
+            return {
                 topic: KAFKA_CDP_FUNCTION_CALLBACKS,
-                value: Buffer.from(JSON.stringify(response)),
+                value: response,
                 key: response.id,
-                waitForAck: true,
-            })
+            }
         }
     }
 }
