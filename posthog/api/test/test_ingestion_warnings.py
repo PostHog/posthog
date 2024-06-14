@@ -31,7 +31,7 @@ def create_ingestion_warning(team_id: int, type: str, details: dict, timestamp: 
 class TestIngestionWarningsAPI(ClickhouseTestMixin, APIBaseTest):
     @freeze_time("2021-12-04T19:20:00Z")
     def test_ingestion_warnings_api(self):
-        a_lot_of_ingestion_warning_timestamps = []
+        a_lot_of_ingestion_warning_timestamps: list[str] = []
         # more than the number the front end will show
         # KLUDGE: it is 59 here so that timestamp creation can be naive
         for i in range(59):
