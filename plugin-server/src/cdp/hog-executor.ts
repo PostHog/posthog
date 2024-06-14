@@ -75,7 +75,7 @@ export class HogExecutor {
                     const filterResult = exec(filters.bytecode, {
                         globals: filtersGlobals,
                         timeout: 100,
-                        maxAsyncSteps: 2, // Current limit - allows most needs such as a GET before a POST
+                        maxAsyncSteps: 0,
                     })
 
                     if (typeof filterResult.result !== 'boolean') {
