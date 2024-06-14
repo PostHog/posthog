@@ -913,6 +913,16 @@ export function dateFilterToText(
     return defaultValue
 }
 
+// Converts a dateFrom string ("-2w") into english: "2 weeks"
+export function dateFromToText(dateFrom: string): string | undefined {
+    const dateOption: (typeof dateOptionsMap)[keyof typeof dateOptionsMap] = dateOptionsMap[dateFrom.slice(-1)]
+    const counter = parseInt(dateFrom.slice(1, -1))
+    if (dateOption && counter) {
+        return `${counter} ${dateOption}${counter > 1 ? 's' : ''}`
+    }
+    return undefined
+}
+
 export function dateStringToComponents(date: string | null): {
     amount: number
     unit: (typeof dateOptionsMap)[keyof typeof dateOptionsMap]
