@@ -17,6 +17,7 @@ import { ActivityFilters } from '~/layout/navigation-3000/sidepanel/panels/activ
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { examples } from '~/queries/examples'
+import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { ActivityScope, Breadcrumb, FilterType, InsightShortId, InsightType, ItemMode } from '~/types'
 
 import { insightDataLogic } from './insightDataLogic'
@@ -92,38 +93,38 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
     }),
     selectors(() => ({
         insightSelector: [(s) => [s.insightLogicRef], (insightLogicRef) => insightLogicRef?.logic.selectors.insight],
-        filtersSelector: [(s) => [s.insightLogicRef], (insightLogicRef) => insightLogicRef?.logic.selectors.filters],
         insight: [(s) => [(state, props) => s.insightSelector?.(state, props)?.(state, props)], (insight) => insight],
-        filters: [(s) => [(state, props) => s.filtersSelector?.(state, props)?.(state, props)], (filters) => filters],
         breadcrumbs: [
             (s) => [
                 s.insightLogicRef,
                 s.insight,
-                s.filters,
                 groupsModel.selectors.aggregationLabel,
                 cohortsModel.selectors.cohortsById,
                 mathsLogic.selectors.mathDefinitions,
             ],
-            (insightLogicRef, insight, filters, aggregationLabel, cohortsById, mathDefinitions): Breadcrumb[] => [
-                {
-                    key: Scene.SavedInsights,
-                    name: 'Product analytics',
-                    path: urls.savedInsights(),
-                },
-                {
-                    key: [Scene.Insight, insight?.short_id || 'new'],
-                    name:
-                        insight?.name ||
-                        summarizeInsight(insight?.query, filters, {
-                            aggregationLabel,
-                            cohortsById,
-                            mathDefinitions,
-                        }),
-                    onRename: async (name: string) => {
-                        await insightLogicRef?.logic.asyncActions.setInsightMetadata({ name })
+            (insightLogicRef, legacyInsight, aggregationLabel, cohortsById, mathDefinitions): Breadcrumb[] => {
+                const insight = legacyInsight ? getQueryBasedInsightModel(legacyInsight) : null
+                return [
+                    {
+                        key: Scene.SavedInsights,
+                        name: 'Product analytics',
+                        path: urls.savedInsights(),
                     },
-                },
-            ],
+                    {
+                        key: [Scene.Insight, insight?.short_id || 'new'],
+                        name:
+                            insight?.name ||
+                            summarizeInsight(insight?.query, {
+                                aggregationLabel,
+                                cohortsById,
+                                mathDefinitions,
+                            }),
+                        onRename: async (name: string) => {
+                            await insightLogicRef?.logic.asyncActions.setInsightMetadata({ name })
+                        },
+                    },
+                ]
+            },
         ],
         activityFilters: [
             (s) => [s.insight],

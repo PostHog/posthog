@@ -104,7 +104,7 @@ export function HogDebug({ query, setQuery, queryKey, debug }: HogDebugProps): J
     const dataNodeLogicProps: DataNodeLogicProps = { query, key: queryKey, dataNodeCollectionId: queryKey }
     const { dataLoading, response: _response } = useValues(dataNodeLogic(dataNodeLogicProps))
     const response = _response as HogQueryResponse | null
-    const [tab, setTab] = useState('results' as 'results' | 'bytecode' | 'stdout')
+    const [tab, setTab] = useState('results' as 'results' | 'bytecode' | 'coloredBytecode' | 'stdout')
 
     return (
         <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
@@ -133,10 +133,11 @@ export function HogDebug({ query, setQuery, queryKey, debug }: HogDebugProps): J
                                 tabs={[
                                     { label: 'Results', key: 'results' },
                                     { label: 'Stdout', key: 'stdout' },
-                                    { label: 'Bytecode', key: 'bytecode' },
+                                    { label: 'Bytecode', key: 'coloredBytecode' },
+                                    { label: 'Raw bytecode', key: 'bytecode' },
                                 ]}
                                 activeKey={tab}
-                                onChange={(key) => setTab(String(key) as 'results' | 'bytecode')}
+                                onChange={(key) => setTab(String(key) as any)}
                             />
                         ) : null}
                         {tab === 'bytecode' && debug ? (
@@ -151,6 +152,21 @@ export function HogDebug({ query, setQuery, queryKey, debug }: HogDebugProps): J
                                 height={500}
                                 path={`debug/${queryKey}/hog-bytecode.json`}
                                 options={{ wordWrap: 'on' }}
+                            />
+                        ) : tab === 'coloredBytecode' && debug ? (
+                            <CodeEditor
+                                className="border"
+                                language="swift"
+                                value={
+                                    response?.coloredBytecode && Array.isArray(response?.coloredBytecode)
+                                        ? response?.coloredBytecode
+                                              .map((a) => (a.startsWith('op.') ? a : `    ${a}`))
+                                              .join('\n')
+                                        : 'No bytecode returned with response'
+                                }
+                                height={500}
+                                path={`debug/${queryKey}/hog-bytecode.json`}
+                                options={{ wordWrap: 'on', lineNumbers: (nr) => String(nr - 1) }}
                             />
                         ) : tab === 'stdout' ? (
                             <CodeEditor
@@ -172,6 +188,7 @@ export function HogDebug({ query, setQuery, queryKey, debug }: HogDebugProps): J
                                 }
                                 height={500}
                                 path={`debug/${queryKey}/hog-result.json`}
+                                options={{ wordWrap: 'on' }}
                             />
                         )}
                     </>

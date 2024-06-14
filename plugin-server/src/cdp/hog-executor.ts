@@ -1,12 +1,10 @@
-import { convertHogToJS, convertJSToHog, exec, ExecResult, VMState } from '@posthog/hogvm'
-import { Webhook } from '@posthog/plugin-scaffold'
+import { convertHogToJS, convertJSToHog, exec, VMState } from '@posthog/hogvm'
 import { DateTime } from 'luxon'
 
 import { PluginsServerConfig, TimestampFormat } from '../types'
-import { trackedFetch } from '../utils/fetch'
 import { status } from '../utils/status'
 import { castTimestampOrNow, UUIDT } from '../utils/utils'
-import { RustyHook } from '../worker/rusty-hook'
+import { AsyncFunctionExecutor } from './async-function-executor'
 import { HogFunctionManager } from './hog-function-manager'
 import {
     HogFunctionInvocation,
@@ -51,7 +49,7 @@ export class HogExecutor {
     constructor(
         private serverConfig: PluginsServerConfig,
         private hogFunctionManager: HogFunctionManager,
-        private rustyHook: RustyHook
+        private asyncFunctionExecutor: AsyncFunctionExecutor
     ) {}
 
     /**
@@ -135,18 +133,30 @@ export class HogExecutor {
     /**
      * Intended to be invoked as a continuation from an async function
      */
-    async executeAsyncResponse(invocation: HogFunctionInvocationAsyncResponse): Promise<any> {
+    async executeAsyncResponse(invocation: HogFunctionInvocationAsyncResponse): Promise<HogFunctionInvocationResult> {
         if (!invocation.hogFunctionId) {
             throw new Error('No hog function id provided')
         }
+
+        // TODO: The VM takes care of ensuring we don't get stuck in a loop but we should add some extra protection
+        // to be super sure
 
         const hogFunction = this.hogFunctionManager.getTeamHogFunctions(invocation.globals.project.id)[
             invocation.hogFunctionId
         ]
 
-        invocation.vmState.stack.push(convertJSToHog(invocation.response))
+        if (!invocation.vmState || invocation.error) {
+            // TODO: Maybe add a log as well?
+            return {
+                ...invocation,
+                success: false,
+                error: invocation.error ?? new Error('No VM state provided for async response'),
+                logs: [],
+            }
+        }
+        invocation.vmState.stack.push(convertJSToHog(invocation.vmResponse ?? null))
 
-        await this.execute(hogFunction, invocation, invocation.vmState)
+        return await this.execute(hogFunction, invocation, invocation.vmState)
     }
 
     async execute(
@@ -220,20 +230,23 @@ export class HogExecutor {
                     ...loggingContext,
                     asyncFunctionName: res.asyncFunctionName,
                 })
-                switch (res.asyncFunctionName) {
-                    case 'fetch':
-                        await this.asyncFunctionFetch(hogFunction, invocation, res)
-                        break
-                    default:
-                        status.error(
-                            '🦔',
-                            `[HogExecutor] Unknown async function: ${res.asyncFunctionName}`,
-                            loggingContext
-                        )
-                    // TODO: Log error somewhere
+
+                const args = (res.asyncFunctionArgs ?? []).map((arg) => convertHogToJS(arg))
+
+                if (res.asyncFunctionName) {
+                    await this.asyncFunctionExecutor.execute({
+                        ...invocation,
+                        teamId: hogFunction.team_id,
+                        hogFunctionId: hogFunction.id,
+                        asyncFunctionName: res.asyncFunctionName,
+                        asyncFunctionArgs: args,
+                        vmState: res.state,
+                    })
+                } else {
+                    log('warn', `Function was not finished but also had no async function to execute.`)
                 }
             } else {
-                log('debug', `Function completed (${hogFunction.id}) (${hogFunction.name})!`)
+                log('debug', `Function completed`)
             }
         } catch (err) {
             error = err
@@ -264,62 +277,6 @@ export class HogExecutor {
         return {
             ...invocation.globals,
             inputs: builtInputs,
-        }
-    }
-
-    private async asyncFunctionFetch(
-        hogFunction: HogFunctionType,
-        invocation: HogFunctionInvocation,
-        execResult: ExecResult
-    ): Promise<any> {
-        // TODO: validate the args
-        const args = (execResult.asyncFunctionArgs ?? []).map((arg) => convertHogToJS(arg))
-        const url: string = args[0]
-        const options = args[1]
-
-        const method = options.method || 'POST'
-        const headers = options.headers || {
-            'Content-Type': 'application/json',
-        }
-        const body = options.body || {}
-
-        const webhook: Webhook = {
-            url,
-            method: method,
-            headers: headers,
-            body: typeof body === 'string' ? body : JSON.stringify(body, undefined, 4),
-        }
-
-        // NOTE: Purposefully disabled for now - once we have callback support we can re-enable
-        // const SPECIAL_CONFIG_ID = -3 // Hardcoded to mean Hog
-        // const success = await this.rustyHook.enqueueIfEnabledForTeam({
-        //     webhook: webhook,
-        //     teamId: hogFunction.team_id,
-        //     pluginId: SPECIAL_CONFIG_ID,
-        //     pluginConfigId: SPECIAL_CONFIG_ID,
-        // })
-
-        const success = false
-
-        // TODO: Temporary test code
-        if (!success) {
-            status.info('🦔', `[HogExecutor] Webhook not sent via rustyhook, sending directly instead`)
-            const fetchResponse = await trackedFetch(url, {
-                method: webhook.method,
-                body: webhook.body,
-                headers: webhook.headers,
-                timeout: this.serverConfig.EXTERNAL_REQUEST_TIMEOUT_MS,
-            })
-
-            await this.executeAsyncResponse({
-                ...invocation,
-                hogFunctionId: hogFunction.id,
-                vmState: execResult.state!,
-                response: {
-                    status: fetchResponse.status,
-                    body: await fetchResponse.text(),
-                },
-            })
         }
     }
 }

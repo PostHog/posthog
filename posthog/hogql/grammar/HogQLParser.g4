@@ -17,6 +17,7 @@ identifierList: identifier (COMMA identifier)*;
 statement      : returnStmt
                | ifStmt
                | whileStmt
+               | forStmt
                | funcStmt
                | varAssignment
                | exprStmt
@@ -26,6 +27,11 @@ statement      : returnStmt
 returnStmt     : RETURN expression? SEMICOLON?;
 ifStmt         : IF LPAREN expression RPAREN statement ( ELSE statement )? ;
 whileStmt      : WHILE LPAREN expression RPAREN statement SEMICOLON?;
+forStmt        : FOR LPAREN
+                 (initializerVarDeclr=varDecl | initializerVarAssignment=varAssignment | initializerExpression=expression)? SEMICOLON
+                 condition=expression? SEMICOLON
+                 (incrementVarDeclr=varDecl | incrementVarAssignment=varAssignment | incrementExpression=expression)?
+                 RPAREN statement SEMICOLON?;
 funcStmt       : FN identifier LPAREN identifierList? RPAREN block;
 varAssignment  : expression COLON EQ_SINGLE expression ;
 exprStmt       : expression SEMICOLON?;
