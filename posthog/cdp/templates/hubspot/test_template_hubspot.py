@@ -19,7 +19,7 @@ class TestTemplateHubspot(BaseHogFunctionTemplateTest):
         return inputs
 
     def test_function_works(self):
-        self.mock_fetch_response = lambda *args: {"status": 200, "body": {"status": "success"}}
+        self.mock_fetch_response = lambda *args: {"status": 200, "body": {"status": "success"}}  # type: ignore
 
         res = self.run_function(inputs=self._inputs())
 

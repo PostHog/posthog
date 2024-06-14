@@ -10,9 +10,9 @@ class TestTemplateCustomerio(BaseHogFunctionTemplateTest):
         inputs = {
             "site_id": "SITE_ID",
             "token": "TOKEN",
-            "identifier": "ben@posthog.com",
+            "identifier": "example@posthog.com",
             "host": "track.customer.io",
-            "properties": {},
+            "properties": {"name": "example"},
         }
         inputs.update(kwargs)
         return inputs
@@ -22,11 +22,22 @@ class TestTemplateCustomerio(BaseHogFunctionTemplateTest):
 
         assert res.result is None
 
-        assert self.mock_fetch.mock_calls[0] == call(
-            "https://posthog.com",
+        assert self.get_mock_fetch_calls()[0] == (
+            "https://track.customer.io/api/v2/entity",
             {
-                "headers": {},
-                "body": '{"hello": "world"}',
-                "method": "GET",
+                "method": "POST",
+                "headers": {
+                    "User-Agent": "PostHog Customer.io App",
+                    "Authorization": "Basic SITE_ID:TOKEN",
+                    "Content-Type": "application/json",
+                },
+                "body": {
+                    "type": "person",
+                    "identifiers": {"id": "example@posthog.com"},
+                    "action": "identify",
+                    "attributes": {
+                        "name": "example",
+                    },
+                },
             },
         )

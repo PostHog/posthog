@@ -11,19 +11,17 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     hog="""
 fn callCustomerIoApi(method, path, body) {
     // TODO: Base64 encode the site_id and token
-    let response := fetch(f'https://{inputs.host}{path}', {
-      'headers': {
-        'User-Agent': 'PostHog Customer.io App',
-        'Authorization': f'Basic {inputs.site_id}:{inputs.token}',
-        'Content-Type': 'application/json'
-      },
-      'body': body,
+    fetch(f'https://{inputs.host}{path}', {
+        'method': 'POST',
+        'headers': {
+            'User-Agent': 'PostHog Customer.io App',
+            'Authorization': f'Basic {inputs.site_id}:{inputs.token}',
+            'Content-Type': 'application/json'
+        },
+        'body': body
     })
-
-    if (response.status >= 400) {
-        print('Error calling Customer.io API:', response)
-    }
 }
+
 
 fn trackIdentify() {
     // Upsert the customer
@@ -31,7 +29,7 @@ fn trackIdentify() {
         'type': 'person',
         'identifiers': {
             // TODO: Make the id input configurable
-            'id': inputs.identifier'
+            'id': inputs.identifier
         },
         'action': 'identify',
         'attributes': inputs.properties
