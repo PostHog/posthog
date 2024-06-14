@@ -32,6 +32,7 @@ from posthog.schema import (
     PropertyMathType,
     TrendsFilter,
     TrendsQuery,
+    CompareFilter,
 )
 
 from posthog.schema import Series as InsightActorsQuerySeries
@@ -177,6 +178,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         series: Optional[list[EventsNode | ActionsNode]],
         trends_filters: Optional[TrendsFilter] = None,
         breakdown: Optional[BreakdownFilter] = None,
+        compare_filters: Optional[CompareFilter] = None,
         filter_test_accounts: Optional[bool] = None,
         hogql_modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
@@ -189,6 +191,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             series=query_series,
             trendsFilter=trends_filters,
             breakdownFilter=breakdown,
+            compareFilter=compare_filters,
             filterTestAccounts=filter_test_accounts,
         )
         return TrendsQueryRunner(team=self.team, query=query, modifiers=hogql_modifiers, limit_context=limit_context)
@@ -201,6 +204,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         series: Optional[list[EventsNode | ActionsNode]],
         trends_filters: Optional[TrendsFilter] = None,
         breakdown: Optional[BreakdownFilter] = None,
+        compare_filters: Optional[CompareFilter] = None,
         *,
         filter_test_accounts: Optional[bool] = None,
         hogql_modifiers: Optional[HogQLQueryModifiers] = None,
@@ -213,6 +217,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             series=series,
             trends_filters=trends_filters,
             breakdown=breakdown,
+            compare_filters=compare_filters,
             filter_test_accounts=filter_test_accounts,
             hogql_modifiers=hogql_modifiers,
             limit_context=limit_context,
@@ -400,7 +405,8 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2020-01-19",
             IntervalType.DAY,
             [EventsNode(event="$pageview"), EventsNode(event="$pageleave")],
-            TrendsFilter(formula="A+2*B", compare=True),
+            TrendsFilter(formula="A+2*B"),
+            compare_filters=CompareFilter(compare=True),
         )
 
         # one for current, one for previous
@@ -420,6 +426,64 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual("Formula (A+2*B)", response.results[0]["label"])
         self.assertEqual(True, response.results[0]["compare"])
 
+    def test_formula_with_compare_to_day(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "2020-01-15",
+            "2020-01-19",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview"), EventsNode(event="$pageleave")],
+            TrendsFilter(formula="A+2*B"),
+            compare_filters=CompareFilter(compare=True, compare_to="-2d"),
+        )
+
+        # one for current, one for previous
+        self.assertEqual(2, len(response.results))
+
+        # current
+        self.assertEqual("current", response.results[0]["compare_label"])
+        self.assertEqual(6, response.results[0]["count"])
+        self.assertEqual([2, 2, 1, 0, 1], response.results[0]["data"])
+
+        # previous
+        self.assertEqual("previous", response.results[1]["compare_label"])
+        self.assertEqual(12, response.results[1]["count"])
+        self.assertEqual([7, 0, 2, 2, 1], response.results[1]["data"])
+
+        # response shape
+        self.assertEqual("Formula (A+2*B)", response.results[0]["label"])
+        self.assertEqual(True, response.results[0]["compare"])
+
+    def test_formula_with_compare_to_week(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "2020-01-15",
+            "2020-01-19",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview"), EventsNode(event="$pageleave")],
+            TrendsFilter(formula="A+2*B"),
+            compare_filters=CompareFilter(compare=True, compare_to="-1w"),
+        )
+
+        # one for current, one for previous
+        self.assertEqual(2, len(response.results))
+
+        # current
+        self.assertEqual("current", response.results[0]["compare_label"])
+        self.assertEqual(6, response.results[0]["count"])
+        self.assertEqual([2, 2, 1, 0, 1], response.results[0]["data"])
+
+        # previous
+        self.assertEqual("previous", response.results[1]["compare_label"])
+        self.assertEqual(9, response.results[1]["count"])
+        self.assertEqual([0, 1, 0, 3, 5], response.results[1]["data"])
+
+        # response shape
+        self.assertEqual("Formula (A+2*B)", response.results[0]["label"])
+        self.assertEqual(True, response.results[0]["compare"])
+
     def test_formula_with_compare_total_value(self):
         self._create_test_events()
 
@@ -431,8 +495,8 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             TrendsFilter(
                 formula="A+2*B",
                 display=ChartDisplayType.BOLD_NUMBER,  # total value
-                compare=True,
             ),
+            compare_filters=CompareFilter(compare=True),
         )
 
         # one for current, one for previous
@@ -445,6 +509,37 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # previous
         self.assertEqual("previous", response.results[1]["compare_label"])
         self.assertEqual(15, response.results[1]["aggregated_value"])
+
+        # response shape
+        self.assertEqual("Formula (A+2*B)", response.results[0]["label"])
+        self.assertEqual(0, response.results[0]["count"])  # it has always been so :shrug:
+        self.assertEqual(None, response.results[0].get("data"))
+
+    def test_formula_with_compare_to_total_value(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "2020-01-15",
+            "2020-01-19",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview"), EventsNode(event="$pageleave")],
+            TrendsFilter(
+                formula="A+2*B",
+                display=ChartDisplayType.BOLD_NUMBER,  # total value
+            ),
+            compare_filters=CompareFilter(compare=True, compare_to="-1w"),
+        )
+
+        # one for current, one for previous
+        self.assertEqual(2, len(response.results))
+
+        # current
+        self.assertEqual("current", response.results[0]["compare_label"])
+        self.assertEqual(6, response.results[0]["aggregated_value"])
+
+        # previous
+        self.assertEqual("previous", response.results[1]["compare_label"])
+        self.assertEqual(9, response.results[1]["aggregated_value"])
 
         # response shape
         self.assertEqual("Formula (A+2*B)", response.results[0]["label"])
@@ -487,8 +582,9 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2020-01-19",
             IntervalType.DAY,
             [EventsNode(event="$pageview"), EventsNode(event="$pageleave")],
-            TrendsFilter(formula="A+2*B", compare=True),
+            TrendsFilter(formula="A+2*B"),
             BreakdownFilter(breakdown_type=BreakdownType.EVENT, breakdown="$browser"),
+            CompareFilter(compare=True),
         )
 
         # chrome, ff and edge for previous, and chrome and safari for current
@@ -509,6 +605,38 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[2]["breakdown_value"] == "Chrome"
         assert response.results[2]["count"] == 9
 
+    def test_formula_with_breakdown_and_compare_to(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "2020-01-15",
+            "2020-01-19",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview"), EventsNode(event="$pageleave")],
+            TrendsFilter(formula="A+2*B"),
+            BreakdownFilter(breakdown_type=BreakdownType.EVENT, breakdown="$browser"),
+            CompareFilter(compare=True, compare_to="-3d"),
+        )
+
+        # chrome, ff, edge and safari for previous, and chrome and safari for current
+        assert len(response.results) == 6
+
+        assert response.results[0]["compare_label"] == "current"
+        assert response.results[0]["breakdown_value"] == "Chrome"
+        assert response.results[0]["label"] == "Formula (A+2*B)"
+        assert response.results[0]["count"] == 3
+        assert response.results[0]["data"] == [1, 0, 1, 0, 1]
+
+        assert response.results[1]["compare_label"] == "current"
+        assert response.results[1]["breakdown_value"] == "Safari"
+        assert response.results[1]["count"] == 3
+
+        assert response.results[2]["compare_label"] == "previous"
+        assert response.results[2]["label"] == "Formula (A+2*B)"
+        assert response.results[2]["breakdown_value"] == "Chrome"
+        assert response.results[2]["count"] == 7
+        assert response.results[2]["data"] == [3, 3, 0, 1, 0]
+
     def test_formula_with_breakdown_and_compare_total_value(self):
         self._create_test_events()
 
@@ -520,9 +648,9 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             TrendsFilter(
                 formula="A+2*B",
                 display=ChartDisplayType.BOLD_NUMBER,  # total value
-                compare=True,
             ),
             BreakdownFilter(breakdown_type=BreakdownType.EVENT, breakdown="$browser"),
+            CompareFilter(compare=True),
         )
 
         # chrome, ff and edge for previous, and chrome and safari for current
@@ -695,7 +823,8 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2020-01-19",
             IntervalType.DAY,
             [EventsNode(event="$pageview")],
-            TrendsFilter(compare=True),
+            TrendsFilter(),
+            compare_filters=CompareFilter(compare=True),
         )
 
         self.assertEqual(2, len(response.results))
@@ -739,7 +868,8 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 None,
                 IntervalType.DAY,
                 [EventsNode(event="$pageview")],
-                TrendsFilter(compare=True),
+                TrendsFilter(),
+                compare_filters=CompareFilter(compare=True),
             )
 
             self.assertEqual(2, len(response.results))
@@ -976,8 +1106,9 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2020-01-20",
             IntervalType.DAY,
             [EventsNode(event="$pageview")],
-            TrendsFilter(compare=True),
+            TrendsFilter(),
             BreakdownFilter(breakdown_type=BreakdownType.EVENT, breakdown="$browser"),
+            CompareFilter(compare=True),
         )
 
         breakdown_labels = [result["breakdown_value"] for result in response.results]
@@ -1438,8 +1569,9 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2020-01-20",
             IntervalType.DAY,
             [EventsNode(event="$pageview")],
-            TrendsFilter(display=ChartDisplayType.BOLD_NUMBER, compare=True),
+            TrendsFilter(display=ChartDisplayType.BOLD_NUMBER),
             None,
+            compare_filters=CompareFilter(compare=True),
         )
 
         assert len(response.results) == 2
@@ -1754,8 +1886,48 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2020-01-20",
             IntervalType.DAY,
             [EventsNode(event="$pageview")],
-            TrendsFilter(compare=True),
+            TrendsFilter(),
             None,
+            CompareFilter(compare=True),
+        )
+        response = runner.to_actors_query_options()
+
+        assert response.day == [
+            DayItem(label="9-Jan-2020", value=datetime(2020, 1, 9, 0, 0, tzinfo=zoneinfo.ZoneInfo(key="UTC"))),
+            DayItem(label="10-Jan-2020", value=datetime(2020, 1, 10, 0, 0, tzinfo=zoneinfo.ZoneInfo(key="UTC"))),
+            DayItem(label="11-Jan-2020", value=datetime(2020, 1, 11, 0, 0, tzinfo=zoneinfo.ZoneInfo(key="UTC"))),
+            DayItem(label="12-Jan-2020", value=datetime(2020, 1, 12, 0, 0, tzinfo=zoneinfo.ZoneInfo(key="UTC"))),
+            DayItem(label="13-Jan-2020", value=datetime(2020, 1, 13, 0, 0, tzinfo=zoneinfo.ZoneInfo(key="UTC"))),
+            DayItem(label="14-Jan-2020", value=datetime(2020, 1, 14, 0, 0, tzinfo=zoneinfo.ZoneInfo(key="UTC"))),
+            DayItem(label="15-Jan-2020", value=datetime(2020, 1, 15, 0, 0, tzinfo=zoneinfo.ZoneInfo(key="UTC"))),
+            DayItem(label="16-Jan-2020", value=datetime(2020, 1, 16, 0, 0, tzinfo=zoneinfo.ZoneInfo(key="UTC"))),
+            DayItem(label="17-Jan-2020", value=datetime(2020, 1, 17, 0, 0, tzinfo=zoneinfo.ZoneInfo(key="UTC"))),
+            DayItem(label="18-Jan-2020", value=datetime(2020, 1, 18, 0, 0, tzinfo=zoneinfo.ZoneInfo(key="UTC"))),
+            DayItem(label="19-Jan-2020", value=datetime(2020, 1, 19, 0, 0, tzinfo=zoneinfo.ZoneInfo(key="UTC"))),
+            DayItem(label="20-Jan-2020", value=datetime(2020, 1, 20, 0, 0, tzinfo=zoneinfo.ZoneInfo(key="UTC"))),
+        ]
+
+        assert response.breakdown is None
+
+        assert response.series == [InsightActorsQuerySeries(label="$pageview", value=0)]
+
+        assert response.compare == [
+            CompareItem(label="Current", value="current"),
+            CompareItem(label="Previous", value="previous"),
+        ]
+
+    def test_to_actors_query_options_compare_to(self):
+        self._create_test_events()
+        flush_persons_and_events()
+
+        runner = self._create_query_runner(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            TrendsFilter(),
+            None,
+            compare_filters=CompareFilter(compare=True, compare_to="-1w"),
         )
         response = runner.to_actors_query_options()
 

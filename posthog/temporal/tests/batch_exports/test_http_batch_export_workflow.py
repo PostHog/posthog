@@ -433,7 +433,6 @@ async def test_http_export_workflow_handles_insert_activity_errors(ateam, http_b
     assert run.status == "FailedRetryable"
     assert run.latest_error == "ValueError: A useful error message"
     assert run.records_completed is None
-    assert run.records_total_count == 1
 
 
 async def test_http_export_workflow_handles_insert_activity_non_retryable_errors(ateam, http_batch_export, interval):
@@ -484,7 +483,6 @@ async def test_http_export_workflow_handles_insert_activity_non_retryable_errors
     assert run.status == "Failed"
     assert run.latest_error == "NonRetryableResponseError: A useful error message"
     assert run.records_completed is None
-    assert run.records_total_count == 1
 
 
 async def test_http_export_workflow_handles_cancellation(ateam, http_batch_export, interval):

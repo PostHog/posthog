@@ -47,6 +47,7 @@ from posthog.schema import (
     StickinessFilter,
     LifecycleFilter,
     TrendsQuery,
+    CompareFilter,
 )
 from posthog.test.base import BaseTest
 
@@ -1318,6 +1319,17 @@ class TestFilterToQuery(BaseTest):
             BreakdownFilter(breakdown_type=BreakdownType.EVENT, breakdown="$browser"),
         )
 
+    def test_compare(self):
+        filter = {"compare": True, "compare_to": "-5w"}
+
+        query = filter_to_query(filter)
+
+        assert isinstance(query, TrendsQuery)
+        self.assertEqual(
+            query.compareFilter,
+            CompareFilter(**filter),
+        )
+
     def test_breakdown_converts_multi(self):
         filter = {"breakdowns": [{"type": "event", "property": "$browser"}]}
 
@@ -1343,7 +1355,6 @@ class TestFilterToQuery(BaseTest):
     def test_trends_filter(self):
         filter = {
             "smoothing_intervals": 2,
-            "compare": True,
             "aggregation_axis_format": "duration_ms",
             "aggregation_axis_prefix": "pre",
             "aggregation_axis_postfix": "post",
@@ -1362,7 +1373,6 @@ class TestFilterToQuery(BaseTest):
             query.trendsFilter,
             TrendsFilter(
                 smoothingIntervals=2,
-                compare=True,
                 aggregationAxisFormat=AggregationAxisFormat.DURATION_MS,
                 aggregationAxisPrefix="pre",
                 aggregationAxisPostfix="post",
@@ -1576,7 +1586,6 @@ class TestFilterToQuery(BaseTest):
     def test_stickiness_filter(self):
         filter = {
             "insight": "STICKINESS",
-            "compare": True,
             "show_legend": True,
             "show_values_on_series": True,
             "shown_as": "Stickiness",
@@ -1587,7 +1596,7 @@ class TestFilterToQuery(BaseTest):
         assert isinstance(query, StickinessQuery)
         self.assertEqual(
             query.stickinessFilter,
-            StickinessFilter(compare=True, showLegend=True, showValuesOnSeries=True),
+            StickinessFilter(showLegend=True, showValuesOnSeries=True),
         )
 
     def test_lifecycle_filter(self):
