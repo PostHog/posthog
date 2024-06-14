@@ -4,6 +4,7 @@ import { isFunnelsFilter, isLifecycleFilter, isStickinessFilter, isTrendsFilter 
 import {
     ActionsNode,
     BreakdownFilter,
+    CompareFilter,
     DataWarehouseNode,
     EventsNode,
     FunnelsFilterLegacy,
@@ -147,6 +148,10 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
     // TODO stickiness should probably support breakdowns as well
     if ((isTrendsQuery(query) || isFunnelsQuery(query)) && query.breakdownFilter) {
         Object.assign(filters, objectClean<Partial<Record<keyof BreakdownFilter, unknown>>>(query.breakdownFilter))
+    }
+
+    if ((isTrendsQuery(query) || isStickinessQuery(query)) && query.compareFilter) {
+        Object.assign(filters, objectClean<Partial<Record<keyof CompareFilter, unknown>>>(query.compareFilter))
     }
 
     if (!isStickinessQuery(query)) {
