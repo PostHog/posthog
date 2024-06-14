@@ -909,6 +909,7 @@ class PipelineTransformationsViewSet(PluginViewSet):
 
 class PipelineTransformationsConfigsViewSet(PluginConfigViewSet):
     def safely_get_queryset(self, queryset):
+        queryset = super().safely_get_queryset(queryset)
         return queryset.filter(
             Q(plugin__capabilities__has_key="methods") & Q(plugin__capabilities__methods__contains=["processEvent"])
         )
@@ -925,6 +926,7 @@ class PipelineDestinationsViewSet(PluginViewSet):
 
 class PipelineDestinationsConfigsViewSet(PluginConfigViewSet):
     def safely_get_queryset(self, queryset):
+        queryset = super().safely_get_queryset(queryset)
         return queryset.filter(
             Q(plugin__capabilities__has_key="methods")
             & (
@@ -942,6 +944,7 @@ class PipelineFrontendAppsViewSet(PluginViewSet):
 
 class PipelineFrontendAppsConfigsViewSet(PluginConfigViewSet):
     def safely_get_queryset(self, queryset):
+        queryset = super().safely_get_queryset(queryset)
         return queryset.exclude(
             Q(plugin__capabilities__has_key="methods") | Q(plugin__capabilities__has_key="scheduled_tasks")
         )
@@ -964,6 +967,7 @@ class PipelineImportAppsViewSet(PluginViewSet):
 
 class PipelineImportAppsConfigsViewSet(PluginConfigViewSet):
     def safely_get_queryset(self, queryset):
+        queryset = super().safely_get_queryset(queryset)
         return queryset.filter(
             Q(Q(plugin__capabilities__has_key="scheduled_tasks") & ~Q(plugin__capabilities__scheduled_tasks=[]))
             | Q(

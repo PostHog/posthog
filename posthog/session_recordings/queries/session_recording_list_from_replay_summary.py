@@ -642,7 +642,7 @@ class SessionRecordingListFromReplaySummary(EventQuery):
     {provided_session_ids_clause}
     {log_matching_session_ids_clause}
     GROUP BY session_id
-        HAVING 1=1 {duration_clause} {console_log_clause}
+        HAVING s.first_url is not null {duration_clause} {console_log_clause}
     {order_by_clause}
     LIMIT %(limit)s OFFSET %(offset)s
     """
