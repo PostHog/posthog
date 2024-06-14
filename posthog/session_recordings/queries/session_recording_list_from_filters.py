@@ -252,7 +252,12 @@ class SessionRecordingListFromFilters:
         return ast.And(exprs=exprs)
 
     def _having_predicates(self) -> ast.And | Constant:
-        exprs: list[ast.Expr] = []
+        exprs: list[ast.Expr] = [
+            # a missing first url indicate delayed or incomplete ingestion and we can ignore those
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.NotEq, left=ast.Field(chain=["first_url"]), right=ast.Constant(value=None)
+            )
+        ]
 
         if self._filter.recording_duration_filter:
             op = (
