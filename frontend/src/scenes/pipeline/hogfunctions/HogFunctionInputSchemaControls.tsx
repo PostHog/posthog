@@ -62,18 +62,23 @@ export function HogFunctionInputSchemaControls({ value, onChange }: HogFunctionI
                     label="Secret"
                     bordered
                 />
-                {value.type === 'choice' && (
-                    <LemonInputSelect
-                        mode="multiple"
-                        allowCustomValues
-                        value={value.choices?.map((choice) => choice.value)}
-                        onChange={(choices) =>
-                            _onChange({ choices: choices.map((value) => ({ label: value, value })) })
-                        }
-                        placeholder="Choices"
-                    />
-                )}
             </div>
+            {value.type === 'choice' && (
+                <div className="flex items-center gap-2">
+                    <span>Choices:</span>
+                    <span className="flex-1">
+                        <LemonInputSelect
+                            mode="multiple"
+                            allowCustomValues
+                            value={value.choices?.map((choice) => choice.value)}
+                            onChange={(choices) =>
+                                _onChange({ choices: choices.map((value) => ({ label: value, value })) })
+                            }
+                            placeholder="Choices"
+                        />
+                    </span>
+                </div>
+            )}
         </div>
     )
 }
