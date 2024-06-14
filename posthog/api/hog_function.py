@@ -1,11 +1,12 @@
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
+from django.db.models import QuerySet
+
 from rest_framework import serializers, viewsets
 from rest_framework.serializers import BaseSerializer
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
-
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.hog_function_template import HogFunctionTemplateSerializer
@@ -55,6 +56,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "created_by",
             "updated_at",
             "enabled",
+            "deleted",
             "hog",
             "bytecode",
             "inputs_schema",
@@ -74,6 +76,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         ]
         extra_kwargs = {
             "template_id": {"write_only": True},
+            "deleted": {"write_only": True},
         }
 
     def validate_inputs_schema(self, value):
@@ -82,10 +85,17 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
     def validate(self, attrs):
         team = self.context["get_team"]()
         attrs["team"] = team
-        attrs["inputs_schema"] = attrs.get("inputs_schema", [])
-        attrs["filters"] = attrs.get("filters", {})
-        attrs["inputs"] = validate_inputs(attrs["inputs_schema"], attrs.get("inputs", {}))
-        attrs["bytecode"] = compile_hog(attrs["hog"])
+
+        if self.context["view"].action == "create":
+            # Ensure we have sensible defaults when created
+            attrs["filters"] = attrs.get("filters", {})
+            attrs["inputs_schema"] = attrs.get("inputs_schema", [])
+            attrs["inputs"] = attrs.get("inputs", {})
+
+        if "inputs" in attrs:
+            attrs["inputs"] = validate_inputs(attrs["inputs_schema"], attrs["inputs"])
+        if "hog" in attrs:
+            attrs["bytecode"] = compile_hog(attrs["hog"])
 
         return attrs
 
@@ -107,6 +117,12 @@ class HogFunctionViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, ForbidDestroyMod
 
     def get_serializer_class(self) -> type[BaseSerializer]:
         return HogFunctionMinimalSerializer if self.action == "list" else HogFunctionSerializer
+
+    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
+        if self.action == "list":
+            queryset = queryset.filter(deleted=False)
+
+        return queryset
 
     @action(detail=False, methods=["GET"])
     def icons(self, request: Request, *args, **kwargs):

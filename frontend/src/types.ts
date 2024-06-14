@@ -2141,8 +2141,9 @@ export interface TrendsFilterType extends FilterType {
     // number of intervals, e.g. for a day interval, we may want to smooth over
     // 7 days to remove weekly variation. Smoothing is performed as a moving average.
     smoothing_intervals?: number
-    compare?: boolean
     formula?: string
+    compare_to?: string
+    compare?: boolean
     /** @deprecated */
     shown_as?: ShownAsValue
     display?: ChartDisplayType
@@ -2161,6 +2162,7 @@ export interface TrendsFilterType extends FilterType {
 }
 
 export interface StickinessFilterType extends FilterType {
+    compare_to?: string
     compare?: boolean
     /** @deprecated */
     shown_as?: ShownAsValue
@@ -3684,6 +3686,7 @@ export enum ActivityScope {
     SURVEY = 'Survey',
     EARLY_ACCESS_FEATURE = 'EarlyAccessFeature',
     COMMENT = 'Comment',
+    COHORT = 'Cohort',
     TEAM = 'Team',
 }
 

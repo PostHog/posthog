@@ -19,7 +19,14 @@ import {
 
 import type { pipelineDestinationsLogicType } from './destinationsLogicType'
 import { pipelineAccessLogic } from './pipelineAccessLogic'
-import { BatchExportDestination, convertToPipelineNode, Destination, PipelineBackend } from './types'
+import {
+    BatchExportDestination,
+    convertToPipelineNode,
+    Destination,
+    FunctionDestination,
+    PipelineBackend,
+    WebhookDestination,
+} from './types'
 import { captureBatchExportEvent, capturePluginEvent, loadPluginsFromUrl } from './utils'
 
 export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
@@ -38,10 +45,13 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
         toggleNode: (destination: Destination, enabled: boolean) => ({ destination, enabled }),
         deleteNode: (destination: Destination) => ({ destination }),
         deleteNodeBatchExport: (destination: BatchExportDestination) => ({ destination }),
+        deleteNodeHogFunction: (destination: FunctionDestination) => ({ destination }),
+        deleteNodeWebhook: (destination: WebhookDestination) => ({ destination }),
+
         updatePluginConfig: (pluginConfig: PluginConfigTypeNew) => ({ pluginConfig }),
         updateBatchExportConfig: (batchExportConfig: BatchExportConfiguration) => ({ batchExportConfig }),
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         plugins: [
             {} as Record<number, PluginType>,
             {
@@ -86,6 +96,26 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                         [pluginConfig.id]: pluginConfig,
                     }
                 },
+
+                deleteNodeWebhook: async ({ destination }) => {
+                    await deleteWithUndo({
+                        endpoint: `projects/${teamLogic.values.currentTeamId}/plugin_configs`,
+                        object: {
+                            id: destination.id,
+                            name: destination.name,
+                        },
+                        callback: (undo) => {
+                            if (undo) {
+                                actions.loadPluginConfigs()
+                            }
+                        },
+                    })
+
+                    const pluginConfigs = { ...values.pluginConfigs }
+                    delete pluginConfigs[destination.id]
+
+                    return pluginConfigs
+                },
             },
         ],
         batchExportConfigs: [
@@ -109,9 +139,11 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                 },
                 deleteNodeBatchExport: async ({ destination }) => {
                     await api.batchExports.delete(destination.id)
-                    return Object.fromEntries(
-                        Object.entries(values.batchExportConfigs).filter(([id]) => id !== destination.id)
-                    )
+
+                    const batchExportConfigs = { ...values.batchExportConfigs }
+                    delete batchExportConfigs[destination.id]
+
+                    return batchExportConfigs
                 },
                 updateBatchExportConfig: ({ batchExportConfig }) => {
                     return { ...values.batchExportConfigs, [batchExportConfig.id]: batchExportConfig }
@@ -137,6 +169,27 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                 loadHogFunctions: async () => {
                     // TODO: Support pagination?
                     return (await api.hogFunctions.list()).results
+                },
+
+                deleteNodeHogFunction: async ({ destination }) => {
+                    if (destination.backend !== PipelineBackend.HogFunction) {
+                        return values.hogFunctions
+                    }
+
+                    await deleteWithUndo({
+                        endpoint: `projects/${teamLogic.values.currentTeamId}/hog_functions`,
+                        object: {
+                            id: destination.hog_function.id,
+                            name: destination.name,
+                        },
+                        callback: (undo) => {
+                            if (undo) {
+                                actions.loadHogFunctions()
+                            }
+                        },
+                    })
+
+                    return values.hogFunctions.filter((hogFunction) => hogFunction.id !== destination.hog_function.id)
                 },
             },
         ],
@@ -195,7 +248,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             },
         ],
     }),
-    listeners(({ values, actions, asyncActions }) => ({
+    listeners(({ values, actions }) => ({
         toggleNode: ({ destination, enabled }) => {
             if (enabled && !values.canEnableNewDestinations) {
                 lemonToast.error('Data pipelines add-on is required for enabling new destinations.')
@@ -207,18 +260,17 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                 actions.toggleNodeBatchExport({ destination: destination, enabled: enabled })
             }
         },
-        deleteNode: async ({ destination }) => {
-            if (destination.backend === PipelineBackend.BatchExport) {
-                await asyncActions.deleteNodeBatchExport(destination)
-            } else {
-                await deleteWithUndo({
-                    endpoint: `projects/${teamLogic.values.currentTeamId}/plugin_configs`,
-                    object: {
-                        id: destination.id,
-                        name: destination.name,
-                    },
-                    callback: actions.loadPluginConfigs,
-                })
+        deleteNode: ({ destination }) => {
+            switch (destination.backend) {
+                case PipelineBackend.Plugin:
+                    actions.deleteNodeWebhook(destination)
+                    break
+                case PipelineBackend.BatchExport:
+                    actions.deleteNodeBatchExport(destination)
+                    break
+                case PipelineBackend.HogFunction:
+                    actions.deleteNodeHogFunction(destination)
+                    break
             }
         },
     })),

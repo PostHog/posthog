@@ -123,6 +123,7 @@ export interface ActivityLogPaginatedResponse<T> extends PaginatedResponse<T> {
 export interface ApiMethodOptions {
     signal?: AbortSignal
     headers?: Record<string, any>
+    async?: boolean
 }
 
 export class ApiError extends Error {

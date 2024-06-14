@@ -16,6 +16,7 @@ from posthog.schema import (
     PropertyGroupFilterValue,
     TrendsFilter,
     TrendsQuery,
+    CompareFilter,
 )
 
 from posthog.test.base import BaseTest
@@ -35,6 +36,7 @@ class TestTrendsDashboardFilters(BaseTest):
         hogql_modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
         explicit_date: Optional[bool] = None,
+        compare_filters: Optional[CompareFilter] = None,
     ) -> TrendsQueryRunner:
         query_series: list[EventsNode | ActionsNode] = [EventsNode(event="$pageview")] if series is None else series
         query = TrendsQuery(
@@ -45,6 +47,7 @@ class TestTrendsDashboardFilters(BaseTest):
             breakdownFilter=breakdown,
             filterTestAccounts=filter_test_accounts,
             properties=properties,
+            compareFilter=compare_filters,
         )
         return TrendsQueryRunner(team=self.team, query=query, modifiers=hogql_modifiers, limit_context=limit_context)
 
@@ -298,7 +301,8 @@ class TestTrendsDashboardFilters(BaseTest):
             "2024-07-14",
             IntervalType.DAY,
             None,
-            trends_filters=TrendsFilter(compare=True),
+            trends_filters=TrendsFilter(),
+            compare_filters=CompareFilter(compare=True),
         )
 
         assert query_runner.query.dateRange is not None
@@ -306,7 +310,8 @@ class TestTrendsDashboardFilters(BaseTest):
         assert query_runner.query.dateRange.date_to == "2024-07-14"
         assert query_runner.query.properties is None
         assert query_runner.query.breakdownFilter is None
-        assert query_runner.query.trendsFilter == TrendsFilter(compare=True)
+        assert query_runner.query.trendsFilter == TrendsFilter()
+        assert query_runner.query.compareFilter == CompareFilter(compare=True)
 
         query_runner.apply_dashboard_filters(DashboardFilter(date_from="all"))
 
@@ -314,6 +319,7 @@ class TestTrendsDashboardFilters(BaseTest):
         assert query_runner.query.dateRange.date_to is None
         assert query_runner.query.properties is None  # type: ignore [unreachable]
         assert query_runner.query.breakdownFilter is None
-        assert query_runner.query.trendsFilter == TrendsFilter(
-            compare=False  # There's no previous period for the "all time" date range
-        )
+        assert query_runner.query.trendsFilter == TrendsFilter()
+        assert query_runner.query.compareFilter == CompareFilter(
+            compare=False
+        )  # There's no previous period for the "all time" date range

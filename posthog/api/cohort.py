@@ -2,9 +2,12 @@ import csv
 from posthog.clickhouse.client.connection import Workload
 
 from django.db import DatabaseError
+from loginas.utils import is_impersonated_session
 from sentry_sdk import start_span
 import structlog
 
+from posthog.models.activity_logging.activity_log import log_activity, Detail, changes_between, load_activity
+from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.feature_flag.flag_matching import (
     FeatureFlagMatcher,
     FlagsMatcherCache,
@@ -22,7 +25,7 @@ from django.conf import settings
 from django.db.models import QuerySet, Prefetch, prefetch_related_objects, OuterRef, Subquery
 from django.db.models.expressions import F
 from django.utils import timezone
-from rest_framework import serializers, viewsets
+from rest_framework import serializers, viewsets, request, status
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -402,6 +405,69 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         API_COHORT_PERSON_BYTES_READ_FROM_POSTGRES_COUNTER.labels(team_id=team.pk).inc(size)
 
         return Response({"results": serialized_actors, "next": next_url, "previous": previous_url})
+
+    @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
+    def all_activity(self, request: request.Request, **kwargs):
+        limit = int(request.query_params.get("limit", "10"))
+        page = int(request.query_params.get("page", "1"))
+
+        activity_page = load_activity(scope="Cohort", team_id=self.team_id, limit=limit, page=page)
+
+        return activity_page_response(activity_page, limit, page, request)
+
+    @action(methods=["GET"], detail=True, required_scopes=["activity_log:read"])
+    def activity(self, request: request.Request, **kwargs):
+        limit = int(request.query_params.get("limit", "10"))
+        page = int(request.query_params.get("page", "1"))
+
+        item_id = kwargs["pk"]
+        if not Cohort.objects.filter(id=item_id, team_id=self.team_id).exists():
+            return Response("", status=status.HTTP_404_NOT_FOUND)
+
+        activity_page = load_activity(
+            scope="Cohort",
+            team_id=self.team_id,
+            item_ids=[str(item_id)],
+            limit=limit,
+            page=page,
+        )
+        return activity_page_response(activity_page, limit, page, request)
+
+    def perform_create(self, serializer):
+        serializer.save()
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team_id,
+            user=serializer.context["request"].user,
+            was_impersonated=is_impersonated_session(serializer.context["request"]),
+            item_id=serializer.instance.id,
+            scope="Cohort",
+            activity="created",
+            detail=Detail(name=serializer.instance.name),
+        )
+
+    def perform_update(self, serializer):
+        instance_id = serializer.instance.id
+
+        try:
+            before_update = Cohort.objects.get(pk=instance_id)
+        except Cohort.DoesNotExist:
+            before_update = None
+
+        serializer.save()
+
+        changes = changes_between("Cohort", previous=before_update, current=serializer.instance)
+
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team_id,
+            user=serializer.context["request"].user,
+            was_impersonated=is_impersonated_session(serializer.context["request"]),
+            item_id=instance_id,
+            scope="Cohort",
+            activity="updated",
+            detail=Detail(changes=changes, name=serializer.instance.name),
+        )
 
 
 class LegacyCohortViewSet(CohortViewSet):
