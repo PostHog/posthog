@@ -231,7 +231,7 @@ export const PlanComparison = ({
                             hasActiveSubscription: billing?.has_active_subscription,
                         })
                         return (
-                            <td key={`${plan.plan_key}-basePrice`} className="text-sm font-medium">
+                            <td key={`${plan.plan_key}-basePrice`} className="text-sm font-bold">
                                 {plan.free_allocation && !plan.tiers
                                     ? 'Free forever'
                                     : plan.unit_amount_usd
@@ -353,7 +353,7 @@ export const PlanComparison = ({
                         className={clsx(
                             i == fullyFeaturedPlan?.features?.length - 1 && !billing?.has_active_subscription
                                 ? 'PlanTable__tr__border'
-                                : 'border-b'
+                                : ''
                         )}
                     >
                         <th
@@ -406,7 +406,7 @@ export const PlanComparison = ({
                                 )
                                 return (
                                     <React.Fragment key={`inclusion-only-product-features-${includedProduct.type}`}>
-                                        <tr className="border-b">
+                                        <tr>
                                             <th
                                                 colSpan={3}
                                                 className="PlanTable__th__section bg-side justify-left rounded text-left mb-2"
@@ -426,7 +426,7 @@ export const PlanComparison = ({
                                         {includedPlans
                                             .find((plan: BillingV2PlanType) => plan.included_if == 'has_subscription')
                                             ?.features?.map((feature, i) => (
-                                                <tr key={`tr-${feature.key}`} className="border-b">
+                                                <tr key={`tr-${feature.key}`}>
                                                     <th
                                                         className={clsx(
                                                             'text-muted PlanTable__th__feature',
