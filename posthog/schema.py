@@ -342,24 +342,12 @@ class EntityType(str, Enum):
     NEW_ENTITY = "new_entity"
 
 
-class ErrorTrackingGroup(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    id: str
-    occurrences: float
-    title: str
-    uniqueSessions: float
-    uniqueUsers: float
-
-
 class ErrorTrackingOrder(str, Enum):
     LAST_SEEN = "last_seen"
     FIRST_SEEN = "first_seen"
-    OCCURRENCES = "occurrences"
-    USERS = "users"
-    SESSIONS = "sessions"
+    UNIQUE_OCCURRENCES = "unique_occurrences"
+    UNIQUE_USERS = "unique_users"
+    UNIQUE_SESSIONS = "unique_sessions"
 
 
 class EventDefinition(BaseModel):

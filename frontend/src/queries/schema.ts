@@ -1191,15 +1191,6 @@ export type CachedWebTopClicksQueryResponse = CachedQueryResponse<WebTopClicksQu
 
 export type ErrorTrackingOrder = 'last_seen' | 'first_seen' | 'unique_occurrences' | 'unique_users' | 'unique_sessions'
 
-export type ErrorTrackingGroup = {
-    id: string
-    title: string
-    description: string
-    occurrences: number
-    uniqueSessions: number
-    uniqueUsers: number
-}
-
 export enum WebStatsBreakdown {
     Page = 'Page',
     InitialPage = 'InitialPage',

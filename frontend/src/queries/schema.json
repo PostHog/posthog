@@ -2804,33 +2804,8 @@
             "enum": ["actions", "events", "data_warehouse", "new_entity"],
             "type": "string"
         },
-        "ErrorTrackingGroup": {
-            "additionalProperties": false,
-            "properties": {
-                "description": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "occurrences": {
-                    "type": "number"
-                },
-                "title": {
-                    "type": "string"
-                },
-                "uniqueSessions": {
-                    "type": "number"
-                },
-                "uniqueUsers": {
-                    "type": "number"
-                }
-            },
-            "required": ["id", "title", "description", "occurrences", "uniqueSessions", "uniqueUsers"],
-            "type": "object"
-        },
         "ErrorTrackingOrder": {
-            "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
+            "enum": ["last_seen", "first_seen", "unique_occurrences", "unique_users", "unique_sessions"],
             "type": "string"
         },
         "EventDefinition": {
