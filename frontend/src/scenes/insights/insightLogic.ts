@@ -3,7 +3,6 @@ import { actions, connect, events, kea, key, listeners, path, props, reducers, s
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { parseProperties } from 'lib/components/PropertyFilters/utils'
 import { DashboardPrivilegeLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { objectsEqual } from 'lib/utils'
@@ -388,33 +387,8 @@ export const insightLogic = kea<insightLogicType>([
                 return {}
             },
         ],
-        isUsingSessionAnalysis: [
-            (s) => [s.filters],
-            (filters: Partial<FilterType>): boolean => {
-                const entities = (filters.events || []).concat(filters.actions ?? [])
-                const using_session_breakdown = filters.breakdown_type === 'session'
-                const using_session_math = entities.some((entity) => entity.math === 'unique_session')
-                const using_session_property_math = entities.some((entity) => {
-                    // Should be made more generic is we ever add more session properties
-                    return entity.math_property === '$session_duration'
-                })
-                const using_entity_session_property_filter = entities.some((entity) => {
-                    return parseProperties(entity.properties).some((property) => property.type === 'session')
-                })
-                const using_global_session_property_filter = parseProperties(filters.properties).some(
-                    (property) => property.type === 'session'
-                )
-                return (
-                    using_session_breakdown ||
-                    using_session_math ||
-                    using_session_property_math ||
-                    using_entity_session_property_filter ||
-                    using_global_session_property_filter
-                )
-            },
-        ],
     }),
-    listeners(({ actions, selectors, values }) => ({
+    listeners(({ actions, values }) => ({
         reportInsightViewedForRecentInsights: async () => {
             // Report the insight being viewed to our '/viewed' endpoint. Used for "recently viewed insights"
 
