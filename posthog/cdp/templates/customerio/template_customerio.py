@@ -22,7 +22,6 @@ fn callCustomerIoApi(method, path, body) {
     })
 }
 
-
 fn trackIdentify() {
     // Upsert the customer
     let payload := {
