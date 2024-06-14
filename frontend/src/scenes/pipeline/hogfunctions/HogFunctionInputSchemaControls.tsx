@@ -6,25 +6,38 @@ import { HogFunctionInputSchemaType } from '~/types'
 
 const typeList = ['string', 'boolean', 'dictionary', 'choice', 'json'] as const
 
-export type HogFunctionInputSchemaProps = {
+export type HogFunctionInputSchemaControlsProps = {
     value: HogFunctionInputSchemaType
     onChange: (value: HogFunctionInputSchemaType | null) => void
 }
 
-export function HogFunctionInputSchema({ value, onChange }: HogFunctionInputSchemaProps): JSX.Element {
+export function HogFunctionInputSchemaControls({ value, onChange }: HogFunctionInputSchemaControlsProps): JSX.Element {
     const _onChange = (data: Partial<HogFunctionInputSchemaType> | null): void => {
         onChange(data ? { ...value, ...data } : null)
     }
 
     return (
-        <div className="flex items-center gap-2 flex-wrap border border-dashed rounded p-1">
+        <div className="flex flex-col gap-2">
             <div className="flex-1 flex items-center gap-2 flex-wrap">
                 <LemonInput
+                    className="w-60"
+                    size="small"
+                    value={value.label}
+                    onChange={(label) => _onChange({ label })}
+                    placeholder="Display label"
+                    inputClassName="font-semibold"
+                />
+                <LemonInput
+                    className="w-30"
                     size="small"
                     value={value.key}
                     onChange={(key) => _onChange({ key })}
                     placeholder="Variable name"
                 />
+                <div className="flex-1" />
+                <LemonButton icon={<IconX />} size="small" onClick={() => onChange(null)} />
+            </div>
+            <div className="flex-1 flex items-center gap-2 flex-wrap">
                 <LemonSelect
                     size="small"
                     options={typeList.map((type) => ({
@@ -34,14 +47,6 @@ export function HogFunctionInputSchema({ value, onChange }: HogFunctionInputSche
                     value={value.type}
                     className="w-30"
                     onChange={(type) => _onChange({ type })}
-                />
-
-                <LemonInput
-                    className="flex-1 min-w-30"
-                    size="small"
-                    value={value.label}
-                    onChange={(label) => _onChange({ label })}
-                    placeholder="Display label"
                 />
                 <LemonCheckbox
                     size="small"
@@ -69,7 +74,6 @@ export function HogFunctionInputSchema({ value, onChange }: HogFunctionInputSche
                     />
                 )}
             </div>
-            <LemonButton icon={<IconX />} size="small" onClick={() => onChange(null)} />
         </div>
     )
 }

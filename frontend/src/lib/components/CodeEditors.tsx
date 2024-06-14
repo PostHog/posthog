@@ -4,7 +4,7 @@ import MonacoEditor, { type EditorProps } from '@monaco-editor/react'
 import { useValues } from 'kea'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { inStorybookTestRunner } from 'lib/utils'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import AutoSizer from 'react-virtualized/dist/es/AutoSizer'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -47,8 +47,10 @@ export function CodeEditorResizeable({
     minHeight?: string | number
     maxHeight?: string | number
 }): JSX.Element {
-    const [height, setHeight] = useState(defaultHeight ?? 200)
+    const [height, setHeight] = useState(defaultHeight)
     const [manualHeight, setManualHeight] = useState<number>()
+
+    const ref = useRef<HTMLDivElement | null>(null)
 
     useEffect(() => {
         const value = typeof props.value !== 'string' ? JSON.stringify(props.value, null, 2) : props.value
@@ -59,6 +61,7 @@ export function CodeEditorResizeable({
 
     return (
         <div
+            ref={ref}
             className="CodeEditorResizeable relative border rounded"
             // eslint-disable-next-line react/forbid-dom-props
             style={{
@@ -81,7 +84,7 @@ export function CodeEditorResizeable({
                 className="absolute bottom-0 right-0 z-10 resize-y h-5 w-5 cursor-s-resize overflow-hidden"
                 onMouseDown={(e) => {
                     const startY = e.clientY
-                    const startHeight = height
+                    const startHeight = ref.current?.clientHeight ?? 0
                     const onMouseMove = (event: MouseEvent): void => {
                         setManualHeight(startHeight + event.clientY - startY)
                     }

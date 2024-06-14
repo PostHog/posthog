@@ -1,13 +1,17 @@
 import { Monaco } from '@monaco-editor/react'
-import { IconPencil, IconPlus, IconX } from '@posthog/icons'
+import { IconPlus, IconX } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSelect } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { CodeEditorResizeable } from 'lib/components/CodeEditors'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { languages } from 'monaco-editor'
 import { useEffect, useMemo, useState } from 'react'
 
 import { groupsModel } from '~/models/groupsModel'
 import { HogFunctionInputSchemaType } from '~/types'
+
+import { HogFunctionInputSchemaControls } from './HogFunctionInputSchemaControls'
+import { pipelineHogFunctionConfigurationLogic } from './pipelineHogFunctionConfigurationLogic'
 
 export type HogFunctionInputProps = {
     schema: HogFunctionInputSchemaType
@@ -16,7 +20,9 @@ export type HogFunctionInputProps = {
     disabled?: boolean
 }
 
-const SECRET_FIELD_VALUE = '********'
+export type HogFunctionInputWithSchemaProps = {
+    schema: HogFunctionInputSchemaType
+}
 
 function useAutocompleteOptions(): languages.CompletionItem[] {
     const { groupTypes } = useValues(groupsModel)
@@ -72,8 +78,8 @@ function useAutocompleteOptions(): languages.CompletionItem[] {
 
 function JsonConfigField(props: {
     onChange?: (value: string) => void
-    className: string
-    autoFocus: boolean
+    className?: string
+    autoFocus?: boolean
     value?: string
 }): JSX.Element {
     const suggestions = useAutocompleteOptions()
@@ -215,49 +221,12 @@ function DictionaryField({ onChange, value }: { onChange?: (value: any) => void;
     )
 }
 
-export function HogFunctionInput({ value, onChange, schema, disabled }: HogFunctionInputProps): JSX.Element {
-    const [editingSecret, setEditingSecret] = useState(false)
-    if (
-        schema.secret &&
-        !editingSecret &&
-        value &&
-        (value === SECRET_FIELD_VALUE || value.name === SECRET_FIELD_VALUE)
-    ) {
-        return (
-            <LemonButton
-                type="secondary"
-                icon={<IconPencil />}
-                onClick={() => {
-                    onChange?.(schema.default || '')
-                    setEditingSecret(true)
-                }}
-                disabled={disabled}
-            >
-                Reset secret variable
-            </LemonButton>
-        )
-    }
-
+export function HogFunctionInputRenderer({ value, onChange, schema, disabled }: HogFunctionInputProps): JSX.Element {
     switch (schema.type) {
         case 'string':
-            return (
-                <LemonInput
-                    value={value}
-                    onChange={onChange}
-                    autoFocus={editingSecret}
-                    className="ph-no-capture"
-                    disabled={disabled}
-                />
-            )
+            return <LemonInput value={value} onChange={onChange} className="ph-no-capture" disabled={disabled} />
         case 'json':
-            return (
-                <JsonConfigField
-                    value={value}
-                    onChange={onChange}
-                    autoFocus={editingSecret}
-                    className="ph-no-capture"
-                />
-            )
+            return <JsonConfigField value={value} onChange={onChange} className="ph-no-capture" />
         case 'choice':
             return (
                 <LemonSelect
@@ -283,4 +252,63 @@ export function HogFunctionInput({ value, onChange, schema, disabled }: HogFunct
                 </strong>
             )
     }
+}
+
+export function HogFunctionInputWithSchema({ schema }: HogFunctionInputWithSchemaProps): JSX.Element {
+    const { showSource, configuration } = useValues(pipelineHogFunctionConfigurationLogic)
+    const { setConfigurationValue } = useActions(pipelineHogFunctionConfigurationLogic)
+
+    const value = configuration.inputs?.[schema.key]
+
+    const onSchemaChange = (newSchema: HogFunctionInputSchemaType | null): void => {
+        let inputsSchema = configuration.inputs_schema || []
+        if (!newSchema) {
+            inputsSchema = inputsSchema.filter((s) => s.key !== schema.key)
+        } else {
+            const modifiedSchema = { ...schema, ...newSchema }
+            inputsSchema = inputsSchema.map((s) => (s.key === schema.key ? modifiedSchema : s))
+        }
+
+        if (newSchema?.key) {
+            setConfigurationValue(`inputs.${newSchema.key}`, value)
+        }
+
+        if (newSchema?.type && newSchema.type !== schema.type) {
+            setConfigurationValue(`inputs.${schema.key}`, null)
+        }
+
+        setConfigurationValue('inputs_schema', inputsSchema)
+    }
+
+    const inputContent = (
+        <LemonField
+            name={`inputs.${schema.key}`}
+            label={showSource ? null : schema.label || schema.key}
+            showOptional={showSource ? false : !schema.required}
+            help={showSource ? null : schema.description}
+        >
+            {({ value, onChange }) => {
+                return (
+                    <>
+                        <HogFunctionInputRenderer
+                            schema={schema}
+                            value={value?.value}
+                            onChange={(val) => onChange({ value: val })}
+                        />
+                    </>
+                )
+            }}
+        </LemonField>
+    )
+
+    if (!showSource) {
+        return inputContent
+    }
+
+    return (
+        <div className="border rounded p-2 border-dashed space-y-2">
+            <HogFunctionInputSchemaControls value={schema} onChange={onSchemaChange} />
+            <div className="border rounded p-2 bg-bg-light">{inputContent}</div>
+        </div>
+    )
 }
