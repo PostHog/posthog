@@ -398,7 +398,6 @@ export const insightLogic = kea<insightLogicType>([
         // Selectors based on legacy filters below - will be converted one-by-one
         /** converts potentially legacy (i.e. containing filters) insight to a query based one */
         queryBasedInsight: [(s) => [s.insight], (legacyInsight) => getQueryBasedInsightModel(legacyInsight)],
-        isQueryBasedInsight: [(s) => [s.insight], (insight) => !!insight.query],
         hiddenLegendKeys: [
             (s) => [s.filters],
             (filters) => {
