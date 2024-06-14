@@ -1,6 +1,6 @@
 import { HogExecutor } from '../../src/cdp/hog-executor'
 import { HogFunctionManager } from '../../src/cdp/hog-function-manager'
-import { HogFunctionInvocationAsyncResponse, HogFunctionLogEntry, HogFunctionType } from '../../src/cdp/types'
+import { HogFunctionLogEntry, HogFunctionType } from '../../src/cdp/types'
 import { defaultConfig } from '../../src/config/config'
 import { PluginsServerConfig } from '../../src/types'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './examples'
