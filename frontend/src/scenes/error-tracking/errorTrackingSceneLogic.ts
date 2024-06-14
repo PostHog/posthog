@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, path, reducers } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
@@ -13,6 +13,7 @@ const DEFAULT_ERROR_TRACKING_FILTERS: ErrorTrackingFilters = {
     date_to: null,
     filter_test_accounts: false,
     filter_group: { type: FilterLogicalOperator.And, values: [] },
+    order: 'last_seen',
 }
 
 export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
@@ -60,6 +61,10 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 },
             },
         ],
+    })),
+
+    listeners(({ actions }) => ({
+        setFilters: () => actions.loadErrorGroups(),
     })),
 
     afterMount(({ actions }) => {

@@ -1,4 +1,4 @@
-import { LemonTable } from '@posthog/lemon-ui'
+import { LemonSelect, LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -9,6 +9,7 @@ import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { AnyPropertyFilter } from '~/types'
 
 import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
@@ -65,48 +66,95 @@ const Filters = (): JSX.Element => {
     const { setFilters } = useActions(errorTrackingSceneLogic)
 
     return (
-        <div className="flex space-x-4">
-            <div className="flex space-x-1">
-                <DateFilter
-                    dateFrom={filters.date_from}
-                    dateTo={filters.date_to}
-                    onChange={(changedDateFrom, changedDateTo) => {
-                        setFilters({
-                            ...filters,
-                            date_from: changedDateFrom,
-                            date_to: changedDateTo,
-                        })
-                    }}
-                />
-                <div>
-                    <TestAccountFilter
-                        filters={filters}
-                        onChange={(testFilters) => {
+        <UniversalFilters
+            rootKey="session-recordings"
+            group={filters.filter_group}
+            taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]}
+            onChange={(filterGroup) => {
+                setFilters({
+                    ...filters,
+                    filter_group: filterGroup,
+                })
+            }}
+        >
+            <div className="divide-y bg-bg-light rounded border">
+                <div className="flex justify-between px-2 py-1.5">
+                    <div className="flex space-x-1">
+                        <DateFilter
+                            dateFrom={filters.date_from}
+                            dateTo={filters.date_to}
+                            onChange={(changedDateFrom, changedDateTo) => {
+                                setFilters({
+                                    ...filters,
+                                    date_from: changedDateFrom,
+                                    date_to: changedDateTo,
+                                })
+                            }}
+                            size="small"
+                        />
+                        <LemonSelect
+                            onSelect={(newValue) => {
+                                setFilters({ ...filters, order: newValue })
+                            }}
+                            onChange={(value) => {
+                                setFilters({ ...filters, order: value })
+                            }}
+                            value={filters.order}
+                            options={[
+                                {
+                                    value: 'last_seen',
+                                    label: 'Last seen',
+                                },
+                                {
+                                    value: 'first_seen',
+                                    label: 'First seen',
+                                },
+                                {
+                                    value: 'occurrences',
+                                    label: 'Occurrences',
+                                },
+                                {
+                                    value: 'users',
+                                    label: 'Users',
+                                },
+                                {
+                                    value: 'sessions',
+                                    label: 'Sessions',
+                                },
+                            ]}
+                            size="small"
+                        />
+                        <div>
+                            <TestAccountFilter
+                                filters={filters}
+                                onChange={(testFilters) => {
+                                    setFilters({
+                                        ...filters,
+                                        filter_test_accounts: testFilters.filter_test_accounts || false,
+                                    })
+                                }}
+                                size="small"
+                            />
+                        </div>
+                    </div>
+                    <AndOrFilterSelect
+                        onChange={(type) => {
                             setFilters({
                                 ...filters,
-                                filter_test_accounts: testFilters.filter_test_accounts || false,
+                                filter_group: { type: type, values: filters.filter_group.values },
                             })
                         }}
+                        value={filters.filter_group.type}
+                        topLevelFilter={true}
+                        suffix={['filter', 'filters']}
                     />
                 </div>
-            </div>
-            <div className="flex flex-1 items-center space-x-2">
-                <UniversalFilters
-                    rootKey="session-recordings"
-                    group={filters.filter_group}
-                    taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]}
-                    onChange={(filterGroup) => {
-                        setFilters({
-                            ...filters,
-                            filter_group: filterGroup,
-                        })
-                    }}
-                >
+                <div className="flex flex-1 items-center space-x-2 px-2 py-1.5">
                     <RecordingsUniversalFilterGroup />
-                    <UniversalFilters.AddFilterButton type="secondary" />
-                </UniversalFilters>
+                    <UniversalFilters.AddFilterButton type="secondary" size="small" />
+                </div>
             </div>
-        </div>
+        </UniversalFilters>
     )
 }
 

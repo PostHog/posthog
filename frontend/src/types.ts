@@ -999,6 +999,7 @@ export type ErrorTrackingFilters = {
     date_from: string | null
     date_to: string | null
     filter_test_accounts: boolean
+    order: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
     filter_group: UniversalFiltersGroup
 }
 
