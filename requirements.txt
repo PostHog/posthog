@@ -621,7 +621,7 @@ toronado==0.1.0
     # via -r requirements.in
 tqdm==4.64.1
     # via openai
-trio==0.20.0
+trio==0.21.0
     # via
     #   selenium
     #   trio-websocket
