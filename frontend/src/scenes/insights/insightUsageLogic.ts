@@ -1,6 +1,8 @@
 import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
+import api from 'lib/api'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
@@ -44,10 +46,7 @@ export const insightUsageLogic = kea<insightUsageLogicType>([
     }),
     listeners(({ actions, values }) => ({
         onQueryChange: async ({ query }, breakpoint) => {
-            // debounce to avoid noisy events from the query changing multiple times
-            await breakpoint(IS_TEST_MODE ? 1 : 500)
-
-            // we only want to report direct views on the insights page
+            // We only want to report direct views on the insights page.
             if (
                 !insightSceneLogic.isMounted() ||
                 insightSceneLogic.values.activeScene !== 'Insight' ||
@@ -56,10 +55,20 @@ export const insightUsageLogic = kea<insightUsageLogicType>([
                 return
             }
 
+            // Report the insight being viewed to our '/viewed' endpoint. Used for "recently viewed insights".
+            if (values.queryBasedInsight.id) {
+                void api.create(
+                    `api/projects/${teamLogic.values.currentTeamId}/insights/${values.queryBasedInsight.id}/viewed`
+                )
+            }
+
+            // Debounce to avoid noisy events from the query changing multiple times.
+            await breakpoint(IS_TEST_MODE ? 1 : 500)
+
             actions.reportInsightViewed(values.queryBasedInsight, query, values.isFirstLoad, 0)
             actions.setNotFirstLoad()
 
-            // record a second view after 10 seconds
+            // Record a second view after 10 seconds.
             await breakpoint(IS_TEST_MODE ? 1 : 10000)
 
             actions.reportInsightViewed(values.queryBasedInsight, query, values.isFirstLoad, 10)

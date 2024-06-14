@@ -86,7 +86,6 @@ export const insightLogic = kea<insightLogicType>([
             insightMode,
             clearInsightQuery,
         }),
-        reportInsightViewedForRecentInsights: () => true,
         setIsLoading: (isLoading: boolean) => ({ isLoading }),
         setInsight: (insight: Partial<InsightModel>, options: SetInsightOptions) => ({
             insight,
@@ -389,19 +388,6 @@ export const insightLogic = kea<insightLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
-        reportInsightViewedForRecentInsights: async () => {
-            // Report the insight being viewed to our '/viewed' endpoint. Used for "recently viewed insights"
-
-            // TODO: This should be merged into the same action as `reportInsightViewed`, but we can't right now
-            // because there are some issues with `reportInsightViewed` not being called when the
-            // insightLogic is already loaded.
-            // For example, if the user navigates to an insight after viewing it on a dashboard, `reportInsightViewed`
-            // will not be called. This should be fixed when we refactor insightLogic, but the logic is a bit tangled
-            // right now
-            if (values.insight.id) {
-                return api.create(`api/projects/${teamLogic.values.currentTeamId}/insights/${values.insight.id}/viewed`)
-            }
-        },
         saveInsight: async ({ redirectToViewMode }) => {
             const insightNumericId =
                 values.insight.id || (values.insight.short_id ? await getInsightId(values.insight.short_id) : undefined)
