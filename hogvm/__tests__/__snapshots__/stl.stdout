@@ -2,11 +2,43 @@
 3
 TEST
 rennips
+-- encodeURLComponent, decodeURLComponent --
 http%3A%2F%2Fwww.google.com
 tom%20%26%20jerry
 http://www.google.com
 tom & jerry
+-- base64Encode, base64Decode --
 aHR0cDovL3d3dy5nb29nbGUuY29t
 dG9tICYgamVycnk=
 http://www.google.com
 tom & jerry
+-- empty --
+true
+true
+false
+false
+true
+false
+true
+false
+false
+true
+true
+true
+false
+false
+-- notEmpty --
+false
+false
+true
+true
+false
+true
+false
+true
+true
+false
+false
+false
+true
+true

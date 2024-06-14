@@ -27,10 +27,26 @@ export const STL: Record<string, (args: any[], name: string, timeout: number) =>
         return args[0].length
     },
     empty: (args) => {
+        if (typeof args[0] === 'object') {
+            if (Array.isArray(args[0])) {
+                return args[0].length === 0
+            } else if (args[0] === null) {
+                return true
+            } else if (args[0] instanceof Map) {
+                return args[0].size === 0
+            } else {
+                return Object.keys(args[0]).length === 0
+            }
+        }
         return !args[0]
     },
     notEmpty: (args) => {
-        return !!args[0]
+        return !STL.empty(args, 'empty', 0)
+    },
+    tuple: (args) => {
+        const tuple = args.slice()
+        ;(tuple as any).__isHogTuple = true
+        return tuple
     },
     lower: (args) => {
         return args[0].toLowerCase()

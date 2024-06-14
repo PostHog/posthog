@@ -64,6 +64,10 @@ def notEmpty(name: str, args: list[Any], team: Optional["Team"], stdout: Optiona
     return bool(args[0])
 
 
+def _tuple(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int):
+    return tuple(args)
+
+
 def lower(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int):
     return args[0].lower()
 
@@ -146,6 +150,7 @@ STL: dict[str, Callable[[str, list[Any], Optional["Team"], list[str] | None, int
     "length": length,
     "empty": empty,
     "notEmpty": notEmpty,
+    "tuple": _tuple,
     "lower": lower,
     "upper": upper,
     "reverse": reverse,
