@@ -1,15 +1,15 @@
+import dataclasses
 import json
 import uuid
 from datetime import datetime
 from typing import Any, Optional, Union, cast
 from unittest.mock import patch
-import dataclasses
-
 from zoneinfo import ZoneInfo
+
+import pytest
 from django.test import override_settings
 from django.utils import timezone
 from freezegun import freeze_time
-import pytest
 from rest_framework.exceptions import ValidationError
 
 from posthog.constants import (
@@ -34,7 +34,6 @@ from posthog.models import (
     Organization,
     Person,
 )
-
 from posthog.models.group.util import create_group
 from posthog.models.instance_setting import (
     get_instance_setting,
@@ -46,9 +45,9 @@ from posthog.models.team.team import Team
 from posthog.schema import (
     ActionsNode,
     BreakdownFilter,
-    InsightDateRange,
-    EventsNode,
     DataWarehouseNode,
+    EventsNode,
+    InsightDateRange,
     PropertyGroupFilter,
     TrendsFilter,
     TrendsQuery,
@@ -8559,3 +8558,79 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             response[0]["data"],
             [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23],
         )
+
+    def test_trends_multiple_breakdowns_single_aggregate(self):
+        self._create_person(
+            team_id=self.team.pk,
+            distinct_ids=["blabla", "anonymous_id"],
+            properties={"$some_prop": "some_val"},
+        )
+        with freeze_time("2020-01-01 00:06:34"):
+            self._create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$some_property": "value", "$browser": "Chrome", "$variant": "1"},
+            )
+            self._create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$some_property": "value", "$browser": "Chrome", "$variant": "2"},
+            )
+            self._create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$some_property": "value", "$browser": "Safari", "$variant": "1"},
+            )
+            self._create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$some_property": "value", "$browser": "Safari", "$variant": "1"},
+            )
+            self._create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$some_property": "value", "$browser": "Safari", "$variant": "2"},
+            )
+
+        with freeze_time("2020-01-02 00:06:34"):
+            self._create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$some_property": "value", "$browser": "Safari", "$variant": "2"},
+            )
+            self._create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$some_property": "value", "$browser": "Safari", "$variant": "2"},
+            )
+
+        with freeze_time("2020-01-04T13:00:01Z"):
+            response = self._run(
+                Filter(
+                    team=self.team,
+                    data={
+                        "display": TRENDS_TABLE,
+                        "breakdowns": [
+                            {"property": "$browser"},
+                            {"property": "$variant"},
+                        ],
+                        "events": [{"id": "sign up"}],
+                    },
+                ),
+                self.team,
+            )
+
+        for result in response:
+            self.assertIsInstance(result["breakdown_value"], list)
+
+        self.assertEqual(response[0]["breakdown_value"], ["Safari", "2"], "idx 0")
+        self.assertEqual(response[1]["breakdown_value"], ["Safari", "1"], "idx 1")
+        self.assertEqual(response[2]["breakdown_value"], ["Chrome", "2"], "idx 2")
+        self.assertEqual(response[3]["breakdown_value"], ["Chrome", "1"], "idx 3")

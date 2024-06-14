@@ -1,15 +1,21 @@
 from typing import Optional, Union, cast
+
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
-from posthog.hogql_queries.insights.trends.utils import (
-    get_properties_chain,
-)
+from posthog.hogql_queries.insights.trends.utils import get_properties_chain
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team.team import Team
-from posthog.schema import ActionsNode, EventsNode, DataWarehouseNode, HogQLQueryModifiers, InCohortVia, TrendsQuery
+from posthog.schema import (
+    ActionsNode,
+    DataWarehouseNode,
+    EventsNode,
+    HogQLQueryModifiers,
+    InCohortVia,
+    TrendsQuery,
+)
 
 BREAKDOWN_OTHER_STRING_LABEL = "$$_posthog_breakdown_other_$$"
 BREAKDOWN_NULL_STRING_LABEL = "$$_posthog_breakdown_null_$$"
@@ -53,11 +59,18 @@ class Breakdown:
 
     @cached_property
     def enabled(self) -> bool:
-        return self.query.breakdownFilter is not None and self.query.breakdownFilter.breakdown is not None
+        return self.query.breakdownFilter is not None and (
+            self.query.breakdownFilter.breakdown is not None
+            or (self.query.breakdownFilter.breakdowns is not None and len(self.query.breakdownFilter.breakdowns) > 0)
+        )
 
     @cached_property
     def is_histogram_breakdown(self) -> bool:
         return self.enabled and self.query.breakdownFilter.breakdown_histogram_bin_count is not None
+
+    @cached_property
+    def is_multiple_breakdown(self) -> bool:
+        return self.enabled and self.query.breakdownFilter.breakdowns is not None
 
     def column_expr(self) -> ast.Alias:
         if self.is_histogram_breakdown:
@@ -143,13 +156,22 @@ class Breakdown:
     def _get_breakdown_expression(self) -> ast.Call:
         if self.query.breakdownFilter.breakdown_type == "hogql":
             return self._get_breakdown_values_transform(parse_expr(self.query.breakdownFilter.breakdown))
+        if self.query.breakdownFilter.breakdowns:
+            return self._get_breakdown_list_values_transform()
         return self._get_breakdown_values_transform(ast.Field(chain=self._properties_chain))
 
     def _get_breakdown_values_transform(self, node: ast.Expr) -> ast.Call:
         if self.query.breakdownFilter and self.query.breakdownFilter.breakdown_normalize_url:
-            node = parse_expr(
-                "empty(trimRight({node}, '/?#')) ? '/' : trimRight({node}, '/?#')", placeholders={"node": node}
-            )
+            node = self._get_normalized_url_transform(node)
+        return self._get_replace_null_values_transform(node)
+
+    def _get_normalized_url_transform(self, node: ast.Expr):
+        return cast(
+            ast.Call,
+            parse_expr("empty(trimRight({node}, '/?#')) ? '/' : trimRight({node}, '/?#')", placeholders={"node": node}),
+        )
+
+    def _get_replace_null_values_transform(self, node: ast.Expr):
         return cast(
             ast.Call,
             parse_expr(
@@ -168,3 +190,22 @@ class Breakdown:
             breakdown_field=self.query.breakdownFilter.breakdown,
             group_type_index=self.query.breakdownFilter.breakdown_group_type_index,
         )
+
+    def _get_breakdown_list_values_transform(self):
+        breakdowns: list[ast.Expr] = []
+        for breakdown in self.query.breakdownFilter.breakdowns:
+            node = ast.Field(
+                chain=get_properties_chain(
+                    breakdown_type=breakdown.type,
+                    breakdown_field=breakdown.property,
+                    group_type_index=breakdown.group_type_index,
+                )
+            )
+
+            if breakdown.normalize_url:
+                node = self._get_normalized_url_transform(node)
+            node = self._get_replace_null_values_transform(node)
+
+            breakdowns.append(node)
+
+        return ast.Array(exprs=breakdowns)

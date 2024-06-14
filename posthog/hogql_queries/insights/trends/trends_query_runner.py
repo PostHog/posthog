@@ -499,7 +499,7 @@ class TrendsQueryRunner(QueryRunner):
                 series_object["labels"] = labels
 
             # Modifications for when breakdowns are active
-            if self.query.breakdownFilter is not None and self.query.breakdownFilter.breakdown is not None:
+            if self.breakdown_enabled:
                 remapped_label = None
 
                 if self._is_breakdown_field_boolean():
@@ -687,7 +687,7 @@ class TrendsQueryRunner(QueryRunner):
         self, formula: str, results: list[list[dict[str, Any]]], in_breakdown_clause=False
     ) -> list[dict[str, Any]]:
         has_compare = bool(self.query.trendsFilter and self.query.trendsFilter.compare)
-        has_breakdown = bool(self.query.breakdownFilter and self.query.breakdownFilter.breakdown)
+        has_breakdown = self.breakdown_enabled
         is_total_value = self._trends_display.is_total_value()
 
         if len(results) == 0:
@@ -917,3 +917,11 @@ class TrendsQueryRunner(QueryRunner):
             # TODO: Move this "All time" range handling out of `apply_dashboard_filters` – if the date range is "all",
             # we should disable `compare` _no matter how_ we arrived at the final executed query
             self.query.trendsFilter.compare = False
+
+    @cached_property
+    def breakdown_enabled(self):
+        return self.query.breakdownFilter is not None and (
+            self.query.breakdownFilter.breakdown is not None
+            or self.query.breakdownFilter.breakdowns is not None
+            and len(self.query.breakdownFilter.breakdowns) > 0
+        )

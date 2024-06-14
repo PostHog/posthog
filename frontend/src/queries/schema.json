@@ -404,17 +404,33 @@
         "Breakdown": {
             "additionalProperties": false,
             "properties": {
+                "group_type_index": {
+                    "anyOf": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
                 "normalize_url": {
                     "type": "boolean"
                 },
                 "property": {
-                    "type": ["string", "number"]
+                    "$ref": "#/definitions/BreakdownKeyType"
                 },
                 "type": {
-                    "$ref": "#/definitions/BreakdownType"
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/BreakdownType"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 }
             },
-            "required": ["property", "type"],
             "type": "object"
         },
         "BreakdownAttributionType": {
@@ -461,9 +477,11 @@
                     "default": "event"
                 },
                 "breakdowns": {
+                    "description": "We want to limit maximum count of breakdowns avoiding overloading.",
                     "items": {
                         "$ref": "#/definitions/Breakdown"
                     },
+                    "maxLength": 3,
                     "type": "array"
                 }
             },

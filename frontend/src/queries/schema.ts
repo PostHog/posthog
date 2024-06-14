@@ -2,7 +2,6 @@ import {
     AnyPersonScopeFilter,
     AnyPropertyFilter,
     BaseMathType,
-    Breakdown,
     BreakdownKeyType,
     BreakdownType,
     ChartDisplayCategory,
@@ -1524,6 +1523,13 @@ export interface InsightDateRange {
     explicitDate?: boolean | null
 }
 
+export interface Breakdown {
+    type?: BreakdownType | null
+    property?: BreakdownKeyType
+    normalize_url?: boolean
+    group_type_index?: integer | null
+}
+
 export interface BreakdownFilter {
     // TODO: unclutter
     /** @default event */
@@ -1531,6 +1537,9 @@ export interface BreakdownFilter {
     breakdown_limit?: integer
     breakdown?: BreakdownKeyType
     breakdown_normalize_url?: boolean
+    /** We want to limit maximum count of breakdowns avoiding overloading.
+     * @maxLength 3
+     */
     breakdowns?: Breakdown[]
     breakdown_group_type_index?: integer | null
     breakdown_histogram_bin_count?: integer // trends breakdown histogram bin

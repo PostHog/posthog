@@ -1,29 +1,34 @@
 from typing import Optional, cast
+
 from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
+from posthog.hogql.constants import LimitContext, get_breakdown_limit_for_context
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.timings import HogQLTimings
-from posthog.hogql_queries.insights.data_warehouse_mixin import DataWarehouseInsightQueryMixin
+from posthog.hogql_queries.insights.data_warehouse_mixin import (
+    DataWarehouseInsightQueryMixin,
+)
 from posthog.hogql_queries.insights.trends.aggregation_operations import (
     AggregationOperations,
 )
-from posthog.hogql_queries.insights.trends.breakdown import Breakdown, BREAKDOWN_OTHER_STRING_LABEL
+from posthog.hogql_queries.insights.trends.breakdown import (
+    BREAKDOWN_OTHER_STRING_LABEL,
+    Breakdown,
+)
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.utils import series_event_name
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.action.action import Action
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.hogql.constants import get_breakdown_limit_for_context
 from posthog.models.team.team import Team
 from posthog.queries.trends.breakdown import BREAKDOWN_NULL_STRING_LABEL
 from posthog.schema import (
     ActionsNode,
+    ChartDisplayType,
     DataWarehouseNode,
     EventsNode,
     HogQLQueryModifiers,
     TrendsQuery,
-    ChartDisplayType,
 )
 
 
@@ -319,18 +324,42 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         ]
 
         if breakdown.enabled:
-            query.select.append(
-                ast.Alias(
-                    alias="breakdown_value",
-                    expr=ast.Call(
-                        name="ifNull",
-                        args=[
-                            ast.Call(name="toString", args=[ast.Field(chain=["breakdown_value"])]),
-                            ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
-                        ],
-                    ),
+            if breakdown.is_multiple_breakdown:
+                query.select.append(
+                    ast.Alias(
+                        alias="breakdown_value",
+                        expr=ast.Call(
+                            name="arrayMap",
+                            args=[
+                                ast.Lambda(
+                                    args=["i"],
+                                    expr=ast.Call(
+                                        name="ifNull",
+                                        args=[
+                                            ast.Call(name="toString", args=[ast.Field(chain=["i"])]),
+                                            ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
+                                        ],
+                                    ),
+                                ),
+                                ast.Field(chain=["breakdown_value"]),
+                            ],
+                        ),
+                    )
                 )
-            )
+            else:
+                query.select.append(
+                    ast.Alias(
+                        alias="breakdown_value",
+                        expr=ast.Call(
+                            name="ifNull",
+                            args=[
+                                ast.Call(name="toString", args=[ast.Field(chain=["breakdown_value"])]),
+                                ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
+                            ],
+                        ),
+                    )
+                )
+
             query.select.append(ast.Alias(alias="row_number", expr=parse_expr("rowNumberInAllBlocks()")))
             query.group_by = [ast.Field(chain=["breakdown_value"])]
 
@@ -350,19 +379,18 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                                 )),
                             arrayEnumerate(date)
                         ) as total,
-                        if(row_number >= {breakdown_limit}, {other}, breakdown_value) as breakdown_value
+                        {breakdown_select}
                     FROM {outer_query}
                     GROUP BY breakdown_value
                     ORDER BY
-                        breakdown_value = {other} ? 2 : breakdown_value = {nil} ? 1 : 0,
+                        {breakdown_order_by},
                         arraySum(total) DESC,
                         breakdown_value ASC
                 """,
                     {
                         "outer_query": query,
-                        "breakdown_limit": ast.Constant(value=self._get_breakdown_limit()),
-                        "other": ast.Constant(value=BREAKDOWN_OTHER_STRING_LABEL),
-                        "nil": ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
+                        "breakdown_select": self._breakdown_outer_query_select(breakdown),
+                        "breakdown_order_by": self._breakdown_outer_query_group_by(breakdown),
                     },
                 )
         return query
@@ -584,3 +612,46 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             else None
         )
         return TrendsDisplay(display)
+
+    def _breakdown_outer_query_select(self, breakdown: Breakdown) -> ast.Expr:
+        placeholders: dict[str, ast.Expr] = {
+            "breakdown_limit": ast.Constant(value=self._get_breakdown_limit()),
+            "other": ast.Constant(value=BREAKDOWN_OTHER_STRING_LABEL),
+        }
+
+        if breakdown.is_multiple_breakdown:
+            return parse_expr(
+                """
+                arrayMap(i -> if(greaterOrEquals(row_number, {breakdown_limit}), {other}, i), breakdown_value) AS breakdown_value
+                """,
+                placeholders=placeholders,
+            )
+
+        return parse_expr(
+            """
+            if(row_number >= {breakdown_limit}, {other}, breakdown_value) as breakdown_value
+            """,
+            placeholders=placeholders,
+        )
+
+    def _breakdown_outer_query_group_by(self, breakdown: Breakdown):
+        if breakdown.is_multiple_breakdown:
+            return parse_expr(
+                """
+                if(has(breakdown_value, {other}), 2, if(has(breakdown_value, {nil}), 1, 0))
+                """,
+                placeholders={
+                    "nil": ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
+                    "other": ast.Constant(value=BREAKDOWN_OTHER_STRING_LABEL),
+                },
+            )
+
+        return parse_expr(
+            """
+            breakdown_value = {other} ? 2 : breakdown_value = {nil} ? 1 : 0
+            """,
+            placeholders={
+                "nil": ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
+                "other": ast.Constant(value=BREAKDOWN_OTHER_STRING_LABEL),
+            },
+        )

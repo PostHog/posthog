@@ -2386,7 +2386,7 @@ export interface TrendResult {
     dates?: string[]
     label: string
     labels: string[]
-    breakdown_value?: string | number
+    breakdown_value?: string | number | string[] | number[]
     aggregated_value: number
     status?: string
     compare_label?: CompareLabelType
