@@ -253,13 +253,13 @@ async function settledImage(locator: Locator | Page, options?: LocatorScreenshot
     let image = await locator.screenshot(options)
 
     let previousImage: Buffer | null = null
-    let retries = 0
+    let retries = 1
     do {
         await new Promise((resolve) => setTimeout(resolve, 100 * retries))
         previousImage = image
         image = await locator.screenshot(options)
         retries++
-    } while (!previousImage.equals(image) && retries < 5)
+    } while (!previousImage.equals(image) && retries < 6)
 
     return image
 }
