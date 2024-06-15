@@ -242,6 +242,28 @@ async function expectStoryToMatchComponentSnapshot(
     })
 }
 
+/**
+ * We frequently see snapshots that flap because an element changes its appearance very shortly after page load
+ * for example an animated graph in a canvas or an element that animates into place once react has rendered, and
+ * detected browser size
+ *
+ * This function attempts to wait for the image itself to settle
+ */
+async function settledImage(locator: Locator | Page, options?: LocatorScreenshotOptions): Promise<Buffer> {
+    let image = await locator.screenshot(options)
+
+    let previousImage: Buffer | null = null
+    let retries = 0
+    do {
+        await new Promise((resolve) => setTimeout(resolve, 100 * retries))
+        previousImage = image
+        image = await locator.screenshot(options)
+        retries++
+    } while (!previousImage.equals(image) && retries < 5)
+
+    return image
+}
+
 async function expectLocatorToMatchStorySnapshot(
     locator: Locator | Page,
     context: TestContext,
@@ -249,7 +271,7 @@ async function expectLocatorToMatchStorySnapshot(
     theme: SnapshotTheme,
     options?: LocatorScreenshotOptions
 ): Promise<void> {
-    const image = await locator.screenshot({ ...options })
+    const image = await settledImage(locator, options)
     let customSnapshotIdentifier = `${context.id}--${theme}`
     if (browser !== 'chromium') {
         customSnapshotIdentifier += `--${browser}`
