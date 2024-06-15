@@ -55,8 +55,9 @@
             "additionalProperties": false,
             "properties": {
                 "fixedProperties": {
+                    "description": "Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py.",
                     "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
+                        "$ref": "#/definitions/AnyPersonScopeFilter"
                     },
                     "type": "array"
                 },
@@ -81,8 +82,9 @@
                     "type": "array"
                 },
                 "properties": {
+                    "description": "Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py.",
                     "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
+                        "$ref": "#/definitions/AnyPersonScopeFilter"
                     },
                     "type": "array"
                 },
@@ -207,6 +209,9 @@
                     "$ref": "#/definitions/SessionsTimelineQuery"
                 },
                 {
+                    "$ref": "#/definitions/HogQuery"
+                },
+                {
                     "$ref": "#/definitions/HogQLQuery"
                 },
                 {
@@ -239,6 +244,23 @@
                 }
             ]
         },
+        "AnyPersonScopeFilter": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/PersonPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/CohortPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/HogQLPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/EmptyPropertyFilter"
+                }
+            ],
+            "description": "Any filter type supported by `property_to_expr(scope=\"person\", ...)`."
+        },
         "AnyPropertyFilter": {
             "anyOf": [
                 {
@@ -257,7 +279,7 @@
                     "$ref": "#/definitions/CohortPropertyFilter"
                 },
                 {
-                    "$ref": "#/definitions/RecordingDurationFilter"
+                    "$ref": "#/definitions/RecordingPropertyFilter"
                 },
                 {
                     "$ref": "#/definitions/GroupPropertyFilter"
@@ -283,6 +305,9 @@
             "anyOf": [
                 {
                     "type": "object"
+                },
+                {
+                    "$ref": "#/definitions/HogQueryResponse"
                 },
                 {
                     "$ref": "#/definitions/HogQLQueryResponse"
@@ -432,7 +457,8 @@
                         {
                             "type": "null"
                         }
-                    ]
+                    ],
+                    "default": "event"
                 },
                 "breakdowns": {
                     "items": {
@@ -463,7 +489,16 @@
             ]
         },
         "BreakdownType": {
-            "enum": ["cohort", "person", "event", "group", "session", "hogql", "data_warehouse"],
+            "enum": [
+                "cohort",
+                "person",
+                "event",
+                "group",
+                "session",
+                "hogql",
+                "data_warehouse",
+                "data_warehouse_person_property"
+            ],
             "type": "string"
         },
         "BreakdownValueInt": {
@@ -474,6 +509,9 @@
             "properties": {
                 "cache_key": {
                     "type": ["string", "null"]
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus"
                 }
             },
             "required": ["cache_key"],
@@ -504,6 +542,7 @@
                     "type": "boolean"
                 },
                 "last_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "limit": {
@@ -517,10 +556,15 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "next_allowed_client_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "offset": {
                     "type": "integer"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
                     "items": {
@@ -586,6 +630,7 @@
                     "type": "boolean"
                 },
                 "last_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "limit": {
@@ -596,10 +641,15 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "next_allowed_client_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "offset": {
                     "type": "integer"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
                     "items": {
@@ -663,6 +713,7 @@
                     "type": "boolean"
                 },
                 "last_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "limit": {
@@ -673,10 +724,15 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "next_allowed_client_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "offset": {
                     "type": "integer"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
                     "$ref": "#/definitions/FunnelCorrelationResult"
@@ -724,6 +780,7 @@
                     "type": "boolean"
                 },
                 "last_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "modifiers": {
@@ -731,7 +788,12 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "next_allowed_client_refresh": {
+                    "format": "date-time",
                     "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
                     "anyOf": [
@@ -807,6 +869,7 @@
                     "type": "boolean"
                 },
                 "last_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "limit": {
@@ -821,6 +884,7 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "next_allowed_client_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "offset": {
@@ -829,6 +893,10 @@
                 "query": {
                     "description": "Input query string",
                     "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
                     "items": {},
@@ -952,10 +1020,16 @@
                     "type": "boolean"
                 },
                 "last_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "next_allowed_client_refresh": {
+                    "format": "date-time",
                     "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "series": {
                     "items": {
@@ -1014,6 +1088,7 @@
                     "type": "boolean"
                 },
                 "last_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "modifiers": {
@@ -1021,7 +1096,12 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "next_allowed_client_refresh": {
+                    "format": "date-time",
                     "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
                     "items": {
@@ -1068,6 +1148,7 @@
                     "type": "boolean"
                 },
                 "last_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "modifiers": {
@@ -1075,7 +1156,12 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "next_allowed_client_refresh": {
+                    "format": "date-time",
                     "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
                     "items": {
@@ -1122,6 +1208,7 @@
                     "type": "boolean"
                 },
                 "last_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "modifiers": {
@@ -1129,7 +1216,12 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "next_allowed_client_refresh": {
+                    "format": "date-time",
                     "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
                     "items": {
@@ -1179,6 +1271,7 @@
                     "type": "boolean"
                 },
                 "last_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "modifiers": {
@@ -1186,7 +1279,12 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "next_allowed_client_refresh": {
+                    "format": "date-time",
                     "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
                     "items": {
@@ -1233,6 +1331,7 @@
                     "type": "boolean"
                 },
                 "last_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "modifiers": {
@@ -1240,7 +1339,12 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "next_allowed_client_refresh": {
+                    "format": "date-time",
                     "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
                     "items": {
@@ -1287,6 +1391,7 @@
                     "type": "boolean"
                 },
                 "last_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "modifiers": {
@@ -1294,7 +1399,12 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "next_allowed_client_refresh": {
+                    "format": "date-time",
                     "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
                     "items": {
@@ -1329,6 +1439,12 @@
                 "cache_key": {
                     "type": "string"
                 },
+                "dateFrom": {
+                    "type": "string"
+                },
+                "dateTo": {
+                    "type": "string"
+                },
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
@@ -1341,6 +1457,7 @@
                     "type": "boolean"
                 },
                 "last_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "modifiers": {
@@ -1348,7 +1465,12 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "next_allowed_client_refresh": {
+                    "format": "date-time",
                     "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
                     "items": {
@@ -1405,6 +1527,7 @@
                     "type": "boolean"
                 },
                 "last_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "limit": {
@@ -1415,10 +1538,15 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "next_allowed_client_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "offset": {
                     "type": "integer"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
                     "items": {},
@@ -1474,6 +1602,7 @@
                     "type": "boolean"
                 },
                 "last_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "modifiers": {
@@ -1481,7 +1610,12 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "next_allowed_client_refresh": {
+                    "format": "date-time",
                     "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
                     "items": {},
@@ -1539,7 +1673,7 @@
             ],
             "type": "string"
         },
-        "ClickhouseQueryStatus": {
+        "ClickhouseQueryProgress": {
             "additionalProperties": false,
             "properties": {
                 "active_cpu_time": {
@@ -1581,6 +1715,18 @@
                 }
             },
             "required": ["key", "type", "value"],
+            "type": "object"
+        },
+        "CompareFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "compare": {
+                    "type": "boolean"
+                },
+                "compare_to": {
+                    "type": "string"
+                }
+            },
             "type": "object"
         },
         "CountPerActorMathType": {
@@ -1858,6 +2004,12 @@
                         {
                             "additionalProperties": false,
                             "properties": {
+                                "dateFrom": {
+                                    "type": "string"
+                                },
+                                "dateTo": {
+                                    "type": "string"
+                                },
                                 "error": {
                                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                                     "type": "string"
@@ -2248,6 +2400,105 @@
             "required": ["key", "operator", "type"],
             "type": "object"
         },
+        "DatabaseSchemaDataWarehouseTable": {
+            "additionalProperties": false,
+            "properties": {
+                "fields": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/DatabaseSchemaField"
+                    },
+                    "type": "object"
+                },
+                "format": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "schema": {
+                    "$ref": "#/definitions/DatabaseSchemaSchema"
+                },
+                "source": {
+                    "$ref": "#/definitions/DatabaseSchemaSource"
+                },
+                "type": {
+                    "const": "data_warehouse",
+                    "type": "string"
+                },
+                "url_pattern": {
+                    "type": "string"
+                }
+            },
+            "required": ["fields", "format", "id", "name", "type", "url_pattern"],
+            "type": "object"
+        },
+        "DatabaseSchemaField": {
+            "additionalProperties": false,
+            "properties": {
+                "chain": {
+                    "items": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "integer"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                },
+                "fields": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "hogql_value": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "schema_valid": {
+                    "type": "boolean"
+                },
+                "table": {
+                    "type": "string"
+                },
+                "type": {
+                    "$ref": "#/definitions/DatabaseSerializedFieldType"
+                }
+            },
+            "required": ["name", "hogql_value", "type", "schema_valid"],
+            "type": "object"
+        },
+        "DatabaseSchemaPostHogTable": {
+            "additionalProperties": false,
+            "properties": {
+                "fields": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/DatabaseSchemaField"
+                    },
+                    "type": "object"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "type": {
+                    "const": "posthog",
+                    "type": "string"
+                }
+            },
+            "required": ["fields", "id", "name", "type"],
+            "type": "object"
+        },
         "DatabaseSchemaQuery": {
             "additionalProperties": false,
             "properties": {
@@ -2267,43 +2518,125 @@
             "type": "object"
         },
         "DatabaseSchemaQueryResponse": {
-            "additionalProperties": {
-                "items": {
-                    "$ref": "#/definitions/DatabaseSchemaQueryResponseField"
-                },
-                "type": "array"
-            },
-            "type": "object"
-        },
-        "DatabaseSchemaQueryResponseField": {
             "additionalProperties": false,
             "properties": {
-                "chain": {
-                    "items": {
-                        "type": "string"
+                "tables": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/DatabaseSchemaTable"
                     },
-                    "type": "array"
-                },
-                "fields": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
-                "key": {
+                    "type": "object"
+                }
+            },
+            "required": ["tables"],
+            "type": "object"
+        },
+        "DatabaseSchemaSchema": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
                     "type": "string"
                 },
-                "schema_valid": {
+                "incremental": {
                     "type": "boolean"
                 },
-                "table": {
+                "last_synced_at": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "should_sync": {
+                    "type": "boolean"
+                },
+                "status": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "name", "should_sync", "incremental", "status"],
+            "type": "object"
+        },
+        "DatabaseSchemaSource": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "last_synced_at": {
+                    "type": "string"
+                },
+                "prefix": {
+                    "type": "string"
+                },
+                "source_type": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "status", "source_type", "prefix"],
+            "type": "object"
+        },
+        "DatabaseSchemaTable": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/DatabaseSchemaPostHogTable"
+                },
+                {
+                    "$ref": "#/definitions/DatabaseSchemaDataWarehouseTable"
+                },
+                {
+                    "$ref": "#/definitions/DatabaseSchemaViewTable"
+                }
+            ]
+        },
+        "DatabaseSchemaTableCommon": {
+            "additionalProperties": false,
+            "properties": {
+                "fields": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/DatabaseSchemaField"
+                    },
+                    "type": "object"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
                     "type": "string"
                 },
                 "type": {
-                    "$ref": "#/definitions/DatabaseSerializedFieldType"
+                    "enum": ["posthog", "data_warehouse", "view"],
+                    "type": "string"
                 }
             },
-            "required": ["key", "type", "schema_valid"],
+            "required": ["type", "id", "name", "fields"],
+            "type": "object"
+        },
+        "DatabaseSchemaViewTable": {
+            "additionalProperties": false,
+            "properties": {
+                "fields": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/DatabaseSchemaField"
+                    },
+                    "type": "object"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "query": {
+                    "$ref": "#/definitions/HogQLQuery"
+                },
+                "type": {
+                    "const": "view",
+                    "type": "string"
+                }
+            },
+            "required": ["fields", "id", "name", "query", "type"],
             "type": "object"
         },
         "DatabaseSerializedFieldType": {
@@ -2334,6 +2667,7 @@
                     "type": ["string", "null"]
                 },
                 "explicitDate": {
+                    "default": false,
                     "description": "Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period.",
                     "type": ["boolean", "null"]
                 }
@@ -2346,6 +2680,10 @@
         },
         "Day": {
             "type": "integer"
+        },
+        "DurationType": {
+            "enum": ["duration", "active_seconds", "inactive_seconds"],
+            "type": "string"
         },
         "ElementPropertyFilter": {
             "additionalProperties": false,
@@ -3410,12 +3748,14 @@
                     "type": "integer"
                 },
                 "breakdownAttributionType": {
-                    "$ref": "#/definitions/BreakdownAttributionType"
+                    "$ref": "#/definitions/BreakdownAttributionType",
+                    "default": "first_touch"
                 },
                 "breakdownAttributionValue": {
                     "type": "integer"
                 },
                 "exclusions": {
+                    "default": [],
                     "items": {
                         "$ref": "#/definitions/FunnelExclusion"
                     },
@@ -3428,22 +3768,27 @@
                     "type": "integer"
                 },
                 "funnelOrderType": {
-                    "$ref": "#/definitions/StepOrderValue"
+                    "$ref": "#/definitions/StepOrderValue",
+                    "default": "ordered"
                 },
                 "funnelStepReference": {
-                    "$ref": "#/definitions/FunnelStepReference"
+                    "$ref": "#/definitions/FunnelStepReference",
+                    "default": "total"
                 },
                 "funnelToStep": {
                     "type": "integer"
                 },
                 "funnelVizType": {
-                    "$ref": "#/definitions/FunnelVizType"
+                    "$ref": "#/definitions/FunnelVizType",
+                    "default": "steps"
                 },
                 "funnelWindowInterval": {
+                    "default": 14,
                     "type": "integer"
                 },
                 "funnelWindowIntervalUnit": {
-                    "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
+                    "$ref": "#/definitions/FunnelConversionWindowTimeUnit",
+                    "default": "day"
                 },
                 "hidden_legend_breakdowns": {
                     "items": {
@@ -3452,7 +3797,8 @@
                     "type": "array"
                 },
                 "layout": {
-                    "$ref": "#/definitions/FunnelLayout"
+                    "$ref": "#/definitions/FunnelLayout",
+                    "default": "vertical"
                 }
             },
             "type": "object"
@@ -3524,10 +3870,11 @@
                     "description": "Breakdown of the events and actions"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/DateRange",
+                    "$ref": "#/definitions/InsightDateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
+                    "default": false,
                     "description": "Exclude internal and test users by applying the respective filters",
                     "type": "boolean"
                 },
@@ -3559,6 +3906,7 @@
                             "$ref": "#/definitions/PropertyGroupFilter"
                         }
                     ],
+                    "default": [],
                     "description": "Property filters for all series"
                 },
                 "response": {
@@ -3619,6 +3967,33 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "GenericCachedQueryResponse": {
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "timezone": {
+                    "type": "string"
+                }
+            },
+            "required": ["cache_key", "is_cached", "last_refresh", "next_allowed_client_refresh", "timezone"],
             "type": "object"
         },
         "GoalLine": {
@@ -3915,6 +4290,10 @@
             "additionalProperties": false,
             "description": "HogQL Query Options are automatically set per team. However, they can be overriden in the query.",
             "properties": {
+                "bounceRatePageViewMode": {
+                    "enum": ["count_pageviews", "uniq_urls"],
+                    "type": "string"
+                },
                 "dataWarehouseEventsModifiers": {
                     "items": {
                         "$ref": "#/definitions/DataWarehouseEventsModifier"
@@ -3932,8 +4311,15 @@
                     "enum": ["auto", "legacy_null_as_string", "legacy_null_as_null", "disabled"],
                     "type": "string"
                 },
+                "optimizeJoinedFilters": {
+                    "type": "boolean"
+                },
                 "personsArgMaxVersion": {
                     "enum": ["auto", "v1", "v2"],
+                    "type": "string"
+                },
+                "personsJoinMode": {
+                    "enum": ["inner", "left"],
                     "type": "string"
                 },
                 "personsOnEventsMode": {
@@ -4014,6 +4400,46 @@
                     "description": "Types of returned columns",
                     "items": {},
                     "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
+        "HogQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "code": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "HogQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/HogQueryResponse"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "HogQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "bytecode": {
+                    "items": {},
+                    "type": "array"
+                },
+                "coloredBytecode": {
+                    "items": {},
+                    "type": "array"
+                },
+                "results": {},
+                "stdout": {
+                    "type": "string"
                 }
             },
             "required": ["results"],
@@ -4244,6 +4670,24 @@
             },
             "type": "object"
         },
+        "InsightDateRange": {
+            "additionalProperties": false,
+            "properties": {
+                "date_from": {
+                    "default": "-7d",
+                    "type": ["string", "null"]
+                },
+                "date_to": {
+                    "type": ["string", "null"]
+                },
+                "explicitDate": {
+                    "default": false,
+                    "description": "Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period.",
+                    "type": ["boolean", "null"]
+                }
+            },
+            "type": "object"
+        },
         "InsightFilter": {
             "anyOf": [
                 {
@@ -4322,7 +4766,7 @@
             "type": "string"
         },
         "InsightType": {
-            "enum": ["TRENDS", "STICKINESS", "LIFECYCLE", "FUNNELS", "RETENTION", "PATHS", "JSON", "SQL"],
+            "enum": ["TRENDS", "STICKINESS", "LIFECYCLE", "FUNNELS", "RETENTION", "PATHS", "JSON", "SQL", "HOG"],
             "type": "string"
         },
         "InsightVizNode": {
@@ -4386,10 +4830,11 @@
                     "type": "integer"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/DateRange",
+                    "$ref": "#/definitions/InsightDateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
+                    "default": false,
                     "description": "Exclude internal and test users by applying the respective filters",
                     "type": "boolean"
                 },
@@ -4412,6 +4857,7 @@
                             "$ref": "#/definitions/PropertyGroupFilter"
                         }
                     ],
+                    "default": [],
                     "description": "Property filters for all series"
                 },
                 "response": {
@@ -4434,10 +4880,11 @@
                     "type": "integer"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/DateRange",
+                    "$ref": "#/definitions/InsightDateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
+                    "default": false,
                     "description": "Exclude internal and test users by applying the respective filters",
                     "type": "boolean"
                 },
@@ -4460,6 +4907,7 @@
                             "$ref": "#/definitions/PropertyGroupFilter"
                         }
                     ],
+                    "default": [],
                     "description": "Property filters for all series"
                 },
                 "response": {
@@ -4482,10 +4930,11 @@
                     "type": "integer"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/DateRange",
+                    "$ref": "#/definitions/InsightDateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
+                    "default": false,
                     "description": "Exclude internal and test users by applying the respective filters",
                     "type": "boolean"
                 },
@@ -4508,6 +4957,7 @@
                             "$ref": "#/definitions/PropertyGroupFilter"
                         }
                     ],
+                    "default": [],
                     "description": "Property filters for all series"
                 },
                 "response": {
@@ -4530,10 +4980,11 @@
                     "type": "integer"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/DateRange",
+                    "$ref": "#/definitions/InsightDateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
+                    "default": false,
                     "description": "Exclude internal and test users by applying the respective filters",
                     "type": "boolean"
                 },
@@ -4556,6 +5007,7 @@
                             "$ref": "#/definitions/PropertyGroupFilter"
                         }
                     ],
+                    "default": [],
                     "description": "Property filters for all series"
                 },
                 "response": {
@@ -4578,10 +5030,11 @@
                     "type": "integer"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/DateRange",
+                    "$ref": "#/definitions/InsightDateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
+                    "default": false,
                     "description": "Exclude internal and test users by applying the respective filters",
                     "type": "boolean"
                 },
@@ -4604,6 +5057,7 @@
                             "$ref": "#/definitions/PropertyGroupFilter"
                         }
                     ],
+                    "default": [],
                     "description": "Property filters for all series"
                 },
                 "response": {
@@ -4625,6 +5079,7 @@
             "additionalProperties": false,
             "properties": {
                 "showLegend": {
+                    "default": false,
                     "type": "boolean"
                 },
                 "showValuesOnSeries": {
@@ -4666,15 +5121,17 @@
                     "type": "integer"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/DateRange",
+                    "$ref": "#/definitions/InsightDateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
+                    "default": false,
                     "description": "Exclude internal and test users by applying the respective filters",
                     "type": "boolean"
                 },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
+                    "default": "day",
                     "description": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
                 },
                 "kind": {
@@ -4701,6 +5158,7 @@
                             "$ref": "#/definitions/PropertyGroupFilter"
                         }
                     ],
+                    "default": [],
                     "description": "Property filters for all series"
                 },
                 "response": {
@@ -4793,6 +5251,7 @@
                 "DataWarehouseNode",
                 "EventsQuery",
                 "PersonsNode",
+                "HogQuery",
                 "HogQLQuery",
                 "HogQLMetadata",
                 "HogQLAutocomplete",
@@ -4844,6 +5303,7 @@
             "additionalProperties": false,
             "properties": {
                 "edgeLimit": {
+                    "default": 50,
                     "type": "integer"
                 },
                 "endPoint": {
@@ -4901,6 +5361,7 @@
                     "type": "string"
                 },
                 "stepLimit": {
+                    "default": 5,
                     "type": "integer"
                 }
             },
@@ -4978,10 +5439,11 @@
                     "type": "integer"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/DateRange",
+                    "$ref": "#/definitions/InsightDateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
+                    "default": false,
                     "description": "Exclude internal and test users by applying the respective filters",
                     "type": "boolean"
                 },
@@ -5013,6 +5475,7 @@
                             "$ref": "#/definitions/PropertyGroupFilter"
                         }
                     ],
+                    "default": [],
                     "description": "Property filters for all series"
                 },
                 "response": {
@@ -5238,6 +5701,7 @@
             "additionalProperties": false,
             "properties": {
                 "async": {
+                    "deprecated": "Use `refresh` instead.",
                     "description": "(Experimental) Whether to run the query asynchronously. Defaults to False. If True, the `id` of the query can be used to check the status and to cancel it.",
                     "examples": [true],
                     "type": "boolean"
@@ -5251,7 +5715,7 @@
                     "description": "Submit a JSON string representing a query for PostHog data analysis, for example a HogQL query.\n\nExample payload:\n\n```\n\n{\"query\": {\"kind\": \"HogQLQuery\", \"query\": \"select * from events limit 100\"}}\n\n```\n\nFor more details on HogQL queries, see the [PostHog HogQL documentation](/docs/hogql#api-access)."
                 },
                 "refresh": {
-                    "type": "boolean"
+                    "$ref": "#/definitions/RefreshType"
                 }
             },
             "required": ["query"],
@@ -5540,6 +6004,25 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "bytecode": {
+                            "items": {},
+                            "type": "array"
+                        },
+                        "coloredBytecode": {
+                            "items": {},
+                            "type": "array"
+                        },
+                        "results": {},
+                        "stdout": {
+                            "type": "string"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
                         "clickhouse": {
                             "description": "Executed ClickHouse query",
                             "type": "string"
@@ -5669,6 +6152,12 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "dateFrom": {
+                            "type": "string"
+                        },
+                        "dateTo": {
+                            "type": "string"
+                        },
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
@@ -5990,6 +6479,12 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "dateFrom": {
+                            "type": "string"
+                        },
+                        "dateTo": {
+                            "type": "string"
+                        },
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
@@ -6362,12 +6857,16 @@
                     "type": "object"
                 },
                 {
-                    "additionalProperties": {
-                        "items": {
-                            "$ref": "#/definitions/DatabaseSchemaQueryResponseField"
-                        },
-                        "type": "array"
+                    "additionalProperties": false,
+                    "properties": {
+                        "tables": {
+                            "additionalProperties": {
+                                "$ref": "#/definitions/DatabaseSchemaTable"
+                            },
+                            "type": "object"
+                        }
                     },
+                    "required": ["tables"],
                     "type": "object"
                 }
             ]
@@ -6406,6 +6905,9 @@
                 },
                 {
                     "$ref": "#/definitions/SessionsTimelineQuery"
+                },
+                {
+                    "$ref": "#/definitions/HogQuery"
                 },
                 {
                     "$ref": "#/definitions/HogQLQuery"
@@ -6495,11 +6997,13 @@
                     "type": "string"
                 },
                 "query_async": {
+                    "const": true,
                     "default": true,
+                    "description": "ONLY async queries use QueryStatus.",
                     "type": "boolean"
                 },
                 "query_progress": {
-                    "$ref": "#/definitions/ClickhouseQueryStatus"
+                    "$ref": "#/definitions/ClickhouseQueryProgress"
                 },
                 "results": {},
                 "start_time": {
@@ -6514,6 +7018,16 @@
                 }
             },
             "required": ["id", "query_async", "team_id", "error", "complete", "error_message"],
+            "type": "object"
+        },
+        "QueryStatusResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus"
+                }
+            },
+            "required": ["query_status"],
             "type": "object"
         },
         "QueryTiming": {
@@ -6531,12 +7045,23 @@
             "required": ["k", "t"],
             "type": "object"
         },
-        "RecordingDurationFilter": {
+        "RecordingPropertyFilter": {
             "additionalProperties": false,
             "properties": {
                 "key": {
-                    "const": "duration",
-                    "type": "string"
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/DurationType"
+                        },
+                        {
+                            "const": "console_log_level",
+                            "type": "string"
+                        },
+                        {
+                            "const": "console_log_query",
+                            "type": "string"
+                        }
+                    ]
                 },
                 "label": {
                     "type": "string"
@@ -6549,11 +7074,42 @@
                     "type": "string"
                 },
                 "value": {
-                    "type": "number"
+                    "$ref": "#/definitions/PropertyFilterValue"
                 }
             },
-            "required": ["key", "operator", "type", "value"],
+            "required": ["key", "operator", "type"],
             "type": "object"
+        },
+        "RefreshType": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "const": "async",
+                    "type": "string"
+                },
+                {
+                    "const": "blocking",
+                    "type": "string"
+                },
+                {
+                    "const": "force_async",
+                    "type": "string"
+                },
+                {
+                    "const": "force_blocking",
+                    "type": "string"
+                },
+                {
+                    "const": "force_cache",
+                    "type": "string"
+                },
+                {
+                    "const": "lazy_async",
+                    "type": "string"
+                }
+            ]
         },
         "RetentionEntity": {
             "additionalProperties": false,
@@ -6587,7 +7143,8 @@
             "additionalProperties": false,
             "properties": {
                 "period": {
-                    "$ref": "#/definitions/RetentionPeriod"
+                    "$ref": "#/definitions/RetentionPeriod",
+                    "default": "Day"
                 },
                 "retentionReference": {
                     "enum": ["total", "previous"],
@@ -6606,6 +7163,7 @@
                     "$ref": "#/definitions/RetentionEntity"
                 },
                 "totalIntervals": {
+                    "default": 11,
                     "type": "integer"
                 }
             },
@@ -6652,10 +7210,11 @@
                     "type": "integer"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/DateRange",
+                    "$ref": "#/definitions/InsightDateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
+                    "default": false,
                     "description": "Exclude internal and test users by applying the respective filters",
                     "type": "boolean"
                 },
@@ -6679,6 +7238,7 @@
                             "$ref": "#/definitions/PropertyGroupFilter"
                         }
                     ],
+                    "default": [],
                     "description": "Property filters for all series"
                 },
                 "response": {
@@ -6999,6 +7559,7 @@
             "additionalProperties": false,
             "properties": {
                 "compare": {
+                    "default": false,
                     "type": "boolean"
                 },
                 "display": {
@@ -7026,6 +7587,9 @@
                 "compare": {
                     "type": "boolean"
                 },
+                "compare_to": {
+                    "type": "string"
+                },
                 "display": {
                     "$ref": "#/definitions/ChartDisplayType"
                 },
@@ -7047,16 +7611,22 @@
         "StickinessQuery": {
             "additionalProperties": false,
             "properties": {
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter",
+                    "description": "Compare to date range"
+                },
                 "dateRange": {
-                    "$ref": "#/definitions/DateRange",
+                    "$ref": "#/definitions/InsightDateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
+                    "default": false,
                     "description": "Exclude internal and test users by applying the respective filters",
                     "type": "boolean"
                 },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
+                    "default": "day",
                     "description": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
                 },
                 "kind": {
@@ -7079,6 +7649,7 @@
                             "$ref": "#/definitions/PropertyGroupFilter"
                         }
                     ],
+                    "default": [],
                     "description": "Property filters for all series"
                 },
                 "response": {
@@ -7185,6 +7756,7 @@
                     "type": "boolean"
                 },
                 "last_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "modifiers": {
@@ -7192,7 +7764,12 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "next_allowed_client_refresh": {
+                    "format": "date-time",
                     "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
                     "items": {},
@@ -7354,7 +7931,8 @@
             "additionalProperties": false,
             "properties": {
                 "aggregationAxisFormat": {
-                    "$ref": "#/definitions/AggregationAxisFormat"
+                    "$ref": "#/definitions/AggregationAxisFormat",
+                    "default": "numeric"
                 },
                 "aggregationAxisPostfix": {
                     "type": "string"
@@ -7365,14 +7943,12 @@
                 "breakdown_histogram_bin_count": {
                     "type": "number"
                 },
-                "compare": {
-                    "type": "boolean"
-                },
                 "decimalPlaces": {
                     "type": "number"
                 },
                 "display": {
-                    "$ref": "#/definitions/ChartDisplayType"
+                    "$ref": "#/definitions/ChartDisplayType",
+                    "default": "ActionsLineGraph"
                 },
                 "formula": {
                     "type": "string"
@@ -7387,16 +7963,20 @@
                     "type": "boolean"
                 },
                 "showLegend": {
+                    "default": false,
                     "type": "boolean"
                 },
                 "showPercentStackView": {
+                    "default": false,
                     "type": "boolean"
                 },
                 "showValuesOnSeries": {
+                    "default": false,
                     "type": "boolean"
                 },
                 "smoothingIntervals": {
-                    "type": "number"
+                    "default": 1,
+                    "type": "integer"
                 }
             },
             "type": "object"
@@ -7419,6 +7999,9 @@
                 },
                 "compare": {
                     "type": "boolean"
+                },
+                "compare_to": {
+                    "type": "string"
                 },
                 "decimal_places": {
                     "type": "number"
@@ -7464,16 +8047,22 @@
                     "$ref": "#/definitions/BreakdownFilter",
                     "description": "Breakdown of the events and actions"
                 },
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter",
+                    "description": "Compare to date range"
+                },
                 "dateRange": {
-                    "$ref": "#/definitions/DateRange",
+                    "$ref": "#/definitions/InsightDateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
+                    "default": false,
                     "description": "Exclude internal and test users by applying the respective filters",
                     "type": "boolean"
                 },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
+                    "default": "day",
                     "description": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
                 },
                 "kind": {
@@ -7496,6 +8085,7 @@
                             "$ref": "#/definitions/PropertyGroupFilter"
                         }
                     ],
+                    "default": [],
                     "description": "Property filters for all series"
                 },
                 "response": {
@@ -7676,6 +8266,12 @@
         "WebOverviewQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "dateFrom": {
+                    "type": "string"
+                },
+                "dateTo": {
+                    "type": "string"
+                },
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"

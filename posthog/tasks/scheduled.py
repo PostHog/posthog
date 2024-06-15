@@ -18,7 +18,6 @@ from posthog.tasks.tasks import (
     clear_clickhouse_deleted_person,
     clickhouse_clear_removed_data,
     clickhouse_errors_count,
-    clickhouse_lag,
     clickhouse_mark_all_materialized,
     clickhouse_materialize_columns,
     clickhouse_mutation_count,
@@ -26,7 +25,6 @@ from posthog.tasks.tasks import (
     clickhouse_row_count,
     clickhouse_send_license_usage,
     delete_expired_exported_assets,
-    demo_reset_master_team,
     ee_persist_finished_recordings,
     find_flags_with_enriched_analytics,
     graphile_worker_queue_size,
@@ -41,16 +39,16 @@ from posthog.tasks.tasks import (
     schedule_all_subscriptions,
     schedule_cache_updates_task,
     send_org_usage_reports,
-    sync_all_organization_available_features,
+    start_poll_query_performance,
+    stop_surveys_reached_target,
+    sync_all_organization_available_product_features,
     sync_insight_cache_states_task,
     update_event_partitions,
     update_quota_limiting,
-    validate_proxy_domains,
     verify_persons_data_in_sync,
-    stop_surveys_reached_target,
+    update_survey_iteration,
 )
 from posthog.utils import get_crontab
-from posthog.cloud_utils import is_cloud
 
 
 def add_periodic_task_with_expiry(
@@ -89,6 +87,8 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
 
     # Heartbeat every 10sec to make sure the worker is alive
     add_periodic_task_with_expiry(sender, 10, redis_heartbeat.s(), "10 sec heartbeat")
+
+    add_periodic_task_with_expiry(sender, 20, start_poll_query_performance.s(), "20 sec query performance heartbeat")
 
     # Update events table partitions twice a week
     sender.add_periodic_task(
@@ -130,12 +130,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
 
     # Reset master project data every Monday at Thursday at 5 AM UTC. Mon and Thu because doing this every day
     # would be too hard on ClickHouse, and those days ensure most users will have data at most 3 days old.
-    sender.add_periodic_task(crontab(day_of_week="mon,thu", hour="5", minute="0"), demo_reset_master_team.s())
+    # sender.add_periodic_task(crontab(day_of_week="mon,thu", hour="5", minute="0"), demo_reset_master_team.s())
 
     sender.add_periodic_task(crontab(day_of_week="fri", hour="0", minute="0"), clean_stale_partials.s())
 
-    # Sync all Organization.available_features every hour, only for billing v1 orgs
-    sender.add_periodic_task(crontab(minute="30", hour="*"), sync_all_organization_available_features.s())
+    # Sync all Organization.available_product_features every hour, only for billing v1 orgs
+    sender.add_periodic_task(crontab(minute="30", hour="*"), sync_all_organization_available_product_features.s())
 
     sync_insight_cache_states_schedule = get_crontab(settings.SYNC_INSIGHT_CACHE_STATES_SCHEDULE)
     if sync_insight_cache_states_schedule:
@@ -156,13 +156,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
 
     if settings.INGESTION_LAG_METRIC_TEAM_IDS:
         sender.add_periodic_task(60, ingestion_lag.s(), name="ingestion lag")
-
-    add_periodic_task_with_expiry(
-        sender,
-        120,
-        clickhouse_lag.s(),
-        name="clickhouse table lag",
-    )
 
     add_periodic_task_with_expiry(
         sender,
@@ -227,14 +220,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="process scheduled changes",
     )
 
-    if is_cloud():
-        add_periodic_task_with_expiry(
-            sender,
-            10,
-            validate_proxy_domains.s(),
-            name="validate proxy domain",
-        )
-
     if clear_clickhouse_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON):
         sender.add_periodic_task(
             clear_clickhouse_crontab,
@@ -253,6 +238,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="*/12"),
         stop_surveys_reached_target.s(),
         name="stop surveys that reached responses limits",
+    )
+
+    sender.add_periodic_task(
+        crontab(hour="*/12"),
+        update_survey_iteration.s(),
+        name="update survey iteration based on date",
     )
 
     if settings.EE_AVAILABLE:

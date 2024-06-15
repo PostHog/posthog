@@ -11,7 +11,7 @@ import { buildFlagContent } from './NotebookNodeFlag'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { StatusTag } from 'scenes/surveys/Surveys'
 import { SurveyResult } from 'scenes/surveys/SurveyView'
-import { SurveyReleaseSummary } from 'scenes/surveys/Survey'
+import { SurveyDisplaySummary } from 'scenes/surveys/Survey'
 import { useEffect } from 'react'
 import { NotFound } from 'lib/components/NotFound'
 import { SurveyAppearancePreview } from 'scenes/surveys/SurveyAppearancePreview'
@@ -73,18 +73,14 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeSurveyAttribute
                             <>
                                 <LemonDivider className="my-0" />
                                 <div className="p-2">
-                                    <SurveyReleaseSummary
+                                    <SurveyDisplaySummary
                                         id={id}
                                         survey={survey}
                                         targetingFlagFilters={targetingFlagFilters}
                                     />
 
                                     <div className="w-full flex flex-col items-center">
-                                        <SurveyAppearancePreview
-                                            survey={survey}
-                                            activePreview="survey"
-                                            questionIndex={0}
-                                        />
+                                        <SurveyAppearancePreview survey={survey} previewPageIndex={0} />
                                     </div>
                                 </div>
                             </>

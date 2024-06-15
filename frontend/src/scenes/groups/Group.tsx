@@ -117,7 +117,11 @@ export function Group(): JSX.Element {
                         key: PersonsTabType.EVENTS,
                         label: <span data-attr="groups-events-tab">Events</span>,
                         content: groupEventsQuery ? (
-                            <Query query={groupEventsQuery} setQuery={setGroupEventsQuery} />
+                            <Query
+                                query={groupEventsQuery}
+                                setQuery={setGroupEventsQuery}
+                                context={{ alwaysRefresh: true }}
+                            />
                         ) : (
                             <Spinner />
                         ),

@@ -97,7 +97,7 @@ describe('Insights', () => {
 
     it('Loads default filters correctly', () => {
         // Test that default params are set correctly even if the app doesn't start on insights
-        cy.visit('/events/') // Should work with trailing slash just like without it
+        cy.visit('/activity/explore/') // Should work with trailing slash just like without it
         cy.reload()
 
         cy.clickNavMenu('insight')

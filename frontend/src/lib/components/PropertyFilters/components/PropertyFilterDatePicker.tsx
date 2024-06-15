@@ -1,7 +1,6 @@
-import { DatePicker } from 'lib/components/DatePicker'
+import { LemonCalendarSelectInput } from '@posthog/lemon-ui'
 import { PropertyValueProps } from 'lib/components/PropertyFilters/components/PropertyValue'
 import { dayjs } from 'lib/dayjs'
-import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
 import { isOperatorDate } from 'lib/utils'
 import { useEffect, useState } from 'react'
 
@@ -45,48 +44,23 @@ export function PropertyFilterDatePicker({
     }, [includeTimeInFilter])
 
     return (
-        <DatePicker
-            autoFocus={autoFocus}
-            open={datePickerOpen}
-            inputReadOnly={false}
-            className="filter-date-picker w-full h-10"
-            format={dateFormat}
-            showTime={includeTimeInFilter}
-            showNow={false}
-            showToday={false}
+        <LemonCalendarSelectInput
             value={datePickerValue}
-            onFocus={() => setDatePickerOpen(true)}
-            onBlur={() => setDatePickerOpen(false)}
-            onOk={(selectedDate) => {
-                setDatePickerValue(selectedDate)
-                setValue(selectedDate.format(dateFormat))
-                setDatePickerOpen(false)
-            }}
-            onSelect={(selectedDate) => {
-                // the OK button is only shown when the time is visible
-                // https://github.com/ant-design/ant-design/issues/22966
-                // if time picker is visible wait for OK, otherwise select the date
-                if (includeTimeInFilter) {
-                    return // we wait for a click on OK
+            format={dateFormat}
+            visible={datePickerOpen}
+            onClickOutside={() => setDatePickerOpen(false)}
+            onChange={(selectedDate) => {
+                if (selectedDate) {
+                    setDatePickerValue(selectedDate)
+                    setValue(selectedDate.format(dateFormat))
                 }
-                setDatePickerValue(selectedDate)
-                setValue(selectedDate.format(dateFormat))
                 setDatePickerOpen(false)
             }}
-            getPopupContainer={(trigger: Element | null) => {
-                const container = trigger?.parentElement?.parentElement?.parentElement
-                return container ?? document.body
-            }}
-            renderExtraFooter={() => (
-                <LemonSwitch
-                    label="Include time?"
-                    checked={includeTimeInFilter}
-                    onChange={(active) => {
-                        setIncludeTimeInFilter(active)
-                    }}
-                    bordered
-                />
-            )}
+            onClose={() => setDatePickerOpen(false)}
+            granularity={includeTimeInFilter ? 'minute' : 'day'}
+            buttonProps={{ 'data-attr': 'filter-date-picker', fullWidth: true, onClick: () => setDatePickerOpen(true) }}
+            showTimeToggle
+            onToggleTime={setIncludeTimeInFilter}
         />
     )
 }

@@ -1,6 +1,7 @@
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
 import { useEffect, useState } from 'react'
+import { HogDebug } from 'scenes/debug/HogDebug'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { DataNode } from '~/queries/nodes/DataNode/DataNode'
@@ -17,6 +18,7 @@ import { TimeToSeeData } from '../nodes/TimeToSeeData/TimeToSeeData'
 import {
     isDataTableNode,
     isDataVisualizationNode,
+    isHogQuery,
     isInsightVizNode,
     isSavedInsightNode,
     isTimeToSeeDataSessionsNode,
@@ -40,10 +42,12 @@ export interface QueryProps<Q extends Node> {
     readOnly?: boolean
     /** Show a stale overlay */
     stale?: boolean
+    /** Reduce UI elements to only show data */
+    embedded?: boolean
 }
 
 export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null {
-    const { query: propsQuery, setQuery: propsSetQuery, readOnly, stale } = props
+    const { query: propsQuery, setQuery: propsSetQuery, readOnly, stale, embedded } = props
 
     const [localQuery, localSetQuery] = useState(propsQuery)
     useEffect(() => {
@@ -103,12 +107,21 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 context={queryContext}
                 readOnly={readOnly}
                 uniqueKey={uniqueKey}
+                embedded={embedded}
             />
         )
     } else if (isTimeToSeeDataSessionsNode(query)) {
         component = <TimeToSeeData query={query} cachedResults={props.cachedResults} />
     } else if (isWebOverviewQuery(query)) {
         component = <WebOverview query={query} cachedResults={props.cachedResults} context={queryContext} />
+    } else if (isHogQuery(query)) {
+        component = (
+            <HogDebug
+                query={query}
+                setQuery={setQuery as undefined | ((query: any) => void)}
+                queryKey={String(uniqueKey)}
+            />
+        )
     } else {
         component = <DataNode query={query} cachedResults={props.cachedResults} />
     }

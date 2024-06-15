@@ -1,6 +1,6 @@
 import uuid
 from unittest import mock
-from typing import Optional
+from typing import Any, Optional
 import pytest
 from asgiref.sync import sync_to_async
 from django.test import override_settings
@@ -41,6 +41,7 @@ import pytest_asyncio
 import aioboto3
 import functools
 from django.conf import settings
+from dlt.sources.helpers.rest_client.client import RESTClient
 import asyncio
 import psycopg
 
@@ -123,7 +124,7 @@ async def postgres_connection(postgres_config, setup_postgres_test_db):
 async def _create_schema(schema_name: str, source: ExternalDataSource, team: Team, table_id: Optional[str] = None):
     return await sync_to_async(ExternalDataSchema.objects.create)(
         name=schema_name,
-        team_id=team.id,
+        team_id=team.pk,
         source_id=source.pk,
         table_id=table_id,
     )
@@ -269,7 +270,7 @@ async def test_run_stripe_job(activity_environment, team, minio_client, **kwargs
             team=team,
             status="running",
             source_type="Stripe",
-            job_inputs={"stripe_secret_key": "test-key"},
+            job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
         )
 
         new_job: ExternalDataJob = await sync_to_async(ExternalDataJob.objects.create)(
@@ -285,7 +286,7 @@ async def test_run_stripe_job(activity_environment, team, minio_client, **kwargs
 
         inputs = ImportDataActivityInputs(
             team_id=team.id,
-            run_id=new_job.pk,
+            run_id=str(new_job.pk),
             source_id=new_source.pk,
             schema_id=customer_schema.id,
         )
@@ -300,7 +301,7 @@ async def test_run_stripe_job(activity_environment, team, minio_client, **kwargs
             team=team,
             status="running",
             source_type="Stripe",
-            job_inputs={"stripe_secret_key": "test-key"},
+            job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
         )
 
         new_job: ExternalDataJob = await sync_to_async(ExternalDataJob.objects.create)(
@@ -316,7 +317,7 @@ async def test_run_stripe_job(activity_environment, team, minio_client, **kwargs
 
         inputs = ImportDataActivityInputs(
             team_id=team.id,
-            run_id=new_job.pk,
+            run_id=str(new_job.pk),
             source_id=new_source.pk,
             schema_id=charge_schema.id,
         )
@@ -326,43 +327,83 @@ async def test_run_stripe_job(activity_environment, team, minio_client, **kwargs
     job_1, job_1_inputs = await setup_job_1()
     job_2, job_2_inputs = await setup_job_2()
 
+    def mock_customers_paginate(
+        class_self,
+        path: str = "",
+        method: Any = "GET",
+        params: Optional[dict[str, Any]] = None,
+        json: Optional[dict[str, Any]] = None,
+        auth: Optional[Any] = None,
+        paginator: Optional[Any] = None,
+        data_selector: Optional[Any] = None,
+        hooks: Optional[Any] = None,
+    ):
+        return iter(
+            [
+                {
+                    "id": "cus_123",
+                    "name": "John Doe",
+                }
+            ]
+        )
+
+    def mock_charges_paginate(
+        class_self,
+        path: str = "",
+        method: Any = "GET",
+        params: Optional[dict[str, Any]] = None,
+        json: Optional[dict[str, Any]] = None,
+        auth: Optional[Any] = None,
+        paginator: Optional[Any] = None,
+        data_selector: Optional[Any] = None,
+        hooks: Optional[Any] = None,
+    ):
+        return iter(
+            [
+                {
+                    "id": "chg_123",
+                    "customer": "cus_1",
+                }
+            ]
+        )
+
     with (
-        mock.patch("stripe.Customer.list") as mock_customer_list,
-        mock.patch("stripe.Charge.list") as mock_charge_list,
+        mock.patch.object(RESTClient, "paginate", mock_customers_paginate),
         override_settings(
             BUCKET_URL=f"s3://{BUCKET_NAME}",
             AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
             AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
         ),
+        mock.patch(
+            "posthog.warehouse.models.table.DataWarehouseTable.get_columns",
+            return_value={"clickhouse": {"id": "string", "name": "string"}},
+        ),
     ):
-        mock_customer_list.return_value = {
-            "data": [
-                {
-                    "id": "cus_123",
-                    "name": "John Doe",
-                }
-            ],
-            "has_more": False,
-        }
-
-        mock_charge_list.return_value = {
-            "data": [
-                {
-                    "id": "chg_123",
-                    "customer": "cus_1",
-                }
-            ],
-            "has_more": False,
-        }
         await asyncio.gather(
             activity_environment.run(import_data_activity, job_1_inputs),
-            activity_environment.run(import_data_activity, job_2_inputs),
         )
 
         job_1_customer_objects = await minio_client.list_objects_v2(
             Bucket=BUCKET_NAME, Prefix=f"{job_1.folder_path}/customer/"
         )
+
         assert len(job_1_customer_objects["Contents"]) == 1
+
+    with (
+        mock.patch.object(RESTClient, "paginate", mock_charges_paginate),
+        override_settings(
+            BUCKET_URL=f"s3://{BUCKET_NAME}",
+            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        ),
+        mock.patch(
+            "posthog.warehouse.models.table.DataWarehouseTable.get_columns",
+            return_value={"clickhouse": {"id": "string", "name": "string"}},
+        ),
+    ):
+        await asyncio.gather(
+            activity_environment.run(import_data_activity, job_2_inputs),
+        )
 
         job_2_charge_objects = await minio_client.list_objects_v2(
             Bucket=BUCKET_NAME, Prefix=f"{job_2.folder_path}/charge/"
@@ -381,7 +422,7 @@ async def test_run_stripe_job_cancelled(activity_environment, team, minio_client
             team=team,
             status="running",
             source_type="Stripe",
-            job_inputs={"stripe_secret_key": "test-key"},
+            job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
         )
 
         # Already canceled so it should only run once
@@ -399,7 +440,7 @@ async def test_run_stripe_job_cancelled(activity_environment, team, minio_client
 
         inputs = ImportDataActivityInputs(
             team_id=team.id,
-            run_id=new_job.pk,
+            run_id=str(new_job.pk),
             source_id=new_source.pk,
             schema_id=customer_schema.id,
         )
@@ -408,23 +449,38 @@ async def test_run_stripe_job_cancelled(activity_environment, team, minio_client
 
     job_1, job_1_inputs = await setup_job_1()
 
+    def mock_customers_paginate(
+        class_self,
+        path: str = "",
+        method: Any = "GET",
+        params: Optional[dict[str, Any]] = None,
+        json: Optional[dict[str, Any]] = None,
+        auth: Optional[Any] = None,
+        paginator: Optional[Any] = None,
+        data_selector: Optional[Any] = None,
+        hooks: Optional[Any] = None,
+    ):
+        return iter(
+            [
+                {
+                    "id": "cus_123",
+                    "name": "John Doe",
+                }
+            ]
+        )
+
     with (
-        mock.patch("stripe.Customer.list") as mock_customer_list,
+        mock.patch.object(RESTClient, "paginate", mock_customers_paginate),
         override_settings(
             BUCKET_URL=f"s3://{BUCKET_NAME}",
             AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
             AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
         ),
+        mock.patch(
+            "posthog.warehouse.models.table.DataWarehouseTable.get_columns",
+            return_value={"clickhouse": {"id": "string", "name": "string"}},
+        ),
     ):
-        mock_customer_list.return_value = {
-            "data": [
-                {
-                    "id": "cus_123",
-                    "name": "John Doe",
-                }
-            ],
-            "has_more": True,
-        }
         await asyncio.gather(
             activity_environment.run(import_data_activity, job_1_inputs),
         )
@@ -437,7 +493,7 @@ async def test_run_stripe_job_cancelled(activity_environment, team, minio_client
         assert len(job_1_customer_objects["Contents"]) == 1
 
         await sync_to_async(job_1.refresh_from_db)()
-        assert job_1.rows_synced == 1
+        assert job_1.rows_synced == 0
 
 
 @pytest.mark.django_db(transaction=True)
@@ -451,7 +507,7 @@ async def test_run_stripe_job_row_count_update(activity_environment, team, minio
             team=team,
             status="running",
             source_type="Stripe",
-            job_inputs={"stripe_secret_key": "test-key"},
+            job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
         )
 
         new_job: ExternalDataJob = await sync_to_async(ExternalDataJob.objects.create)(
@@ -467,7 +523,7 @@ async def test_run_stripe_job_row_count_update(activity_environment, team, minio
 
         inputs = ImportDataActivityInputs(
             team_id=team.id,
-            run_id=new_job.pk,
+            run_id=str(new_job.pk),
             source_id=new_source.pk,
             schema_id=customer_schema.id,
         )
@@ -476,24 +532,38 @@ async def test_run_stripe_job_row_count_update(activity_environment, team, minio
 
     job_1, job_1_inputs = await setup_job_1()
 
+    def mock_customers_paginate(
+        class_self,
+        path: str = "",
+        method: Any = "GET",
+        params: Optional[dict[str, Any]] = None,
+        json: Optional[dict[str, Any]] = None,
+        auth: Optional[Any] = None,
+        paginator: Optional[Any] = None,
+        data_selector: Optional[Any] = None,
+        hooks: Optional[Any] = None,
+    ):
+        return iter(
+            [
+                {
+                    "id": "cus_123",
+                    "name": "John Doe",
+                }
+            ]
+        )
+
     with (
-        mock.patch("stripe.Customer.list") as mock_customer_list,
-        mock.patch("posthog.temporal.data_imports.pipelines.helpers.CHUNK_SIZE", 0),
+        mock.patch.object(RESTClient, "paginate", mock_customers_paginate),
         override_settings(
             BUCKET_URL=f"s3://{BUCKET_NAME}",
             AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
             AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
         ),
+        mock.patch(
+            "posthog.warehouse.models.table.DataWarehouseTable.get_columns",
+            return_value={"clickhouse": {"id": "string", "name": "string"}},
+        ),
     ):
-        mock_customer_list.return_value = {
-            "data": [
-                {
-                    "id": "cus_123",
-                    "name": "John Doe",
-                }
-            ],
-            "has_more": False,
-        }
         await asyncio.gather(
             activity_environment.run(import_data_activity, job_1_inputs),
         )
@@ -521,7 +591,7 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
         team=team,
         status="running",
         source_type="Stripe",
-        job_inputs={"stripe_secret_key": "test-key"},
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
     )
 
     schema = await sync_to_async(ExternalDataSchema.objects.create)(
@@ -601,6 +671,7 @@ async def test_run_postgres_job(
                 "user": postgres_config["user"],
                 "password": postgres_config["password"],
                 "schema": postgres_config["schema"],
+                "ssh_tunnel_enabled": False,
             },
         )
 
@@ -616,7 +687,7 @@ async def test_run_postgres_job(
         posthog_test_schema = await _create_schema("posthog_test", new_source, team)
 
         inputs = ImportDataActivityInputs(
-            team_id=team.id, run_id=new_job.pk, source_id=new_source.pk, schema_id=posthog_test_schema.id
+            team_id=team.id, run_id=str(new_job.pk), source_id=new_source.pk, schema_id=posthog_test_schema.id
         )
 
         return new_job, inputs
@@ -648,7 +719,7 @@ async def test_check_schedule_activity_with_schema_id(activity_environment, team
         team=team,
         status="running",
         source_type="Stripe",
-        job_inputs={"stripe_secret_key": "test-key"},
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
     )
 
     test_1_schema = await _create_schema("test-1", new_source, team)
@@ -675,7 +746,7 @@ async def test_check_schedule_activity_with_missing_schema_id_but_with_schedule(
         team=team,
         status="running",
         source_type="Stripe",
-        job_inputs={"stripe_secret_key": "test-key"},
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
     )
 
     await sync_to_async(ExternalDataSchema.objects.create)(
@@ -719,7 +790,7 @@ async def test_check_schedule_activity_with_missing_schema_id_and_no_schedule(ac
         team=team,
         status="running",
         source_type="Stripe",
-        job_inputs={"stripe_secret_key": "test-key"},
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
     )
 
     await sync_to_async(ExternalDataSchema.objects.create)(

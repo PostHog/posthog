@@ -12,7 +12,7 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { InsightQueryNode, StickinessQuery, TrendsQuery } from '~/queries/schema'
 import { AnyPropertyFilter, InsightLogicProps, PropertyGroupFilterValue } from '~/types'
 
-import { TestAccountFilter } from '../filters/TestAccountFilter'
+import { InsightTestAccountFilter } from '../filters/InsightTestAccountFilter'
 import { AndOrFilterSelect } from './AndOrFilterSelect'
 import { propertyGroupFilterLogic } from './propertyGroupFilterLogic'
 
@@ -54,7 +54,7 @@ export function PropertyGroupFilters({
         <div className="space-y-2 PropertyGroupFilters">
             {propertyGroupFilter.values && (
                 <BindLogic logic={propertyGroupFilterLogic} props={logicProps}>
-                    <TestAccountFilter
+                    <InsightTestAccountFilter
                         disabledReason={disabledReason}
                         query={query}
                         setQuery={setQuery as (node: InsightQueryNode) => void}

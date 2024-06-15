@@ -2,12 +2,11 @@ import { afterMount, connect, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
-import { DatabaseSchemaQueryResponseField } from '~/queries/schema'
 import { DataWarehouseViewLink, PropertyDefinition, PropertyType } from '~/types'
 
 import type { dataWarehouseJoinsLogicType } from './dataWarehouseJoinsLogicType'
-import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 
 export const dataWarehouseJoinsLogic = kea<dataWarehouseJoinsLogicType>([
     path(['scenes', 'data-warehouse', 'external', 'dataWarehouseJoinsLogic']),
@@ -23,16 +22,17 @@ export const dataWarehouseJoinsLogic = kea<dataWarehouseJoinsLogicType>([
         ],
     }),
     connect(() => ({
-        values: [dataWarehouseSceneLogic, ['externalTablesMap']],
+        values: [databaseTableListLogic, ['allTablesMap']],
     })),
     selectors({
         personTableJoins: [(s) => [s.joins], (joins) => joins.filter((join) => join.source_table_name === 'persons')],
         tablesJoinedToPersons: [
-            (s) => [s.externalTablesMap, s.personTableJoins],
-            (externalTablesMap, personTableJoins) => {
+            (s) => [s.allTablesMap, s.personTableJoins],
+            (allTablesMap, personTableJoins) => {
                 return personTableJoins.map((join: DataWarehouseViewLink) => {
                     // valid join should have a joining table name
-                    const table = externalTablesMap[join.joining_table_name as string]
+                    const table = allTablesMap[join.joining_table_name as string]
+
                     return {
                         table,
                         join,
@@ -46,9 +46,9 @@ export const dataWarehouseJoinsLogic = kea<dataWarehouseJoinsLogicType>([
                 return tablesJoinedToPersons.reduce((acc, { table, join }) => {
                     if (table) {
                         acc.push(
-                            ...table.columns.map((column: DatabaseSchemaQueryResponseField) => ({
-                                id: join.field_name + ': ' + column.key,
-                                name: join.field_name + ': ' + column.key,
+                            ...Object.values(table.fields).map((column) => ({
+                                id: `${join.field_name}.${column.name}`,
+                                name: `${join.field_name}: ${column.name}`,
                                 table: join.field_name,
                                 property_type: capitalizeFirstLetter(column.type) as PropertyType,
                             }))

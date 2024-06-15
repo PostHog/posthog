@@ -136,7 +136,7 @@ export const SidePanelSupport = (): JSX.Element => {
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
     const { openEmailForm, closeEmailForm } = useActions(supportLogic)
     const { isEmailFormOpen } = useValues(supportLogic)
-    const { preflight } = useValues(preflightLogic)
+    const { preflight, isCloud } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
     const region = preflight?.region
     const { status } = useValues(sidePanelStatusLogic)
@@ -168,12 +168,12 @@ export const SidePanelSupport = (): JSX.Element => {
                                             >
                                                 <div className="flex items-center gap-1.5">
                                                     {product.icon}
-                                                    <span className="text-default opacity-75 group-hover:opacity-100">
+                                                    <span className="text-text-3000 opacity-75 group-hover:opacity-100">
                                                         {product.name}
                                                     </span>
                                                 </div>
                                                 <div>
-                                                    <IconChevronDown className="text-default h-6 w-6 opacity-60 -rotate-90 group-hover:opacity-90" />
+                                                    <IconChevronDown className="text-text-3000 h-6 w-6 opacity-60 -rotate-90 group-hover:opacity-90" />
                                                 </div>
                                             </Link>
                                         </li>
@@ -203,19 +203,22 @@ export const SidePanelSupport = (): JSX.Element => {
                                 </Section>
                             ) : null}
 
-                            <Section title="Contact us">
-                                <p>Can't find what you need in the docs?</p>
-                                <LemonButton
-                                    type="primary"
-                                    fullWidth
-                                    center
-                                    onClick={() => openEmailForm()}
-                                    targetBlank
-                                    className="mt-2"
-                                >
-                                    Email an engineer
-                                </LemonButton>
-                            </Section>
+                            {/* only allow opening tickets on our Cloud instances */}
+                            {isCloud ? (
+                                <Section title="Contact us">
+                                    <p>Can't find what you need in the docs?</p>
+                                    <LemonButton
+                                        type="primary"
+                                        fullWidth
+                                        center
+                                        onClick={() => openEmailForm()}
+                                        targetBlank
+                                        className="mt-2"
+                                    >
+                                        Email an engineer
+                                    </LemonButton>
+                                </Section>
+                            ) : null}
                             <Section title="Ask the community">
                                 <p>
                                     Questions about features, how-tos, or use cases? There are thousands of discussions

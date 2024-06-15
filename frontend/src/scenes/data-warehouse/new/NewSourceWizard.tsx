@@ -1,23 +1,18 @@
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import hubspotLogo from 'public/hubspot-logo.svg'
-import postgresLogo from 'public/postgres-logo.svg'
-import stripeLogo from 'public/stripe-logo.svg'
-import zendeskLogo from 'public/zendesk-logo.png'
 import { useCallback } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { SourceConfig } from '~/types'
+import { ManualLinkSourceType, SourceConfig } from '~/types'
 
+import { DataWarehouseBetaNotice } from '../DataWarehouseBetaNotice'
 import PostgresSchemaForm from '../external/forms/PostgresSchemaForm'
 import SourceForm from '../external/forms/SourceForm'
 import { SyncProgressStep } from '../external/forms/SyncProgressStep'
 import { DatawarehouseTableForm } from '../new/DataWarehouseTableForm'
+import { RenderDataWarehouseSourceIcon } from '../settings/DataWarehouseSourcesTable'
 import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
-import { ManualLinkProvider } from './ManualLinkProvider'
 import { sourceWizardLogic } from './sourceWizardLogic'
 
 export const scene: SceneExport = {
@@ -47,11 +42,6 @@ export function NewSourceWizard(): JSX.Element {
                 >
                     Back
                 </LemonButton>
-                {showSkipButton && (
-                    <LemonButton type="primary" center onClick={() => closeWizard()} data-attr="source-link">
-                        Skip
-                    </LemonButton>
-                )}
                 <LemonButton
                     loading={isLoading || manualLinkIsLoading}
                     disabledReason={!canGoNext && 'You cant click next yet'}
@@ -82,6 +72,7 @@ export function NewSourceWizard(): JSX.Element {
                     </>
                 }
             />
+            <DataWarehouseBetaNotice />
             <>
                 <h3>{modalTitle}</h3>
                 <p>{modalCaption}</p>
@@ -111,67 +102,111 @@ function ModalPage({ children, page }: ModalPageProps): JSX.Element {
 }
 
 function FirstStep(): JSX.Element {
-    const { connectors, addToHubspotButtonUrl } = useValues(sourceWizardLogic)
-    const { selectConnector, toggleManualLinkFormVisible, onNext } = useActions(sourceWizardLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { connectors, manualConnectors, addToHubspotButtonUrl } = useValues(sourceWizardLogic)
+    const { selectConnector, toggleManualLinkFormVisible, onNext, setManualLinkingProvider } =
+        useActions(sourceWizardLogic)
 
-    const MenuButton = (config: SourceConfig): JSX.Element => {
-        const onClick = (): void => {
-            selectConnector(config)
-            onNext()
+    const onClick = (sourceConfig: SourceConfig): void => {
+        if (sourceConfig.name == 'Hubspot') {
+            window.open(addToHubspotButtonUrl() as string)
+        } else {
+            selectConnector(sourceConfig)
         }
-
-        if (config.name === 'Stripe') {
-            return (
-                <LemonButton onClick={onClick} fullWidth center type="secondary">
-                    <img src={stripeLogo} alt="stripe logo" height={50} />
-                </LemonButton>
-            )
-        }
-        if (config.name === 'Hubspot') {
-            return (
-                <LemonButton fullWidth center type="secondary" to={addToHubspotButtonUrl() || ''}>
-                    <img src={hubspotLogo} alt="hubspot logo" height={45} />
-                </LemonButton>
-            )
-        }
-
-        if (config.name === 'Postgres' && featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_POSTGRES_IMPORT]) {
-            return (
-                <LemonButton onClick={onClick} fullWidth center type="secondary">
-                    <div className="flex flex-row gap-2 justify-center items-center">
-                        <img src={postgresLogo} alt="postgres logo" height={45} />
-                        <div className="text-base">Postgres</div>
-                    </div>
-                </LemonButton>
-            )
-        }
-        if (config.name === 'Zendesk') {
-            return (
-                <LemonButton onClick={onClick} fullWidth center type="secondary">
-                    <img src={zendeskLogo} alt="Zendesk logo" height={40} />
-                </LemonButton>
-            )
-        }
-
-        return <></>
+        onNext()
     }
 
-    const onManualLinkClick = (): void => {
+    const onManualLinkClick = (manulLinkSource: ManualLinkSourceType): void => {
         toggleManualLinkFormVisible(true)
-        onNext()
+        setManualLinkingProvider(manulLinkSource)
     }
 
     return (
         <ModalPage page={1}>
-            <div className="flex flex-col gap-2 items-center">
-                {connectors.map((config, index) => (
-                    <MenuButton key={config.name + '_' + index} {...config} />
-                ))}
-                <LemonButton onClick={onManualLinkClick} className="w-full" center type="secondary">
-                    Manual Link
-                </LemonButton>
-            </div>
+            <h2 className="mt-4">Managed by PostHog</h2>
+
+            <span>
+                Data will be synced to PostHog and regularly refreshed.{' '}
+                <Link to="https://posthog.com/docs/data-warehouse/setup#stripe">Learn more</Link>
+            </span>
+            <LemonTable
+                dataSource={connectors}
+                loading={false}
+                disableTableWhileLoading={false}
+                columns={[
+                    {
+                        title: 'Source',
+                        width: 0,
+                        render: function RenderAppInfo(_, sourceConfig) {
+                            return <RenderDataWarehouseSourceIcon type={sourceConfig.name} />
+                        },
+                    },
+                    {
+                        title: 'Name',
+                        key: 'name',
+                        render: function RenderName(_, sourceConfig) {
+                            return <span className="font-semibold text-sm gap-1">{sourceConfig.name}</span>
+                        },
+                    },
+                    {
+                        key: 'actions',
+                        width: 0,
+                        render: function RenderActions(_, sourceConfig) {
+                            return (
+                                <div className="flex flex-row justify-end">
+                                    <LemonButton onClick={() => onClick(sourceConfig)} className="my-2" type="primary">
+                                        Link
+                                    </LemonButton>
+                                </div>
+                            )
+                        },
+                    },
+                ]}
+            />
+
+            <h2 className="mt-4">Self Managed</h2>
+
+            <span>
+                Data will be queried directly from your data source that you manage.{' '}
+                <Link to="https://posthog.com/docs/data-warehouse/setup#linking-a-custom-source">Learn more</Link>
+            </span>
+            <LemonTable
+                dataSource={manualConnectors}
+                loading={false}
+                disableTableWhileLoading={false}
+                columns={[
+                    {
+                        title: 'Source',
+                        width: 0,
+                        render: function RenderAppInfo(_, sourceConfig) {
+                            return <RenderDataWarehouseSourceIcon type={sourceConfig.type} />
+                        },
+                    },
+                    {
+                        title: 'Name',
+                        key: 'name',
+                        render: function RenderName(_, sourceConfig) {
+                            return <span className="font-semibold text-sm gap-1">{sourceConfig.name}</span>
+                        },
+                    },
+                    {
+                        key: 'actions',
+                        width: 0,
+                        render: function RenderActions(_, sourceConfig) {
+                            return (
+                                <div className="flex flex-row justify-end">
+                                    <LemonButton
+                                        onClick={() => onManualLinkClick(sourceConfig.type)}
+                                        className="my-2"
+                                        type="primary"
+                                    >
+                                        Link
+                                    </LemonButton>
+                                </div>
+                            )
+                        },
+                    },
+                ]}
+            />
         </ModalPage>
     )
 }
@@ -181,16 +216,16 @@ function SecondStep(): JSX.Element {
 
     return (
         <ModalPage page={2}>
-            {selectedConnector ? <SourceForm sourceConfig={selectedConnector} /> : <ManualLinkProvider />}
+            {selectedConnector ? <SourceForm sourceConfig={selectedConnector} /> : <DatawarehouseTableForm />}
         </ModalPage>
     )
 }
 
 function ThirdStep(): JSX.Element {
-    const { isManualLinkFormVisible } = useValues(sourceWizardLogic)
-
     return (
-        <ModalPage page={3}>{isManualLinkFormVisible ? <DatawarehouseTableForm /> : <PostgresSchemaForm />}</ModalPage>
+        <ModalPage page={3}>
+            <PostgresSchemaForm />
+        </ModalPage>
     )
 }
 

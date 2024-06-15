@@ -15,13 +15,14 @@ from posthog.constants import (
     TREND_FILTER_TYPE_EVENTS,
 )
 from posthog.hogql.constants import LimitContext
-from posthog.hogql.query import INCREASED_MAX_EXECUTION_TIME
+
 from posthog.hogql_queries.insights.retention_query_runner import RetentionQueryRunner
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.models import Action
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person
+from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -731,6 +732,87 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
+    def test_all_events(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0)),
+                ("person1", _date(1)),
+                ("person1", _date(2)),
+                ("person1", _date(5)),
+                ("alias1", _date(5, 9)),
+                ("person1", _date(6)),
+                ("person2", _date(1)),
+                ("person2", _date(2)),
+                ("person2", _date(3)),
+                ("person2", _date(6)),
+            ],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(10, hour=6)},
+                "retentionFilter": {
+                    "targetEntity": {"id": None, "name": "All events"},
+                    "returningEntity": {"id": "$pageview", "type": "events"},
+                },
+            }
+        )
+        self.assertEqual(
+            pluck(result, "values", "count"),
+            [
+                [1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0],
+                [2, 2, 1, 0, 1, 2, 0, 0, 0, 0],
+                [2, 1, 0, 1, 2, 0, 0, 0, 0],
+                [1, 0, 0, 1, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0],
+                [1, 1, 0, 0, 0, 0],
+                [2, 0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0],
+                [0, 0],
+                [0],
+            ],
+        )
+
+        action = Action.objects.create(
+            team=self.team,
+            steps_json=[
+                {
+                    "event": None,
+                },
+                {"event": "non_matching_event"},
+            ],
+        )
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(10, hour=6)},
+                "retentionFilter": {
+                    "targetEntity": {"id": action.id, "type": TREND_FILTER_TYPE_ACTIONS},
+                    "returningEntity": {"id": "$pageview", "type": "events"},
+                },
+            }
+        )
+        self.assertEqual(
+            pluck(result, "values", "count"),
+            [
+                [1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0],
+                [2, 2, 1, 0, 1, 2, 0, 0, 0, 0],
+                [2, 1, 0, 1, 2, 0, 0, 0, 0],
+                [1, 0, 0, 1, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0],
+                [1, 1, 0, 0, 0, 0],
+                [2, 0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0],
+                [0, 0],
+                [0],
+            ],
+        )
+
     def test_retention_people_basic(self):
         person1 = _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
         _create_person(team_id=self.team.pk, distinct_ids=["person2"])
@@ -1152,6 +1234,41 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
+    def test_first_time_retention_weeks(self):
+        self._create_first_time_retention_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(5, hour=6)},
+                "retentionFilter": {
+                    "period": "Week",
+                    "totalIntervals": 7,
+                    "retentionType": RETENTION_FIRST_TIME,
+                    "targetEntity": {
+                        "id": "$user_signed_up",
+                        "name": "$user_signed_up",
+                        "type": TREND_FILTER_TYPE_EVENTS,
+                    },
+                    "returningEntity": {"id": "$pageview", "name": "$pageview", "type": "events"},
+                },
+            }
+        )
+
+        self.assertEqual(len(result), 7)
+
+        self.assertEqual(
+            pluck(result, "values", "count"),
+            [
+                [0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [1, 0, 0],
+                [4, 4],
+                [0],
+            ],
+        )
+
     def test_retention_with_properties(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
         _create_person(team_id=self.team.pk, distinct_ids=["person2"])
@@ -1308,7 +1425,8 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 {
                     "event": "$pageview",
                     "properties": [{"key": "email", "value": "person1@test.com", "type": "person"}],
-                }
+                },
+                {"event": "non_matching_event"},
             ],
         )
 
@@ -1933,4 +2051,4 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
         self.run_query(query={}, limit_context=LimitContext.QUERY_ASYNC)
 
         mock_sync_execute.assert_called_once()
-        self.assertIn(f" max_execution_time={INCREASED_MAX_EXECUTION_TIME},", mock_sync_execute.call_args[0][0])
+        self.assertIn(f" max_execution_time={HOGQL_INCREASED_MAX_EXECUTION_TIME},", mock_sync_execute.call_args[0][0])

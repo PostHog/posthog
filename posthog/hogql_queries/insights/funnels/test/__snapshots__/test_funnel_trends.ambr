@@ -6,6 +6,9 @@
          data.reached_to_step_count AS reached_to_step_count,
          if(ifNull(greater(data.reached_from_step_count, 0), 0), round(multiply(divide(data.reached_to_step_count, data.reached_from_step_count), 100), 2), 0) AS conversion_rate
   FROM
+    (SELECT plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-04-30 00:00:00'), 6, 'UTC'))), toIntervalDay(period_offsets.number)) AS entrance_period_start
+     FROM numbers(plus(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-04-30 00:00:00'), 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-05-07 23:59:59'), 6, 'UTC')))), 1)) AS period_offsets) AS fill
+  LEFT OUTER JOIN
     (SELECT entrance_period_start AS entrance_period_start,
             countIf(ifNull(greaterOrEquals(steps_completed, 1), 0)) AS reached_from_step_count,
             countIf(ifNull(greaterOrEquals(steps_completed, 3), 0)) AS reached_to_step_count
@@ -76,10 +79,7 @@
            WHERE ifNull(equals(step_0, 1), 0))
         GROUP BY aggregation_target,
                  entrance_period_start)
-     GROUP BY entrance_period_start) AS data
-  RIGHT OUTER JOIN
-    (SELECT plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-04-30 00:00:00'), 6, 'UTC'))), toIntervalDay(period_offsets.number)) AS entrance_period_start
-     FROM numbers(plus(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-04-30 00:00:00'), 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-05-07 23:59:59'), 6, 'UTC')))), 1)) AS period_offsets) AS fill ON equals(data.entrance_period_start, fill.entrance_period_start)
+     GROUP BY entrance_period_start) AS data ON equals(data.entrance_period_start, fill.entrance_period_start)
   ORDER BY fill.entrance_period_start ASC
   LIMIT 1000 SETTINGS readonly=2,
                       max_execution_time=60,
@@ -97,6 +97,9 @@
          data.reached_to_step_count AS reached_to_step_count,
          if(ifNull(greater(data.reached_from_step_count, 0), 0), round(multiply(divide(data.reached_to_step_count, data.reached_from_step_count), 100), 2), 0) AS conversion_rate
   FROM
+    (SELECT plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-04-30 00:00:00'), 6, 'US/Pacific'))), toIntervalDay(period_offsets.number)) AS entrance_period_start
+     FROM numbers(plus(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-04-30 00:00:00'), 6, 'US/Pacific'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-05-07 23:59:59'), 6, 'US/Pacific')))), 1)) AS period_offsets) AS fill
+  LEFT OUTER JOIN
     (SELECT entrance_period_start AS entrance_period_start,
             countIf(ifNull(greaterOrEquals(steps_completed, 1), 0)) AS reached_from_step_count,
             countIf(ifNull(greaterOrEquals(steps_completed, 3), 0)) AS reached_to_step_count
@@ -167,10 +170,7 @@
            WHERE ifNull(equals(step_0, 1), 0))
         GROUP BY aggregation_target,
                  entrance_period_start)
-     GROUP BY entrance_period_start) AS data
-  RIGHT OUTER JOIN
-    (SELECT plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-04-30 00:00:00'), 6, 'US/Pacific'))), toIntervalDay(period_offsets.number)) AS entrance_period_start
-     FROM numbers(plus(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-04-30 00:00:00'), 6, 'US/Pacific'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-05-07 23:59:59'), 6, 'US/Pacific')))), 1)) AS period_offsets) AS fill ON equals(data.entrance_period_start, fill.entrance_period_start)
+     GROUP BY entrance_period_start) AS data ON equals(data.entrance_period_start, fill.entrance_period_start)
   ORDER BY fill.entrance_period_start ASC
   LIMIT 1000 SETTINGS readonly=2,
                       max_execution_time=60,
@@ -188,6 +188,9 @@
          data.reached_to_step_count AS reached_to_step_count,
          if(ifNull(greater(data.reached_from_step_count, 0), 0), round(multiply(divide(data.reached_to_step_count, data.reached_from_step_count), 100), 2), 0) AS conversion_rate
   FROM
+    (SELECT plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-05-01 00:00:00'), 6, 'UTC')), 0), toIntervalWeek(period_offsets.number)) AS entrance_period_start
+     FROM numbers(plus(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-05-01 00:00:00'), 6, 'UTC')), 0), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-05-07 23:59:59'), 6, 'UTC')), 0)), 1)) AS period_offsets) AS fill
+  LEFT OUTER JOIN
     (SELECT entrance_period_start AS entrance_period_start,
             countIf(ifNull(greaterOrEquals(steps_completed, 1), 0)) AS reached_from_step_count,
             countIf(ifNull(greaterOrEquals(steps_completed, 3), 0)) AS reached_to_step_count
@@ -258,10 +261,7 @@
            WHERE ifNull(equals(step_0, 1), 0))
         GROUP BY aggregation_target,
                  entrance_period_start)
-     GROUP BY entrance_period_start) AS data
-  RIGHT OUTER JOIN
-    (SELECT plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-05-01 00:00:00'), 6, 'UTC')), 0), toIntervalWeek(period_offsets.number)) AS entrance_period_start
-     FROM numbers(plus(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-05-01 00:00:00'), 6, 'UTC')), 0), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-05-07 23:59:59'), 6, 'UTC')), 0)), 1)) AS period_offsets) AS fill ON equals(data.entrance_period_start, fill.entrance_period_start)
+     GROUP BY entrance_period_start) AS data ON equals(data.entrance_period_start, fill.entrance_period_start)
   ORDER BY fill.entrance_period_start ASC
   LIMIT 1000 SETTINGS readonly=2,
                       max_execution_time=60,

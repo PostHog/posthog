@@ -34,6 +34,7 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             "scoped_organizations": [],
             "scoped_teams": [],
             "value": data["value"],
+            "mask_value": data["mask_value"],
         }
         assert data["value"].startswith("phx_")  # Personal API key prefix
 
@@ -135,6 +136,7 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             "scoped_organizations": None,
             "scoped_teams": None,
             "value": None,
+            "mask_value": my_key.mask_value,
         }
 
     def test_get_own_personal_api_key(self):

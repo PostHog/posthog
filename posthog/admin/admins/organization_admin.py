@@ -13,6 +13,7 @@ class OrganizationAdmin(admin.ModelAdmin):
     show_full_result_count = False  # prevent count() queries to show the no of filtered results
     paginator = NoCountPaginator  # prevent count() queries and return a fix page count instead
     fields = [
+        "id",
         "name",
         "created_at",
         "updated_at",
@@ -24,7 +25,15 @@ class OrganizationAdmin(admin.ModelAdmin):
         "is_hipaa",
     ]
     inlines = [ProjectInline, TeamInline, OrganizationMemberInline]
-    readonly_fields = ["created_at", "updated_at", "billing_link_v2", "usage_posthog", "usage", "customer_trust_scores"]
+    readonly_fields = [
+        "id",
+        "created_at",
+        "updated_at",
+        "billing_link_v2",
+        "usage_posthog",
+        "usage",
+        "customer_trust_scores",
+    ]
     search_fields = ("name", "members__email", "team__api_token")
     list_display = (
         "id",

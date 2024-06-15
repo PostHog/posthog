@@ -1,9 +1,9 @@
 import { dayjs } from 'lib/dayjs'
 import { capitalizeFirstLetter, midEllipsis, pluralize } from 'lib/utils'
-import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { BreakdownFilter } from '~/queries/schema'
 import { ActionFilter, CompareLabelType, FilterType, IntervalType } from '~/types'
 
 import { formatBreakdownLabel } from '../utils'
@@ -56,6 +56,7 @@ export interface InsightTooltipProps extends Omit<TooltipConfig, 'renderSeries' 
     hideInspectActorsSection?: boolean
     seriesData: SeriesDatum[]
     formula?: boolean
+    breakdownFilter?: BreakdownFilter | undefined | null
     groupTypeLabel?: string
     timezone?: string | null
 }
@@ -86,20 +87,23 @@ export const INTERVAL_UNIT_TO_DAYJS_FORMAT: Record<IntervalType, string> = {
     month: 'MMMM YYYY',
 }
 
-export function getFormattedDate(dayInput?: string | number, interval: IntervalType = 'day'): string {
-    // Number of days
-    if (Number.isInteger(dayInput)) {
-        return pluralize(dayInput as number, 'day')
+export function getFormattedDate(input?: string | number, interval: IntervalType = 'day'): string {
+    // Number of intervals (i.e. days, weeks)
+    if (Number.isInteger(input)) {
+        return pluralize(input as number, interval)
     }
-    const day = dayjs(dayInput)
+    const day = dayjs(input)
     // Dayjs formatted day
-    if (dayInput !== undefined && day.isValid()) {
+    if (input !== undefined && day.isValid()) {
         return day.format(INTERVAL_UNIT_TO_DAYJS_FORMAT[interval])
     }
-    return String(dayInput)
+    return String(input)
 }
 
-export function invertDataSource(seriesData: SeriesDatum[]): InvertedSeriesDatum[] {
+export function invertDataSource(
+    seriesData: SeriesDatum[],
+    breakdownFilter: BreakdownFilter | null | undefined
+): InvertedSeriesDatum[] {
     // NOTE: Assuming these logics are mounted elsewhere, and we're not interested in tracking changes.
     const cohorts = cohortsModel.findMounted()?.values?.cohorts
     const formatPropertyValueForDisplay = propertyDefinitionsModel.findMounted()?.values?.formatPropertyValueForDisplay
@@ -109,14 +113,7 @@ export function invertDataSource(seriesData: SeriesDatum[]): InvertedSeriesDatum
         const pillValues = []
         if (s.breakdown_value !== undefined) {
             pillValues.push(
-                formatBreakdownLabel(
-                    cohorts,
-                    formatPropertyValueForDisplay,
-                    s.breakdown_value,
-                    s.filter?.breakdown,
-                    s.filter?.breakdown_type,
-                    s.filter && isTrendsFilter(s.filter) && s.filter?.breakdown_histogram_bin_count !== undefined
-                )
+                formatBreakdownLabel(s.breakdown_value, breakdownFilter, cohorts, formatPropertyValueForDisplay)
             )
         }
         if (s.compare_label) {

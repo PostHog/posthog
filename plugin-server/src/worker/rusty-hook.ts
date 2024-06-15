@@ -2,7 +2,8 @@ import { Webhook } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import fetch from 'node-fetch'
 
-import { ValueMatcher } from '../types'
+import { buildIntegerMatcher } from '../config/config'
+import { PluginsServerConfig, ValueMatcher } from '../types'
 import { isProdEnv } from '../utils/env-utils'
 import { raiseIfUserProvidedUrlUnsafe } from '../utils/fetch'
 import { status } from '../utils/status'
@@ -23,12 +24,16 @@ interface RustyWebhookPayload {
 }
 
 export class RustyHook {
+    private enabledForTeams: ValueMatcher<number>
+
     constructor(
-        private enabledForTeams: ValueMatcher<number>,
-        private rolloutPercentage: number,
-        private serviceUrl: string,
-        private requestTimeoutMs: number
-    ) {}
+        private serverConfig: Pick<
+            PluginsServerConfig,
+            'RUSTY_HOOK_URL' | 'RUSTY_HOOK_FOR_TEAMS' | 'RUSTY_HOOK_ROLLOUT_PERCENTAGE' | 'EXTERNAL_REQUEST_TIMEOUT_MS'
+        >
+    ) {
+        this.enabledForTeams = buildIntegerMatcher(serverConfig.RUSTY_HOOK_FOR_TEAMS, true)
+    }
 
     public async enqueueIfEnabledForTeam({
         webhook,
@@ -43,7 +48,7 @@ export class RustyHook {
     }): Promise<boolean> {
         // A simple and blunt rollout that just uses the last digits of the Team ID as a stable
         // selection against the `rolloutPercentage`.
-        const enabledByRolloutPercentage = (teamId % 1000) / 1000 < this.rolloutPercentage
+        const enabledByRolloutPercentage = (teamId % 1000) / 1000 < this.serverConfig.RUSTY_HOOK_ROLLOUT_PERCENTAGE
         if (!enabledByRolloutPercentage && !this.enabledForTeams(teamId)) {
             return false
         }
@@ -75,14 +80,14 @@ export class RustyHook {
             const timer = new Date()
             try {
                 attempt += 1
-                const response = await fetch(this.serviceUrl, {
+                const response = await fetch(this.serverConfig.RUSTY_HOOK_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body,
 
                     // Sure, it's not an external request, but we should have a timeout and this is as
                     // good as any.
-                    timeout: this.requestTimeoutMs,
+                    timeout: this.serverConfig.EXTERNAL_REQUEST_TIMEOUT_MS,
                 })
 
                 if (response.ok) {

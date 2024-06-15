@@ -5,15 +5,15 @@ import { urls } from 'scenes/urls'
 
 import { PipelineStage } from '~/types'
 
-import { pipelineLogic } from './pipelineLogic'
+import { pipelineAccessLogic } from './pipelineAccessLogic'
 
 type NewButtonProps = {
     stage: PipelineStage
 }
 
 export function NewButton({ stage }: NewButtonProps): JSX.Element {
-    const { canEnableNewDestinations } = useValues(pipelineLogic)
-    if (stage === PipelineStage.Destination && !canEnableNewDestinations) {
+    const { canEnableNewDestinations } = useValues(pipelineAccessLogic)
+    if (stage === PipelineStage.ImportApp || (stage === PipelineStage.Destination && !canEnableNewDestinations)) {
         return <></>
     }
     return (

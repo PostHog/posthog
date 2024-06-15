@@ -124,8 +124,25 @@ replica_opt_in = os.environ.get("READ_REPLICA_OPT_IN", "")
 READ_REPLICA_OPT_IN: list[str] = get_list(replica_opt_in)
 
 
+# Xdist Settings
+# When running concurrent tests, PYTEST_XDIST_WORKER gets set to "gw0" ... "gwN"
+# We use this setting to create multiple databases to achieve test isolation
+PYTEST_XDIST_WORKER: str | None = os.getenv("PYTEST_XDIST_WORKER")
+PYTEST_XDIST_WORKER_NUM: int | None = None
+SUFFIX = ""
+XDIST_SUFFIX = ""
+try:
+    if PYTEST_XDIST_WORKER is not None:
+        XDIST_SUFFIX = f"_{PYTEST_XDIST_WORKER}"
+        PYTEST_XDIST_WORKER_NUM = int("".join([x for x in PYTEST_XDIST_WORKER if x.isdigit()]))
+except:
+    pass
+
+if TEST:
+    SUFFIX = "_test" + XDIST_SUFFIX
+
 # Clickhouse Settings
-CLICKHOUSE_TEST_DB: str = "posthog_test"
+CLICKHOUSE_TEST_DB: str = "posthog" + SUFFIX
 
 CLICKHOUSE_HOST: str = os.getenv("CLICKHOUSE_HOST", "localhost")
 CLICKHOUSE_OFFLINE_CLUSTER_HOST: str | None = os.getenv("CLICKHOUSE_OFFLINE_CLUSTER_HOST", None)
@@ -222,8 +239,6 @@ KAFKA_SASL_MECHANISM = os.getenv("KAFKA_SASL_MECHANISM", None)
 KAFKA_SASL_USER = os.getenv("KAFKA_SASL_USER", None)
 KAFKA_SASL_PASSWORD = os.getenv("KAFKA_SASL_PASSWORD", None)
 
-SUFFIX = "_test" if TEST else ""
-
 KAFKA_EVENTS_PLUGIN_INGESTION: str = (
     f"{KAFKA_PREFIX}events_plugin_ingestion{SUFFIX}"  # can be overridden in settings.py
 )
@@ -241,7 +256,10 @@ TOKENS_HISTORICAL_DATA = os.getenv("TOKENS_HISTORICAL_DATA", "").split(",")
 
 # The last case happens when someone upgrades Heroku but doesn't have Redis installed yet. Collectstatic gets called before we can provision Redis.
 if TEST or DEBUG or IS_COLLECT_STATIC:
-    REDIS_URL = os.getenv("REDIS_URL", "redis://localhost/")
+    if PYTEST_XDIST_WORKER_NUM is not None:
+        REDIS_URL = os.getenv("REDIS_URL", f"redis://localhost/{PYTEST_XDIST_WORKER_NUM}")
+    else:
+        REDIS_URL = os.getenv("REDIS_URL", "redis://localhost/")
 else:
     REDIS_URL = os.getenv("REDIS_URL", "")
 

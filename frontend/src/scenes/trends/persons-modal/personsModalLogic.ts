@@ -10,7 +10,7 @@ import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { query as performQuery } from '~/queries/query'
+import { performQuery } from '~/queries/query'
 import {
     ActorsQuery,
     DataTableNode,
@@ -100,17 +100,11 @@ export const personsModalLogic = kea<personsModalLogicType>([
                         return res
                     }
                     if (values.actorsQuery) {
-                        const response = await performQuery(
-                            {
-                                ...values.actorsQuery,
-                                limit: offset ? offset * 2 : RESULTS_PER_PAGE,
-                                offset,
-                            } as ActorsQuery,
-                            undefined,
-                            undefined,
-                            undefined,
-                            url ?? undefined
-                        )
+                        const response = await performQuery({
+                            ...values.actorsQuery,
+                            limit: offset ? offset * 2 : RESULTS_PER_PAGE,
+                            offset,
+                        } as ActorsQuery)
                         breakpoint()
 
                         const assembledSelectFields = values.selectFields
@@ -181,7 +175,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
                         kind: NodeKind.InsightActorsQueryOptions,
                         source: query,
                     }
-                    const response = await performQuery(optionsQuery)
+                    const response = await performQuery(optionsQuery, { async: false })
 
                     return Object.fromEntries(
                         Object.entries(response).filter(([key, _]) =>

@@ -11,7 +11,7 @@ function HeatmapMouseInfo({
 }: {
     heatmapJsRef: MutableRefObject<HeatmapJS<'value', 'x', 'y'> | undefined>
 }): JSX.Element | null {
-    const { shiftPressed, heatmapFilters } = useValues(heatmapLogic)
+    const { shiftPressed, heatmapTooltipLabel } = useValues(heatmapLogic)
 
     const mousePosition = useMousePosition()
     const value = heatmapJsRef.current?.getValueAt(mousePosition)
@@ -41,7 +41,7 @@ function HeatmapMouseInfo({
                 }}
             >
                 <span className="font-semibold whitespace-nowrap">
-                    {value} {heatmapFilters.type + 's'}
+                    {value} {heatmapTooltipLabel}
                 </span>
             </div>
         </div>

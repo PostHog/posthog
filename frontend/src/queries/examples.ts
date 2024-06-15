@@ -8,6 +8,7 @@ import {
     EventsQuery,
     FunnelsQuery,
     HogQLQuery,
+    HogQuery,
     LifecycleQuery,
     Node,
     NodeKind,
@@ -343,6 +344,22 @@ const DataVisualization: DataVisualizationNode = {
     source: HogQLForDataVisualization,
 }
 
+const Hog: HogQuery = {
+    kind: NodeKind.HogQuery,
+    code: 'return 1 + 2;',
+}
+
+const Hoggonacci: HogQuery = {
+    kind: NodeKind.HogQuery,
+    code: `fn fibonacci(number) {
+    if (number < 2) {
+        return number;
+    } else {
+        return fibonacci(number - 1) + fibonacci(number - 2);
+    }
+}
+return fibonacci(16);`,
+}
 /* a subset of examples including only those we can show all users and that don't use HogQL */
 export const queryExamples: Record<string, Node> = {
     Events,
@@ -375,6 +392,8 @@ export const examples: Record<string, Node> = {
     HogQLRaw,
     HogQLTable,
     DataVisualization,
+    Hog,
+    Hoggonacci,
 }
 
 export const stringifiedExamples: Record<string, string> = Object.fromEntries(

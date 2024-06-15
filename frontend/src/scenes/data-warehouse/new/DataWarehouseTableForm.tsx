@@ -3,11 +3,13 @@ import { useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
+import { ManualLinkSourceType } from '~/types'
+
 import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
-import { ManualLinkProvider, sourceWizardLogic } from './sourceWizardLogic'
+import { sourceWizardLogic } from './sourceWizardLogic'
 
 const ProviderMappings: Record<
-    ManualLinkProvider,
+    ManualLinkSourceType,
     {
         fileUrlPatternPlaceholder: string
         accessKeyPlaceholder: string
@@ -26,6 +28,12 @@ const ProviderMappings: Record<
         accessKeyPlaceholder: 'eg: GOOGTS7C7FUP3AIRVEXAMPLE',
         accessKeyLabel: 'Access ID',
         accessSecretLabel: 'Secret',
+    },
+    'cloudflare-r2': {
+        fileUrlPatternPlaceholder: 'eg: https://your-account-id.r2.cloudflarestorage.com/airbyte/stripe/invoices/*.pqt',
+        accessKeyPlaceholder: 'eg: AKIAIOSFODNN7EXAMPLE',
+        accessKeyLabel: 'Access key',
+        accessSecretLabel: 'Access secret',
     },
 }
 

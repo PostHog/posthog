@@ -44,6 +44,7 @@ const cleanInsightQuery = (query: InsightQueryNode, ignoreVisualizationOnlyChang
     }
 
     if (ignoreVisualizationOnlyChanges) {
+        // Keep this in sync with the backend side clean_insight_queries method
         const insightFilter = filterForQuery(cleanedQuery)
         const insightFilterKey = filterKeyForQuery(cleanedQuery)
         cleanedQuery[insightFilterKey] = {

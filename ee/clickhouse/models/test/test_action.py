@@ -1,7 +1,9 @@
 import dataclasses
 
 from posthog.client import sync_execute
+from posthog.hogql.bytecode import create_bytecode
 from posthog.hogql.hogql import HogQLContext
+from posthog.hogql.property import action_to_expr
 from posthog.models.action import Action
 from posthog.models.action.util import filter_event, format_action_filter
 from posthog.models.test.test_event_model import filter_by_actions_factory
@@ -282,7 +284,7 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
         events = _get_events_for_action(action1)
         self.assertEqual(len(events), 1)
 
-        self.assertEqual(action1.bytecode, action1.generate_bytecode())
+        self.assertEqual(action1.bytecode, create_bytecode(action_to_expr(action1)))
         self.assertEqual(
             action1.bytecode,
             [
@@ -294,7 +296,7 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
                 "filters_count",
                 op.STRING,
                 "properties",
-                op.FIELD,
+                op.GET_GLOBAL,
                 2,
                 op.CALL,
                 "toInt",
@@ -305,7 +307,7 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
                 "insight viewed",
                 op.STRING,
                 "event",
-                op.FIELD,
+                op.GET_GLOBAL,
                 1,
                 op.EQ,
                 # and

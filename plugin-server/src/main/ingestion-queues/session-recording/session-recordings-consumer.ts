@@ -46,7 +46,7 @@ require('@sentry/tracing')
 // WARNING: Do not change this - it will essentially reset the consumer
 const KAFKA_CONSUMER_GROUP_ID = 'session-recordings-blob'
 const KAFKA_CONSUMER_GROUP_ID_OVERFLOW = 'session-recordings-blob-overflow'
-const KAFKA_CONSUMER_SESSION_TIMEOUT_MS = 30000
+const KAFKA_CONSUMER_SESSION_TIMEOUT_MS = 90_000
 const SHUTDOWN_FLUSH_TIMEOUT_MS = 30000
 const CAPTURE_OVERFLOW_REDIS_KEY = '@posthog/capture-overflow/replay'
 
@@ -273,7 +273,11 @@ export class SessionRecordingIngester {
         const { partition, highOffset } = event.metadata
         const isDebug = this.debugPartition === partition
         if (isDebug) {
-            status.info('🔁', '[blob_ingester_consumer] - [PARTITION DEBUG] - consuming event', { ...event.metadata })
+            status.info('🔁', '[blob_ingester_consumer] - [PARTITION DEBUG] - consuming event', {
+                ...event.metadata,
+                team_id,
+                session_id,
+            })
         }
 
         function dropEvent(dropCause: string) {
@@ -329,11 +333,13 @@ export class SessionRecordingIngester {
     }
 
     public async handleEachBatch(messages: Message[], heartbeat: () => void): Promise<void> {
-        status.info('🔁', `blob_ingester_consumer - handling batch`, {
-            size: messages.length,
-            partitionsInBatch: [...new Set(messages.map((x) => x.partition))],
-            assignedPartitions: this.assignedPartitions,
-        })
+        if (messages.length !== 0) {
+            status.info('🔁', `blob_ingester_consumer - handling batch`, {
+                size: messages.length,
+                partitionsInBatch: [...new Set(messages.map((x) => x.partition))],
+                assignedPartitions: this.assignedPartitions,
+            })
+        }
         await runInstrumentedFunction({
             statsKey: `recordingingester.handleEachBatch`,
             sendTimeoutGuardToSentry: false,

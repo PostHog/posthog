@@ -1,5 +1,6 @@
 import { LemonModal } from '@posthog/lemon-ui'
 import { actions, kea, path, reducers, useActions, useValues } from 'kea'
+import { ConfirmUpgradeModal } from 'lib/components/ConfirmUpgradeModal/ConfirmUpgradeModal'
 import { HedgehogBuddyWithLogic } from 'lib/components/HedgehogBuddy/HedgehogBuddyWithLogic'
 import { TimeSensitiveAuthenticationModal } from 'lib/components/TimeSensitiveAuthentication/TimeSensitiveAuthentication'
 import { UpgradeModal } from 'lib/components/UpgradeModal/UpgradeModal'
@@ -52,6 +53,7 @@ export function GlobalModals(): JSX.Element {
             <CreateOrganizationModal isVisible={isCreateOrganizationModalShown} onClose={hideCreateOrganizationModal} />
             <CreateProjectModal isVisible={isCreateProjectModalShown} onClose={hideCreateProjectModal} />
             <UpgradeModal />
+            <ConfirmUpgradeModal />
             <TimeSensitiveAuthenticationModal />
 
             {user && user.organization?.enforce_2fa && !user.is_2fa_enabled && (

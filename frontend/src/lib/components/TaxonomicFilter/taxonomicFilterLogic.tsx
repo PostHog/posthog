@@ -19,11 +19,10 @@ import { capitalizeFirstLetter, pluralize, toParams } from 'lib/utils'
 import { getEventDefinitionIcon, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
 import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
 import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/external/dataWarehouseSceneLogic'
-import { DataWarehouseTableType } from 'scenes/data-warehouse/types'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
-import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
+import { ReplayTaxonomicFilters } from 'scenes/session-recordings/filters/ReplayTaxonomicFilters'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { actionsModel } from '~/models/actionsModel'
@@ -32,7 +31,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupPropertiesModel } from '~/models/groupPropertiesModel'
 import { groupsModel } from '~/models/groupsModel'
 import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
-import { AnyDataNode, DatabaseSchemaQueryResponseField, NodeKind } from '~/queries/schema'
+import { AnyDataNode, DatabaseSchemaField, DatabaseSchemaTable, NodeKind } from '~/queries/schema'
 import {
     ActionType,
     CohortType,
@@ -46,7 +45,6 @@ import {
     NotebookType,
     PersonProperty,
     PersonType,
-    PluginType,
     PropertyDefinition,
 } from '~/types'
 
@@ -87,8 +85,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['groupTypes', 'aggregationLabel'],
             groupPropertiesModel,
             ['allGroupProperties'],
-            dataWarehouseSceneLogic,
-            ['externalTables'],
+            dataWarehouseSceneLogic, // This logic needs to be connected to stop the popover from erroring out
+            ['dataWarehouseTables'],
             dataWarehouseJoinsLogic,
             ['columnsJoinedToPersons'],
         ],
@@ -216,9 +214,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         searchPlaceholder: 'data warehouse table name',
                         type: TaxonomicFilterGroupType.DataWarehouse,
                         logic: dataWarehouseSceneLogic,
-                        value: 'externalTables',
-                        getName: (table: DataWarehouseTableType) => table.name,
-                        getValue: (table: DataWarehouseTableType) => table.name,
+                        value: 'dataWarehouseTables',
+                        getName: (table: DatabaseSchemaTable) => table.name,
+                        getValue: (table: DatabaseSchemaTable) => table.name,
                         getPopoverHeader: () => 'Data Warehouse Table',
                         getIcon: () => <IconServer />,
                     },
@@ -227,20 +225,20 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         searchPlaceholder: 'data warehouse property',
                         type: TaxonomicFilterGroupType.DataWarehouseProperties,
                         options: schemaColumns,
-                        getName: (col: DatabaseSchemaQueryResponseField) => col.key,
-                        getValue: (col: DatabaseSchemaQueryResponseField) => col.key,
+                        getName: (col: DatabaseSchemaField) => col.name,
+                        getValue: (col: DatabaseSchemaField) => col.name,
                         getPopoverHeader: () => 'Data Warehouse Column',
                         getIcon: () => <IconServer />,
                     },
                     {
-                        name: 'Data Warehouse Person Properties',
-                        searchPlaceholder: 'person properties from data warehouse tables',
+                        name: 'Extended Person Properties',
+                        searchPlaceholder: 'person properties from tables joined on persons',
                         type: TaxonomicFilterGroupType.DataWarehousePersonProperties,
                         logic: dataWarehouseJoinsLogic,
                         value: 'columnsJoinedToPersons',
                         getName: (personProperty: PersonProperty) => personProperty.name,
                         getValue: (personProperty: PersonProperty) => personProperty.id,
-                        getPopoverHeader: () => 'Data Warehouse Person Property',
+                        getPopoverHeader: () => 'Extended Person Property',
                     },
                     {
                         name: 'Autocapture elements',
@@ -460,16 +458,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getPopoverHeader: () => `Experiments`,
                     },
                     {
-                        name: 'Plugins',
-                        searchPlaceholder: 'plugins',
-                        type: TaxonomicFilterGroupType.Plugins,
-                        logic: pluginsLogic,
-                        value: 'allPossiblePlugins',
-                        getName: (plugin: Pick<PluginType, 'name' | 'url'>) => plugin.name,
-                        getValue: (plugin: Pick<PluginType, 'name' | 'url'>) => plugin.name,
-                        getPopoverHeader: () => `Plugins`,
-                    },
-                    {
                         name: 'Dashboards',
                         searchPlaceholder: 'dashboards',
                         type: TaxonomicFilterGroupType.Dashboards,
@@ -518,6 +506,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         render: InlineHogQLEditor,
                         getPopoverHeader: () => 'HogQL',
                         componentProps: { metadataSource },
+                    },
+                    {
+                        name: 'Replay',
+                        searchPlaceholder: 'Replay',
+                        type: TaxonomicFilterGroupType.Replay,
+                        render: ReplayTaxonomicFilters,
+                        getPopoverHeader: () => 'Replay',
                     },
                     ...groupAnalyticsTaxonomicGroups,
                     ...groupAnalyticsTaxonomicGroupNames,

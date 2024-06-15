@@ -26,12 +26,13 @@ describe('PropertyDefinitionsManager()', () => {
     let manager: PropertyDefinitionsManager
     let teamId: number
     let organizationId: string
+    let groupTypeManager: GroupTypeManager
 
     beforeEach(async () => {
         ;[hub, closeHub] = await createHub()
         organizationId = await createOrganization(hub.db.postgres)
         teamId = await createTeam(hub.db.postgres, organizationId)
-        const groupTypeManager = new GroupTypeManager(hub.db, hub.teamManager, hub.SITE_URL)
+        groupTypeManager = new GroupTypeManager(hub.postgres, hub.teamManager, hub.SITE_URL)
         manager = new PropertyDefinitionsManager(hub.teamManager, groupTypeManager, hub.db, hub)
 
         Settings.defaultZoneName = 'utc'
@@ -313,8 +314,8 @@ describe('PropertyDefinitionsManager()', () => {
         })
 
         it('saves group property definitions', async () => {
-            await hub.db.insertGroupType(teamId, 'project', 0)
-            await hub.db.insertGroupType(teamId, 'organization', 1)
+            await groupTypeManager.insertGroupType(teamId, 'project', 0)
+            await groupTypeManager.insertGroupType(teamId, 'organization', 1)
 
             await manager.updateEventNamesAndProperties(teamId, '$groupidentify', {
                 $group_type: 'organization',
@@ -360,8 +361,8 @@ describe('PropertyDefinitionsManager()', () => {
             // We were essentially failing and throwing a Sentry error if the
             // group properties was no an object. This test would throw before
             // the fix.
-            await hub.db.insertGroupType(teamId, 'project', 0)
-            await hub.db.insertGroupType(teamId, 'organization', 1)
+            await groupTypeManager.insertGroupType(teamId, 'project', 0)
+            await groupTypeManager.insertGroupType(teamId, 'organization', 1)
 
             await manager.updateEventNamesAndProperties(teamId, '$groupidentify', {
                 $group_type: 'organization',
@@ -371,8 +372,8 @@ describe('PropertyDefinitionsManager()', () => {
         })
 
         it('regression tests: handles group type property being empty', async () => {
-            await hub.db.insertGroupType(teamId, 'project', 0)
-            await hub.db.insertGroupType(teamId, 'organization', 1)
+            await groupTypeManager.insertGroupType(teamId, 'project', 0)
+            await groupTypeManager.insertGroupType(teamId, 'organization', 1)
 
             await manager.updateEventNamesAndProperties(teamId, '$groupidentify', {
                 $group_key: 'org::5',
@@ -384,8 +385,8 @@ describe('PropertyDefinitionsManager()', () => {
         })
 
         it('regression tests: 400 characters fit in property definitions', async () => {
-            await hub.db.insertGroupType(teamId, 'project', 0)
-            await hub.db.insertGroupType(teamId, 'organization', 1)
+            await groupTypeManager.insertGroupType(teamId, 'project', 0)
+            await groupTypeManager.insertGroupType(teamId, 'organization', 1)
 
             const fourHundredSmileys = '😀'.repeat(400)
             const properties = {}
@@ -404,8 +405,8 @@ describe('PropertyDefinitionsManager()', () => {
         })
 
         it('regression tests: >400 characters are ignored in property definitions', async () => {
-            await hub.db.insertGroupType(teamId, 'project', 0)
-            await hub.db.insertGroupType(teamId, 'organization', 1)
+            await groupTypeManager.insertGroupType(teamId, 'project', 0)
+            await groupTypeManager.insertGroupType(teamId, 'organization', 1)
 
             const fourHundredAndOneSmileys = '😀'.repeat(401)
             const properties = {}

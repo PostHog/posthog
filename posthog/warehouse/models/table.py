@@ -35,14 +35,14 @@ from posthog.warehouse.util import database_sync_to_async
 from .external_table_definitions import external_tables
 
 SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING: dict[DatabaseSerializedFieldType, str] = {
-    DatabaseSerializedFieldType.integer: "Int64",
-    DatabaseSerializedFieldType.float: "Float64",
-    DatabaseSerializedFieldType.string: "String",
-    DatabaseSerializedFieldType.datetime: "DateTime64",
-    DatabaseSerializedFieldType.date: "Date",
-    DatabaseSerializedFieldType.boolean: "Bool",
-    DatabaseSerializedFieldType.array: "Array",
-    DatabaseSerializedFieldType.json: "Map",
+    DatabaseSerializedFieldType.INTEGER: "Int64",
+    DatabaseSerializedFieldType.FLOAT: "Float64",
+    DatabaseSerializedFieldType.STRING: "String",
+    DatabaseSerializedFieldType.DATETIME: "DateTime64",
+    DatabaseSerializedFieldType.DATE: "Date",
+    DatabaseSerializedFieldType.BOOLEAN: "Bool",
+    DatabaseSerializedFieldType.ARRAY: "Array",
+    DatabaseSerializedFieldType.JSON: "Map",
 }
 
 CLICKHOUSE_HOGQL_MAPPING = {
@@ -189,7 +189,7 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             if column_type.startswith("Array("):
                 column_type = remove_named_tuples(column_type)
 
-            column_type = re.sub(r"\(.+?\)", "", column_type)
+            column_type = re.sub(r"\(.+\)+", "", column_type)
 
             return column_type
 
@@ -250,7 +250,7 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
                 column_invalid = False
 
             if not column_invalid or (modifiers is not None and modifiers.s3TableUseInvalidColumns):
-                structure.append(f"{column} {clickhouse_type}")
+                structure.append(f"`{column}` {clickhouse_type}")
 
             # Support for 'old' style columns
             if isinstance(type, str):

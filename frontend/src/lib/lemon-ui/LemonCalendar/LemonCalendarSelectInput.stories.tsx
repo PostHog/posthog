@@ -5,7 +5,7 @@ import { useState } from 'react'
 
 type Story = StoryObj<typeof LemonCalendarSelectInput>
 const meta: Meta<typeof LemonCalendarSelectInput> = {
-    title: 'Lemon UI/Lemon Calendar/Lemon Calendar Select',
+    title: 'Lemon UI/Lemon Calendar/Lemon Calendar Select Input',
     component: LemonCalendarSelectInput,
     parameters: {
         mockDate: '2023-01-26 16:30:00',
@@ -25,7 +25,6 @@ const BasicTemplate: StoryFn<typeof LemonCalendarSelectInput> = (props: LemonCal
                 onChange={(value) => {
                     setValue(value)
                 }}
-                showTime
             />
         </div>
     )
@@ -33,12 +32,3 @@ const BasicTemplate: StoryFn<typeof LemonCalendarSelectInput> = (props: LemonCal
 
 export const Default: Story = BasicTemplate.bind({})
 Default.args = {}
-
-export const Controlled: Story = BasicTemplate.bind({})
-Controlled.args = { visible: true }
-
-export const Upcoming: Story = BasicTemplate.bind({})
-Upcoming.args = { visible: true, selectionPeriod: 'upcoming' }
-
-export const Past: Story = BasicTemplate.bind({})
-Past.args = { visible: true, selectionPeriod: 'past' }

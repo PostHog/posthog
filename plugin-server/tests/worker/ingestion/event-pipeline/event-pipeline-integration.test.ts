@@ -45,9 +45,9 @@ describe('Event Pipeline integration test', () => {
         process.env.SITE_URL = 'https://example.com'
         ;[hub, closeServer] = await createHub()
 
-        actionManager = new ActionManager(hub.db.postgres)
-        await actionManager.prepare()
-        actionMatcher = new ActionMatcher(hub.db.postgres, actionManager)
+        actionManager = new ActionManager(hub.db.postgres, hub)
+        await actionManager.start()
+        actionMatcher = new ActionMatcher(hub.db.postgres, actionManager, hub.teamManager)
         hookCannon = new HookCommander(
             hub.db.postgres,
             hub.teamManager,
@@ -176,7 +176,7 @@ describe('Event Pipeline integration test', () => {
         await hub.db.postgres.query(
             PostgresUse.COMMON_WRITE,
             `UPDATE posthog_organization
-             SET available_features = '{"zapier"}'`,
+                SET available_product_features = array ['{"key": "zapier", "name": "zapier"}'::jsonb]`,
             [],
             'testTag'
         )

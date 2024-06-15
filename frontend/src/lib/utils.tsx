@@ -913,6 +913,16 @@ export function dateFilterToText(
     return defaultValue
 }
 
+// Converts a dateFrom string ("-2w") into english: "2 weeks"
+export function dateFromToText(dateFrom: string): string | undefined {
+    const dateOption: (typeof dateOptionsMap)[keyof typeof dateOptionsMap] = dateOptionsMap[dateFrom.slice(-1)]
+    const counter = parseInt(dateFrom.slice(1, -1))
+    if (dateOption && counter) {
+        return `${counter} ${dateOption}${counter > 1 ? 's' : ''}`
+    }
+    return undefined
+}
+
 export function dateStringToComponents(date: string | null): {
     amount: number
     unit: (typeof dateOptionsMap)[keyof typeof dateOptionsMap]
@@ -1664,10 +1674,17 @@ export function inStorybookTestRunner(): boolean {
     return navigator.userAgent.includes('StorybookTestRunner')
 }
 
+/** We issue a cancel request, when the request is aborted or times out (frontend side), since in these cases the backend query might still be running. */
 export function shouldCancelQuery(error: any): boolean {
-    // We cancel queries "manually" when the request times out or is aborted since in these cases
-    // the query will continue running in ClickHouse
-    return error.name === 'AbortError' || error.message?.name === 'AbortError' || error.status === 504
+    return isAbortedRequest(error) || isTimedOutRequest(error)
+}
+
+export function isAbortedRequest(error: any): boolean {
+    return error.name === 'AbortError' || error.message?.name === 'AbortError'
+}
+
+export function isTimedOutRequest(error: any): boolean {
+    return error.status === 504
 }
 
 export function flattenObject(ob: Record<string, any>): Record<string, any> {

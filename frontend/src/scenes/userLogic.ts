@@ -151,7 +151,7 @@ export const userLogic = kea<userLogicType>([
                             name: user.organization.name,
                             slug: user.organization.slug,
                             created_at: user.organization.created_at,
-                            available_features: user.organization.available_features,
+                            available_product_features: user.organization.available_product_features,
                             ...user.organization.metadata,
                         })
 
@@ -214,8 +214,7 @@ export const userLogic = kea<userLogicType>([
                                 : true
                             : false
                     }
-                    // if we don't have the new available_product_features obj, fallback to old available_features
-                    return !!user?.organization?.available_features.includes(feature)
+                    return false
                 }
             },
         ],

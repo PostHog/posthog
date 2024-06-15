@@ -3,16 +3,11 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { DISPLAY_TYPES_WITHOUT_LEGEND } from 'lib/components/InsightLegend/utils'
 import { Intervals, intervals } from 'lib/components/IntervalFilter/intervals'
 import { parseProperties } from 'lib/components/PropertyFilters/utils'
-import {
-    NON_TIME_SERIES_DISPLAY_TYPES,
-    NON_VALUES_ON_SERIES_DISPLAY_TYPES,
-    PERCENT_STACK_VIEW_DISPLAY_TYPE,
-} from 'lib/constants'
+import { NON_TIME_SERIES_DISPLAY_TYPES, NON_VALUES_ON_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils'
 import posthog from 'posthog-js'
-import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/external/dataWarehouseSceneLogic'
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { insightDataLogic, queryFromKind } from 'scenes/insights/insightDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -22,7 +17,7 @@ import { BASE_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
 import { queryNodeToFilter, seriesNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import {
     getBreakdown,
-    getCompare,
+    getCompareFilter,
     getDisplay,
     getFormula,
     getInterval,
@@ -31,10 +26,12 @@ import {
     getShowLegend,
     getShowPercentStackView,
     getShowValuesOnSeries,
+    supportsPercentStackView,
 } from '~/queries/nodes/InsightViz/utils'
 import {
     BreakdownFilter,
-    DatabaseSchemaQueryResponseField,
+    CompareFilter,
+    DatabaseSchemaField,
     DataWarehouseNode,
     DateRange,
     FunnelExclusionSteps,
@@ -80,13 +77,11 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
     connect(() => ({
         values: [
             insightDataLogic,
-            ['isHogQLInsight', 'query', 'insightQuery', 'insightData', 'insightDataLoading', 'insightDataError'],
+            ['query', 'insightQuery', 'insightData', 'insightDataLoading', 'insightDataError'],
             filterTestAccountsDefaultsLogic,
             ['filterTestAccountsDefault'],
-            dataWarehouseSceneLogic,
-            ['externalTablesMap'],
-            featureFlagLogic,
-            ['featureFlags'],
+            databaseTableListLogic,
+            ['dataWarehouseTablesMap'],
         ],
         actions: [
             insightLogic,
@@ -102,6 +97,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         updateInsightFilter: (insightFilter: InsightFilter) => ({ insightFilter }),
         updateDateRange: (dateRange: DateRange) => ({ dateRange }),
         updateBreakdownFilter: (breakdownFilter: BreakdownFilter) => ({ breakdownFilter }),
+        updateCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
         updateDisplay: (display: ChartDisplayType | undefined) => ({ display }),
         setTimedOutQueryId: (id: string | null) => ({ id }),
     }),
@@ -141,12 +137,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 display !== ChartDisplayType.WorldMap &&
                 dateRange?.date_from !== 'all',
         ],
-        supportsPercentStackView: [
-            (s) => [s.querySource, s.display],
-            (q, display) =>
-                isTrendsQuery(q) &&
-                PERCENT_STACK_VIEW_DISPLAY_TYPE.includes(display || ChartDisplayType.ActionsLineGraph),
-        ],
+        supportsPercentStackView: [(s) => [s.querySource], (q) => supportsPercentStackView(q)],
         supportsValueOnSeries: [
             (s) => [s.isTrends, s.isStickiness, s.isLifecycle, s.display],
             (isTrends, isStickiness, isLifecycle, display) => {
@@ -161,8 +152,8 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 
         dateRange: [(s) => [s.querySource], (q) => (q ? q.dateRange : null)],
         breakdownFilter: [(s) => [s.querySource], (q) => (q ? getBreakdown(q) : null)],
+        compareFilter: [(s) => [s.querySource], (q) => (q ? getCompareFilter(q) : null)],
         display: [(s) => [s.querySource], (q) => (q ? getDisplay(q) : null)],
-        compare: [(s) => [s.querySource], (q) => (q ? getCompare(q) : null)],
         formula: [(s) => [s.querySource], (q) => (q ? getFormula(q) : null)],
         series: [(s) => [s.querySource], (q) => (q ? getSeries(q) : null)],
         interval: [(s) => [s.querySource], (q) => (q ? getInterval(q) : null)],
@@ -237,14 +228,14 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
 
         currentDataWarehouseSchemaColumns: [
-            (s) => [s.series, s.isSingleSeries, s.isDataWarehouseSeries, s.isBreakdownSeries, s.externalTablesMap],
+            (s) => [s.series, s.isSingleSeries, s.isDataWarehouseSeries, s.isBreakdownSeries, s.dataWarehouseTablesMap],
             (
                 series,
                 isSingleSeries,
                 isDataWarehouseSeries,
                 isBreakdownSeries,
-                externalTablesMap
-            ): DatabaseSchemaQueryResponseField[] => {
+                dataWarehouseTablesMap
+            ): DatabaseSchemaField[] => {
                 if (
                     !series ||
                     series.length === 0 ||
@@ -254,7 +245,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     return []
                 }
 
-                return externalTablesMap[(series[0] as DataWarehouseNode)?.table_name]?.columns ?? []
+                return Object.values(dataWarehouseTablesMap[(series[0] as DataWarehouseNode)?.table_name]?.fields ?? {})
             },
         ],
 
@@ -330,8 +321,9 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (s) => [s.insightDataError],
             (insightDataError): string | null => {
                 // We use 512 for query timeouts
+                // Async queries put the error message on data.error_message, while synchronous ones use detail
                 return insightDataError?.status === 400 || insightDataError?.status === 512
-                    ? insightDataError.detail?.replace('Try ', 'Try ') // Add unbreakable space for better line breaking
+                    ? (insightDataError.detail || insightDataError.data?.error_message)?.replace('Try ', 'Try ') // Add unbreakable space for better line breaking
                     : null
             },
         ],
@@ -372,12 +364,24 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
     listeners(({ actions, values, props }) => ({
         updateDateRange: async ({ dateRange }, breakpoint) => {
             await breakpoint(300)
-            actions.updateQuerySource({ dateRange: { ...values.dateRange, ...dateRange } })
+            actions.updateQuerySource({
+                dateRange: {
+                    ...values.dateRange,
+                    ...dateRange,
+                },
+                ...(dateRange.date_from == 'all' ? ({ compareFilter: undefined } as Partial<TrendsQuery>) : {}),
+            })
         },
         updateBreakdownFilter: async ({ breakdownFilter }, breakpoint) => {
             await breakpoint(500) // extra debounce time because of number input
             actions.updateQuerySource({
                 breakdownFilter: { ...values.breakdownFilter, ...breakdownFilter },
+            } as Partial<TrendsQuery>)
+        },
+        updateCompareFilter: async ({ compareFilter }, breakpoint) => {
+            await breakpoint(500) // extra debounce time because of number input
+            actions.updateQuerySource({
+                compareFilter: { ...values.compareFilter, ...compareFilter },
             } as Partial<TrendsQuery>)
         },
         updateInsightFilter: async ({ insightFilter }, breakpoint) => {

@@ -18,9 +18,9 @@ jobs:
                   fetch-depth: 0
 
             - name: Install pnpm
-              uses: pnpm/action-setup@v2
+              uses: pnpm/action-setup@v4
               with:
-                  version: 8.x.x
+                  package_json_file: posthog/package.json
 
             - name: Set up Node.js
               uses: actions/setup-node@v4

@@ -43,7 +43,7 @@ class DashboardCollaboratorSerializer(serializers.ModelSerializer, UserPermissio
             "updated_at",
             "user_uuid",  # write_only (see above)
         ]
-        read_only_fields = ["id", "dashboard_id", "user", "user"]
+        read_only_fields = ["id", "dashboard_id", "user"]
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         dashboard: Dashboard = self.context["dashboard"]

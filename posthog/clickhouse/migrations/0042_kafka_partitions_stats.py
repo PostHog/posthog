@@ -4,13 +4,15 @@ from posthog.kafka_client.topics import (
     KAFKA_SESSION_RECORDING_EVENTS,
 )
 from posthog.models.kafka_partition_stats.sql import (
-    CREATE_PARTITION_STATISTICS_KAFKA_TABLE,
-    CREATE_PARTITION_STATISTICS_MV,
+    PartitionStatsKafkaTable,
 )
+from posthog.settings.data_stores import KAFKA_HOSTS, SESSION_RECORDING_KAFKA_HOSTS
 
 operations = [
-    run_sql_with_exceptions(CREATE_PARTITION_STATISTICS_KAFKA_TABLE(KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW)),
-    run_sql_with_exceptions(CREATE_PARTITION_STATISTICS_MV(KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW)),
-    run_sql_with_exceptions(CREATE_PARTITION_STATISTICS_KAFKA_TABLE(KAFKA_SESSION_RECORDING_EVENTS)),
-    run_sql_with_exceptions(CREATE_PARTITION_STATISTICS_MV(KAFKA_SESSION_RECORDING_EVENTS)),
+    run_sql_with_exceptions(
+        PartitionStatsKafkaTable(KAFKA_HOSTS, KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW).get_create_table_sql()
+    ),
+    run_sql_with_exceptions(
+        PartitionStatsKafkaTable(SESSION_RECORDING_KAFKA_HOSTS, KAFKA_SESSION_RECORDING_EVENTS).get_create_table_sql()
+    ),
 ]

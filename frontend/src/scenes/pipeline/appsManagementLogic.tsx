@@ -9,7 +9,7 @@ import { userLogic } from 'scenes/userLogic'
 import { PluginInstallationType, PluginType } from '~/types'
 
 import type { appsManagementLogicType } from './appsManagementLogicType'
-import { pipelineLogic } from './pipelineLogic'
+import { pipelineAccessLogic } from './pipelineAccessLogic'
 import { getInitialCode, SourcePluginKind } from './sourceAppInitialCode'
 import { GLOBAL_PLUGINS, loadPluginsFromUrl } from './utils'
 
@@ -31,7 +31,7 @@ export interface PluginUpdateStatusType {
 export const appsManagementLogic = kea<appsManagementLogicType>([
     path(['scenes', 'pipeline', 'appsManagementLogic']),
     connect({
-        values: [userLogic, ['user'], pipelineLogic, ['canGloballyManagePlugins']],
+        values: [userLogic, ['user'], pipelineAccessLogic, ['canGloballyManagePlugins']],
     }),
     actions({
         setPluginUrl: (pluginUrl: string) => ({ pluginUrl }),

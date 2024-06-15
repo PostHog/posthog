@@ -1,17 +1,14 @@
-import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, kea, key, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, urlToAction } from 'kea-router'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene } from 'scenes/sceneTypes'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { Breadcrumb, PipelineNodeTab, PipelineStage } from '~/types'
 
-import { pipelineBatchExportConfigurationLogic } from './pipelineBatchExportConfigurationLogic'
 import type { pipelineNodeLogicType } from './pipelineNodeLogicType'
 import { NODE_STAGE_TO_PIPELINE_TAB } from './pipelineNodeNewLogic'
-import { pipelinePluginConfigurationLogic } from './pipelinePluginConfigurationLogic'
-import { convertToPipelineNode, PipelineBackend, PipelineNode } from './types'
+import { PipelineBackend } from './types'
 
 export interface PipelineNodeLogicProps {
     id: number | string
@@ -22,36 +19,21 @@ export interface PipelineNodeLogicProps {
 type PluginNodeId = {
     backend: PipelineBackend.Plugin
     id: number
-    name: 'new'
 }
 type BatchExportNodeId = {
     backend: PipelineBackend.BatchExport
     id: string
-    name: 'new'
 }
-export type PipelineNodeType = PluginNodeId | BatchExportNodeId | PipelineNode
+type HogFunctionNodeId = {
+    backend: PipelineBackend.HogFunction
+    id: string
+}
+export type PipelineNodeLimitedType = PluginNodeId | BatchExportNodeId | HogFunctionNodeId
 
 export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
     props({} as PipelineNodeLogicProps),
     key(({ id }) => id),
     path((id) => ['scenes', 'pipeline', 'pipelineNodeLogic', id]),
-    connect((props: PipelineNodeLogicProps) => ({
-        values: [
-            teamLogic,
-            ['currentTeamId'],
-            pipelinePluginConfigurationLogic({
-                stage: props.stage,
-                pluginConfigId: typeof props.id === 'string' ? null : props.id,
-                pluginId: null,
-            }),
-            ['pluginConfig'],
-            pipelineBatchExportConfigurationLogic({
-                id: typeof props.id === 'string' ? props.id : null,
-                service: null,
-            }),
-            ['batchExportConfig'],
-        ],
-    })),
     actions({
         setCurrentTab: (tab: PipelineNodeTab = PipelineNodeTab.Configuration) => ({ tab }),
     }),
@@ -65,8 +47,8 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
     })),
     selectors(() => ({
         breadcrumbs: [
-            (s, p) => [p.id, p.stage, s.node],
-            (id, stage, node): Breadcrumb[] => [
+            (_, p) => [p.id, p.stage],
+            (id, stage): Breadcrumb[] => [
                 {
                     key: Scene.Pipeline,
                     name: 'Data pipeline',
@@ -79,28 +61,26 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
                 },
                 {
                     key: [Scene.PipelineNode, id],
-                    name: node.name,
+                    name: '',
                 },
             ],
         ],
-        node: [
-            (s, p) => [p.id, p.stage, s.pluginConfig, s.batchExportConfig],
-            (id, stage, pluginConfig, batchExportDestination): PipelineNodeType => {
-                if (stage && pluginConfig) {
-                    return convertToPipelineNode(pluginConfig, stage)
-                }
-                if (batchExportDestination) {
-                    return convertToPipelineNode(batchExportDestination, PipelineStage.Destination)
-                }
-                // No existing Node found just backend and id
-                return typeof id === 'string'
-                    ? { backend: PipelineBackend.BatchExport, id: id, name: 'new' }
-                    : { backend: PipelineBackend.Plugin, id: id, name: 'new' }
+
+        nodeBackend: [
+            (s) => [s.node],
+            (node): PipelineBackend => {
+                return node.backend
             },
         ],
-        nodeBackend: [
+        node: [
             (_, p) => [p.id],
-            (id): PipelineBackend => (typeof id === 'string' ? PipelineBackend.BatchExport : PipelineBackend.Plugin),
+            (id): PipelineNodeLimitedType => {
+                return typeof id === 'string'
+                    ? id.indexOf('hog-') === 0
+                        ? { backend: PipelineBackend.HogFunction, id: `${id}`.replace('hog-', '') }
+                        : { backend: PipelineBackend.BatchExport, id }
+                    : { backend: PipelineBackend.Plugin, id }
+            },
         ],
         tabs: [
             (s) => [s.nodeBackend],

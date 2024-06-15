@@ -3,14 +3,17 @@ import { PluginEvent, Webhook } from '@posthog/plugin-scaffold'
 import { Hub, PluginConfig, PluginTaskType, PostIngestionEvent, VMMethodsConcrete } from '../../types'
 import { processError } from '../../utils/db/error'
 import {
+    convertToOnEventPayload,
     convertToPostHogEvent,
-    convertToProcessedPluginEvent,
     mutatePostIngestionEventWithElementsList,
 } from '../../utils/event'
 import { trackedFetch } from '../../utils/fetch'
 import { status } from '../../utils/status'
 import { IllegalOperationError } from '../../utils/utils'
+import { WebhookFormatter } from '../ingestion/webhook-formatter'
 import { pluginActionMsSummary } from '../metrics'
+
+const PLUGIN_URL_LEGACY_ACTION_WEBHOOK = 'https://github.com/PostHog/legacy-action-webhook'
 
 async function runSingleTeamPluginOnEvent(
     hub: Hub,
@@ -27,13 +30,13 @@ async function runSingleTeamPluginOnEvent(
         mutatePostIngestionEventWithElementsList(event)
     }
 
-    const processedPluginEvent = convertToProcessedPluginEvent(event)
+    const onEventPayload = convertToOnEventPayload(event)
 
     try {
         // Runs onEvent for a single plugin without any retries
         const timer = new Date()
         try {
-            await onEvent(processedPluginEvent)
+            await onEvent(onEventPayload)
 
             pluginActionMsSummary
                 .labels(pluginConfig.plugin?.id.toString() ?? '?', 'onEvent', 'success')
@@ -48,7 +51,7 @@ async function runSingleTeamPluginOnEvent(
             pluginActionMsSummary
                 .labels(pluginConfig.plugin?.id.toString() ?? '?', 'onEvent', 'error')
                 .observe(new Date().getTime() - timer.getTime())
-            await processError(hub, pluginConfig, error, processedPluginEvent)
+            await processError(hub, pluginConfig, error, onEventPayload)
             await hub.appMetrics.queueError(
                 {
                     teamId: event.teamId,
@@ -91,7 +94,26 @@ async function runSingleTeamPluginComposeWebhook(
     const event = convertToPostHogEvent(postIngestionEvent)
     let maybeWebhook: Webhook | null = null
     try {
-        maybeWebhook = composeWebhook(event)
+        if (pluginConfig.plugin?.url === PLUGIN_URL_LEGACY_ACTION_WEBHOOK) {
+            const team = await hub.teamManager.fetchTeam(event.team_id)
+
+            if (team) {
+                const webhookFormatter = new WebhookFormatter({
+                    webhookUrl: pluginConfig.config.webhook_url as string,
+                    messageFormat: pluginConfig.config.message_format as string,
+                    event: postIngestionEvent,
+                    team,
+                    siteUrl: hub.SITE_URL || '',
+                    // TODO: What about pluginConfig.name ?
+                    sourceName: pluginConfig.plugin.name || 'Unnamed plugin',
+                    sourcePath: `/pipeline/destinations/${pluginConfig.id}`,
+                })
+                maybeWebhook = webhookFormatter.composeWebhook()
+            }
+        } else {
+            maybeWebhook = composeWebhook(event)
+        }
+
         if (!maybeWebhook) {
             // TODO: ideally we'd queryMetric it as skipped, but that's not an option atm
             status.debug('Skipping composeWebhook returned null', {
@@ -128,7 +150,7 @@ async function runSingleTeamPluginComposeWebhook(
         return
     }
 
-    const webhook: Webhook = maybeWebhook!
+    const webhook: Webhook = maybeWebhook
 
     const enqueuedInRustyHook = await hub.rustyHook.enqueueIfEnabledForTeam({
         webhook,
@@ -212,7 +234,8 @@ async function runSingleTeamPluginComposeWebhook(
 
 export async function runComposeWebhook(hub: Hub, event: PostIngestionEvent): Promise<void> {
     // Runs composeWebhook for all plugins for this team in parallel
-    const pluginMethodsToRun = await getPluginMethodsForTeam(hub, event.teamId, 'composeWebhook')
+    let pluginMethodsToRun = await getPluginMethodsForTeam(hub, event.teamId, 'composeWebhook')
+    pluginMethodsToRun = await filterPluginMethods(hub, event, pluginMethodsToRun)
 
     await Promise.all(
         pluginMethodsToRun.map(([pluginConfig, composeWebhook]) =>
@@ -378,4 +401,45 @@ async function getPluginMethodsForTeam<M extends keyof VMMethodsConcrete>(
     ][]
 
     return methodsObtainedFiltered
+}
+
+async function filterPluginMethods<T>(
+    hub: Hub,
+    event: PostIngestionEvent,
+    pluginMethods: [PluginConfig, T][]
+): Promise<[PluginConfig, T][]> {
+    const filteredList: [PluginConfig, T][] = []
+
+    await Promise.all(
+        pluginMethods.map(async ([pluginConfig, method]) => {
+            if (pluginConfig.filters) {
+                try {
+                    const matchedFilters = await hub.actionMatcher.checkFilters(event, pluginConfig.filters)
+                    if (!matchedFilters) {
+                        return
+                    }
+                } catch (error) {
+                    // We consider an exception to be bad enough to drop the event (we should also log it as a processing error)
+
+                    await hub.appMetrics.queueError(
+                        {
+                            teamId: event.teamId,
+                            pluginConfigId: pluginConfig.id,
+                            category: 'composeWebhook',
+                            failures: 1,
+                        },
+                        {
+                            error: `Error occurred when processing filters: ${error}`,
+                            event,
+                        }
+                    )
+                    return
+                }
+            }
+
+            filteredList.push([pluginConfig, method])
+        })
+    )
+
+    return filteredList
 }

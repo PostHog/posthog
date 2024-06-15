@@ -1,5 +1,3 @@
-import './ActionStep.scss'
-
 import { IconX } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSegmentedButton, Link } from '@posthog/lemon-ui'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
@@ -13,7 +11,7 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { useState } from 'react'
 import { URL_MATCHING_HINTS } from 'scenes/actions/hints'
 
-import { ActionStepType, StringMatching } from '~/types'
+import { ActionStepStringMatching, ActionStepType } from '~/types'
 
 import { LemonEventName } from './EventName'
 
@@ -35,9 +33,9 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
     }
 
     return (
-        <div className="ActionStep bg-bg-light rounded border p-4 relative">
+        <div className="bg-bg-light rounded border p-3 relative">
             {index > 0 && !(index % 2 === 0) && (
-                <div className="ActionStep__or-tag">
+                <div className="absolute top-1/2 -left-5">
                     <OperandTag operand="or" />
                 </div>
             )}
@@ -46,7 +44,13 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
                     <b>Match Group #{index + 1}</b>
 
                     {!isOnlyStep && (
-                        <LemonButton icon={<IconX />} size="small" aria-label="delete" onClick={onDelete} />
+                        <LemonButton
+                            className="absolute top-2 right-2"
+                            icon={<IconX />}
+                            size="small"
+                            aria-label="delete"
+                            onClick={onDelete}
+                        />
                     )}
                 </div>
                 <TypeSwitcher step={step} sendStep={sendStep} />
@@ -83,7 +87,7 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
                             step={step}
                             sendStep={sendStep}
                             item="url"
-                            extra_options={<StringMatchingSelection field="url" step={step} sendStep={sendStep} />}
+                            labelExtra={<StringMatchingSelection field="url" step={step} sendStep={sendStep} />}
                             label="URL"
                         />
                         {step.url_matching && step.url_matching in URL_MATCHING_HINTS && (
@@ -138,15 +142,15 @@ function Option({
     label,
     placeholder = 'Specify a value to match on this',
     caption,
-    extra_options,
+    labelExtra: extra_options,
 }: {
     step: ActionStepType
     sendStep: (stepToSend: ActionStepType) => void
     item: keyof Pick<ActionStepType, 'href' | 'text' | 'selector' | 'url'>
     label: JSX.Element | string
+    labelExtra?: JSX.Element | string
     placeholder?: string
     caption?: JSX.Element | string
-    extra_options?: JSX.Element | string
 }): JSX.Element {
     const [selectorPrompt, setSelectorPrompt] = useState(null as JSX.Element | null)
 
@@ -227,7 +231,7 @@ function AutocaptureFields({
                 step={step}
                 sendStep={sendStep}
                 item="text"
-                extra_options={<StringMatchingSelection field="text" step={step} sendStep={sendStep} />}
+                labelExtra={<StringMatchingSelection field="text" step={step} sendStep={sendStep} />}
                 label="Element text"
             />
             <AndSeparator />
@@ -235,7 +239,7 @@ function AutocaptureFields({
                 step={step}
                 sendStep={sendStep}
                 item="href"
-                extra_options={<StringMatchingSelection field="href" step={step} sendStep={sendStep} />}
+                labelExtra={<StringMatchingSelection field="href" step={step} sendStep={sendStep} />}
                 label="Element link target"
                 caption={
                     <>
@@ -263,7 +267,7 @@ function AutocaptureFields({
                 step={step}
                 sendStep={sendStep}
                 item="url"
-                extra_options={<StringMatchingSelection field="url" step={step} sendStep={sendStep} />}
+                labelExtra={<StringMatchingSelection field="url" step={step} sendStep={sendStep} />}
                 label="Page URL"
                 caption="The page on which the interaction occurred."
             />
@@ -296,7 +300,7 @@ function TypeSwitcher({
     }
 
     return (
-        <div className="type-switcher">
+        <div data-attr="action-type-switcher">
             <LemonSegmentedButton
                 onChange={handleChange}
                 value={
@@ -306,16 +310,19 @@ function TypeSwitcher({
                 }
                 options={[
                     {
-                        value: '$autocapture',
-                        label: 'Autocapture',
-                    },
-                    {
                         value: '$pageview',
                         label: 'Pageview',
+                        'data-attr': 'action-type-pageview',
+                    },
+                    {
+                        value: '$autocapture',
+                        label: 'Autocapture',
+                        'data-attr': 'action-type-autocapture',
                     },
                     {
                         value: 'event',
-                        label: 'All events',
+                        label: 'Other events',
+                        'data-attr': 'action-type-other',
                     },
                 ]}
                 fullWidth
@@ -338,9 +345,10 @@ function StringMatchingSelection({
     const handleURLMatchChange = (value: string): void => {
         sendStep({ ...step, [key]: value })
     }
-    const defaultValue = field === 'url' ? StringMatching.Contains : StringMatching.Exact
+    const defaultValue: ActionStepStringMatching = field === 'url' ? 'contains' : 'exact'
+
     return (
-        <div className="flex flex-1">
+        <div className="flex flex-1 justify-end">
             <LemonSegmentedButton
                 onChange={handleURLMatchChange}
                 value={step[key] || defaultValue}
@@ -358,7 +366,6 @@ function StringMatchingSelection({
                         label: 'contains',
                     },
                 ]}
-                fullWidth
                 size="xsmall"
             />
         </div>

@@ -84,11 +84,8 @@ jobs:
               if: matrix.os == 'ubuntu-22.04' # Only build the sdist once
               run: cd hogql_parser && python setup.py sdist
 
-            # uv is a fast pip alternative: https://github.com/astral-sh/uv/
-            - run: pip install uv
-
             - name: Install cibuildwheel
-              run: uv pip install --system cibuildwheel==2.16.*
+              run: pip install cibuildwheel==2.16.*
 
             - name: Build wheels
               run: cd hogql_parser && python -m cibuildwheel --output-dir dist

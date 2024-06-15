@@ -11,6 +11,7 @@ function pluginConfigsInForceQuery(specificField?: keyof PluginConfig): string {
         posthog_pluginconfig.enabled,
         posthog_pluginconfig.order,
         posthog_pluginconfig.config,
+        posthog_pluginconfig.filters,
         posthog_pluginconfig.updated_at,
         posthog_pluginconfig.created_at
     `

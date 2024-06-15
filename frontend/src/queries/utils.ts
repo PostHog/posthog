@@ -15,6 +15,7 @@ import {
     FunnelsQuery,
     HogQLMetadata,
     HogQLQuery,
+    HogQuery,
     InsightActorsQuery,
     InsightFilter,
     InsightFilterProperty,
@@ -123,6 +124,10 @@ export function isInsightVizNode(node?: Record<string, any> | null): node is Ins
     return node?.kind === NodeKind.InsightVizNode
 }
 
+export function isHogQuery(node?: Record<string, any> | null): node is HogQuery {
+    return node?.kind === NodeKind.HogQuery
+}
+
 export function isHogQLQuery(node?: Record<string, any> | null): node is HogQLQuery {
     return node?.kind === NodeKind.HogQLQuery
 }
@@ -186,6 +191,10 @@ export function isInsightQueryWithBreakdown(node?: Record<string, any> | null): 
     return isTrendsQuery(node) || isFunnelsQuery(node)
 }
 
+export function isInsightQueryWithCompare(node?: Record<string, any> | null): node is TrendsQuery | StickinessQuery {
+    return isTrendsQuery(node) || isStickinessQuery(node)
+}
+
 export function isDatabaseSchemaQuery(node?: Node): node is DatabaseSchemaQuery {
     return node?.kind === NodeKind.DatabaseSchemaQuery
 }
@@ -232,7 +241,9 @@ export function isTimeToSeeDataSessionsNode(node?: Record<string, any> | null): 
 }
 
 export function dateRangeFor(node?: Node): DateRange | undefined {
-    if (isInsightQueryNode(node)) {
+    if (isInsightVizNode(node)) {
+        return node.source.dateRange
+    } else if (isInsightQueryNode(node)) {
         return node.dateRange
     } else if (isTimeToSeeDataQuery(node)) {
         return {
@@ -249,8 +260,6 @@ export function dateRangeFor(node?: Node): DateRange | undefined {
         return undefined
     } else if (isDataTableNode(node)) {
         return undefined
-    } else if (isInsightVizNode(node)) {
-        return node.source.dateRange
     }
 
     return undefined

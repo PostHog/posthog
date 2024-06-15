@@ -36,7 +36,7 @@ describe('organizationLogic', () => {
         it('loads organization from API', async () => {
             await expectLogic(logic).toDispatchActions(['loadCurrentOrganization', 'loadCurrentOrganizationSuccess'])
             await expectLogic(logic).toMatchValues({
-                currentOrganization: { ...MOCK_DEFAULT_ORGANIZATION, available_features: [] },
+                currentOrganization: { ...MOCK_DEFAULT_ORGANIZATION },
             })
         })
     })

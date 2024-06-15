@@ -323,7 +323,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             dashboardId,
             lastRefreshed,
         }),
-        reportDashboardItemRefreshed: (dashboardItem: InsightModel) => ({ dashboardItem }),
         reportDashboardDateRangeChanged: (dateFrom?: string | Dayjs | null, dateTo?: string | Dayjs | null) => ({
             dateFrom,
             dateTo,
@@ -347,6 +346,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         ) => ({ component, project_timezone, device_timezone }),
         reportTestAccountFiltersUpdated: (filters: Record<string, any>[]) => ({ filters }),
         reportPoEModeUpdated: (mode: string) => ({ mode }),
+        reportPersonsJoinModeUpdated: (mode: string) => ({ mode }),
+        reportBounceRatePageViewModeUpdated: (mode: string) => ({ mode }),
         reportPropertySelectOpened: true,
         reportCreatedDashboardFromModal: true,
         reportSavedInsightToDashboard: true,
@@ -823,6 +824,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportPoEModeUpdated: async ({ mode }) => {
             posthog.capture('persons on events mode updated', { mode })
+        },
+        reportPersonJoinModeUpdated: async ({ mode }) => {
+            posthog.capture('persons join mode updated', { mode })
+        },
+        reportBounceRatePageViewModeUpdated: async ({ mode }) => {
+            posthog.capture('bounce rate page view mode updated', { mode })
         },
         reportInsightFilterRemoved: async ({ index }) => {
             posthog.capture('local filter removed', { index })

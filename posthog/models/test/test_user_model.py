@@ -24,7 +24,6 @@ class TestUser(BaseTest):
                 user.get_analytics_metadata(),
                 {
                     "realm": "cloud",
-                    "email_opt_in": False,
                     "anonymize_data": True,
                     "email": None,
                     "is_signed_up": True,
@@ -53,7 +52,7 @@ class TestUser(BaseTest):
         self.team.ingested_event = True
         self.team.save()
         Team.objects.create(organization=self.organization)
-        user_2: User = User.objects.create(email="test_org_2@posthog.com", email_opt_in=True)
+        user_2: User = User.objects.create(email="test_org_2@posthog.com")
         user_2.join(organization=self.organization)
 
         with self.is_cloud(False):
@@ -61,7 +60,6 @@ class TestUser(BaseTest):
                 user_2.get_analytics_metadata(),
                 {
                     "realm": "hosted-clickhouse",
-                    "email_opt_in": True,
                     "anonymize_data": False,
                     "email": "test_org_2@posthog.com",
                     "is_signed_up": True,

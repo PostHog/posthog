@@ -64,7 +64,7 @@ describe('OrganizationManager()', () => {
             await hub.db.postgres.query(
                 PostgresUse.COMMON_WRITE,
                 `UPDATE posthog_organization
-                 SET available_features = array ['some_feature']`,
+                 SET available_product_features = array ['{"key": "some_feature", "name": "some_feature"}'::jsonb]`,
                 undefined,
                 ''
             )
@@ -98,12 +98,12 @@ describe('OrganizationManager()', () => {
         it('resets internal caches', async () => {
             await organizationManager.hasAvailableFeature(2, 'some_feature')
 
-            expect(organizationManager.availableFeaturesCache.size).toEqual(1)
+            expect(organizationManager.availableProductFeaturesCache.size).toEqual(1)
             expect(organizationManager.organizationCache.size).toEqual(1)
 
-            organizationManager.resetAvailableFeatureCache(commonOrganizationId)
+            organizationManager.resetAvailableProductFeaturesCache(commonOrganizationId)
 
-            expect(organizationManager.availableFeaturesCache.size).toEqual(0)
+            expect(organizationManager.availableProductFeaturesCache.size).toEqual(0)
             expect(organizationManager.organizationCache.size).toEqual(0)
         })
     })

@@ -1,15 +1,22 @@
 import { IconWarning } from '@posthog/icons'
-import { LemonButton, LemonModal, LemonModalProps, LemonSelect, LemonTextArea, Link } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonCalendarSelectInput,
+    LemonModal,
+    LemonModalProps,
+    LemonSelect,
+    LemonTextArea,
+    Link,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { DatePicker } from 'lib/components/DatePicker'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { shortTimeZone } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { AnnotationScope } from '~/types'
 
-import { ANNOTATION_DAYJS_FORMAT, annotationModalLogic, annotationScopeToName } from './annotationModalLogic'
+import { annotationModalLogic, annotationScopeToName } from './annotationModalLogic'
 
 export function NewAnnotationButton(): JSX.Element {
     const { openModalToCreateAnnotation } = useActions(annotationModalLogic)
@@ -94,25 +101,17 @@ export function AnnotationModal({
                         }
                         className="flex-1"
                     >
-                        <DatePicker
-                            className="h-10"
-                            allowClear={false}
-                            showTime
-                            showSecond={false}
-                            format={ANNOTATION_DAYJS_FORMAT}
-                        />
+                        <LemonCalendarSelectInput granularity="minute" />
                     </LemonField>
                     <LemonField name="scope" label="Scope" className="flex-1">
                         <LemonSelect
                             options={[
-                                ...(existingModalAnnotation?.scope === AnnotationScope.Insight || onSavedInsight
-                                    ? [
-                                          {
-                                              value: AnnotationScope.Insight,
-                                              label: annotationScopeToName[AnnotationScope.Insight],
-                                          },
-                                      ]
-                                    : []),
+                                {
+                                    value: AnnotationScope.Insight,
+                                    label: annotationScopeToName[AnnotationScope.Insight],
+                                    disabledReason:
+                                        !isInsightScoped && !onSavedInsight && 'You need to save the insight first.',
+                                },
                                 {
                                     value: AnnotationScope.Project,
                                     label: annotationScopeToName[AnnotationScope.Project],

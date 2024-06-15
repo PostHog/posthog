@@ -1,12 +1,23 @@
+import { lemonToast } from '@posthog/lemon-ui'
 import { afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { beforeUnload, router } from 'kea-router'
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { PipelineNodeTab, PipelineStage, PluginConfigWithPluginInfoNew, PluginType } from '~/types'
+import {
+    FilterType,
+    PipelineNodeTab,
+    PipelineStage,
+    PluginConfigFilters,
+    PluginConfigTypeNew,
+    PluginConfigWithPluginInfoNew,
+    PluginType,
+} from '~/types'
 
 import {
     defaultConfigForPlugin,
@@ -17,9 +28,9 @@ import {
 import { pipelineDestinationsLogic } from './destinationsLogic'
 import { frontendAppsLogic } from './frontendAppsLogic'
 import { importAppsLogic } from './importAppsLogic'
+import { pipelineAccessLogic } from './pipelineAccessLogic'
 import type { pipelinePluginConfigurationLogicType } from './pipelinePluginConfigurationLogicType'
 import { pipelineTransformationsLogic } from './transformationsLogic'
-import { checkPermissions } from './utils'
 
 export interface PipelinePluginConfigurationLogicProps {
     stage: PipelineStage | null
@@ -27,9 +38,12 @@ export interface PipelinePluginConfigurationLogicProps {
     pluginConfigId: number | null
 }
 
+const PLUGIN_URL_LEGACY_ACTION_WEBHOOK = 'https://github.com/PostHog/legacy-action-webhook'
+
 function getConfigurationFromPluginConfig(pluginConfig: PluginConfigWithPluginInfoNew): Record<string, any> {
     return {
         ...pluginConfig.config,
+        filters: pluginConfig.filters,
         enabled: pluginConfig.enabled,
         order: pluginConfig.order,
         name: pluginConfig.name ? pluginConfig.name : pluginConfig.plugin_info.name,
@@ -46,6 +60,39 @@ function getDefaultConfiguration(plugin: PluginType): Record<string, any> {
     }
 }
 
+function sanitizeFilters(filters?: FilterType): PluginConfigTypeNew['filters'] {
+    if (!filters) {
+        return null
+    }
+    const sanitized: PluginConfigFilters = {}
+
+    if (filters.events) {
+        sanitized.events = filters.events.map((f) => ({
+            id: f.id,
+            type: 'events',
+            name: f.name,
+            order: f.order,
+            properties: f.properties,
+        }))
+    }
+
+    if (filters.actions) {
+        sanitized.actions = filters.actions.map((f) => ({
+            id: f.id,
+            type: 'actions',
+            name: f.name,
+            order: f.order,
+            properties: f.properties,
+        }))
+    }
+
+    if (filters.filter_test_accounts) {
+        sanitized.filter_test_accounts = filters.filter_test_accounts
+    }
+
+    return Object.keys(sanitized).length > 0 ? sanitized : undefined
+}
+
 // Should likely be somewhat similar to pipelineBatchExportConfigurationLogic
 export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationLogicType>([
     props({} as PipelinePluginConfigurationLogicProps),
@@ -57,7 +104,16 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
     }),
     path((id) => ['scenes', 'pipeline', 'pipelinePluginConfigurationLogic', id]),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], pipelineTransformationsLogic, ['nextAvailableOrder']],
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            pipelineTransformationsLogic,
+            ['nextAvailableOrder'],
+            featureFlagLogic,
+            ['featureFlags'],
+            pipelineAccessLogic,
+            ['canEnableNewDestinations'],
+        ],
     })),
     loaders(({ props, values }) => ({
         pluginFromPluginId: [
@@ -85,24 +141,29 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
                         return null
                     }
                     if (
-                        !checkPermissions(
-                            props.stage,
-                            !props.pluginConfigId ||
-                                (values.pluginConfig && !values.pluginConfig.enabled && formdata.enabled)
-                        )
+                        (!values.pluginConfig || (!values.pluginConfig.enabled && formdata.enabled)) &&
+                        props.stage === PipelineStage.Destination &&
+                        !values.canEnableNewDestinations
                     ) {
+                        lemonToast.error('Data pipelines add-on is required for enabling new destinations.')
                         return values.pluginConfig
                     }
-                    const { enabled, order, name, description, ...config } = formdata
+                    const { enabled, order, name, description, filters, ...config } = formdata
+
                     const formData = getPluginConfigFormData(
                         values.plugin.config_schema,
                         defaultConfigForPlugin(values.plugin),
                         config
                     )
-                    // NOTE: getPluginConfigFormData already appends enabled
-                    // formData.append('enabled', enabled)
+                    formData.append('enabled', enabled)
                     formData.append('name', name)
                     formData.append('description', description)
+
+                    const sanitizedFilters = sanitizeFilters(filters)
+                    if (filters) {
+                        formData.append('filters', sanitizedFilters ? JSON.stringify(sanitizedFilters) : '')
+                    }
+
                     // if enabling a transformation we need to set the order to be last
                     // if already enabled we don't want to change the order
                     // it doesn't matter for other stages so we can use any value
@@ -122,11 +183,15 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
             },
         ],
     })),
-    listeners(({ props }) => ({
+    listeners(({ props, actions, values }) => ({
         updatePluginConfigSuccess: ({ pluginConfig }) => {
             if (!pluginConfig) {
                 return
             }
+
+            // Reset the form so that it doesn't think there are unsaved changes
+            actions.resetConfiguration(values.configuration)
+
             // Navigating back to the list views gets the updated plugin info without refreshing
             if (props.stage === PipelineStage.Transformation) {
                 pipelineTransformationsLogic.findMounted()?.actions.updatePluginConfig(pluginConfig)
@@ -209,6 +274,17 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
         ],
         isNew: [(_, p) => [p.pluginConfigId], (pluginConfigId): boolean => !pluginConfigId],
         stage: [(_, p) => [p.stage], (stage) => stage],
+
+        pluginFilteringEnabled: [
+            (s) => [s.featureFlags, s.pluginConfig, s.plugin],
+            (featureFlags, pluginConfig, plugin) => {
+                const pluginFilteringEnabled = featureFlags[FEATURE_FLAGS.PLUGINS_FILTERING]
+                return (
+                    (pluginFilteringEnabled || pluginConfig?.filters) &&
+                    plugin?.url === PLUGIN_URL_LEGACY_ACTION_WEBHOOK
+                )
+            },
+        ],
     })),
     forms(({ asyncActions, values }) => ({
         configuration: {
@@ -223,6 +299,13 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
             submit: async (formdata) => {
                 await asyncActions.updatePluginConfig(formdata)
             },
+        },
+    })),
+    beforeUnload(({ actions, values }) => ({
+        enabled: () => values.configurationChanged,
+        message: 'Leave action?\nChanges you made will be discarded.',
+        onConfirm: () => {
+            actions.resetConfiguration()
         },
     })),
     afterMount(({ props, actions }) => {

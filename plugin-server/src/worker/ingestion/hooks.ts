@@ -2,15 +2,15 @@ import { captureException } from '@sentry/node'
 import { Histogram } from 'prom-client'
 import { RustyHook } from 'worker/rusty-hook'
 
-import { Action, Hook, PostIngestionEvent, Team } from '../../types'
+import { Action, Hook, HookPayload, PostIngestionEvent, Team } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
-import { mutatePostIngestionEventWithElementsList } from '../../utils/event'
+import { convertToHookPayload } from '../../utils/event'
 import { trackedFetch } from '../../utils/fetch'
 import { status } from '../../utils/status'
-import { ActionWebhookFormatter } from './action-webhook-formatter'
 import { AppMetric, AppMetrics } from './app-metrics'
 import { OrganizationManager } from './organization-manager'
 import { TeamManager } from './team-manager'
+import { WebhookFormatter } from './webhook-formatter'
 
 export const webhookProcessStepDuration = new Histogram({
     name: 'webhook_process_event_duration',
@@ -113,15 +113,16 @@ export class HookCommander {
     ): Record<string, any> {
         const endTimer = webhookProcessStepDuration.labels('messageFormatting').startTimer()
         try {
-            const actionWebhookFormatter = new ActionWebhookFormatter(
+            const webhookFormatter = new WebhookFormatter({
                 webhookUrl,
                 messageFormat,
-                action,
                 event,
                 team,
-                this.siteUrl
-            )
-            return actionWebhookFormatter.generateWebhookPayload()
+                siteUrl: this.siteUrl,
+                sourceName: action.name ?? 'Unamed action',
+                sourcePath: `/action/${action.id}`,
+            })
+            return webhookFormatter.generateWebhookPayload()
         } finally {
             endTimer()
         }
@@ -151,26 +152,12 @@ export class HookCommander {
             const messageFormat = action.slack_message_format || '[action.name] was triggered by [person]'
             body = this.formatMessage(url, messageFormat, action, event, team)
         } else {
-            let sendablePerson: Record<string, any> = {}
-
-            // It is only at this point that we need the elements list for the full event
-            // NOTE: It is possible that nobody uses it in which case we could remove this for performance but
-            // currently we have no way of being sure so we keep it in
-            mutatePostIngestionEventWithElementsList(event)
-
-            const { person_id, person_created_at, person_properties, ...data } = event
-            if (person_id) {
-                sendablePerson = {
-                    uuid: person_id,
-                    properties: person_properties,
-                    created_at: person_created_at,
-                }
-            }
-
-            body = {
+            const hookBody: HookPayload = {
                 hook: { id: hook.id, event: hook.event, target: hook.target },
-                data: { ...data, person: sendablePerson },
+                data: convertToHookPayload(event),
             }
+
+            body = hookBody
         }
 
         const enqueuedInRustyHook = await this.rustyHook.enqueueIfEnabledForTeam({

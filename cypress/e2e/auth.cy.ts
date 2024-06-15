@@ -53,7 +53,7 @@ describe('Auth', () => {
         cy.visit('/logout')
         cy.location('pathname').should('include', '/login')
 
-        cy.visit('/events')
+        cy.visit('/activity/explore')
         cy.location('pathname').should('include', '/login') // Should be redirected to login because we're now logged out
 
         cy.get('[data-attr=login-email]').type('test@posthog.com').blur()
@@ -61,7 +61,7 @@ describe('Auth', () => {
         cy.get('[data-attr=password]').type('12345678')
         cy.get('[type=submit]').click()
 
-        cy.location('pathname').should('include', '/events')
+        cy.location('pathname').should('include', '/activity/explore')
     })
 
     it('Redirect to appropriate place after login with complex URL', () => {

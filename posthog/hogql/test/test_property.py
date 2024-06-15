@@ -336,7 +336,7 @@ class TestProperty(BaseTest):
                     "operator": "exact",
                 }
             ),
-            clear_locations(element_chain_key_filter("href", "href-text.", PropertyOperator.exact)),
+            clear_locations(element_chain_key_filter("href", "href-text.", PropertyOperator.EXACT)),
         )
         self.assertEqual(
             self._property_to_expr(
@@ -347,7 +347,7 @@ class TestProperty(BaseTest):
                     "operator": "regex",
                 }
             ),
-            clear_locations(element_chain_key_filter("text", "text-text.", PropertyOperator.regex)),
+            clear_locations(element_chain_key_filter("text", "text-text.", PropertyOperator.REGEX)),
         )
 
     def test_property_groups(self):
@@ -503,35 +503,35 @@ class TestProperty(BaseTest):
 
     def test_elements_chain_key_filter(self):
         self.assertEqual(
-            clear_locations(element_chain_key_filter("href", "boo..", PropertyOperator.is_set)),
+            clear_locations(element_chain_key_filter("href", "boo..", PropertyOperator.IS_SET)),
             clear_locations(elements_chain_match('(href="[^"]+")')),
         )
         self.assertEqual(
-            clear_locations(element_chain_key_filter("href", "boo..", PropertyOperator.is_not_set)),
+            clear_locations(element_chain_key_filter("href", "boo..", PropertyOperator.IS_NOT_SET)),
             clear_locations(not_call(elements_chain_match('(href="[^"]+")'))),
         )
         self.assertEqual(
-            clear_locations(element_chain_key_filter("href", "boo..", PropertyOperator.icontains)),
+            clear_locations(element_chain_key_filter("href", "boo..", PropertyOperator.ICONTAINS)),
             clear_locations(elements_chain_imatch('(href="[^"]*boo\\.\\.[^"]*")')),
         )
         self.assertEqual(
-            clear_locations(element_chain_key_filter("href", "boo..", PropertyOperator.not_icontains)),
+            clear_locations(element_chain_key_filter("href", "boo..", PropertyOperator.NOT_ICONTAINS)),
             clear_locations(not_call(elements_chain_imatch('(href="[^"]*boo\\.\\.[^"]*")'))),
         )
         self.assertEqual(
-            clear_locations(element_chain_key_filter("href", "boo..", PropertyOperator.regex)),
+            clear_locations(element_chain_key_filter("href", "boo..", PropertyOperator.REGEX)),
             clear_locations(elements_chain_match('(href="boo..")')),
         )
         self.assertEqual(
-            clear_locations(element_chain_key_filter("href", "boo..", PropertyOperator.not_regex)),
+            clear_locations(element_chain_key_filter("href", "boo..", PropertyOperator.NOT_REGEX)),
             clear_locations(not_call(elements_chain_match('(href="boo..")'))),
         )
         self.assertEqual(
-            clear_locations(element_chain_key_filter("href", "boo..", PropertyOperator.exact)),
+            clear_locations(element_chain_key_filter("href", "boo..", PropertyOperator.EXACT)),
             clear_locations(elements_chain_match('(href="boo\\.\\.")')),
         )
         self.assertEqual(
-            clear_locations(element_chain_key_filter("href", "boo..", PropertyOperator.is_not)),
+            clear_locations(element_chain_key_filter("href", "boo..", PropertyOperator.IS_NOT)),
             clear_locations(not_call(elements_chain_match('(href="boo\\.\\.")'))),
         )
 
@@ -676,13 +676,8 @@ class TestProperty(BaseTest):
 
     def test_entity_to_expr_default_case(self):
         entity = RetentionEntity()
-        result = entity_to_expr(entity, default_event="default_event")
-        expected = ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=["events", "event"]),
-            right=ast.Constant(value="default_event"),
-        )
-        self.assertEqual(result, expected)
+        result = entity_to_expr(entity)
+        self.assertEqual(result, ast.Constant(value=True))
 
     def test_session_duration(self):
         self.assertEqual(
@@ -722,7 +717,7 @@ class TestProperty(BaseTest):
             self._property_to_expr(
                 {
                     "type": "data_warehouse_person_property",
-                    "key": "extended_properties: bool_prop",
+                    "key": "extended_properties.bool_prop",
                     "value": "true",
                     "operator": "exact",
                 }

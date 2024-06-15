@@ -20,8 +20,6 @@ from posthog.models import (
     Team,
     User,
 )
-from posthog.models.async_deletion.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.async_deletion.delete_events import AsyncEventDeletion
 from posthog.models.utils import UUIDT
 
 from .matrix import Matrix
@@ -188,15 +186,17 @@ class MatrixManager:
 
     @classmethod
     def _erase_master_team_data(cls):
-        AsyncEventDeletion().process(
-            [
-                AsyncDeletion(
-                    team_id=cls.MASTER_TEAM_ID,
-                    key=cls.MASTER_TEAM_ID,
-                    deletion_type=DeletionType.Team,
-                )
-            ]
-        )
+        # 2024-05-23 note from Tim:
+        # this was absolutely thrashing throughput on clickhouse. Please don't re-enable
+        # AsyncEventDeletion().process(
+        #     [
+        #         AsyncDeletion(
+        #             team_id=cls.MASTER_TEAM_ID,
+        #             key=cls.MASTER_TEAM_ID,
+        #             deletion_type=DeletionType.Team,
+        #         )
+        #     ]
+        # )
         GroupTypeMapping.objects.filter(team_id=cls.MASTER_TEAM_ID).delete()
 
     def _copy_analytics_data_from_master_team(self, target_team: Team):

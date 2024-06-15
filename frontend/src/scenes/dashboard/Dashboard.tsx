@@ -96,17 +96,13 @@ function DashboardScene(): JSX.Element {
                 <EmptyDashboardComponent loading={itemsLoading} canEdit={canEditDashboard} />
             ) : (
                 <div>
-                    <div className="flex gap-2 items-center justify-between flex-wrap">
+                    <div className="flex gap-2 items-start justify-between flex-wrap">
                         {![
                             DashboardPlacement.Public,
                             DashboardPlacement.Export,
                             DashboardPlacement.FeatureFlag,
                         ].includes(placement) &&
-                            dashboard && (
-                                <div className="flex space-x-4 items-center">
-                                    <DashboardEditBar />
-                                </div>
-                            )}
+                            dashboard && <DashboardEditBar />}
                         {placement === DashboardPlacement.FeatureFlag && dashboard?.id && (
                             <LemonButton type="secondary" size="small" to={urls.dashboard(dashboard.id)}>
                                 Edit dashboard

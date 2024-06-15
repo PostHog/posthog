@@ -12,7 +12,7 @@ from temporalio.common import RetryPolicy
 
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
-from posthog.temporal.common.heartbeat import Heartbeatter
+from posthog.temporal.common.heartbeat import Heartbeater
 
 EPOCH = datetime(1970, 1, 1, 0, 0, tzinfo=timezone.utc)
 
@@ -243,7 +243,7 @@ async def optimize_person_distinct_id_overrides(dry_run: bool) -> None:
         activity.logger.debug("Optimize query: %s", optimize_query)
         return
 
-    async with Heartbeatter():
+    async with Heartbeater():
         async with get_client(mutations_sync=2) as clickhouse_client:
             await clickhouse_client.execute_query(
                 optimize_query.format(database=settings.CLICKHOUSE_DATABASE, cluster=settings.CLICKHOUSE_CLUSTER)
@@ -292,7 +292,7 @@ async def create_table(inputs: TableActivityInputs) -> None:
         activity.logger.debug("Query: %s", create_table_query)
         return
 
-    async with Heartbeatter():
+    async with Heartbeater():
         async with get_client() as clickhouse_client:
             await clickhouse_client.execute_query(create_table_query, query_parameters=inputs.query_parameters)
 
@@ -321,7 +321,7 @@ async def drop_table(inputs: TableActivityInputs) -> None:
         activity.logger.debug("Query: %s", drop_table_query)
         return
 
-    async with Heartbeatter():
+    async with Heartbeater():
         async with get_client() as clickhouse_client:
             await clickhouse_client.execute_query(drop_table_query)
 
@@ -554,7 +554,7 @@ async def wait_for_mutation(inputs: MutationActivityInputs) -> None:
         database=settings.CLICKHOUSE_DATABASE,
         cluster=settings.CLICKHOUSE_CLUSTER,
     )
-    async with Heartbeatter():
+    async with Heartbeater():
         async with get_client() as clickhouse_client:
             prepared_submit_query = clickhouse_client.prepare_query(submit_query, inputs.query_parameters)
             query_command = parse_mutation_command(prepared_submit_query)

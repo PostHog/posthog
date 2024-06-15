@@ -1,0 +1,25 @@
+[package]
+name = "hook-worker"
+version = "0.1.0"
+edition = "2021"
+
+[lints]
+workspace = true
+
+[dependencies]
+axum = { workspace = true }
+chrono = { workspace = true }
+envconfig = { workspace = true }
+futures = "0.3"
+health = { path = "../common/health" }
+hook-common = { path = "../hook-common" }
+http = { workspace = true }
+metrics = { workspace = true }
+reqwest = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+url = { version = "2.2" }
