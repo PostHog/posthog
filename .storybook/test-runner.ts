@@ -191,7 +191,7 @@ async function expectStoryToMatchViewportSnapshot(
     browser: SupportedBrowserName,
     theme: SnapshotTheme
 ): Promise<void> {
-    await expectLocatorToMatchStorySnapshot(page, context, browser, theme)
+    await expectLocatorToMatchStorySnapshot(page, context, browser, theme, page.waitForTimeout)
 }
 
 async function expectStoryToMatchSceneSnapshot(
@@ -203,7 +203,7 @@ async function expectStoryToMatchSceneSnapshot(
     // If the `main` element isn't present, let's use `body` - this is needed in logged-out screens.
     // We use .last(), because the order of selector matches is based on the order of elements in the DOM,
     // and not the order of the selectors in the query.
-    await expectLocatorToMatchStorySnapshot(page.locator('body, main').last(), context, browser, theme)
+    await expectLocatorToMatchStorySnapshot(page.locator('body, main').last(), context, browser, theme, page.waitForTimeout)
 }
 
 async function expectStoryToMatchComponentSnapshot(
@@ -237,7 +237,7 @@ async function expectStoryToMatchComponentSnapshot(
         })
     })
 
-    await expectLocatorToMatchStorySnapshot(page.locator(targetSelector), context, browser, theme, {
+    await expectLocatorToMatchStorySnapshot(page.locator(targetSelector), context, browser, theme, page.waitForTimeout, {
         omitBackground: true,
     })
 }
@@ -249,13 +249,13 @@ async function expectStoryToMatchComponentSnapshot(
  *
  * This function attempts to wait for the image itself to settle
  */
-async function settledImage(locator: Locator | Page, options?: LocatorScreenshotOptions): Promise<Buffer> {
+async function settledImage(locator: Locator | Page, pageWaitFn: Page['waitForTimeout'], options?: LocatorScreenshotOptions): Promise<Buffer> {
     let image = await locator.screenshot(options)
 
     let previousImage: Buffer | null = null
     let retries = 1
     do {
-        await new Promise((resolve) => setTimeout(resolve, 100 * retries))
+        await pageWaitFn(retries * 200)
         previousImage = image
         image = await locator.screenshot(options)
         retries++
@@ -269,9 +269,10 @@ async function expectLocatorToMatchStorySnapshot(
     context: TestContext,
     browser: SupportedBrowserName,
     theme: SnapshotTheme,
-    options?: LocatorScreenshotOptions
+    pageWaitFn: Page['waitForTimeout'],
+    options?: LocatorScreenshotOptions,
 ): Promise<void> {
-    const image = await settledImage(locator, options)
+    const image = await settledImage(locator, pageWaitFn, options)
     let customSnapshotIdentifier = `${context.id}--${theme}`
     if (browser !== 'chromium') {
         customSnapshotIdentifier += `--${browser}`
