@@ -89,8 +89,8 @@ RAW_SESSIONS_TABLE_SQL = lambda: (
     PARTITION BY toYYYYMM(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000))) -- convert uuidv7 into date
     ORDER BY (
         team_id,
-        toStartOfHour(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000))),
-        cityHash64(session_id_v7), -- sample as SAMPLE
+        toStartOfFiveMinutes(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000))), -- choose 5 minutes so realtime can be fast to query, but blocks still big enough to sample on large customers
+        cityHash64(session_id_v7), -- same as SAMPLE
         session_id_v7
     )
     SAMPLE BY cityHash64(session_id_v7)
