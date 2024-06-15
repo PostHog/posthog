@@ -1,5 +1,4 @@
 import dataclasses
-from datetime import timedelta
 from typing import Literal, Optional, Any, TypedDict, cast
 
 from posthog.constants import AUTOCAPTURE_EVENT
@@ -138,9 +137,6 @@ class FunnelCorrelationQueryRunner(QueryRunner):
             funnel_order_actor_class, FunnelActors | FunnelStrictActors | FunnelUnorderedActors
         )  # for typings
         self._funnel_actors_generator = funnel_order_actor_class
-
-    def _refresh_frequency(self):
-        return timedelta(minutes=1)
 
     def calculate(self) -> FunnelCorrelationResponse:
         """

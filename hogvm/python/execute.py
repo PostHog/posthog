@@ -56,6 +56,9 @@ def execute_bytecode(
     if next_token() != HOGQL_BYTECODE_IDENTIFIER:
         raise HogVMException(f"Invalid bytecode. Must start with '{HOGQL_BYTECODE_IDENTIFIER}'")
 
+    if len(bytecode) == 1:
+        return BytecodeResult(result=None, stdout=stdout, bytecode=bytecode)
+
     def check_timeout():
         if time.time() - start_time > timeout and not debug:
             raise HogVMException(f"Execution timed out after {timeout} seconds. Performed {ops} ops.")

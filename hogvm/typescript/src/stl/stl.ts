@@ -27,10 +27,26 @@ export const STL: Record<string, (args: any[], name: string, timeout: number) =>
         return args[0].length
     },
     empty: (args) => {
+        if (typeof args[0] === 'object') {
+            if (Array.isArray(args[0])) {
+                return args[0].length === 0
+            } else if (args[0] === null) {
+                return true
+            } else if (args[0] instanceof Map) {
+                return args[0].size === 0
+            } else {
+                return Object.keys(args[0]).length === 0
+            }
+        }
         return !args[0]
     },
     notEmpty: (args) => {
-        return !!args[0]
+        return !STL.empty(args, 'empty', 0)
+    },
+    tuple: (args) => {
+        const tuple = args.slice()
+        ;(tuple as any).__isHogTuple = true
+        return tuple
     },
     lower: (args) => {
         return args[0].toLowerCase()
@@ -85,6 +101,31 @@ export const STL: Record<string, (args: any[], name: string, timeout: number) =>
             return JSON.stringify(convert(args[0]), null, args[1])
         }
         return JSON.stringify(convert(args[0]))
+    },
+    base64Encode: (args) => {
+        return Buffer.from(args[0]).toString('base64')
+    },
+    base64Decode: (args) => {
+        return Buffer.from(args[0], 'base64').toString()
+    },
+    tryBase64Decode: (args) => {
+        try {
+            return Buffer.from(args[0], 'base64').toString()
+        } catch (e) {
+            return ''
+        }
+    },
+    encodeURLComponent(args) {
+        return encodeURIComponent(args[0])
+    },
+    decodeURLComponent(args) {
+        return decodeURIComponent(args[0])
+    },
+    replaceOne(args) {
+        return args[0].replace(args[1], args[2])
+    },
+    replaceAll(args) {
+        return args[0].replaceAll(args[1], args[2])
     },
 }
 

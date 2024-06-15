@@ -15,6 +15,7 @@ import {
     ActionsNode,
     AnalyticsQueryResponseBase,
     BreakdownFilter,
+    CompareFilter,
     DataWarehouseNode,
     EventsNode,
     FunnelExclusionActionsNode,
@@ -35,6 +36,7 @@ import {
 import {
     isFunnelsQuery,
     isInsightQueryWithBreakdown,
+    isInsightQueryWithCompare,
     isInsightQueryWithSeries,
     isLifecycleQuery,
     isPathsQuery,
@@ -300,6 +302,11 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
         query.breakdownFilter = breakdownFilterToQuery(filters, isTrendsFilter(filters))
     }
 
+    // compare filter
+    if (isInsightQueryWithCompare(query)) {
+        query.compareFilter = compareFilterToQuery(filters)
+    }
+
     // group aggregation
     if (filters.aggregation_group_type_index !== undefined) {
         query.aggregation_group_type_index = filters.aggregation_group_type_index
@@ -345,7 +352,6 @@ export const trendsFilterToQuery = (filters: Partial<TrendsFilterType>): TrendsF
         smoothingIntervals: filters.smoothing_intervals,
         showLegend: filters.show_legend,
         hidden_legend_indexes: cleanHiddenLegendIndexes(filters.hidden_legend_keys),
-        compare: filters.compare,
         aggregationAxisFormat: filters.aggregation_axis_format,
         aggregationAxisPrefix: filters.aggregation_axis_prefix,
         aggregationAxisPostfix: filters.aggregation_axis_postfix,
@@ -425,7 +431,6 @@ export const filtersToFunnelPathsQuery = (filters: Partial<PathsFilterType>): Fu
 export const stickinessFilterToQuery = (filters: Record<string, any>): StickinessFilter => {
     return objectCleanWithEmpty({
         display: filters.display,
-        compare: filters.compare,
         showLegend: filters.show_legend,
         hidden_legend_indexes: cleanHiddenLegendIndexes(filters.hidden_legend_keys),
         showValuesOnSeries: filters.show_values_on_series,
@@ -454,5 +459,12 @@ export const breakdownFilterToQuery = (filters: Record<string, any>, isTrends: b
                   breakdown_hide_other_aggregation: filters.breakdown_hide_other_aggregation,
               }
             : {}),
+    })
+}
+
+export const compareFilterToQuery = (filters: Record<string, any>): CompareFilter => {
+    return objectCleanWithEmpty({
+        compare: filters.compare,
+        compare_to: filters.compare_to,
     })
 }

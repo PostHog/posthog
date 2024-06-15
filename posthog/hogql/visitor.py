@@ -18,9 +18,9 @@ T = TypeVar("T")
 
 
 class Visitor(Generic[T]):
-    def visit(self, node: AST) -> T:
+    def visit(self, node: AST | None) -> T:
         if node is None:
-            return node
+            return node  # type: ignore
 
         try:
             return node.accept(self)
@@ -509,7 +509,7 @@ class CloningVisitor(Visitor[Any]):
             type=None if self.clear_types else node.type,
             ctes={key: self.visit(expr) for key, expr in node.ctes.items()} if node.ctes else None,  # to not traverse
             select_from=self.visit(node.select_from),  # keep "select_from" before "select" to resolve tables first
-            select=[self.visit(expr) for expr in node.select] if node.select else None,
+            select=[self.visit(expr) for expr in node.select] if node.select else [],
             array_join_op=node.array_join_op,
             array_join_list=[self.visit(expr) for expr in node.array_join_list] if node.array_join_list else None,
             where=self.visit(node.where),

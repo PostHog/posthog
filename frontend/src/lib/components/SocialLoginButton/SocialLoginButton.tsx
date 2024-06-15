@@ -52,7 +52,7 @@ export function SocialLoginButton({ provider, extraQueryParams }: SocialLoginBut
     return (
         <SocialLoginLink provider={provider} extraQueryParams={extraQueryParams}>
             <LemonButton size="medium" icon={<SocialLoginIcon provider={provider} />}>
-                <span className="text-default">{SSO_PROVIDER_NAMES[provider]}</span>
+                <span className="text-text-3000">{SSO_PROVIDER_NAMES[provider]}</span>
             </LemonButton>
         </SocialLoginLink>
     )

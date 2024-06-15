@@ -49,7 +49,14 @@ class TestDataImportPipeline(APIBaseTest):
                 job_type="Stripe",
                 team_id=self.team.pk,
             ),
-            source=stripe_source(api_key="", account_id="", endpoint=schema_name, is_incremental=False),
+            source=stripe_source(
+                api_key="",
+                account_id="",
+                endpoint=schema_name,
+                is_incremental=False,
+                team_id=self.team.pk,
+                job_id=str(job.pk),
+            ),
             logger=structlog.get_logger(),
             incremental=incremental,
         )

@@ -173,7 +173,9 @@ class _Printer(Visitor):
     def indent(self, extra: int = 0):
         return " " * self.tab_size * (self._indent + extra)
 
-    def visit(self, node: AST):
+    def visit(self, node: AST | None):
+        if node is None:
+            return ""
         self.stack.append(node)
         self._indent += 1
         response = super().visit(node)
@@ -1143,7 +1145,10 @@ class _Printer(Visitor):
         identifier = self._print_identifier(node.name)
         exprs = ", ".join(self.visit(expr) for expr in node.exprs or [])
         args = "(" + (", ".join(self.visit(arg) for arg in node.args or [])) + ")" if node.args else ""
-        over = f"({self.visit(node.over_expr)})" if node.over_expr else self._print_identifier(node.over_identifier)
+        if node.over_expr or node.over_identifier:
+            over = f"({self.visit(node.over_expr)})" if node.over_expr else self._print_identifier(node.over_identifier)
+        else:
+            over = "()"
         return f"{identifier}({exprs}){args} OVER {over}"
 
     def visit_window_frame_expr(self, node: ast.WindowFrameExpr):

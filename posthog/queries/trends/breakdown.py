@@ -18,7 +18,6 @@ from posthog.constants import (
     PropertyOperatorType,
     TREND_FILTER_TYPE_EVENTS,
 )
-from posthog.hogql_queries.insights.trends.breakdown_values import BREAKDOWN_NULL_DISPLAY, BREAKDOWN_OTHER_DISPLAY
 from posthog.models.action.util import format_action_filter
 from posthog.models.entity import Entity
 from posthog.models.event.sql import EVENT_JOIN_PERSON_SQL
@@ -74,12 +73,17 @@ from posthog.queries.trends.util import (
     process_math,
 )
 from posthog.queries.util import (
+    alias_poe_mode_for_legacy,
     get_interval_func_ch,
     get_person_properties_mode,
     get_start_of_interval_sql,
 )
 from posthog.utils import encode_get_request_params, generate_short_id
 from posthog.queries.person_on_events_v2_sql import PERSON_DISTINCT_ID_OVERRIDES_JOIN_SQL
+
+BREAKDOWN_OTHER_DISPLAY = "Other (i.e. all remaining values)"
+BREAKDOWN_NULL_DISPLAY = "None (i.e. no value)"
+
 
 BREAKDOWN_OTHER_STRING_LABEL = "$$_posthog_breakdown_other_$$"
 BREAKDOWN_OTHER_NUMERIC_LABEL = 9007199254740991  # pow(2, 53) - 1, for JS compatibility
@@ -108,7 +112,7 @@ class TrendsBreakdown:
         self.params: dict[str, Any] = {"team_id": team.pk}
         self.column_optimizer = column_optimizer or ColumnOptimizer(self.filter, self.team_id)
         self.add_person_urls = add_person_urls
-        self.person_on_events_mode = person_on_events_mode
+        self.person_on_events_mode = alias_poe_mode_for_legacy(person_on_events_mode)
         if person_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
             self._person_id_alias = f"if(notEmpty({self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.distinct_id), {self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.person_id, {self.EVENT_TABLE_ALIAS}.person_id)"
         elif person_on_events_mode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:

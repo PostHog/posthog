@@ -1,6 +1,5 @@
 import { useValues } from 'kea'
 import { getSeriesColor } from 'lib/colors'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { useEffect, useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
@@ -12,7 +11,6 @@ import { ChartParams, GraphType } from '~/types'
 
 import { InsightEmptyState } from '../../insights/EmptyStates'
 import { LineGraph } from '../../insights/views/LineGraph/LineGraph'
-import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
 import { openPersonsModal } from '../persons-modal/PersonsModal'
 import { trendsDataLogic } from '../trendsDataLogic'
 
@@ -33,8 +31,8 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
         formula,
         showValuesOnSeries,
         isDataWarehouseSeries,
-        isHogQLInsight,
         querySource,
+        breakdownFilter,
     } = useValues(trendsDataLogic(insightProps))
 
     function updateData(): void {
@@ -50,12 +48,10 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
                 breakdownValues: _data.map((item) => item.breakdown_value),
                 breakdownLabels: _data.map((item) => {
                     return formatBreakdownLabel(
-                        cohorts,
-                        formatPropertyValueForDisplay,
                         item.breakdown_value,
-                        item.filter?.breakdown,
-                        item.filter?.breakdown_type,
-                        false
+                        breakdownFilter,
+                        cohorts,
+                        formatPropertyValueForDisplay
                     )
                 }),
                 compareLabels: _data.map((item) => item.compare_label),
@@ -95,30 +91,20 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
                 !showPersonsModal || trendsFilter?.formula || isDataWarehouseSeries
                     ? undefined
                     : (point) => {
-                          const { index, points, crossDataset } = point
+                          const { index, points } = point
 
                           const dataset = points.referencePoint.dataset
                           const label = dataset.labels?.[point.index]
-                          const urls = urlsForDatasets(crossDataset, index, cohorts, formatPropertyValueForDisplay)
-                          const selectedUrl = urls[index]?.value
 
-                          if (isHogQLInsight) {
-                              openPersonsModal({
-                                  title: label || '',
-                                  query: datasetToActorsQuery({ dataset, query: querySource!, index }),
-                                  additionalSelect: {
-                                      value_at_data_point: 'event_count',
-                                      matched_recordings: 'matched_recordings',
-                                  },
-                                  orderBy: ['event_count DESC, actor_id DESC'],
-                              })
-                          } else if (selectedUrl) {
-                              openPersonsModal({
-                                  urlsIndex: index,
-                                  urls,
-                                  title: <PropertyKeyInfo value={label || ''} disablePopover />,
-                              })
-                          }
+                          openPersonsModal({
+                              title: label || '',
+                              query: datasetToActorsQuery({ dataset, query: querySource!, index }),
+                              additionalSelect: {
+                                  value_at_data_point: 'event_count',
+                                  matched_recordings: 'matched_recordings',
+                              },
+                              orderBy: ['event_count DESC, actor_id DESC'],
+                          })
                       }
             }
         />

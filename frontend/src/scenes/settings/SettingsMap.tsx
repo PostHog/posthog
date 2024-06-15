@@ -126,8 +126,9 @@ export const SettingsMap: SettingSection[] = [
             },
             {
                 id: 'persons-on-events',
-                title: 'Event person filtering behavior',
+                title: 'Person properties mode',
                 component: <PersonsOnEvents />,
+                flag: '!SETTINGS_PERSONS_ON_EVENTS_HIDDEN', // Setting hidden for Cloud orgs created since June 2024
             },
             {
                 id: 'correlation-analysis',

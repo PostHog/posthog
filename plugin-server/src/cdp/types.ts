@@ -54,8 +54,9 @@ export type HogFunctionInvocationGlobals = {
     }
     person?: {
         uuid: string
-        properties: Record<string, any>
+        name: string
         url: string
+        properties: Record<string, any>
     }
     groups?: Record<
         string,
@@ -97,23 +98,43 @@ export type HogFunctionFilterGlobals = {
     }
 }
 
+export type HogFunctionLogEntrySource = 'system' | 'hog' | 'console'
+export type HogFunctionLogEntryLevel = 'debug' | 'info' | 'warn' | 'error'
+
+export interface HogFunctionLogEntry {
+    team_id: number
+    log_source: string // The kind of source (hog_function)
+    log_source_id: string // The id of the hog function
+    instance_id: string // The id of the specific invocation
+    timestamp: string
+    level: HogFunctionLogEntryLevel
+    message: string
+}
+
 export type HogFunctionInvocation = {
+    id: string
     globals: HogFunctionInvocationGlobals
 }
 
 export type HogFunctionInvocationResult = HogFunctionInvocation & {
     success: boolean
     error?: any
-    logs: string[]
+    logs: HogFunctionLogEntry[]
 }
 
 export type HogFunctionInvocationAsyncRequest = HogFunctionInvocation & {
+    teamId: number
     hogFunctionId: HogFunctionType['id']
-    vmState: VMState
+    vmState?: VMState
+    asyncFunctionName: string // TODO: Type this all more strongly
+    asyncFunctionArgs?: any[]
 }
 
 export type HogFunctionInvocationAsyncResponse = HogFunctionInvocationAsyncRequest & {
-    response: any
+    /** An error message to indicate something went wrong and the invocation should be stopped */
+    error?: any
+    /** The data to be passed to the Hog function from the response */
+    vmResponse?: any
 }
 
 // Mostly copied from frontend types

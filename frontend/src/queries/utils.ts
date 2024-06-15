@@ -191,6 +191,10 @@ export function isInsightQueryWithBreakdown(node?: Record<string, any> | null): 
     return isTrendsQuery(node) || isFunnelsQuery(node)
 }
 
+export function isInsightQueryWithCompare(node?: Record<string, any> | null): node is TrendsQuery | StickinessQuery {
+    return isTrendsQuery(node) || isStickinessQuery(node)
+}
+
 export function isDatabaseSchemaQuery(node?: Node): node is DatabaseSchemaQuery {
     return node?.kind === NodeKind.DatabaseSchemaQuery
 }

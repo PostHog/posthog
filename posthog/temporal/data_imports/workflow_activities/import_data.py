@@ -62,9 +62,13 @@ async def import_data_activity(inputs: ImportDataActivityInputs) -> tuple[TSchem
         if not stripe_secret_key:
             raise ValueError(f"Stripe secret key not found for job {model.id}")
 
-        # TODO: add in check_limit to rest_source
         source = stripe_source(
-            api_key=stripe_secret_key, account_id=account_id, endpoint=schema.name, is_incremental=schema.is_incremental
+            api_key=stripe_secret_key,
+            account_id=account_id,
+            endpoint=schema.name,
+            team_id=inputs.team_id,
+            job_id=inputs.run_id,
+            is_incremental=schema.is_incremental,
         )
 
         return await _run(job_inputs=job_inputs, source=source, logger=logger, inputs=inputs, schema=schema)
