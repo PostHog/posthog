@@ -68,7 +68,7 @@ def calculate_cache_key(target: Union[DashboardTile, Insight]) -> Optional[str]:
                     return None  # Uncacheable query-based insight
                 if dashboard is not None and dashboard.filters:
                     query_runner.apply_dashboard_filters(DashboardFilter(**dashboard.filters))
-                return query_runner.get_cache_key()
+                return query_runner.cache_key
 
             if insight.filters:
                 return generate_insight_filters_hash(insight, dashboard)

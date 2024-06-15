@@ -1,15 +1,18 @@
 import zoneinfo
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 from unittest.mock import MagicMock, patch
 from django.test import override_settings
 from freezegun import freeze_time
+
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner, BREAKDOWN_OTHER_DISPLAY
+from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.property_definition import PropertyDefinition
 
@@ -31,6 +34,8 @@ from posthog.schema import (
     PropertyMathType,
     TrendsFilter,
     TrendsQuery,
+    CacheMissResponse,
+    CachedTrendsQueryResponse,
     CompareFilter,
 )
 
@@ -184,6 +189,18 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         explicit_date: Optional[bool] = None,
     ) -> TrendsQueryRunner:
         query_series: list[EventsNode | ActionsNode] = [EventsNode(event="$pageview")] if series is None else series
+        self._test_cache(
+            date_from,
+            date_to,
+            interval,
+            query_series,
+            trends_filters,
+            breakdown,
+            filter_test_accounts,
+            hogql_modifiers,
+            limit_context,
+            explicit_date,
+        )
         query = TrendsQuery(
             dateRange=InsightDateRange(date_from=date_from, date_to=date_to, explicitDate=explicit_date),
             interval=interval,
@@ -194,6 +211,66 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             filterTestAccounts=filter_test_accounts,
         )
         return TrendsQueryRunner(team=self.team, query=query, modifiers=hogql_modifiers, limit_context=limit_context)
+
+    # This is a method that is called in create_query_runner above. It tests caching against all the test cases in this file.
+    def _test_cache(
+        self,
+        date_from: str,
+        date_to: Optional[str],
+        interval: IntervalType,
+        series: Optional[list[EventsNode | ActionsNode]],
+        trends_filters: Optional[TrendsFilter] = None,
+        breakdown: Optional[BreakdownFilter] = None,
+        filter_test_accounts: Optional[bool] = None,
+        hogql_modifiers: Optional[HogQLQueryModifiers] = None,
+        limit_context: Optional[LimitContext] = None,
+        explicit_date: Optional[bool] = None,
+    ) -> TrendsQueryRunner:
+        import posthog.hogql.query
+
+        # call count is used in some tests. reset the state here to be what it was before
+        call_count = getattr(posthog.hogql.query.sync_execute, "call_count", None)
+        query_series: list[EventsNode | ActionsNode] = [EventsNode(event="$pageview")] if series is None else series
+        date_range = InsightDateRange(date_from=date_from, date_to=date_to, explicitDate=explicit_date)
+        if date_to is not None:
+            with freeze_time(date_to):
+                date_range = QueryDateRange(date_range, self.team, interval, datetime.now())
+            if date_range.n_intervals_in_date_range() < 2:
+                return
+
+            relative_date_from = f"-{date_range.n_intervals_in_date_range()}{interval.value[0]}"
+            midpoint_date = date_range.date_from() + (date_range.date_to() - date_range.date_from()) / 2
+            with freeze_time(midpoint_date):
+                first_query = TrendsQuery(
+                    dateRange=InsightDateRange(date_from=relative_date_from),
+                    interval=interval,
+                    series=query_series,
+                    trendsFilter=trends_filters,
+                    breakdownFilter=breakdown,
+                    filterTestAccounts=filter_test_accounts,
+                )
+                TrendsQueryRunner(
+                    team=self.team, query=first_query, modifiers=hogql_modifiers, limit_context=limit_context
+                ).run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+            with freeze_time(date_to):
+                second_query = TrendsQuery(
+                    dateRange=InsightDateRange(date_from=relative_date_from),
+                    interval=interval,
+                    series=query_series,
+                    trendsFilter=trends_filters,
+                    breakdownFilter=breakdown,
+                    filterTestAccounts=filter_test_accounts,
+                )
+                runner = TrendsQueryRunner(
+                    team=self.team, query=second_query, modifiers=hogql_modifiers, limit_context=limit_context
+                )
+                with patch.object(runner, "_caching", wraps=runner._caching) as wrapped:
+                    runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+                    if runner.can_compute_from_cache() and limit_context != LimitContext.EXPORT:
+                        wrapped.assert_called_once()
+        if call_count is not None:
+            posthog.hogql.query.sync_execute.call_count = call_count
 
     def _run_trends_query(
         self,
@@ -235,6 +312,70 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual("$pageview", response.results[0]["label"])
+
+    def test_query_can_compute_from_cache(self):
+        kwargs = {
+            "date_from": self.default_date_from,
+            "date_to": self.default_date_to,
+            "interval": IntervalType.DAY,
+            "series": None,
+            "trends_filters": None,
+        }
+        self.assertFalse(self._create_query_runner(**kwargs).query_can_compute_from_cache())
+
+        kwargs["date_to"] = None
+        self.assertTrue(self._create_query_runner(**kwargs).query_can_compute_from_cache())
+
+        kwargs["date_from"] = "-7w"
+        self.assertTrue(self._create_query_runner(**kwargs).query_can_compute_from_cache())
+
+        kwargs["trends_filters"] = TrendsFilter(**{"smoothingIntervals": 2})
+        self.assertFalse(self._create_query_runner(**kwargs).query_can_compute_from_cache())
+
+        kwargs["trends_filters"] = TrendsFilter(**{"smoothingIntervals": 1})
+        self.assertTrue(self._create_query_runner(**kwargs).query_can_compute_from_cache())
+
+        kwargs["breakdown"] = BreakdownFilter(
+            **{"breakdown_type": BreakdownType.EVENT, "breakdown": "$browser", "breakdown_histogram_bin_count": 2}
+        )
+        self.assertFalse(self._create_query_runner(**kwargs).query_can_compute_from_cache())
+
+        kwargs["breakdown"] = BreakdownFilter(
+            **{"breakdown_type": BreakdownType.EVENT, "breakdown": "$browser", "breakdown_histogram_bin_count": 2}
+        )
+        self.assertFalse(self._create_query_runner(**kwargs).query_can_compute_from_cache())
+
+    @patch(
+        "posthog.hogql_queries.insights.trends.test.test_trends_query_runner.TrendsQueryRunner.query_can_compute_from_cache",
+        return_value=True,
+    )
+    def test_can_compute_from_cache(self, mock_query_can_compute_from_cache):
+        with freeze_time("2020-04-28T01:00:00"):
+            kwargs = {
+                "date_from": "-4w",
+                "date_to": None,
+                "interval": IntervalType.DAY,
+                "series": None,
+                "trends_filters": None,
+            }
+            runner = self._create_query_runner(**kwargs)
+            self.assertTrue(runner.query_can_compute_from_cache())
+            self.assertFalse(runner.can_compute_from_cache())
+
+            runner.cached_response = MagicMock(spec=CachedTrendsQueryResponse)
+            runner.cached_response.last_refresh = datetime.fromisoformat(
+                "2020-04-26T01:00:00+00:00",
+            )
+            self.assertTrue(runner.can_compute_from_cache())
+
+            runner.cached_response.last_refresh = datetime.fromisoformat("2020-03-31T01:00:00+00:00")
+            self.assertTrue(runner.can_compute_from_cache())
+
+            runner.cached_response.last_refresh = datetime.fromisoformat("2020-03-30T01:00:00+00:00")
+            self.assertFalse(runner.can_compute_from_cache())
+
+            runner.cached_response = CacheMissResponse()
+            self.assertFalse(runner.can_compute_from_cache())
 
     def test_trends_count(self):
         self._create_test_events()
@@ -2142,7 +2283,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             limit_context=LimitContext.QUERY_ASYNC,
         )
 
-        mock_sync_execute.assert_called_once()
+        self.assertEqual(1, mock_sync_execute.call_count)
         self.assertIn(f" max_execution_time={HOGQL_INCREASED_MAX_EXECUTION_TIME},", mock_sync_execute.call_args[0][0])
 
     def test_actors_query_explicit_dates(self):
@@ -2218,3 +2359,449 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert len(response.results) == 1
         # 10% of 30 is 3, so check we're adjusting the results back up
         assert response.results[0]["aggregated_value"] > 5 and response.results[0]["aggregated_value"] < 30
+
+    def test_no_results_before_and_after_compare(self):
+        for value in list(range(30)):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"person_{value}",
+                timestamp="2020-01-11T12:00:00Z",
+                properties={"breakdown_value": f"{value % 2}"},
+            )
+
+        with freeze_time("2020-01-18"):
+            runner = self._create_query_runner(
+                "-1w",
+                None,
+                IntervalType.DAY,
+                [EventsNode(event="$pageview")],
+                TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+                BreakdownFilter(breakdown="breakdown_value", breakdown_type=BreakdownType.EVENT),
+                CompareFilter(compare=True),
+            )
+            first_response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            assert len(first_response.results) == 2
+
+        runner = self._create_query_runner(
+            "-1w",
+            None,
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+            BreakdownFilter(breakdown="breakdown_value", breakdown_type=BreakdownType.EVENT),
+            CompareFilter(compare=True),
+        )
+        with (
+            freeze_time("2020-01-21"),
+            patch.object(runner, "to_cached_queries", wraps=runner.to_cached_queries) as wrapped,
+        ):
+            second_response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            assert len(second_response.results) == 2
+            wrapped.assert_called_once()
+
+    def test_no_results_before_and_after_no_compare(self):
+        for value in list(range(30)):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"person_{value}",
+                timestamp="2020-01-11T12:00:00Z",
+                properties={"breakdown_value": f"{value % 2}"},
+            )
+
+        with freeze_time("2020-01-18"):
+            runner = self._create_query_runner(
+                "-1w",
+                None,
+                IntervalType.DAY,
+                [EventsNode(event="$pageview")],
+                TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+                BreakdownFilter(breakdown="breakdown_value", breakdown_type=BreakdownType.EVENT),
+            )
+            first_response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            assert len(first_response.results) == 2
+
+        runner = self._create_query_runner(
+            "-1w",
+            None,
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+            BreakdownFilter(breakdown="breakdown_value", breakdown_type=BreakdownType.EVENT),
+        )
+        with (
+            freeze_time("2020-01-21"),
+            patch.object(runner, "to_cached_queries", wraps=runner.to_cached_queries) as wrapped,
+        ):
+            second_response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            assert len(second_response.results) == 0
+            wrapped.assert_called_once()
+
+    # If more time has passed than the window, don't compute from cache (no savings)
+    def test_no_results_then_previous(self):
+        with freeze_time("2020-01-10"):
+            runner = self._create_query_runner(
+                "-3d",
+                None,
+                IntervalType.DAY,
+                [EventsNode(event="$pageview")],
+                TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+                BreakdownFilter(breakdown="breakdown_value", breakdown_type=BreakdownType.EVENT),
+                CompareFilter(compare=True),
+            )
+            first_response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            assert len(first_response.results) == 0
+
+        for value in list(range(30)):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"person_{value}",
+                timestamp="2020-01-11T12:00:00Z",
+                properties={"breakdown_value": f"{value % 2}"},
+            )
+
+        runner = self._create_query_runner(
+            "-3d",
+            None,
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+            BreakdownFilter(breakdown="breakdown_value", breakdown_type=BreakdownType.EVENT),
+            CompareFilter(compare=True),
+        )
+        with (
+            freeze_time("2020-01-15"),
+            patch.object(runner, "to_cached_queries", wraps=runner.to_cached_queries) as wrapped,
+        ):
+            second_response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            assert len(second_response.results) == 2
+            wrapped.assert_not_called()
+
+    def test_no_results_then_current(self):
+        with freeze_time("2020-01-10"):
+            runner = self._create_query_runner(
+                "-1w",
+                None,
+                IntervalType.DAY,
+                [EventsNode(event="$pageview")],
+                TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+                BreakdownFilter(breakdown="breakdown_value", breakdown_type=BreakdownType.EVENT),
+                CompareFilter(compare=True),
+            )
+            first_response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            assert len(first_response.results) == 0
+
+        for value in list(range(30)):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"person_{value}",
+                timestamp="2020-01-11T12:00:00Z",
+                properties={"breakdown_value": f"{value % 2}"},
+            )
+
+        runner = self._create_query_runner(
+            "-1w",
+            None,
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+            BreakdownFilter(breakdown="breakdown_value", breakdown_type=BreakdownType.EVENT),
+            CompareFilter(compare=True),
+        )
+        with (
+            freeze_time("2020-01-12"),
+            patch.object(runner, "to_cached_queries", wraps=runner.to_cached_queries) as wrapped,
+        ):
+            second_response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            assert len(second_response.results) == 2
+            wrapped.assert_called_once()
+
+    def test_no_results_then_no_results(self):
+        with freeze_time("2020-01-10"):
+            runner = self._create_query_runner(
+                "-1w",
+                None,
+                IntervalType.DAY,
+                [EventsNode(event="$pageview")],
+                TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+                BreakdownFilter(breakdown="breakdown_value", breakdown_type=BreakdownType.EVENT),
+                CompareFilter(compare=True),
+            )
+            first_response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            assert len(first_response.results) == 0
+
+        runner = self._create_query_runner(
+            "-1w",
+            None,
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+            BreakdownFilter(breakdown="breakdown_value", breakdown_type=BreakdownType.EVENT),
+            CompareFilter(compare=True),
+        )
+        with (
+            freeze_time("2020-01-12"),
+            patch.object(runner, "to_cached_queries", wraps=runner.to_cached_queries) as wrapped,
+        ):
+            second_response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            assert len(second_response.results) == 0
+            wrapped.assert_called_once()
+
+    def test_cache_with_hours_does_nothing(self):
+        def spawn_runner():
+            return self._create_query_runner(
+                "-72h",
+                None,
+                IntervalType.HOUR,
+                [EventsNode(event="$pageview")],
+                TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+                BreakdownFilter(breakdown="breakdown_value", breakdown_type=BreakdownType.EVENT),
+                CompareFilter(compare=True),
+            )
+
+        for value in list(range(30)):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"person_{value}",
+                timestamp="2020-01-09T12:00:00Z",
+                properties={"breakdown_value": f"{value % 2}"},
+            )
+        with freeze_time("2020-01-10T00:00:00-00:00"):
+            response = spawn_runner().run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            assert len(response.results) == 2
+
+        with freeze_time("2020-01-11T00:00:00-00:00"):
+            runner = spawn_runner()
+            with patch.object(runner, "_caching", wraps=runner._caching) as wrapped:
+                response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+                assert len(response.results) == 2
+                assert all(result["compare_label"] == "current" for result in response.results)
+                wrapped.assert_not_called()
+
+        with freeze_time("2020-01-14T00:00:00-00:00"):
+            runner = spawn_runner()
+            with patch.object(runner, "_caching", wraps=runner._caching) as wrapped:
+                response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+                wrapped.assert_not_called()
+                assert len(response.results) == 2
+                assert all(result["compare_label"] == "previous" for result in response.results)
+
+    # This doesn't use the cache because hourly date_from doesn't use start of interval
+    def test_cache_with_day_does_nothing(self):
+        def spawn_runner():
+            return self._create_query_runner(
+                "-72h",
+                None,
+                IntervalType.DAY,
+                [EventsNode(event="$pageview")],
+                TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+                BreakdownFilter(breakdown="breakdown_value", breakdown_type=BreakdownType.EVENT),
+                CompareFilter(compare=True),
+            )
+
+        for value in list(range(30)):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"person_{value}",
+                timestamp="2020-01-09T12:00:00Z",
+                properties={"breakdown_value": f"{value % 2}"},
+            )
+        with freeze_time("2020-01-10T00:00:00-00:00"):
+            response = spawn_runner().run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            assert len(response.results) == 2
+
+        with freeze_time("2020-01-11T00:00:00-00:00"):
+            runner = spawn_runner()
+
+            with patch.object(runner, "_caching", wraps=runner._caching) as wrapped:
+                response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+                assert len(response.results) == 2
+                assert all(result["compare_label"] == "current" for result in response.results)
+                wrapped.assert_not_called()
+
+        with freeze_time("2020-01-14T00:00:00-00:00"):
+            runner = spawn_runner()
+
+            with patch.object(runner, "_caching", wraps=runner._caching) as wrapped:
+                response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+                wrapped.assert_not_called()
+                assert len(response.results) == 2
+                assert all(result["compare_label"] == "previous" for result in response.results)
+
+    def test_hours_grouping(self):
+        def spawn_runner():
+            return self._create_query_runner(
+                "-72h",
+                None,
+                IntervalType.DAY,
+                [EventsNode(event="$pageview")],
+                TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+                BreakdownFilter(breakdown="breakdown_value", breakdown_type=BreakdownType.EVENT),
+                CompareFilter(compare=True),
+            )
+
+        with freeze_time("2024-05-05T12:00:00-00:00"):
+            now = datetime.now()
+            then = now - timedelta(hours=96)
+            for value in list(range(96)):
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=f"person_{value}",
+                    timestamp=(then + timedelta(hours=value)).isoformat(),
+                    properties={"breakdown_value": f"{value % 2}"},
+                )
+            runner = spawn_runner()
+            response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            assert len(response.results) == 4
+            assert all(x["data"] == [6, 12, 12, 6] for x in response.results if x["compare_label"] == "current")
+            assert all(x["data"] == [0, 0, 6, 12] for x in response.results if x["compare_label"] == "previous")
+        with freeze_time("2024-05-05T18:00:00-00:00"):
+            runner = spawn_runner()
+            with patch.object(runner, "_caching", wraps=runner._caching) as wrapped:
+                response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+                assert len(response.results) == 4
+                assert all(x["data"] == [3, 12, 12, 6] for x in response.results if x["compare_label"] == "current")
+                assert all(x["data"] == [0, 0, 6, 12] for x in response.results if x["compare_label"] == "previous")
+                wrapped.assert_not_called()
+
+    # days uses the start of day. this fails with caching.
+    def test_days(self):
+        def spawn_runner():
+            return self._create_query_runner(
+                "-3d",
+                None,
+                IntervalType.DAY,
+                [EventsNode(event="$pageview")],
+                TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+                BreakdownFilter(breakdown="breakdown_value", breakdown_type=BreakdownType.EVENT),
+                CompareFilter(compare=True),
+            )
+
+        with freeze_time("2024-05-05T12:00:00-00:00"):
+            now = datetime.now()
+            then = now - timedelta(hours=96)
+            for value in list(range(96)):
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=f"person_{value}",
+                    timestamp=(then + timedelta(hours=value)).isoformat(),
+                    properties={"breakdown_value": f"{value % 2}"},
+                )
+            runner = spawn_runner()
+            response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            assert len(response.results) == 4
+            assert all(x["data"] == [12, 12, 12, 6] for x in response.results if x["compare_label"] == "current")
+            assert all(x["data"] == [0, 0, 0, 6] for x in response.results if x["compare_label"] == "previous")
+        with freeze_time("2024-05-05T18:00:00-00:00"):
+            runner = spawn_runner()
+            with patch.object(runner, "_caching", wraps=runner._caching) as wrapped:
+                response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+                assert len(response.results) == 4
+                assert all(x["data"] == [12, 12, 12, 6] for x in response.results if x["compare_label"] == "current")
+                assert all(x["data"] == [0, 0, 0, 6] for x in response.results if x["compare_label"] == "previous")
+
+                wrapped.assert_called_once()
+
+    def test_week(self):
+        def spawn_runner():
+            return self._create_query_runner(
+                "-3w",
+                None,
+                IntervalType.WEEK,
+                [EventsNode(event="$pageview")],
+                TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+                BreakdownFilter(breakdown="breakdown_value", breakdown_type=BreakdownType.EVENT),
+                CompareFilter(compare=True),
+            )
+
+        # Wednesday
+        with freeze_time("2024-06-05T12:00:00-00:00"):
+            now = datetime.now()
+            then = now - timedelta(days=21)
+            for value in list(range(21)):
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=f"person_{value}_0",
+                    timestamp=(then + timedelta(days=value)).isoformat(),
+                    properties={"breakdown_value": "0"},
+                )
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=f"person_{value}_1",
+                    timestamp=(then + timedelta(days=value)).isoformat(),
+                    properties={"breakdown_value": "1"},
+                )
+            runner = spawn_runner()
+            response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            assert len(response.results) == 2
+            assert all(x["data"] == [4, 7, 7, 3] for x in response.results if x["compare_label"] == "current")
+        with freeze_time("2024-06-06T12:00:00-00:00"):
+            runner = spawn_runner()
+            with patch.object(runner, "_caching", wraps=runner._caching) as wrapped:
+                response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+                assert len(response.results) == 4
+                assert all(x["data"] == [4, 7, 7, 3] for x in response.results if x["compare_label"] == "current")
+                assert all(x["data"] == [0, 0, 0, 1] for x in response.results if x["compare_label"] == "previous")
+
+                wrapped.assert_called_once()
+
+    def test_compare_interval_fixed_range_no_compare(self):
+        def spawn_runner():
+            return self._create_query_runner(
+                "2024-06-05",
+                None,
+                IntervalType.DAY,
+                [EventsNode(event="$pageview")],
+                TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH, compare=False),
+                BreakdownFilter(breakdown="breakdown_value", breakdown_type=BreakdownType.EVENT),
+            )
+
+        # Wednesday
+        with freeze_time("2024-06-05T12:00:00-00:00"):
+            now = datetime.now()
+            for value in list(range(4)):
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=f"person_{value}_0",
+                    timestamp=(now + timedelta(days=value)).isoformat(),
+                    properties={"breakdown_value": "0"},
+                )
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=f"person_{value}_1",
+                    timestamp=(now + timedelta(days=value)).isoformat(),
+                    properties={"breakdown_value": "1"},
+                )
+
+        with freeze_time("2024-06-07T12:00:00-00:00"):
+            runner = spawn_runner()
+            response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            assert len(response.results) == 2
+            assert [x["data"] == [1, 1, 1] for x in response.results]
+
+        with freeze_time("2024-06-08T12:00:00-00:00"):
+            runner = spawn_runner()
+            with patch.object(runner, "_caching", wraps=runner._caching) as wrapped:
+                response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+                assert len(response.results) == 2
+                assert [x["data"] == [1, 1, 1, 1] for x in response.results]
+                wrapped.assert_called_once()
+
+        with freeze_time("2024-06-10T12:00:00-00:00"):
+            runner = spawn_runner()
+            with patch.object(runner, "_caching", wraps=runner._caching) as wrapped:
+                response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+                assert len(response.results) == 2
+                assert [x["data"] == [1, 1, 1, 1, 0, 0] for x in response.results]
+                wrapped.assert_called_once()

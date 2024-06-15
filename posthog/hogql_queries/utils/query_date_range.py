@@ -1,4 +1,5 @@
 import re
+import math
 from datetime import datetime, timedelta
 from functools import cached_property
 from typing import cast, Literal, Optional
@@ -92,9 +93,24 @@ class QueryDateRange:
 
         return date_from
 
-    @cached_property
+    @property
     def previous_period_date_from(self) -> datetime:
         return self.date_from() - (self.date_to() - self.date_from())
+
+    def n_intervals_in_date_range(self):
+        date_to = self.date_to()
+        date_from = self.date_from()
+        if self.interval_name in ("minute", "hour", "day", "week"):
+            return math.ceil((date_to - date_from) / self.interval_timedelta())
+        # month or year
+        if self.interval_name == "year":
+            return (date_to.year - date_from.year) + (1 if date_from.replace(year=date_to.year) < date_to else 0)
+        if self.interval_name == "month":
+            return (
+                (date_to.year - date_from.year) * 12
+                + (date_to.month - date_from.month)
+                + (1 if date_from.replace(year=date_to.year, month=date_from.month) < date_to else 0)
+            )
 
     @cached_property
     def now_with_timezone(self) -> datetime:
@@ -104,11 +120,11 @@ class QueryDateRange:
     def date_to_str(self) -> str:
         return self.date_to().strftime("%Y-%m-%d %H:%M:%S")
 
-    @cached_property
+    @property
     def date_from_str(self) -> str:
         return self.date_from().strftime("%Y-%m-%d %H:%M:%S")
 
-    @cached_property
+    @property
     def previous_period_date_from_str(self) -> str:
         return self.previous_period_date_from.strftime("%Y-%m-%d %H:%M:%S")
 
@@ -156,6 +172,13 @@ class QueryDateRange:
             days=1 if self.interval_name == "day" else 0,
             weeks=1 if self.interval_name == "week" else 0,
             months=1 if self.interval_name == "month" else 0,
+            hours=1 if self.interval_name == "hour" else 0,
+            minutes=1 if self.interval_name == "minute" else 0,
+        )
+
+    def interval_timedelta(self) -> relativedelta:
+        return timedelta(
+            days=1 if self.interval_name == "day" else (7 if self.interval_name == "week" else 0),
             hours=1 if self.interval_name == "hour" else 0,
             minutes=1 if self.interval_name == "minute" else 0,
         )

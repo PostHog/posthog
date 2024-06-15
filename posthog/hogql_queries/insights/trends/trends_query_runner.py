@@ -1,3 +1,6 @@
+import types
+
+import structlog
 from natsort import natsorted, ns
 from typing import Union
 from copy import deepcopy
@@ -9,6 +12,10 @@ from typing import Optional, Any
 from django.conf import settings
 
 from django.utils.timezone import datetime
+from prometheus_client import Counter
+
+from posthog import utils
+from posthog.cache_utils import OrjsonJsonSerializer
 from posthog.caching.insights_api import (
     BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL,
     REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
@@ -18,6 +25,7 @@ from posthog.caching.utils import is_stale
 from posthog.clickhouse import query_tagging
 
 from posthog.hogql import ast
+from posthog.hogql.ast import SelectQuery, SelectUnionQuery
 from posthog.hogql.constants import LimitContext, MAX_SELECT_RETURNED_ROWS, BREAKDOWN_VALUES_LIMIT
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.query import execute_hogql_query
@@ -67,8 +75,26 @@ from posthog.schema import (
     DataWarehouseEventsModifier,
     BreakdownType,
 )
+from posthog.settings import TEST
 from posthog.warehouse.models import DataWarehouseTable
-from posthog.utils import format_label_date, multisort
+from posthog.utils import format_label_date, multisort, relative_date_parse_with_delta_mapping
+
+TRENDS_CALCULATE_FROM_CACHE_SKIP_COUNT = Counter(
+    "trends_calculate_from_cache_skip_count",
+    "Number of trends that skipped calculation from cache",
+)
+
+TRENDS_CALCULATE_FROM_CACHE_FAILURE_COUNT = Counter(
+    "trends_calculate_from_cache_failure_count",
+    "Number of trends that failed while calculating from cache",
+)
+
+TRENDS_CALCULATE_FROM_CACHE_SUCCESS_COUNT = Counter(
+    "trends_calculate_from_cache_success_count",
+    "Number of trends that succeeded while calculating from cache",
+)
+
+logger = structlog.get_logger(__name__)
 
 
 class TrendsQueryRunner(QueryRunner):
@@ -93,6 +119,90 @@ class TrendsQueryRunner(QueryRunner):
         date_to = self.query_date_range.date_to()
         interval = self.query_date_range.interval_name
         return is_stale(self.team, date_to, interval, cached_result_package)
+
+    def can_compute_from_cache(self):
+        if not isinstance(self.cached_response, CachedTrendsQueryResponse):
+            return False
+
+        if not self.query_can_compute_from_cache():
+            return False
+
+        # todo: write test to see how this works with something that shouldn't be aligned (-72h)
+        # it fails
+        # this means this fails with weeks and with days?
+        aligned_last_refresh = self.query_date_range.align_with_interval(self.cached_response.last_refresh)
+
+        # If more time has passed since the last refresh than the daterange, don't use caching
+        too_much_time_has_passed = (datetime.now(self.team.timezone_info) - aligned_last_refresh) > (
+            self.query_date_range.date_to() - self.query_date_range.date_from()
+        )
+
+        return not too_much_time_has_passed
+
+    def query_can_compute_from_cache(self):
+        # Only support cache computation for queries that are relative to now
+
+        # TODO: Test a breakdown with a relative to a static time query where nothing new shows up
+        is_relative = self.query.dateRange is None or (
+            self.query.dateRange.date_to is None
+            and (
+                # We don't support queries that are relative to a fixed date with compare set to True, because we would
+                # have to expand the compare window backwards in time. It either has a delta mapping, or it doesn't have a compare
+                relative_date_parse_with_delta_mapping(self.query.dateRange.date_from, self.team.timezone_info)[1]
+                or not self.query.compareFilter
+                or not self.query.compareFilter.compare
+            )
+        )
+
+        # For now, we only support date_ranges if they use the start of the interval
+        # We can make this work without, but we'd have to query for changes to the beginning of the time range also
+        use_start_of_interval = self.query_date_range.use_start_of_interval()
+
+        query_interval_is_long_enough = self.query_date_range.n_intervals_in_date_range() > 1
+
+        # we don't support histogram_bin_counts at the moment because this queries the events to generate the breakdown values
+        uses_histogram_bin_count = (
+            self.query.breakdownFilter is not None
+            and self.query.breakdownFilter.breakdown is not None
+            and self.query.breakdownFilter.breakdown_histogram_bin_count is not None
+        )
+
+        # We also don't support smoothing, but if it's a big case could look into supporting it (increasing date range for caching might be enough)
+        uses_smoothing = self.query.trendsFilter is not None and self.query.trendsFilter.smoothingIntervals not in (
+            1,
+            None,
+        )
+
+        # TODO: Make this work for breakdown limits as long as we aren't hitting them
+        uses_breakdown_limit = (
+            self.query.breakdownFilter is not None
+            and self.query.breakdownFilter.breakdown is not None
+            and self.query.breakdownFilter.breakdown_limit is not None
+        )
+
+        # Currently doesn't work for total value. Consider nixing total value on the backend and computing it on the front-end for performance improvements.
+        total_value = self.query.trendsFilter is not None and self.query.trendsFilter.display in (
+            ChartDisplayType.BOLD_NUMBER,
+            ChartDisplayType.WORLD_MAP,
+            ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE,
+            ChartDisplayType.ACTIONS_BAR_VALUE,
+            ChartDisplayType.ACTIONS_PIE,
+        )
+
+        # This might overlap with the previous check a bit
+        # Don't try to compute caching for aggregate values
+        aggregate_values = any(x.aggregate_values for x in self.series)
+
+        return (
+            is_relative
+            and use_start_of_interval
+            and query_interval_is_long_enough
+            and not uses_histogram_bin_count
+            and not uses_smoothing
+            and not uses_breakdown_limit
+            and not total_value
+            and not aggregate_values
+        )
 
     def _refresh_frequency(self):
         date_to = self.query_date_range.date_to()
@@ -147,6 +257,62 @@ class TrendsQueryRunner(QueryRunner):
                 if isinstance(query, ast.SelectQuery) and query.limit is None:
                     query.limit = ast.Constant(value=MAX_SELECT_RETURNED_ROWS)
                 queries.append(query)
+
+        return queries
+
+    def to_cached_queries(self, skip_breakdowns=False) -> list[ast.SelectQuery | ast.SelectUnionQuery]:
+        queries = []
+        aligned_last_refresh = self.query_date_range.align_with_interval(
+            self.cached_response.last_refresh.astimezone(self.team.timezone_info)
+        )
+
+        for series in self.series:
+            # Override "date_from" to only look at the interval of time starting at the last refresh
+            if not series.is_previous_period_series:
+                query_date_range = QueryDateRange(
+                    *[
+                        getattr(self.query_date_range, x)
+                        for x in ["_date_range", "_team", "_interval", "_now_without_timezone"]
+                    ]
+                )
+                self.cached_query_date_range = query_date_range
+                new_date_from = aligned_last_refresh
+            else:
+                query_date_range = QueryPreviousPeriodDateRange(
+                    *[
+                        getattr(self.query_previous_date_range, x)
+                        for x in ["_date_range", "_team", "_interval", "_now_without_timezone"]
+                    ]
+                )
+                self.cached_query_previous_date_range = query_date_range
+                new_date_from = self.query_previous_date_range.date_from() + (
+                    aligned_last_refresh - self.query_date_range.date_from()
+                )
+            query_date_range.date_from = types.MethodType(
+                lambda self, new_date_from=new_date_from: new_date_from, query_date_range
+            )
+
+            trends_query = series.overriden_query or self.query
+            if skip_breakdowns:
+                trends_query.breakdownFilter = None
+
+            query_builder = TrendsQueryBuilder(
+                trends_query=trends_query,
+                team=self.team,
+                query_date_range=query_date_range,
+                series=series.series,
+                timings=self.timings,
+                modifiers=self.modifiers,
+                limit_context=self.limit_context,
+            )
+
+            query = query_builder.build_query()
+
+            # Get around the default 100 limit, bump to the max 10000.
+            # This is useful for the world map view and other cases with a lot of breakdowns.
+            if isinstance(query, ast.SelectQuery) and query.limit is None:
+                query.limit = ast.Constant(value=MAX_SELECT_RETURNED_ROWS)
+            queries.append(query)
 
         return queries
 
@@ -279,86 +445,7 @@ class TrendsQueryRunner(QueryRunner):
             series=res_series, breakdown=res_breakdown, day=res_days, compare=res_compare
         )
 
-    def calculate(self):
-        queries = self.to_queries()
-
-        if len(queries) == 1:
-            response_hogql_query = queries[0]
-        else:
-            response_hogql_query = ast.SelectUnionQuery(select_queries=[])
-            for query in queries:
-                if isinstance(query, ast.SelectQuery):
-                    response_hogql_query.select_queries.append(query)
-                else:
-                    response_hogql_query.select_queries.extend(query.select_queries)
-
-        with self.timings.measure("printing_hogql_for_response"):
-            response_hogql = to_printed_hogql(response_hogql_query, self.team, self.modifiers)
-
-        res_matrix: list[list[Any] | Any | None] = [None] * len(queries)
-        timings_matrix: list[list[QueryTiming] | None] = [None] * len(queries)
-        errors: list[Exception] = []
-        debug_errors: list[str] = []
-
-        def run(
-            index: int,
-            query: ast.SelectQuery | ast.SelectUnionQuery,
-            is_parallel: bool,
-            query_tags: Optional[dict] = None,
-        ):
-            try:
-                if query_tags:
-                    query_tagging.tag_queries(**query_tags)
-
-                series_with_extra = self.series[index]
-
-                response = execute_hogql_query(
-                    query_type="TrendsQuery",
-                    query=query,
-                    team=self.team,
-                    timings=self.timings,
-                    modifiers=self.modifiers,
-                    limit_context=self.limit_context,
-                )
-
-                timings_matrix[index] = response.timings
-                res_matrix[index] = self.build_series_response(response, series_with_extra, len(queries))
-                if response.error:
-                    debug_errors.append(response.error)
-            except Exception as e:
-                errors.append(e)
-            finally:
-                if is_parallel:
-                    from django.db import connection
-
-                    # This will only close the DB connection for the newly spawned thread and not the whole app
-                    connection.close()
-
-        # This exists so that we're not spawning threads during unit tests. We can't do
-        # this right now due to the lack of multithreaded support of Django
-        if settings.IN_UNIT_TESTING:
-            for index, query in enumerate(queries):
-                run(index, query, False)
-        elif len(queries) == 1:
-            run(0, queries[0], False)
-        else:
-            jobs = [
-                threading.Thread(target=run, args=(index, query, True, query_tagging.get_query_tags()))
-                for index, query in enumerate(queries)
-            ]
-
-            # Start the threads
-            for j in jobs:
-                j.start()
-
-            # Ensure all of the threads have finished
-            for j in jobs:
-                j.join()
-
-        # Raise any errors raised in a seperate thread
-        if len(errors) > 0:
-            raise errors[0]
-
+    def _process_result(self, res_matrix):
         # Flatten res and timings
         returned_results: list[list[dict[str, Any]]] = []
         for result in res_matrix:
@@ -366,11 +453,6 @@ class TrendsQueryRunner(QueryRunner):
                 returned_results.append(result)
             elif isinstance(result, dict):
                 returned_results.append([result])
-
-        timings: list[QueryTiming] = []
-        for timing in timings_matrix:
-            if isinstance(timing, list):
-                timings.extend(timing)
 
         if (
             self.query.trendsFilter is not None
@@ -396,13 +478,306 @@ class TrendsQueryRunner(QueryRunner):
                 elif isinstance(result, dict):
                     raise ValueError("This should not happen")
 
+        return final_result
+
+    def _process_timings(self, timings_matrix):
+        timings: list[QueryTiming] = []
+        for timing in timings_matrix:
+            if isinstance(timing, list):
+                timings.extend(timing)
+        return timings
+
+    def calculate(self):
+        queries = self.to_queries()
+
+        if len(queries) == 1:
+            response_hogql_query = queries[0]
+        else:
+            response_hogql_query = ast.SelectUnionQuery(select_queries=[])
+            for query in queries:
+                if isinstance(query, ast.SelectQuery):
+                    response_hogql_query.select_queries.append(query)
+                else:
+                    response_hogql_query.select_queries.extend(query.select_queries)
+
+        with self.timings.measure("printing_hogql_for_response"):
+            response_hogql = to_printed_hogql(response_hogql_query, self.team, self.modifiers)
+
+        res_matrix: list[list[Any] | Any | None] = [None] * len(queries)
+        timings_matrix: list[list[QueryTiming] | None] = [None] * len(queries)
+        errors: list[Exception] = []
+        debug_errors: list[str] = []
+
+        use_caching = self.can_compute_from_cache()
+        caching_queries: list[SelectQuery | SelectUnionQuery]
+        caching_res_matrix: list[list[Any] | Any | None]
+        caching_timings_matrix: list[list[QueryTiming] | None] = [None] * len(queries)
+        caching_errors: list[Exception] = []
+        caching_debug_errors: list[str] = []
+        if use_caching:
+            caching_queries = self.to_cached_queries()
+            caching_res_matrix = [None] * len(queries)
+            caching_timings_matrix = [None] * len(queries)
+            caching_errors = []
+            caching_debug_errors = []
+        else:
+            TRENDS_CALCULATE_FROM_CACHE_SKIP_COUNT.inc()
+
+        def run_queries():
+            def run(index: int, is_parallel: bool, query_tags: Optional[dict] = None):
+                try:
+                    if query_tags:
+                        query_tagging.tag_queries(**query_tags)
+
+                    series_with_extra = self.series[index]
+
+                    response = execute_hogql_query(
+                        query_type="TrendsQuery",
+                        query=queries[index],
+                        team=self.team,
+                        timings=self.timings,
+                        modifiers=self.modifiers,
+                        limit_context=self.limit_context,
+                    )
+
+                    timings_matrix[index] = response.timings
+                    res_matrix[index] = self.build_series_response(response, series_with_extra, len(queries))
+                    if response.error:
+                        debug_errors.append(response.error)
+
+                    # Put caching query in line with normal query, since it will access the same data
+                    if use_caching:
+                        try:
+                            response = execute_hogql_query(
+                                query_type="TrendsQuery",
+                                query=caching_queries[index],
+                                team=self.team,
+                                timings=self.timings,
+                                modifiers=self.modifiers,
+                                limit_context=self.limit_context,
+                            )
+
+                            caching_timings_matrix[index] = response.timings
+                            caching_res_matrix[index] = self.build_series_response(
+                                response, series_with_extra, len(queries)
+                            )
+                            if response.error:
+                                caching_debug_errors.append(response.error)
+                        except Exception as e:
+                            caching_errors.append(e)
+                except Exception as e:
+                    errors.append(e)
+                finally:
+                    if is_parallel:
+                        from django.db import connection
+
+                        # This will only close the DB connection for the newly spawned thread and not the whole app
+                        connection.close()
+
+            # This exists so that we're not spawning threads during unit tests. We can't do
+            # this right now due to the lack of multithreaded support of Django
+            if settings.IN_UNIT_TESTING:
+                for index in range(len(queries)):
+                    run(index, False)
+            elif len(queries) == 1:
+                run(0, False)
+            else:
+                jobs = [
+                    threading.Thread(target=run, args=(index, True, query_tagging.get_query_tags()))
+                    for index in range(len(queries))
+                ]
+                [j.start() for j in jobs]
+                [j.join() for j in jobs]  # Ensure all of the threads have finished
+
+        run_queries()
+
+        # Raise any errors raised in a seperate thread
+        if len(errors) > 0:
+            raise errors[0]
+
+        processed_actual_results = self._process_result(res_matrix)
+        processed_timings = self._process_timings(timings_matrix)
+
+        # don't mess with caching if there is only one interval
+        if use_caching:
+            try:
+                self._caching(
+                    caching_res_matrix,
+                    caching_timings_matrix,
+                    caching_errors,
+                    caching_debug_errors,
+                    processed_actual_results,
+                )
+            except Exception as e:
+                if TEST:
+                    raise e
+                logger.error("TRENDS_CALCULATE_FROM_CACHE_FAILURE", error=e)
+                TRENDS_CALCULATE_FROM_CACHE_FAILURE_COUNT.inc()
+
         return TrendsQueryResponse(
-            results=final_result,
-            timings=timings,
+            results=processed_actual_results,
+            timings=processed_timings,
             hogql=response_hogql,
             modifiers=self.modifiers,
             error=". ".join(debug_errors),
         )
+
+    def _caching(
+        self,
+        caching_res_matrix,
+        caching_timings_matrix,
+        caching_errors,
+        caching_debug_errors,
+        processed_actual_results,
+    ):
+        if len(caching_errors) > 0 or len(caching_debug_errors) > 0:
+            # This function is called in a try, so this will be caught and reported
+            raise Exception("\n".join(caching_errors) + "\n".join(caching_debug_errors))
+
+        # Now the goal is the reconstitute the cached query and compare against results
+
+        composed_results = []
+
+        processed_cached_results = self._process_result(caching_res_matrix)
+
+        for results, caching_results in zip(
+            [self.cached_response.results],
+            [processed_cached_results],
+        ):
+            # if we are using a breakdown and the results are 0, we return nothing
+            if (
+                self.query.breakdownFilter is not None
+                and self.query.breakdownFilter.breakdown is not None
+                and (len(results) == 0 or all(all(x == 0 for x in result["data"]) for result in results))
+                and (
+                    len(caching_results) == 0 or all(all(x == 0 for x in result["data"]) for result in caching_results)
+                )
+            ):
+                continue
+
+            def unique_result_key(result):
+                return (
+                    result.get("label"),
+                    result.get("breakdown_value"),
+                    result.get("compare_label"),
+                    (result.get("action", {}) or {}).get("order", 0),
+                )
+
+            results_dict = {unique_result_key(x): x for x in results}
+            caching_results_dict = {unique_result_key(x): x for x in caching_results}
+
+            defaults = {}
+            for k, data in (("cache", caching_results), ("results", results)):
+                for result in data:
+                    if result["days"] != []:
+                        defaults[(k, result.get("compare_label"))] = result
+                        defaults[k] = result
+
+            for dict_key in set(results_dict.keys()).union(caching_results_dict.keys()):
+                (label, breakdown_value, compare, series) = dict_key
+
+                result = results_dict.get(dict_key)
+                caching_result = caching_results_dict.get(dict_key)
+
+                query_date_range = self.query_previous_date_range if compare == "previous" else self.query_date_range
+
+                cached_query_date_range = (
+                    self.cached_query_previous_date_range if compare == "previous" else self.cached_query_date_range
+                )
+
+                dates = query_date_range.all_values()
+                result_length = len(dates)
+                cached_dates = cached_query_date_range.all_values()
+                caching_results_length = len(cached_dates)
+                old_results_to_carry_over = result_length - caching_results_length
+
+                if caching_results_length != 0:
+                    first_day = cached_dates[0].strftime(
+                        "%Y-%m-%d{}".format(
+                            " %H:%M:%S" if self.query_date_range.interval_name in ("hour", "minute") else ""
+                        )
+                    )
+                    if defaults.get(("results", compare)) is not None:
+                        results_last_index = defaults[("results", compare)]["days"].index(first_day)
+                else:
+                    results_last_index = result_length
+
+                composed_result = {}
+                # Data
+                caching_v = caching_result["data"] if caching_result is not None else [0] * caching_results_length
+                result_v = (
+                    result["data"][results_last_index - old_results_to_carry_over : results_last_index]
+                    if result is not None
+                    else [0] * old_results_to_carry_over
+                )
+                composed_result["data"] = result_v + caching_v
+
+                # Labels
+                if self.query.compareFilter is not None and self.query.compareFilter.compare:
+                    composed_result["labels"] = [
+                        "{} {}".format(
+                            self.query.interval if self.query.interval is not None else "day",
+                            i,
+                        )
+                        for i in range(result_length)
+                    ]
+                else:
+                    composed_result["labels"] = [utils.format_label_date(x, self.query.interval.value) for x in dates]
+
+                # Days
+                composed_result["days"] = [
+                    x.strftime(
+                        "%Y-%m-%d{}".format(
+                            " %H:%M:%S" if self.query_date_range.interval_name in ("hour", "minute") else ""
+                        )
+                    )
+                    for x in dates
+                ]
+
+                # Filter
+                composed_result["filter"] = self._query_to_filter()
+
+                # Action
+                if caching_result is not None:
+                    composed_result["action"] = caching_result["action"]
+                else:
+                    composed_result["action"] = result["action"]
+                    if composed_result["action"] is not None:
+                        composed_result["action"]["days"] = dates
+
+                # Either result or caching result (non exclusive or) will exist
+                for k, v in (result or caching_result).items():
+                    if k not in ("action", "filter", "days", "data", "labels"):
+                        composed_result[k] = v
+
+                composed_result["count"] = float(sum(composed_result["data"]))
+
+                # don't push an empty result if it is a breakdown
+                if breakdown_value is not None and composed_result["count"] == 0:
+                    continue
+                composed_results.append(composed_result)
+
+        key_order = [unique_result_key(x) for x in processed_actual_results]
+        composed_results.sort(key=lambda x: key_order.index(unique_result_key(x)))
+
+        json = OrjsonJsonSerializer({})
+        actual_json = json.loads(json.dumps(processed_actual_results))
+        caching_json = json.loads(json.dumps(composed_results))
+
+        # if any(x["action"]["order"] != 0 for x in actual_json if x is not None and x["action"] is not None):
+        # raise Exception
+
+        if TEST:
+            assert actual_json == caching_json
+        elif actual_json == caching_json:
+            TRENDS_CALCULATE_FROM_CACHE_SUCCESS_COUNT.inc()
+        else:
+            TRENDS_CALCULATE_FROM_CACHE_FAILURE_COUNT.inc()
+            logger.error(
+                "TRENDS_CALCULATE_FROM_CACHE_FAILURE: Different Json",
+                actual_json=actual_json,
+                caching_json=caching_json,
+            )
 
     def build_series_response(self, response: HogQLQueryResponse, series: SeriesWithExtras, series_count: int):
         def get_value(name: str, val: Any):
@@ -779,9 +1154,11 @@ class TrendsQueryRunner(QueryRunner):
                                 "count": 0,
                                 "aggregated_value": 0,
                                 "action": None,
+                                "filter": any_result.get("filter"),
                                 "breakdown_value": any_result.get("breakdown_value"),
                                 "compare_label": any_result.get("compare_label"),
                                 "days": any_result.get("days"),
+                                "labels": any_result.get("labels"),
                             }
                         )
                 new_result = self.apply_formula_to_results_group(row_results, formula, is_total_value)

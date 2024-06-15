@@ -1,6 +1,6 @@
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Optional, Union, cast
 from unittest.mock import patch
 import dataclasses
@@ -25,6 +25,7 @@ from posthog.hogql_queries.legacy_compatibility.filter_to_query import (
     clean_global_properties,
     filter_to_query,
 )
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import (
     Action,
     Cohort,
@@ -213,8 +214,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # trend_query = filter_to_query(filter.to_dict())
 
         trend_query = convert_filter_to_trends_query(filter)
-        tqr = TrendsQueryRunner(team=team, query=trend_query)
-        return tqr.calculate().results
+        r = TrendsQueryRunner(team=team, query=trend_query).run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS).results
+        if trend_query.dateRange.date_to is None:
+            with freeze_time(datetime.now() + timedelta(days=1)):
+                TrendsQueryRunner(team=team, query=trend_query).run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        return r
 
     def _get_actors(self, filters: dict[str, Any], **kwargs) -> list[list[Any]]:
         trends_query = cast(TrendsQuery, filter_to_query(filters))
