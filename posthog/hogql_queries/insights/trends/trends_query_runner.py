@@ -141,8 +141,6 @@ class TrendsQueryRunner(QueryRunner):
 
     def query_can_compute_from_cache(self):
         # Only support cache computation for queries that are relative to now
-
-        # TODO: Test a breakdown with a relative to a static time query where nothing new shows up
         is_relative = self.query.dateRange is None or (
             self.query.dateRange.date_to is None
             and (
