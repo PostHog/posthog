@@ -78,14 +78,11 @@ module.exports = {
         jest.setTimeout(JEST_TIMEOUT_MS)
     },
     async preVisit(page, context) {
-        const storyContext = await getStoryContext(page, context)
-        const viewport = storyContext.parameters?.testOptions?.viewport || DEFAULT_VIEWPORT
-        await page.setViewportSize(viewport)
-    },
-    async postVisit(page, context) {
         ATTEMPT_COUNT_PER_ID[context.id] = (ATTEMPT_COUNT_PER_ID[context.id] || 0) + 1
+
         const storyContext = await getStoryContext(page, context)
         const viewport = storyContext.parameters?.testOptions?.viewport || DEFAULT_VIEWPORT
+
         await page.evaluate(
             ([retry, id]) => console.log(`[${id}] Attempt ${retry}`),
             [ATTEMPT_COUNT_PER_ID[context.id], context.id]
@@ -95,8 +92,14 @@ module.exports = {
             // just in case the retry is due to a useResizeObserver fail
             await page.setViewportSize({ width: 1920, height: 1080 })
             await page.setViewportSize(viewport)
+        } else {
+            await page.setViewportSize(viewport)
         }
+    },
+    async postVisit(page, context) {
+        const storyContext = await getStoryContext(page, context)
         const browserContext = page.context()
+
         const { snapshotBrowsers = ['chromium'] } = storyContext.parameters?.testOptions ?? {}
 
         browserContext.setDefaultTimeout(PLAYWRIGHT_TIMEOUT_MS)
