@@ -191,7 +191,7 @@ async function expectStoryToMatchViewportSnapshot(
     browser: SupportedBrowserName,
     theme: SnapshotTheme
 ): Promise<void> {
-    await expectLocatorToMatchStorySnapshot(page, context, browser, theme, page.waitForTimeout)
+    await expectLocatorToMatchStorySnapshot(page, context, browser, theme, (delay: number) => page.waitForTimeout(delay))
 }
 
 async function expectStoryToMatchSceneSnapshot(
@@ -203,7 +203,7 @@ async function expectStoryToMatchSceneSnapshot(
     // If the `main` element isn't present, let's use `body` - this is needed in logged-out screens.
     // We use .last(), because the order of selector matches is based on the order of elements in the DOM,
     // and not the order of the selectors in the query.
-    await expectLocatorToMatchStorySnapshot(page.locator('body, main').last(), context, browser, theme, page.waitForTimeout)
+    await expectLocatorToMatchStorySnapshot(page.locator('body, main').last(), context, browser, theme, (delay: number) => page.waitForTimeout(delay))
 }
 
 async function expectStoryToMatchComponentSnapshot(
@@ -237,7 +237,7 @@ async function expectStoryToMatchComponentSnapshot(
         })
     })
 
-    await expectLocatorToMatchStorySnapshot(page.locator(targetSelector), context, browser, theme, page.waitForTimeout, {
+    await expectLocatorToMatchStorySnapshot(page.locator(targetSelector), context, browser, theme, (delay: number) => page.waitForTimeout(delay), {
         omitBackground: true,
     })
 }
