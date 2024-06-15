@@ -21,7 +21,7 @@ from posthog.hogql.database.schema.person_distinct_ids import (
 )
 from datetime import datetime
 
-from posthog.hogql.database.schema.sessions import SessionsTable, select_from_sessions_table
+from posthog.hogql.database.schema.sessions_v1 import SessionsTable, select_from_sessions_table
 from posthog.hogql.errors import ResolutionError
 
 

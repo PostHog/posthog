@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 
     urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
     entry_url AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
-    exit_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
+    end_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
 
     initial_referring_domain AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
     initial_utm_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
@@ -83,18 +83,33 @@ RAW_SESSIONS_DATA_TABLE_ENGINE = lambda: AggregatingMergeTree(
     TABLE_BASE_NAME, replication_scheme=ReplicationScheme.SHARDED
 )
 
+# The fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)) part is just extracting the timestamp
+# part of a UUID v7.
+# This table is designed to be useful for both very fast recent lookups (e.g. "realtime" dashboards) but also for
+# sampling over longer time periods. I chose toStartOfHour instead of toStartOfDay because it means that queries over
+# very recent data (e.g. the last hour) would only need to scan up to 2 hours of data rather than up to 25 hours.
+#
+# I could have used a smaller interval like toStartOfMinute, but this would reduce the benefit of sampling, as the sampling
+# would not allow use to skip entire granules (which are 8192 rows by default).
+#
+# E.g. if we wanted to sample only 1/Nth of our data, then to read only 1/nth of the data on disk we would want one
+# interval to have GRANULE_SIZE * N rows.
+# Example: For a customer with 1M sessions per day, an interval of 1 hour and a GRANULE_SIZE of 8192, we get a N of
+# 1M / 24 / 8192 = ~5. So we could sample around 1/5th of the data and get around a 5x speedup (probably a bit less in
+# practice). With the same customer, if we used an interval of 1 minute, we would get an N of
+# 1M / 24 / 60 / 8192 = ~0.08. This is <1, so we wouldn't benefit much from sampling.
+
 RAW_SESSIONS_TABLE_SQL = lambda: (
     RAW_SESSIONS_TABLE_BASE_SQL
     + """
-    PARTITION BY toYYYYMM(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000))) -- convert uuidv7 into date
-    ORDER BY (
-        team_id,
-        toStartOfFiveMinutes(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000))), -- choose 5 minutes so realtime can be fast to query, but blocks still big enough to sample on large customers
-        cityHash64(session_id_v7), -- same as SAMPLE
-        session_id_v7
-    )
-    SAMPLE BY cityHash64(session_id_v7)
-    SETTINGS index_granularity=512
+PARTITION BY toYYYYMM(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)))
+ORDER BY (
+    team_id,
+    toStartOfHour(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000))),
+    cityHash64(session_id_v7),
+    session_id_v7
+)
+SAMPLE BY cityHash64(session_id_v7)
 """
 ).format(
     table_name=RAW_SESSIONS_DATA_TABLE(),
@@ -124,7 +139,7 @@ SELECT
 
     [{current_url}] AS urls,
     initializeAggregation('argMinState', {current_url_string}, timestamp) as entry_url,
-    initializeAggregation('argMaxState', {current_url_string}, timestamp) as exit_url,
+    initializeAggregation('argMaxState', {current_url_string}, timestamp) as end_url,
 
     initializeAggregation('argMinState', {referring_domain}, timestamp) as initial_referring_domain,
     initializeAggregation('argMinState', {utm_source}, timestamp) as initial_utm_source,
@@ -196,7 +211,7 @@ SELECT
 
     groupUniqArray({current_url}) AS urls,
     argMinState({current_url_string}, timestamp) as entry_url,
-    argMaxState({current_url_string}, timestamp) as exit_url,
+    argMaxState({current_url_string}, timestamp) as end_url,
 
     argMinState({referring_domain}, timestamp) as initial_referring_domain,
     argMinState({utm_source}, timestamp) as initial_utm_source,
@@ -318,7 +333,7 @@ SELECT
     max(max_timestamp) as max_timestamp,
     arrayDistinct(arrayFlatten(groupArray(urls)) )AS urls,
     argMinMerge(entry_url) as entry_url,
-    argMaxMerge(exit_url) as exit_url,
+    argMaxMerge(end_url) as end_url,
     argMinMerge(initial_utm_source) as initial_utm_source,
     argMinMerge(initial_utm_campaign) as initial_utm_campaign,
     argMinMerge(initial_utm_medium) as initial_utm_medium,

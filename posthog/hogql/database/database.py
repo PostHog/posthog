@@ -50,7 +50,7 @@ from posthog.hogql.database.schema.session_replay_events import (
     RawSessionReplayEventsTable,
     SessionReplayEventsTable,
 )
-from posthog.hogql.database.schema.sessions import RawSessionsTable, SessionsTable
+from posthog.hogql.database.schema.sessions_v1 import RawSessionsTable, SessionsTable
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
 from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_expr

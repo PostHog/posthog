@@ -553,6 +553,12 @@ class PersonsOnEventsMode(str, Enum):
     PERSON_ID_OVERRIDE_PROPERTIES_JOINED = "person_id_override_properties_joined"
 
 
+class SessionTableVersion(str, Enum):
+    AUTO = "auto"
+    V1 = "v1"
+    V2 = "v2"
+
+
 class HogQLQueryModifiers(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -567,6 +573,7 @@ class HogQLQueryModifiers(BaseModel):
     personsJoinMode: Optional[PersonsJoinMode] = None
     personsOnEventsMode: Optional[PersonsOnEventsMode] = None
     s3TableUseInvalidColumns: Optional[bool] = None
+    sessionTableVersion: Optional[SessionTableVersion] = None
 
 
 class HogQueryResponse(BaseModel):

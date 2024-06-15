@@ -5,7 +5,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.hogql.database.schema.sessions import get_lazy_session_table_properties, get_lazy_session_table_values
+from posthog.hogql.database.schema.sessions_v1 import get_lazy_session_table_properties, get_lazy_session_table_values
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
