@@ -10,7 +10,11 @@ const options: FeatureExtractionPipelineOptions = { pooling: 'mean', normalize: 
 
 const errorEmbeddingModel = defaultConfig.ERROR_EVENT_EMBEDDING_MODEL
 
-let featureExtractionPipeline: FeatureExtractionPipeline | null
+let featureExtractionPipeline: FeatureExtractionPipeline | null = null
+
+export function resetEmbeddingModel(): void {
+    featureExtractionPipeline = null
+}
 
 // this downloads the model the first time it is run, so we do this on server start-up
 // we only want to spend the cost of loading the model if we are actually using it
@@ -33,9 +37,13 @@ export async function initEmbeddingModel(
             })
         }
     } catch (e) {
-        status.error('??', 'Error initializing error event embedding model', e)
+        status.error('??', `Error initializing error event embedding model: ${e}`)
     }
     return Promise.resolve(featureExtractionPipeline)
+}
+
+function isValidString(x: unknown): x is string {
+    return typeof x === 'string' && x.trim().length > 0
 }
 
 export async function embedErrorEvent(
@@ -61,8 +69,14 @@ export async function embedErrorEvent(
         let roundedEmbedding: number[] | null = null
         await runInstrumentedFunction({
             func: async () => {
+                const { $exception_type, $exception_message } = event.properties || {}
+
+                if (!isValidString($exception_message)) {
+                    return
+                }
+
                 const output = await featureExtractionPipeline?.(
-                    `${event.properties['$exception_type']}-${event.properties['$exception_message']}`,
+                    `${$exception_type || 'no-type-provided'}-${$exception_message}`,
                     options
                 )
 
@@ -76,7 +90,7 @@ export async function embedErrorEvent(
             event.properties['$embedding'] = roundedEmbedding
         }
     } catch (e) {
-        status.error('💣', 'Error embedding exception event', e)
+        status.error('💣', `Error embedding exception event: ${e}`)
     }
     return Promise.resolve(event)
 }
