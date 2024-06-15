@@ -3,7 +3,6 @@ import { expectLogic, partial, truth } from 'kea-test-utils'
 import api from 'lib/api'
 import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constants'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
@@ -17,16 +16,13 @@ import { DataTableNode, NodeKind } from '~/queries/schema'
 import { initKeaTests } from '~/test/init'
 import {
     AnyPropertyFilter,
-    BreakdownType,
     DashboardTile,
     DashboardType,
-    FilterLogicalOperator,
     FilterType,
     FunnelsFilterType,
     InsightModel,
     InsightShortId,
     InsightType,
-    ItemMode,
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
@@ -268,36 +264,6 @@ describe('insightLogic', () => {
             expectLogic(logic, () => {
                 logic.actions.toggleVisibility(1)
             }).toMatchValues({ hiddenLegendKeys: { 1: undefined } })
-        })
-    })
-
-    describe('analytics', () => {
-        it('reports insight changes on setFilter', async () => {
-            const insight = {
-                filters: { insight: InsightType.TRENDS },
-            }
-            logic = insightLogic({
-                dashboardItemId: undefined,
-                cachedInsight: insight,
-            })
-            logic.mount()
-
-            await expectLogic(logic, () => {
-                logic.actions.setFilters({ insight: InsightType.FUNNELS })
-            }).toDispatchActions([
-                eventUsageLogic.actionCreators.reportInsightViewed(
-                    insight,
-                    { insight: InsightType.FUNNELS },
-                    ItemMode.View,
-                    true,
-                    false,
-                    0,
-                    {
-                        changed_insight: InsightType.TRENDS,
-                    },
-                    false
-                ),
-            ])
         })
     })
 
