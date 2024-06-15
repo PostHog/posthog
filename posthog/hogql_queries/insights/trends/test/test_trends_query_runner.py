@@ -2761,7 +2761,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 None,
                 IntervalType.DAY,
                 [EventsNode(event="$pageview")],
-                TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH, compare=False),
+                TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
                 BreakdownFilter(breakdown="breakdown_value", breakdown_type=BreakdownType.EVENT),
             )
 
