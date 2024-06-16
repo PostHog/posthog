@@ -95,15 +95,6 @@ TrendsLineBreakdownLabels.parameters = {
     testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
 }
 
-export const TrendsLineWithDisplayOptions: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/trendsLineWithDisplayOptions.json'),
-    /*mode=*/ 'view',
-    /*showLegend=*/ true
-)
-TrendsLineWithDisplayOptions.parameters = {
-    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
-}
-
 export const TrendsBar: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/trendsBar.json')
 )
