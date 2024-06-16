@@ -651,13 +651,13 @@ export function LineGraph_({
                     ticks: {
                         display: !hideYAxis,
                         ...tickOptions,
-                        precision,
+                        ...(yAxisScaleType !== 'log10' && { precision }), // Precision is not supported for the log scale
                         callback: (value) => {
                             return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView)
                         },
                     },
                     grid: gridOptions,
-                    type: yAxisScaleType == 'log10' ? 'logarithmic' : 'linear',
+                    type: yAxisScaleType === 'log10' ? 'logarithmic' : 'linear',
                 },
             }
         } else if (isHorizontal) {
