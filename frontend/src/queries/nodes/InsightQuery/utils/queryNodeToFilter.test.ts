@@ -84,6 +84,7 @@ describe('queryNodeToFilter', () => {
                 showValuesOnSeries: true,
                 showLabelsOnSeries: true,
                 showPercentStackView: true,
+                yAxisScaleType: 'log10',
                 // hidden_legend_indexes?: TrendsFilterLegacy['hidden_legend_indexes']
             },
             compareFilter: {
@@ -116,6 +117,7 @@ describe('queryNodeToFilter', () => {
             show_percent_stack_view: true,
             show_legend: true,
             show_values_on_series: true,
+            y_axis_scale_type: 'log10',
         }
         expect(result).toEqual(filters)
     })

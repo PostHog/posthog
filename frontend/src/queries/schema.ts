@@ -696,6 +696,7 @@ export type TrendsFilter = {
     /** @default false */
     showPercentStackView?: TrendsFilterLegacy['show_percent_stack_view']
     hidden_legend_indexes?: TrendsFilterLegacy['hidden_legend_indexes']
+    yAxisScaleType?: TrendsFilterLegacy['y_axis_scale_type']
 }
 
 export const TRENDS_FILTER_PROPERTIES = new Set([
@@ -712,6 +713,7 @@ export const TRENDS_FILTER_PROPERTIES = new Set([
     'showLabelsOnSeries',
     'showPercentStackView',
     'hidden_legend_indexes',
+    'yAxisScaleType',
 ])
 
 export interface TrendsQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}

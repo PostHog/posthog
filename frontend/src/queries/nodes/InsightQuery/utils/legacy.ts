@@ -16,6 +16,7 @@ export const isLegacyTrendsFilter = (filters: Record<string, any> | undefined): 
         'show_labels_on_series',
         'compare',
         'compare_to',
+        'y_axis_scale_type',
     ]
     return legacyKeys.some((key) => key in filters)
 }

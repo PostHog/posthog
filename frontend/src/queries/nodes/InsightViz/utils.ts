@@ -123,6 +123,13 @@ export const supportsPercentStackView = (q: InsightQueryNode | null | undefined)
 export const getShowPercentStackView = (query: InsightQueryNode): boolean | undefined =>
     supportsPercentStackView(query) && (query as TrendsQuery)?.trendsFilter?.showPercentStackView
 
+export const getYAxisScaleType = (query: InsightQueryNode): string | undefined => {
+    if (isTrendsQuery(query)) {
+        return query.trendsFilter?.yAxisScaleType
+    }
+    return undefined
+}
+
 export const getCachedResults = (
     cachedInsight: Partial<InsightModel> | undefined | null,
     query: InsightQueryNode

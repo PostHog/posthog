@@ -1100,6 +1100,7 @@ class TrendsFilter(BaseModel):
     showPercentStackView: Optional[bool] = False
     showValuesOnSeries: Optional[bool] = False
     smoothingIntervals: Optional[int] = 1
+    yAxisScaleType: Optional[str] = None
 
 
 class TrendsFilterLegacy(BaseModel):
@@ -1121,6 +1122,7 @@ class TrendsFilterLegacy(BaseModel):
     show_percent_stack_view: Optional[bool] = None
     show_values_on_series: Optional[bool] = None
     smoothing_intervals: Optional[float] = None
+    y_axis_scale_type: Optional[str] = None
 
 
 class TrendsQueryResponse(BaseModel):

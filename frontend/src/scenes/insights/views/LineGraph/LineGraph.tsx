@@ -238,6 +238,7 @@ export interface LineGraphProps {
     hideXAxis?: boolean
     hideYAxis?: boolean
     legend?: _DeepPartialObject<LegendOptions<ChartType>>
+    yAxisScaleType?: string | null
 }
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
@@ -272,6 +273,7 @@ export function LineGraph_({
     hideXAxis,
     hideYAxis,
     legend = { display: false },
+    yAxisScaleType,
 }: LineGraphProps): JSX.Element {
     let datasets = _datasets
 
@@ -655,6 +657,7 @@ export function LineGraph_({
                         },
                     },
                     grid: gridOptions,
+                    type: yAxisScaleType == 'log10' ? 'logarithmic' : 'linear',
                 },
             }
         } else if (isHorizontal) {

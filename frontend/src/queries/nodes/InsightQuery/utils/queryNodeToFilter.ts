@@ -205,6 +205,7 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         camelCasedTrendsProps.show_percent_stack_view = queryCopy.trendsFilter?.showPercentStackView
         camelCasedTrendsProps.show_legend = queryCopy.trendsFilter?.showLegend
         camelCasedTrendsProps.show_values_on_series = queryCopy.trendsFilter?.showValuesOnSeries
+        camelCasedTrendsProps.y_axis_scale_type = queryCopy.trendsFilter?.yAxisScaleType
         delete queryCopy.trendsFilter?.smoothingIntervals
         delete queryCopy.trendsFilter?.decimalPlaces
         delete queryCopy.trendsFilter?.aggregationAxisFormat
@@ -214,6 +215,7 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         delete queryCopy.trendsFilter?.showPercentStackView
         delete queryCopy.trendsFilter?.showLegend
         delete queryCopy.trendsFilter?.showValuesOnSeries
+        delete queryCopy.trendsFilter?.yAxisScaleType
     } else if (isFunnelsQuery(queryCopy)) {
         camelCasedFunnelsProps.exclusions = queryCopy.funnelsFilter?.exclusions
             ? queryCopy.funnelsFilter.exclusions.map(({ funnelFromStep, funnelToStep, ...rest }, index) => ({

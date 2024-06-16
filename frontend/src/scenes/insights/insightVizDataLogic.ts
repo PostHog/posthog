@@ -26,6 +26,7 @@ import {
     getShowLegend,
     getShowPercentStackView,
     getShowValuesOnSeries,
+    getYAxisScaleType,
     supportsPercentStackView,
 } from '~/queries/nodes/InsightViz/utils'
 import {
@@ -163,6 +164,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         showValuesOnSeries: [(s) => [s.querySource], (q) => (q ? getShowValuesOnSeries(q) : null)],
         showLabelOnSeries: [(s) => [s.querySource], (q) => (q ? getShowLabelsOnSeries(q) : null)],
         showPercentStackView: [(s) => [s.querySource], (q) => (q ? getShowPercentStackView(q) : null)],
+        yAxisScaleType: [(s) => [s.querySource], (q) => (q ? getYAxisScaleType(q) : null)],
         vizSpecificOptions: [(s) => [s.query], (q: Node) => (isInsightVizNode(q) ? q.vizSpecificOptions : null)],
         insightFilter: [(s) => [s.querySource], (q) => (q ? filterForQuery(q) : null)],
         trendsFilter: [(s) => [s.querySource], (q) => (isTrendsQuery(q) ? q.trendsFilter : null)],

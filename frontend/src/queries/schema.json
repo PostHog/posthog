@@ -7977,6 +7977,9 @@
                 "smoothingIntervals": {
                     "default": 1,
                     "type": "integer"
+                },
+                "yAxisScaleType": {
+                    "type": "string"
                 }
             },
             "type": "object"
@@ -8032,6 +8035,9 @@
                 },
                 "smoothing_intervals": {
                     "type": "number"
+                },
+                "y_axis_scale_type": {
+                    "type": "string"
                 }
             },
             "type": "object"
