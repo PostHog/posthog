@@ -356,7 +356,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                                 range(1, length(date) + 1)
                             ),
                             groupArray(total),
-                            arrayWithConstant(length(date), reinterpretAsInt64(0))
+                            arrayWithConstant(length(date), reinterpretAsFloat64(0))
                         ) as total,
                         if(row_number >= {breakdown_limit}, {other}, breakdown_value) as breakdown_value
                     FROM {outer_query}
