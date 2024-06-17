@@ -20,6 +20,13 @@ COULD_NOT_DECOMPRESS_VALUE_COUNTER = Counter(
     """,
 )
 
+USING_ZLIB_VALUE_COUNTER = Counter(
+    "posthog_redis_using_zlib_value_counter",
+    """
+    A counter to track cache keys that are still being decompressed with (deprecated) zlib
+    """,
+)
+
 
 class TolerantZlibCompressor(BaseCompressor):
     """
@@ -46,7 +53,9 @@ class TolerantZlibCompressor(BaseCompressor):
             try:
                 return zstd.decompress(value)
             except zstd.Error:
-                return zlib.decompress(value)  # Phasing out zlib, it is 10x slower and compresses worse
+                r = zlib.decompress(value)  # Phasing out zlib, it is 10x slower and compresses worse
+                USING_ZLIB_VALUE_COUNTER.inc()
+                return r
         except zlib.error:
             if settings.USE_REDIS_COMPRESSION:
                 COULD_NOT_DECOMPRESS_VALUE_COUNTER.inc()
