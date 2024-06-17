@@ -1,49 +1,44 @@
-import { afterMount, kea, path } from 'kea'
-import { loaders } from 'kea-loaders'
-import api from 'lib/api'
+import { actions, kea, path, reducers } from 'kea'
+import { UniversalFiltersGroup } from 'lib/components/UniversalFilters/UniversalFilters'
 
-import { HogQLQuery, NodeKind } from '~/queries/schema'
-import { hogql } from '~/queries/utils'
-import { ErrorTrackingGroup } from '~/types'
+import { DateRange, ErrorTrackingOrder } from '~/queries/schema'
+import { FilterLogicalOperator } from '~/types'
 
 import type { errorTrackingSceneLogicType } from './errorTrackingSceneLogicType'
 
 export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
     path(['scenes', 'error-tracking', 'errorTrackingSceneLogic']),
 
-    loaders(() => ({
-        errorGroups: [
-            [] as ErrorTrackingGroup[],
+    actions({
+        setDateRange: (dateRange: DateRange) => ({ dateRange }),
+        setOrder: (order: ErrorTrackingOrder) => ({ order }),
+        setFilterGroup: (filterGroup: UniversalFiltersGroup) => ({ filterGroup }),
+        setFilterTestAccounts: (filterTestAccounts: boolean) => ({ filterTestAccounts }),
+    }),
+    reducers({
+        dateRange: [
+            { date_from: '-7d', date_to: null } as DateRange,
             {
-                loadErrorGroups: async () => {
-                    const query: HogQLQuery = {
-                        kind: NodeKind.HogQLQuery,
-                        query: hogql`SELECT first_value(properties), count(), count(distinct e.$session_id), count(distinct e.distinct_id)
-                                FROM events e
-                                WHERE event = '$exception'
-                                -- grouping by message for now, will eventually be predefined $exception_group_id
-                                GROUP BY e.properties.$exception_type`,
-                    }
-
-                    const res = await api.query(query)
-
-                    return res.results.map((r) => {
-                        const eventProperties = JSON.parse(r[0])
-                        return {
-                            id: eventProperties['$exception_type'],
-                            title: eventProperties['$exception_type'] || 'Error',
-                            description: eventProperties['$exception_message'],
-                            occurrences: r[1],
-                            uniqueSessions: r[2],
-                            uniqueUsers: r[3],
-                        }
-                    })
-                },
+                setDateRange: (_, { dateRange }) => dateRange,
             },
         ],
-    })),
-
-    afterMount(({ actions }) => {
-        actions.loadErrorGroups()
+        order: [
+            'last_seen' as ErrorTrackingOrder,
+            {
+                setOrder: (_, { order }) => order,
+            },
+        ],
+        filterGroup: [
+            { type: FilterLogicalOperator.And, values: [] } as UniversalFiltersGroup,
+            {
+                setFilterGroup: (_, { filterGroup }) => filterGroup,
+            },
+        ],
+        filterTestAccounts: [
+            false as boolean,
+            {
+                setFilterTestAccounts: (_, { filterTestAccounts }) => filterTestAccounts,
+            },
+        ],
     }),
 ])

@@ -121,7 +121,7 @@ const RecordingsUniversalFilterGroup = (): JSX.Element => {
                 return isUniversalGroupFilterLike(filterOrGroup) ? (
                     <UniversalFilters.Group key={index} index={index} group={filterOrGroup}>
                         <RecordingsUniversalFilterGroup />
-                        <UniversalFilters.AddFilterButton />
+                        <UniversalFilters.AddFilterButton size="small" type="secondary" />
                     </UniversalFilters.Group>
                 ) : (
                     <UniversalFilters.Value
