@@ -41,7 +41,7 @@ export const EventSelect = ({ onChange, selectedEvents, addElement }: EventSelec
                             handleChange(value as string)
                             setOpen(false)
                         }}
-                        taxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
+                        taxonomicGroupTypes={[TaxonomicFilterGroupType.CustomEvents]}
                     />
                 }
             >
