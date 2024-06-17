@@ -125,7 +125,7 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
                                         title: 'Timestamp',
                                         key: 'timestamp',
                                         dataIndex: 'timestamp',
-                                        render: (timestamp) => <TZLabel time={timestamp} />,
+                                        render: (timestamp) => <TZLabel time={timestamp as string} />,
                                         width: 0,
                                     },
                                     {
