@@ -21,7 +21,7 @@ from posthog.hogql.database.schema.person_distinct_ids import (
 )
 from datetime import datetime
 
-from posthog.hogql.database.schema.sessions_v1 import SessionsTable, select_from_sessions_table
+from posthog.hogql.database.schema.sessions_v1 import SessionsTableV1, select_from_sessions_table
 from posthog.hogql.errors import ResolutionError
 
 
@@ -177,7 +177,7 @@ SESSION_REPLAY_EVENTS_COMMON_FIELDS: dict[str, FieldOrTable] = {
     "person_id": FieldTraverser(chain=["pdi", "person_id"]),
     "session": LazyJoin(
         from_field=["session_id"],
-        join_table=SessionsTable(),
+        join_table=SessionsTableV1(),
         join_function=join_replay_table_to_sessions_table,
     ),
 }

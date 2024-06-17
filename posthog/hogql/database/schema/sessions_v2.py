@@ -18,7 +18,7 @@ from posthog.hogql.database.models import (
     LazyJoinToAdd,
 )
 from posthog.hogql.database.schema.channel_type import create_channel_type_expr, POSSIBLE_CHANNEL_TYPES
-from posthog.hogql.database.schema.util.where_clause_extractor import SessionMinTimestampWhereClauseExtractor
+from posthog.hogql.database.schema.util.where_clause_extractor import SessionMinTimestampWhereClauseExtractorV2
 from posthog.hogql.errors import ResolutionError
 from posthog.models.property_definition import PropertyType
 from posthog.models.sessions.sql import (
@@ -31,9 +31,9 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 
 RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
-    "id": StringDatabaseField(name="session_id"),
-    # TODO remove this, it's a duplicate of the correct session_id field below to get some trends working on a deadline
+    "id": StringDatabaseField(name="id"),
     "session_id": StringDatabaseField(name="session_id"),
+    "session_id_v7": IntegerDatabaseField(name="session_id_v7"),
     "team_id": IntegerDatabaseField(name="team_id"),
     "distinct_id": StringDatabaseField(name="distinct_id"),
     "min_timestamp": DateTimeDatabaseField(name="min_timestamp"),
@@ -41,7 +41,7 @@ RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "urls": StringArrayDatabaseField(name="urls"),
     # many of the fields in the raw tables are AggregateFunction state, rather than simple types
     "entry_url": DatabaseField(name="entry_url"),
-    "end": DatabaseField(name="end"),
+    "end_url": DatabaseField(name="end_url"),
     "initial_utm_source": DatabaseField(name="initial_utm_source"),
     "initial_utm_campaign": DatabaseField(name="initial_utm_campaign"),
     "initial_utm_medium": DatabaseField(name="initial_utm_medium"),
@@ -56,9 +56,10 @@ RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
 }
 
 LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
-    "id": StringDatabaseField(name="session_id"),
-    # TODO remove this, it's a duplicate of the correct session_id field below to get some trends working on a deadline
+    "id": StringDatabaseField(name="id"),
+    # # TODO remove this, it's a duplicate of the correct session_id field below to get some trends working on a deadline
     "session_id": StringDatabaseField(name="session_id"),
+    "session_id_v7": IntegerDatabaseField(name="session_id_v7"),
     "team_id": IntegerDatabaseField(name="team_id"),
     "distinct_id": StringDatabaseField(name="distinct_id"),
     "$start_timestamp": DateTimeDatabaseField(name="$start_timestamp"),
@@ -67,8 +68,8 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "$num_uniq_urls": IntegerDatabaseField(name="$num_uniq_urls"),
     "$entry_current_url": StringDatabaseField(name="$entry_current_url"),
     "$entry_pathname": StringDatabaseField(name="$entry_pathname"),
-    "$exit_current_url": StringDatabaseField(name="$exit_current_url"),
-    "$exit_pathname": StringDatabaseField(name="$exit_pathname"),
+    "$end_current_url": StringDatabaseField(name="$end_current_url"),
+    "$end_pathname": StringDatabaseField(name="$end_pathname"),
     "$entry_utm_source": StringDatabaseField(name="$entry_utm_source"),
     "$entry_utm_campaign": StringDatabaseField(name="$entry_utm_campaign"),
     "$entry_utm_medium": StringDatabaseField(name="$entry_utm_medium"),
@@ -77,9 +78,9 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "$entry_referring_domain": StringDatabaseField(name="$entry_referring_domain"),
     "$entry_gclid": StringDatabaseField(name="$entry_gclid"),
     "$entry_gad_source": StringDatabaseField(name="$entry_gad_source"),
-    "$event_count_map": DatabaseField(name="$event_count_map"),
     "$pageview_count": IntegerDatabaseField(name="$pageview_count"),
     "$autocapture_count": IntegerDatabaseField(name="$autocapture_count"),
+    "$screen_count": IntegerDatabaseField(name="$screen_count"),
     "$channel_type": StringDatabaseField(name="$channel_type"),
     "$session_duration": IntegerDatabaseField(name="$session_duration"),
     "duration": IntegerDatabaseField(
@@ -89,20 +90,23 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
 }
 
 
-class RawSessionsTable(Table):
+class RawSessionsTableV2(Table):
     fields: dict[str, FieldOrTable] = RAW_SESSIONS_FIELDS
 
     def to_printed_clickhouse(self, context):
-        return "sessions"
+        return "raw_sessions"
 
     def to_printed_hogql(self):
         return "raw_sessions"
 
     def avoid_asterisk_fields(self) -> list[str]:
-        # our clickhouse driver can't return aggregate states
         return [
+            # these are discouraged from being used in queries, use session_id_v7 instead
+            "id",
+            "session_id",
+            # our clickhouse driver can't return aggregate states
             "entry_url",
-            "exit_url",
+            "end_url",
             "initial_utm_source",
             "initial_utm_campaign",
             "initial_utm_medium",
@@ -122,8 +126,8 @@ def select_from_sessions_table(
     table_name = "raw_sessions"
 
     # Always include "session_id", as it's the key we use to make further joins, and it'd be great if it's available
-    if "session_id" not in requested_fields:
-        requested_fields = {**requested_fields, "session_id": ["session_id"]}
+    if "session_id_v7" not in requested_fields:
+        requested_fields = {**requested_fields, "session_id_v7": ["session_id_v7"]}
 
     def arg_min_merge_field(field_name: str) -> ast.Call:
         return ast.Call(
@@ -144,7 +148,30 @@ def select_from_sessions_table(
         )
 
     aggregate_fields: dict[str, ast.Expr] = {
-        "distinct_id": ast.Call(name="any", args=[ast.Field(chain=[table_name, "distinct_id"])]),
+        "session_id": ast.Call(
+            name="toString",
+            args=[
+                ast.Call(
+                    name="reinterpretAsUUID",
+                    args=[
+                        ast.Call(
+                            name="bitOr",
+                            args=[
+                                ast.Call(
+                                    name="bitShiftLeft",
+                                    args=[ast.Field(chain=[table_name, "session_id_v7"]), ast.Constant(value=64)],
+                                ),
+                                ast.Call(
+                                    name="bitShiftRight",
+                                    args=[ast.Field(chain=[table_name, "session_id_v7"]), ast.Constant(value=64)],
+                                ),
+                            ],
+                        )
+                    ],
+                )
+            ],
+        ),  # try not to use this, prefer to use session_id_v7
+        "distinct_id": arg_max_merge_field("distinct_id"),
         "$start_timestamp": ast.Call(name="min", args=[ast.Field(chain=[table_name, "min_timestamp"])]),
         "$end_timestamp": ast.Call(name="max", args=[ast.Field(chain=[table_name, "max_timestamp"])]),
         "$urls": ast.Call(
@@ -157,7 +184,7 @@ def select_from_sessions_table(
             ],
         ),
         "$entry_current_url": arg_min_merge_field("entry_url"),
-        "$exit_current_url": arg_max_merge_field("exit_url"),
+        "$end_current_url": arg_max_merge_field("end_url"),
         "$entry_utm_source": arg_min_merge_field("initial_utm_source"),
         "$entry_utm_campaign": arg_min_merge_field("initial_utm_campaign"),
         "$entry_utm_medium": arg_min_merge_field("initial_utm_medium"),
@@ -167,17 +194,20 @@ def select_from_sessions_table(
         "$entry_gclid": arg_min_merge_field("initial_gclid"),
         "$entry_gad_source": arg_min_merge_field("initial_gad_source"),
         "$pageview_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "pageview_count"])]),
+        "$screen_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "screen_count"])]),
         "$autocapture_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "autocapture_count"])]),
     }
+    # Alias
+    aggregate_fields["id"] = aggregate_fields["session_id"]
     # Some fields are calculated from others. It'd be good to actually deduplicate common sub expressions in SQL, but
     # for now just remove the duplicate definitions from the code
     aggregate_fields["$entry_pathname"] = ast.Call(
         name="path",
         args=[aggregate_fields["$entry_current_url"]],
     )
-    aggregate_fields["$exit_pathname"] = ast.Call(
+    aggregate_fields["$end_pathname"] = ast.Call(
         name="path",
-        args=[aggregate_fields["$exit_current_url"]],
+        args=[aggregate_fields["$end_current_url"]],
     )
     aggregate_fields["$session_duration"] = ast.Call(
         name="dateDiff",
@@ -233,7 +263,7 @@ def select_from_sessions_table(
     )
 
     select_fields: list[ast.Expr] = []
-    group_by_fields: list[ast.Expr] = [ast.Field(chain=[table_name, "session_id"])]
+    group_by_fields: list[ast.Expr] = [ast.Field(chain=[table_name, "session_id_v7"])]
 
     for name, chain in requested_fields.items():
         if name in aggregate_fields:
@@ -244,7 +274,7 @@ def select_from_sessions_table(
             )
             group_by_fields.append(ast.Field(chain=cast(list[str | int], [table_name]) + chain))
 
-    where = SessionMinTimestampWhereClauseExtractor(context).get_inner_where(node)
+    where = SessionMinTimestampWhereClauseExtractorV2(context).get_inner_where(node)
 
     return ast.SelectQuery(
         select=select_fields,
@@ -254,7 +284,7 @@ def select_from_sessions_table(
     )
 
 
-class SessionsTable(LazyTable):
+class SessionsTableV2(LazyTable):
     fields: dict[str, FieldOrTable] = LAZY_SESSIONS_FIELDS
 
     def lazy_select(
@@ -273,11 +303,12 @@ class SessionsTable(LazyTable):
 
     def avoid_asterisk_fields(self) -> list[str]:
         return [
-            "duration",  # alias of $session_duration, deprecated but included for backwards compatibility
+            # alias of $session_duration, deprecated but included for backwards compatibility
+            "duration",
         ]
 
 
-def join_events_table_to_sessions_table(
+def join_events_table_to_sessions_table_v2(
     join_to_add: LazyJoinToAdd, context: HogQLContext, node: ast.SelectQuery
 ) -> ast.JoinExpr:
     from posthog.hogql import ast
@@ -291,8 +322,11 @@ def join_events_table_to_sessions_table(
     join_expr.constraint = ast.JoinConstraint(
         expr=ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=[join_to_add.from_table, "$session_id"]),
-            right=ast.Field(chain=[join_to_add.to_table, "session_id"]),
+            left=ast.Call(
+                name="_toUInt128",
+                args=[ast.Call(name="toUUID", args=[ast.Field(chain=[join_to_add.from_table, "$session_id"])])],
+            ),
+            right=ast.Field(chain=[join_to_add.to_table, "session_id_v7"]),
         ),
         constraint_type="ON",
     )
@@ -374,7 +408,7 @@ SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR_MAP = {
     "$entry_igshid": "finalizeAggregation(initial_igshid)",
     "$entry_ttclid": "finalizeAggregation(initial_ttclid)",
     "$entry_current_url": "finalizeAggregation(entry_url)",
-    "$exit_current_url": "finalizeAggregation(exit_url)",
+    "$end_current_url": "finalizeAggregation(end_url)",
 }
 
 

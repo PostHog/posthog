@@ -14,7 +14,7 @@ from posthog.test.base import (
 )
 
 
-class TestReferringDomainType(ClickhouseTestMixin, APIBaseTest):
+class TestSessionsV1(ClickhouseTestMixin, APIBaseTest):
     def test_select_star(self):
         session_id = "session_test_select_star"
 

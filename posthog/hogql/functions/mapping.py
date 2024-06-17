@@ -384,8 +384,11 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "reinterpretAsInt256": HogQLFunctionMeta("reinterpretAsInt256", 1, 1),
     "reinterpretAsFloat32": HogQLFunctionMeta("reinterpretAsFloat32", 1, 1),
     "reinterpretAsFloat64": HogQLFunctionMeta("reinterpretAsFloat64", 1, 1),
+    "reinterpretAsUUID": HogQLFunctionMeta("reinterpretAsUUID", 1, 1),
     "toInt": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Int64")]),
     "_toInt64": HogQLFunctionMeta("toInt64", 1, 1),
+    "_toUInt64": HogQLFunctionMeta("toUInt64", 1, 1),
+    "_toUInt128": HogQLFunctionMeta("toUInt128", 1, 1),
     "toFloat": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Float64")]),
     "toDecimal": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Decimal64")]),
     "toDate": HogQLFunctionMeta(

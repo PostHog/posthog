@@ -18,7 +18,7 @@ from posthog.hogql.database.models import (
     LazyJoinToAdd,
 )
 from posthog.hogql.database.schema.channel_type import create_channel_type_expr, POSSIBLE_CHANNEL_TYPES
-from posthog.hogql.database.schema.util.where_clause_extractor import SessionMinTimestampWhereClauseExtractor
+from posthog.hogql.database.schema.util.where_clause_extractor import SessionMinTimestampWhereClauseExtractorV1
 from posthog.hogql.errors import ResolutionError
 from posthog.models.property_definition import PropertyType
 from posthog.models.sessions.sql import (
@@ -90,7 +90,7 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
 }
 
 
-class RawSessionsTable(Table):
+class RawSessionsTableV1(Table):
     fields: dict[str, FieldOrTable] = RAW_SESSIONS_FIELDS
 
     def to_printed_clickhouse(self, context):
@@ -252,7 +252,7 @@ def select_from_sessions_table(
             )
             group_by_fields.append(ast.Field(chain=cast(list[str | int], [table_name]) + chain))
 
-    where = SessionMinTimestampWhereClauseExtractor(context).get_inner_where(node)
+    where = SessionMinTimestampWhereClauseExtractorV1(context).get_inner_where(node)
 
     return ast.SelectQuery(
         select=select_fields,
@@ -262,7 +262,7 @@ def select_from_sessions_table(
     )
 
 
-class SessionsTable(LazyTable):
+class SessionsTableV1(LazyTable):
     fields: dict[str, FieldOrTable] = LAZY_SESSIONS_FIELDS
 
     def lazy_select(

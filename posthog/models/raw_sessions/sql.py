@@ -243,7 +243,7 @@ SELECT
     false as has_session_replay
 FROM {database}.sharded_events
 WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7
-GROUP BY `$session_id`, team_id
+GROUP BY session_id_v7, team_id
 """.format(
         database=settings.CLICKHOUSE_DATABASE,
         current_url=source_url_column("$current_url"),

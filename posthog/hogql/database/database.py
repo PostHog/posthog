@@ -1,6 +1,10 @@
 import dataclasses
+<<<<<<< HEAD
 from typing import TYPE_CHECKING, Any, ClassVar, Optional, TypeAlias, cast
 from collections.abc import Callable
+=======
+from typing import TYPE_CHECKING, Any, ClassVar, Optional, TypeAlias, cast, Union
+>>>>>>> dff53c11a4 (WIP wire up sessions table V2)
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import ConfigDict, BaseModel
 from sentry_sdk import capture_exception
@@ -50,7 +54,12 @@ from posthog.hogql.database.schema.session_replay_events import (
     RawSessionReplayEventsTable,
     SessionReplayEventsTable,
 )
-from posthog.hogql.database.schema.sessions_v1 import RawSessionsTable, SessionsTable
+from posthog.hogql.database.schema.sessions_v1 import RawSessionsTableV1, SessionsTableV1
+from posthog.hogql.database.schema.sessions_v2 import (
+    SessionsTableV2,
+    RawSessionsTableV2,
+    join_events_table_to_sessions_table_v2,
+)
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
 from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_expr
@@ -67,6 +76,7 @@ from posthog.schema import (
     HogQLQuery,
     HogQLQueryModifiers,
     PersonsOnEventsMode,
+    SessionTableVersion,
 )
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
@@ -96,7 +106,7 @@ class Database(BaseModel):
     log_entries: LogEntriesTable = LogEntriesTable()
     console_logs_log_entries: ReplayConsoleLogsLogEntriesTable = ReplayConsoleLogsLogEntriesTable()
     batch_export_log_entries: BatchExportLogEntriesTable = BatchExportLogEntriesTable()
-    sessions: SessionsTable = SessionsTable()
+    sessions: Union[SessionsTableV1, SessionsTableV2] = SessionsTableV1()
     heatmaps: HeatmapsTable = HeatmapsTable()
 
     raw_session_replay_events: RawSessionReplayEventsTable = RawSessionReplayEventsTable()
@@ -105,7 +115,7 @@ class Database(BaseModel):
     raw_groups: RawGroupsTable = RawGroupsTable()
     raw_cohort_people: RawCohortPeople = RawCohortPeople()
     raw_person_distinct_id_overrides: RawPersonDistinctIdOverridesTable = RawPersonDistinctIdOverridesTable()
-    raw_sessions: RawSessionsTable = RawSessionsTable()
+    raw_sessions: Union[RawSessionsTableV1, RawSessionsTableV2] = RawSessionsTableV1()
 
     # system tables
     numbers: NumbersTable = NumbersTable()
@@ -231,6 +241,15 @@ def create_hogql_database(
             from_field=["person_id"],
             join_table=PersonsTable(),
             join_function=join_with_persons_table,
+        )
+
+    if modifiers.sessionTableVersion in [SessionTableVersion.V2, SessionTableVersion.AUTO] or True:
+        database.sessions = SessionsTableV2()
+        database.raw_sessions = RawSessionsTableV2()
+        database.events.fields["session"] = LazyJoin(
+            from_field=["$session_id"],
+            join_table=SessionsTableV2(),
+            join_function=join_events_table_to_sessions_table_v2,
         )
 
     database.persons.fields["$virt_initial_referring_domain_type"] = create_initial_domain_type(

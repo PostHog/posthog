@@ -3,7 +3,7 @@ from typing import Union, Optional
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.schema.util.where_clause_extractor import SessionMinTimestampWhereClauseExtractor
+from posthog.hogql.database.schema.util.where_clause_extractor import SessionMinTimestampWhereClauseExtractorV1
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select, parse_expr
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
@@ -40,7 +40,7 @@ class TestSessionWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
             enable_select_queries=True,
             modifiers=modifiers,
         )
-        return SessionMinTimestampWhereClauseExtractor(context)
+        return SessionMinTimestampWhereClauseExtractorV1(context)
 
     def test_handles_select_with_no_where_claus(self):
         inner_where = self.inliner.get_inner_where(parse("SELECT * FROM sessions"))
