@@ -480,8 +480,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                             },
                                         ],
                                         trendsFilter: {
-                                            compare,
                                             display: ChartDisplayType.ActionsLineGraph,
+                                        },
+                                        compareFilter: {
+                                            compare: compare,
                                         },
                                         filterTestAccounts: true,
                                         properties: webAnalyticsFilters,
@@ -513,8 +515,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                             },
                                         ],
                                         trendsFilter: {
-                                            compare,
                                             display: ChartDisplayType.ActionsLineGraph,
+                                        },
+                                        compareFilter: {
+                                            compare: compare,
                                         },
                                         filterTestAccounts: true,
                                         properties: webAnalyticsFilters,
@@ -546,8 +550,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                             },
                                         ],
                                         trendsFilter: {
-                                            compare,
                                             display: ChartDisplayType.ActionsLineGraph,
+                                        },
+                                        compareFilter: {
+                                            compare: compare,
                                         },
                                         filterTestAccounts: true,
                                         properties: webAnalyticsFilters,

@@ -1738,6 +1738,18 @@
             "required": ["key", "type", "value"],
             "type": "object"
         },
+        "CompareFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "compare": {
+                    "type": "boolean"
+                },
+                "compare_to": {
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
         "CountPerActorMathType": {
             "enum": [
                 "avg_count_per_actor",
@@ -2811,6 +2823,10 @@
         },
         "EntityType": {
             "enum": ["actions", "events", "data_warehouse", "new_entity"],
+            "type": "string"
+        },
+        "ErrorTrackingOrder": {
+            "enum": ["last_seen", "first_seen", "unique_occurrences", "unique_users", "unique_sessions"],
             "type": "string"
         },
         "EventDefinition": {
@@ -7596,6 +7612,9 @@
                 "compare": {
                     "type": "boolean"
                 },
+                "compare_to": {
+                    "type": "string"
+                },
                 "display": {
                     "$ref": "#/definitions/ChartDisplayType"
                 },
@@ -7617,6 +7636,10 @@
         "StickinessQuery": {
             "additionalProperties": false,
             "properties": {
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter",
+                    "description": "Compare to date range"
+                },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
                     "description": "Date range for the query"
@@ -7945,10 +7968,6 @@
                 "breakdown_histogram_bin_count": {
                     "type": "number"
                 },
-                "compare": {
-                    "default": false,
-                    "type": "boolean"
-                },
                 "decimalPlaces": {
                     "type": "number"
                 },
@@ -8006,6 +8025,9 @@
                 "compare": {
                     "type": "boolean"
                 },
+                "compare_to": {
+                    "type": "string"
+                },
                 "decimal_places": {
                     "type": "number"
                 },
@@ -8049,6 +8071,10 @@
                 "breakdownFilter": {
                     "$ref": "#/definitions/BreakdownFilter",
                     "description": "Breakdown of the events and actions"
+                },
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter",
+                    "description": "Compare to date range"
                 },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",

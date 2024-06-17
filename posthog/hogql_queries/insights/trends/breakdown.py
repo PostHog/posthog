@@ -22,6 +22,11 @@ BREAKDOWN_NULL_STRING_LABEL = "$$_posthog_breakdown_null_$$"
 BREAKDOWN_OTHER_DISPLAY = "Other (i.e. all remaining values)"
 BREAKDOWN_NULL_DISPLAY = "None (i.e. no value)"
 
+BREAKDOWN_OTHER_STRING_LABEL = "$$_posthog_breakdown_other_$$"
+BREAKDOWN_NULL_STRING_LABEL = "$$_posthog_breakdown_null_$$"
+BREAKDOWN_OTHER_DISPLAY = "Other (i.e. all remaining values)"
+BREAKDOWN_NULL_DISPLAY = "None (i.e. no value)"
+
 
 def hogql_to_string(expr: ast.Expr) -> ast.Call:
     return ast.Call(name="toString", args=[expr])
