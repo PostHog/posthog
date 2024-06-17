@@ -26,7 +26,6 @@ import {
     RecordingDurationFilter,
     RecordingFilters,
     RecordingUniversalFilters,
-    ReplayTabs,
     SessionRecordingId,
     SessionRecordingsResponse,
     SessionRecordingType,
@@ -35,6 +34,7 @@ import {
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
 import type { sessionRecordingsPlaylistLogicType } from './sessionRecordingsPlaylistLogicType'
+import { sessionRecordingsDataLogic } from '../sessionRecordingsDataLogic'
 
 export type PersonUUID = string
 export type SessionOrderingType = DurationType | 'start_time' | 'console_error_count'
@@ -179,7 +179,6 @@ export interface SessionRecordingPlaylistLogicProps {
     onFiltersChange?: (filters: RecordingFilters) => void
     pinnedRecordings?: (SessionRecordingType | string)[]
     onPinnedChange?: (recording: SessionRecordingType, pinned: boolean) => void
-    currentTab?: ReplayTabs
 }
 
 export interface SessionSummaryResponse {
@@ -194,12 +193,15 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         (props: SessionRecordingPlaylistLogicProps) =>
             `${props.logicKey}-${props.personUUID}-${props.updateSearchParams ? '-with-search' : ''}`
     ),
-    connect({
+
+    connect(() => ({
         actions: [
             eventUsageLogic,
             ['reportRecordingsListFetched', 'reportRecordingsListFilterAdded'],
             sessionRecordingsListPropertiesLogic,
             ['maybeLoadPropertiesForSessions'],
+            // sessionRecordingsDataLogic(props),
+            // [],
         ],
         values: [
             featureFlagLogic,
@@ -207,7 +209,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             playerSettingsLogic,
             ['autoplayDirection', 'hideViewedRecordings'],
         ],
-    }),
+    })),
+
     actions({
         setUniversalFilters: (filters: Partial<RecordingUniversalFilters>) => ({ filters }),
         setAdvancedFilters: (filters: Partial<RecordingFilters>) => ({ filters }),
@@ -227,7 +230,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         loadNext: true,
         loadPrev: true,
         toggleShowOtherRecordings: (show?: boolean) => ({ show }),
-        toggleRecordingsListCollapsed: (override?: boolean) => ({ override }),
     }),
     propsChanged(({ actions, props }, oldProps) => {
         if (!objectsEqual(props.advancedFilters, oldProps.advancedFilters)) {
@@ -512,13 +514,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 setSimpleFilters: () => false,
                 loadNext: () => false,
                 loadPrev: () => false,
-            },
-        ],
-        isRecordingsListCollapsed: [
-            false,
-            { persist: true },
-            {
-                toggleRecordingsListCollapsed: (state, { override }) => override ?? !state,
             },
         ],
     })),

@@ -5,11 +5,8 @@ import { LemonButton, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { range } from 'd3'
 import { BindLogic, useActions, useValues } from 'kea'
-import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { Resizer } from 'lib/components/Resizer/Resizer'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconChevronRight, IconWithCount } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
@@ -25,7 +22,6 @@ import { ReplayTabs, SessionRecordingType } from '~/types'
 
 import { RecordingsUniversalFilters } from '../filters/RecordingsUniversalFilters'
 import { SessionRecordingsFilters } from '../filters/SessionRecordingsFilters'
-import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { SessionRecordingPreview, SessionRecordingPreviewSkeleton } from './SessionRecordingPreview'
 import {
     DEFAULT_RECORDING_FILTERS,
@@ -35,6 +31,7 @@ import {
 } from './sessionRecordingsPlaylistLogic'
 import { SessionRecordingsPlaylistSettings } from './SessionRecordingsPlaylistSettings'
 import { SessionRecordingsPlaylistTroubleshooting } from './SessionRecordingsPlaylistTroubleshooting'
+import { Playlist } from 'lib/components/Playlist/Playlist'
 
 const SCROLL_TRIGGER_OFFSET = 100
 
@@ -117,7 +114,6 @@ function RecordingsLists(): JSX.Element {
         logicProps,
         showOtherRecordings,
         recordingsCount,
-        isRecordingsListCollapsed,
         sessionSummaryLoading,
         useUniversalFiltering,
     } = useValues(sessionRecordingsPlaylistLogic)
@@ -172,11 +168,7 @@ function RecordingsLists(): JSX.Element {
 
     const notebookNode = useNotebookNode()
 
-    return isRecordingsListCollapsed ? (
-        <div className="flex items-start h-full bg-bg-light border-r p-1">
-            <LemonButton size="small" icon={<IconChevronRight />} onClick={() => toggleRecordingsListCollapsed()} />
-        </div>
-    ) : (
+    return (
         <div className="flex flex-col w-full bg-bg-light overflow-hidden border-r h-full">
             <DraggableToNotebook href={urls.replay(ReplayTabs.Recent, filters)}>
                 <div className="shrink-0 relative flex justify-between items-center p-1 gap-1 whitespace-nowrap border-b">
@@ -348,22 +340,8 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
         ...props,
         autoPlay: props.autoPlay ?? true,
     }
-    const playlistRecordingsListRef = useRef<HTMLDivElement>(null)
     const logic = sessionRecordingsPlaylistLogic(logicProps)
-    const {
-        activeSessionRecording,
-        activeSessionRecordingId,
-        matchingEventsMatchType,
-        pinnedRecordings,
-        isRecordingsListCollapsed,
-        useUniversalFiltering,
-    } = useValues(logic)
-    const { toggleRecordingsListCollapsed } = useActions(logic)
-
-    const { ref: playlistRef, size } = useResizeBreakpoints({
-        0: 'small',
-        750: 'medium',
-    })
+    const { useUniversalFiltering } = useValues(logic)
 
     const notebookNode = useNotebookNode()
 
@@ -371,64 +349,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
         <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
             <div className="h-full space-y-2">
                 {useUniversalFiltering && <RecordingsUniversalFilters />}
-
-                <div
-                    ref={playlistRef}
-                    data-attr="session-recordings-playlist"
-                    className={clsx('SessionRecordingsPlaylist', {
-                        'SessionRecordingsPlaylist--wide': size !== 'small',
-                        'SessionRecordingsPlaylist--embedded': notebookNode,
-                    })}
-                >
-                    <div
-                        ref={playlistRecordingsListRef}
-                        className={clsx(
-                            'SessionRecordingsPlaylist__list',
-                            isRecordingsListCollapsed && 'SessionRecordingsPlaylist__list--collapsed'
-                        )}
-                    >
-                        <RecordingsLists />
-                        <Resizer
-                            logicKey="player-recordings-list"
-                            placement="right"
-                            containerRef={playlistRecordingsListRef}
-                            closeThreshold={100}
-                            onToggleClosed={(shouldBeClosed) => toggleRecordingsListCollapsed(shouldBeClosed)}
-                            onDoubleClick={() => toggleRecordingsListCollapsed()}
-                        />
-                    </div>
-                    <div className="SessionRecordingsPlaylist__player">
-                        {!activeSessionRecordingId ? (
-                            <div className="mt-20">
-                                <EmptyMessage
-                                    title="No recording selected"
-                                    description="Please select a recording from the list on the left"
-                                    buttonText="Learn more about recordings"
-                                    buttonTo="https://posthog.com/docs/user-guides/recordings"
-                                />
-                            </div>
-                        ) : (
-                            <SessionRecordingPlayer
-                                playerKey={props.logicKey ?? 'playlist'}
-                                sessionRecordingId={activeSessionRecordingId}
-                                matchingEventsMatchType={matchingEventsMatchType}
-                                playlistLogic={logic}
-                                noBorder
-                                pinned={!!pinnedRecordings.find((x) => x.id === activeSessionRecordingId)}
-                                setPinned={
-                                    props.onPinnedChange
-                                        ? (pinned) => {
-                                              if (!activeSessionRecording?.id) {
-                                                  return
-                                              }
-                                              props.onPinnedChange?.(activeSessionRecording, pinned)
-                                          }
-                                        : undefined
-                                }
-                            />
-                        )}
-                    </div>
-                </div>
+                <Playlist embedded={!!notebookNode} />
             </div>
         </BindLogic>
     )
