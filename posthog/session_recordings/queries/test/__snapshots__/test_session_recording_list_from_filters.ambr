@@ -33,7 +33,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_action_filter.1
@@ -70,7 +71,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_action_filter.2
@@ -107,7 +109,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_action_filter.3
@@ -144,7 +147,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_all_filters_at_once
@@ -195,7 +199,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_any_event_filter_with_properties
@@ -232,7 +237,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_any_event_filter_with_properties.1
@@ -269,7 +275,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_any_event_filter_with_properties.2
@@ -306,7 +313,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_any_event_filter_with_properties_materialized
@@ -343,7 +351,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_any_event_filter_with_properties_materialized.1
@@ -380,7 +389,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_any_event_filter_with_properties_materialized.2
@@ -417,7 +427,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_basic_query
@@ -449,7 +460,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_basic_query_active_sessions
@@ -481,7 +493,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_basic_query_active_sessions.1
@@ -513,7 +526,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_basic_query_active_sessions.2
@@ -545,7 +559,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_basic_query_with_ordering
@@ -577,7 +592,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_basic_query_with_ordering.1
@@ -609,7 +625,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_basic_query_with_ordering.2
@@ -641,7 +658,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_basic_query_with_paging
@@ -673,7 +691,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_basic_query_with_paging.1
@@ -705,7 +724,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_basic_query_with_paging.2
@@ -737,7 +757,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_date_from_filter
@@ -769,7 +790,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_date_from_filter.1
@@ -801,7 +823,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_date_from_filter_cannot_search_before_ttl
@@ -833,7 +856,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_date_from_filter_cannot_search_before_ttl.1
@@ -865,7 +889,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_date_from_filter_cannot_search_before_ttl.2
@@ -897,7 +922,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_date_to_filter
@@ -929,7 +955,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_date_to_filter.1
@@ -961,7 +988,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_duration_filter
@@ -993,7 +1021,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_duration_filter.1
@@ -1025,7 +1054,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter
@@ -1062,7 +1092,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter.1
@@ -1099,7 +1130,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_has_ttl_applied_too
@@ -1136,7 +1168,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_has_ttl_applied_too.1
@@ -1168,7 +1201,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_active_sessions
@@ -1205,7 +1239,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_active_sessions.1
@@ -1242,7 +1277,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_group_filter
@@ -1284,7 +1320,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_hogql_event_properties_test_accounts_excluded
@@ -1321,7 +1358,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_hogql_event_properties_test_accounts_excluded.1
@@ -1375,7 +1413,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_hogql_event_properties_test_accounts_excluded.2
@@ -1429,7 +1468,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_hogql_event_properties_test_accounts_excluded_materialized
@@ -1466,7 +1506,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_hogql_event_properties_test_accounts_excluded_materialized.1
@@ -1520,7 +1561,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_hogql_event_properties_test_accounts_excluded_materialized.2
@@ -1574,7 +1616,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_hogql_person_properties
@@ -1626,7 +1669,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_hogql_person_properties.1
@@ -1678,7 +1722,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_hogql_properties
@@ -1715,7 +1760,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_hogql_properties.1
@@ -1752,7 +1798,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_hogql_properties_materialized
@@ -1789,7 +1836,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_hogql_properties_materialized.1
@@ -1826,7 +1874,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_matching_on_session_id
@@ -1863,7 +1912,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_matching_on_session_id.1
@@ -1900,7 +1950,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_properties
@@ -1937,7 +1988,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_properties.1
@@ -1974,7 +2026,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_properties.2
@@ -2011,7 +2064,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_properties.3
@@ -2048,7 +2102,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_properties_materialized
@@ -2085,7 +2140,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_properties_materialized.1
@@ -2122,7 +2178,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_properties_materialized.2
@@ -2159,7 +2216,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_properties_materialized.3
@@ -2196,7 +2254,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_test_accounts_excluded
@@ -2250,7 +2309,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_test_accounts_excluded.1
@@ -2287,7 +2347,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_test_accounts_excluded_materialized
@@ -2341,7 +2402,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_test_accounts_excluded_materialized.1
@@ -2378,7 +2440,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_two_events_and_multiple_teams
@@ -2415,7 +2478,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_by_console_text
@@ -2453,7 +2517,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_by_console_text.1
@@ -2491,7 +2556,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_by_console_text.2
@@ -2529,7 +2595,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_by_console_text.3
@@ -2567,7 +2634,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_with_console_errors
@@ -2605,7 +2673,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_with_console_errors.1
@@ -2643,7 +2712,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_with_console_logs
@@ -2681,7 +2751,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_with_console_logs.1
@@ -2719,7 +2790,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_with_console_warns
@@ -2757,7 +2829,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_with_console_warns.1
@@ -2795,7 +2868,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_with_mixed_console_counts
@@ -2833,7 +2907,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_with_mixed_console_counts.1
@@ -2871,7 +2946,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_on_session_ids
@@ -2908,7 +2984,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_on_session_ids.1
@@ -2945,7 +3022,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_with_cohort_properties
@@ -3007,7 +3085,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_with_events_and_cohorts
@@ -3074,7 +3153,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_with_events_and_cohorts.3
@@ -3121,7 +3201,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_with_person_properties_exact
@@ -3170,7 +3251,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_with_person_properties_not_contains
@@ -3219,7 +3301,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_multiple_event_filters
@@ -3256,7 +3339,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_multiple_event_filters.1
@@ -3293,7 +3377,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_person_id_filter
@@ -3339,7 +3424,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_event_property_test_account_filter
@@ -3376,7 +3462,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_event_property_test_account_filter.1
@@ -3413,7 +3500,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_event_property_test_account_filter_allowing_denormalized_props
@@ -3450,7 +3538,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_event_property_test_account_filter_allowing_denormalized_props.1
@@ -3487,7 +3576,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_event_property_test_account_filter_allowing_denormalized_props_materialized
@@ -3524,7 +3614,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_event_property_test_account_filter_allowing_denormalized_props_materialized.1
@@ -3561,7 +3652,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_event_property_test_account_filter_materialized
@@ -3598,7 +3690,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_event_property_test_account_filter_materialized.1
@@ -3635,7 +3728,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_hogql_event_property_test_account_filter
@@ -3672,7 +3766,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_hogql_event_property_test_account_filter.1
@@ -3709,7 +3804,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_hogql_event_property_test_account_filter_materialized
@@ -3746,7 +3842,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_hogql_event_property_test_account_filter_materialized.1
@@ -3783,7 +3880,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_hogql_person_property_test_account_filter
@@ -3820,7 +3918,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_hogql_person_property_test_account_filter.1
@@ -3869,7 +3968,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_hogql_person_property_test_account_filter_materialized
@@ -3906,7 +4006,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_hogql_person_property_test_account_filter_materialized.1
@@ -3955,7 +4056,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_person_property_test_account_filter
@@ -3992,7 +4094,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_person_property_test_account_filter.1
@@ -4041,7 +4144,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_person_property_test_account_filter_materialized
@@ -4078,7 +4182,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_person_property_test_account_filter_materialized.1
@@ -4127,6 +4232,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
