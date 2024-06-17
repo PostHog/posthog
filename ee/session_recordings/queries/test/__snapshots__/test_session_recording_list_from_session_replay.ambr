@@ -50,7 +50,7 @@
           GROUP BY distinct_id
           HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)
   GROUP BY session_id
-  HAVING 1=1
+  HAVING s.first_url is not null
   ORDER BY start_time DESC
   LIMIT %(limit)s
   OFFSET %(offset)s
@@ -107,7 +107,7 @@
           GROUP BY distinct_id
           HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)
   GROUP BY session_id
-  HAVING 1=1
+  HAVING s.first_url is not null
   ORDER BY start_time DESC
   LIMIT %(limit)s
   OFFSET %(offset)s
@@ -163,7 +163,7 @@
           GROUP BY `$session_id`
           HAVING 1=1) as session_events_sub_query)
   GROUP BY session_id
-  HAVING 1=1
+  HAVING s.first_url is not null
   ORDER BY start_time DESC
   LIMIT %(limit)s
   OFFSET %(offset)s
@@ -219,7 +219,7 @@
           GROUP BY `$session_id`
           HAVING 1=1) as session_events_sub_query)
   GROUP BY session_id
-  HAVING 1=1
+  HAVING s.first_url is not null
   ORDER BY start_time DESC
   LIMIT %(limit)s
   OFFSET %(offset)s
@@ -249,7 +249,7 @@
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
     AND s.min_first_timestamp <= '2021-01-01 13:46:23'
   GROUP BY session_id
-  HAVING 1=1
+  HAVING s.first_url is not null
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
@@ -292,7 +292,7 @@
           GROUP BY `$session_id`
           HAVING 1=1) as session_events_sub_query)
   GROUP BY session_id
-  HAVING 1=1
+  HAVING s.first_url is not null
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
@@ -322,7 +322,7 @@
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
     AND s.min_first_timestamp <= '2021-01-01 13:46:23'
   GROUP BY session_id
-  HAVING 1=1
+  HAVING s.first_url is not null
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
@@ -365,7 +365,7 @@
           GROUP BY `$session_id`
           HAVING 1=1) as session_events_sub_query)
   GROUP BY session_id
-  HAVING 1=1
+  HAVING s.first_url is not null
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
@@ -395,7 +395,7 @@
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
     AND s.min_first_timestamp <= '2021-01-01 13:46:23'
   GROUP BY session_id
-  HAVING 1=1
+  HAVING s.first_url is not null
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
@@ -438,7 +438,7 @@
           GROUP BY `$session_id`
           HAVING 1=1) as session_events_sub_query)
   GROUP BY session_id
-  HAVING 1=1
+  HAVING s.first_url is not null
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
@@ -468,7 +468,7 @@
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
     AND s.min_first_timestamp <= '2021-01-01 13:46:23'
   GROUP BY session_id
-  HAVING 1=1
+  HAVING s.first_url is not null
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
@@ -511,7 +511,7 @@
           GROUP BY `$session_id`
           HAVING 1=1) as session_events_sub_query)
   GROUP BY session_id
-  HAVING 1=1
+  HAVING s.first_url is not null
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
@@ -541,7 +541,7 @@
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
     AND s.min_first_timestamp <= '2021-01-01 13:46:23'
   GROUP BY session_id
-  HAVING 1=1
+  HAVING s.first_url is not null
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
@@ -592,7 +592,7 @@
           GROUP BY distinct_id
           HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)
   GROUP BY session_id
-  HAVING 1=1
+  HAVING s.first_url is not null
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
@@ -622,7 +622,7 @@
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
     AND s.min_first_timestamp <= '2021-01-01 13:46:23'
   GROUP BY session_id
-  HAVING 1=1
+  HAVING s.first_url is not null
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
@@ -673,7 +673,7 @@
           GROUP BY distinct_id
           HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)
   GROUP BY session_id
-  HAVING 1=1
+  HAVING s.first_url is not null
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
@@ -703,7 +703,7 @@
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
     AND s.min_first_timestamp <= '2021-01-01 13:46:23'
   GROUP BY session_id
-  HAVING 1=1
+  HAVING s.first_url is not null
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
@@ -754,7 +754,7 @@
           GROUP BY distinct_id
           HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)
   GROUP BY session_id
-  HAVING 1=1
+  HAVING s.first_url is not null
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
@@ -784,7 +784,7 @@
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
     AND s.min_first_timestamp <= '2021-01-01 13:46:23'
   GROUP BY session_id
-  HAVING 1=1
+  HAVING s.first_url is not null
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
@@ -835,7 +835,7 @@
           GROUP BY distinct_id
           HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)
   GROUP BY session_id
-  HAVING 1=1
+  HAVING s.first_url is not null
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
@@ -865,7 +865,7 @@
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
     AND s.min_first_timestamp <= '2021-01-01 13:46:23'
   GROUP BY session_id
-  HAVING 1=1
+  HAVING s.first_url is not null
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
@@ -916,7 +916,7 @@
           GROUP BY distinct_id
           HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)
   GROUP BY session_id
-  HAVING 1=1
+  HAVING s.first_url is not null
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
@@ -946,7 +946,7 @@
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
     AND s.min_first_timestamp <= '2021-01-01 13:46:23'
   GROUP BY session_id
-  HAVING 1=1
+  HAVING s.first_url is not null
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
@@ -997,7 +997,7 @@
           GROUP BY distinct_id
           HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)
   GROUP BY session_id
-  HAVING 1=1
+  HAVING s.first_url is not null
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
@@ -1027,7 +1027,7 @@
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
     AND s.min_first_timestamp <= '2021-01-01 13:46:23'
   GROUP BY session_id
-  HAVING 1=1
+  HAVING s.first_url is not null
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
@@ -1078,7 +1078,7 @@
           GROUP BY distinct_id
           HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)
   GROUP BY session_id
-  HAVING 1=1
+  HAVING s.first_url is not null
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
@@ -1108,7 +1108,7 @@
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
     AND s.min_first_timestamp <= '2021-01-01 13:46:23'
   GROUP BY session_id
-  HAVING 1=1
+  HAVING s.first_url is not null
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
@@ -1159,7 +1159,7 @@
           GROUP BY distinct_id
           HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)
   GROUP BY session_id
-  HAVING 1=1
+  HAVING s.first_url is not null
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
@@ -1204,7 +1204,7 @@
           HAVING argMax(is_deleted, version) = 0
           AND current_person_id = '00000000-0000-0000-0000-000000000000') as session_persons_sub_query)
   GROUP BY session_id
-  HAVING 1=1
+  HAVING s.first_url is not null
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
@@ -1249,7 +1249,7 @@
           HAVING argMax(is_deleted, version) = 0
           AND current_person_id = '00000000-0000-0000-0000-000000000000') as session_persons_sub_query)
   GROUP BY session_id
-  HAVING 1=1
+  HAVING s.first_url is not null
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
@@ -1294,7 +1294,7 @@
           HAVING argMax(is_deleted, version) = 0
           AND current_person_id = '00000000-0000-0000-0000-000000000000') as session_persons_sub_query)
   GROUP BY session_id
-  HAVING 1=1
+  HAVING s.first_url is not null
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
@@ -1339,7 +1339,7 @@
           HAVING argMax(is_deleted, version) = 0
           AND current_person_id = '00000000-0000-0000-0000-000000000000') as session_persons_sub_query)
   GROUP BY session_id
-  HAVING 1=1
+  HAVING s.first_url is not null
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
@@ -1384,7 +1384,7 @@
           HAVING argMax(is_deleted, version) = 0
           AND current_person_id = '00000000-0000-0000-0000-000000000000') as session_persons_sub_query)
   GROUP BY session_id
-  HAVING 1=1
+  HAVING s.first_url is not null
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
@@ -1429,7 +1429,7 @@
           HAVING argMax(is_deleted, version) = 0
           AND current_person_id = '00000000-0000-0000-0000-000000000000') as session_persons_sub_query)
   GROUP BY session_id
-  HAVING 1=1
+  HAVING s.first_url is not null
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
@@ -1474,7 +1474,7 @@
           HAVING argMax(is_deleted, version) = 0
           AND current_person_id = '00000000-0000-0000-0000-000000000000') as session_persons_sub_query)
   GROUP BY session_id
-  HAVING 1=1
+  HAVING s.first_url is not null
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
@@ -1519,7 +1519,7 @@
           HAVING argMax(is_deleted, version) = 0
           AND current_person_id = '00000000-0000-0000-0000-000000000000') as session_persons_sub_query)
   GROUP BY session_id
-  HAVING 1=1
+  HAVING s.first_url is not null
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
@@ -1562,7 +1562,7 @@
           GROUP BY `$session_id`
           HAVING 1=1) as session_events_sub_query)
   GROUP BY session_id
-  HAVING 1=1
+  HAVING s.first_url is not null
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
@@ -1605,7 +1605,7 @@
           GROUP BY `$session_id`
           HAVING 1=1) as session_events_sub_query)
   GROUP BY session_id
-  HAVING 1=1
+  HAVING s.first_url is not null
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
@@ -1648,7 +1648,7 @@
           GROUP BY `$session_id`
           HAVING 1=1) as session_events_sub_query)
   GROUP BY session_id
-  HAVING 1=1
+  HAVING s.first_url is not null
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
@@ -1691,7 +1691,7 @@
           GROUP BY `$session_id`
           HAVING 1=1) as session_events_sub_query)
   GROUP BY session_id
-  HAVING 1=1
+  HAVING s.first_url is not null
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0

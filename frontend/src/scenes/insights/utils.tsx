@@ -206,13 +206,27 @@ export function isNullBreakdown(breakdown_value: string | number | null | undefi
     )
 }
 
+function isValidJsonArray(maybeJson: string): boolean {
+    try {
+        const json = JSON.parse(maybeJson)
+        return Array.isArray(json)
+    } catch {
+        return false
+    }
+}
+
 export function formatBreakdownLabel(
     breakdown_value: BreakdownKeyType | undefined,
     breakdownFilter: BreakdownFilter | null | undefined,
     cohorts: CohortType[] | undefined,
     formatPropertyValueForDisplay: FormatPropertyValueForDisplayFunction | undefined
 ): string {
-    if (breakdownFilter?.breakdown_histogram_bin_count != null && typeof breakdown_value === 'string') {
+    if (
+        breakdownFilter?.breakdown_histogram_bin_count != null &&
+        typeof breakdown_value === 'string' &&
+        breakdown_value.length > 0 &&
+        isValidJsonArray(breakdown_value)
+    ) {
         // replace nan with null
         const bucketValues = breakdown_value.replace(/\bnan\b/g, 'null')
         const [bucketStart, bucketEnd] = JSON.parse(bucketValues)

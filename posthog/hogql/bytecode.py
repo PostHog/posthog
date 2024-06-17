@@ -248,7 +248,7 @@ class BytecodeBuilder(Visitor):
 
         response = []
         response.extend(expr)
-        response.extend([Operation.JUMP_IF_FALSE, len(then) + 2])  # + else's OP_JUMP + count
+        response.extend([Operation.JUMP_IF_FALSE, len(then) + (2 if else_ else 0)])
         response.extend(then)
         if else_:
             response.extend([Operation.JUMP, len(else_)])
@@ -265,6 +265,27 @@ class BytecodeBuilder(Visitor):
         response.extend([Operation.JUMP_IF_FALSE, len(body) + 2])  # + reverse jump
         response.extend(body)
         response.extend([Operation.JUMP, -len(response) - 2])
+        return response
+
+    def visit_for_statement(self, node: ast.ForStatement):
+        if node.initializer:
+            self._start_scope()
+
+        initializer = self.visit(node.initializer) or []
+        condition = self.visit(node.condition) or []
+        increment = self.visit(node.increment) or []
+        body = self.visit(node.body) or []
+
+        response: list = []
+        response.extend(initializer)
+        response.extend(condition)
+        response.extend([Operation.JUMP_IF_FALSE, len(body) + len(increment) + 2])
+        response.extend(body)
+        response.extend(increment)
+        response.extend([Operation.JUMP, -len(increment) - len(body) - 2 - len(condition) - 2])
+
+        if node.initializer:
+            response.extend(self._end_scope())
         return response
 
     def visit_variable_declaration(self, node: ast.VariableDeclaration):

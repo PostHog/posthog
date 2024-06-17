@@ -1,5 +1,4 @@
 from dataclasses import asdict, dataclass
-import json
 from typing import Literal, Optional, Union, get_args
 
 from django.db import models
@@ -9,7 +8,7 @@ from django.utils import timezone
 
 from posthog.hogql.errors import BaseHogQLError
 from posthog.models.signals import mutable_receiver
-from posthog.redis import get_client
+from posthog.plugins.reload import drop_action_on_workers, reload_action_on_workers
 
 
 ActionStepMatching = Literal["contains", "regex", "exact"]
@@ -105,12 +104,9 @@ class Action(models.Model):
 
 @receiver(post_save, sender=Action)
 def action_saved(sender, instance: Action, created, **kwargs):
-    get_client().publish(
-        "reload-action",
-        json.dumps({"teamId": instance.team_id, "actionId": instance.id}),
-    )
+    reload_action_on_workers(team_id=instance.team_id, action_id=instance.id)
 
 
 @mutable_receiver(post_delete, sender=Action)
 def action_deleted(sender, instance: Action, **kwargs):
-    get_client().publish("drop-action", json.dumps({"teamId": instance.team_id, "actionId": instance.id}))
+    drop_action_on_workers(team_id=instance.team_id, action_id=instance.id)
