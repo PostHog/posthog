@@ -25,6 +25,7 @@ from posthog.tasks.tasks import (
     clickhouse_row_count,
     clickhouse_send_license_usage,
     delete_expired_exported_assets,
+    detect_alerts_anomalies,
     ee_persist_finished_recordings,
     find_flags_with_enriched_analytics,
     graphile_worker_queue_size,
@@ -244,6 +245,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="*/12"),
         update_survey_iteration.s(),
         name="update survey iteration based on date",
+    )
+
+    sender.add_periodic_task(
+        crontab(hour="*", minute="20"),
+        detect_alerts_anomalies.s(),
+        name="detect alerts' anomalies and notify about them",
     )
 
     if settings.EE_AVAILABLE:
