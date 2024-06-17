@@ -1,5 +1,5 @@
 import re
-from typing import Any, NamedTuple, cast, Optional
+from typing import Any, NamedTuple, cast, Optional, Union
 from datetime import datetime, timedelta
 
 from posthog.hogql import ast
@@ -13,7 +13,7 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import PropertyGroup
 from posthog.schema import QueryTiming, HogQLQueryModifiers
 from posthog.session_recordings.queries.session_replay_events import ttl_days
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 
 import structlog
 
@@ -136,7 +136,7 @@ class SessionRecordingListFromFilters:
         order = self._filter.target_entity_order or "start_time"
         return ast.Field(chain=[order])
 
-    def _where_predicates(self) -> ast.And:
+    def _where_predicates(self) -> Union[ast.And, ast.Or]:
         exprs: list[ast.Expr] = [
             ast.CompareOperation(
                 op=ast.CompareOperationOp.GtEq,
@@ -144,6 +144,25 @@ class SessionRecordingListFromFilters:
                 right=ast.Constant(value=datetime.now() - timedelta(days=self.ttl_days)),
             )
         ]
+
+        person_id_subquery = PersonsIdSubQuery(self._team, self._filter, self.ttl_days).get_query()
+        if person_id_subquery:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=ast.Field(chain=["s", "distinct_id"]),
+                    right=person_id_subquery,
+                )
+            )
+
+        if self._filter.session_ids:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=ast.Field(chain=["session_id"]),
+                    right=ast.Constant(value=self._filter.session_ids),
+                )
+            )
 
         if self._filter.date_from:
             exprs.append(
@@ -162,18 +181,11 @@ class SessionRecordingListFromFilters:
                 )
             )
 
-        if self._filter.session_ids:
-            exprs.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.In,
-                    left=ast.Field(chain=["session_id"]),
-                    right=ast.Constant(value=self._filter.session_ids),
-                )
-            )
+        optional_exprs: list[ast.Expr] = []
 
         events_sub_query = EventsSubQuery(self._team, self._filter, self.ttl_days).get_query()
         if events_sub_query:
-            exprs.append(
+            optional_exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.In,
                     left=ast.Field(chain=["s", "session_id"]),
@@ -184,7 +196,7 @@ class SessionRecordingListFromFilters:
         # we want to avoid a join to persons since we don't ever need to select from them
         person_subquery = PersonsPropertiesSubQuery(self._team, self._filter, self.ttl_days).get_query()
         if person_subquery:
-            exprs.append(
+            optional_exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.In,
                     left=ast.Field(chain=["s", "distinct_id"]),
@@ -197,17 +209,7 @@ class SessionRecordingListFromFilters:
             logger.info(
                 "session_replay_query_builder has unhandled properties", unhandled_properties=remaining_properties
             )
-            exprs.append(property_to_expr(remaining_properties, team=self._team, scope="replay"))
-
-        person_id_subquery = PersonsIdSubQuery(self._team, self._filter, self.ttl_days).get_query()
-        if person_id_subquery:
-            exprs.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.In,
-                    left=ast.Field(chain=["s", "distinct_id"]),
-                    right=person_id_subquery,
-                )
-            )
+            optional_exprs.append(property_to_expr(remaining_properties, team=self._team, scope="replay"))
 
         console_logs_predicates: list[ast.Expr] = []
         if self._filter.console_logs_filter:
@@ -238,10 +240,10 @@ class SessionRecordingListFromFilters:
             console_logs_subquery = ast.SelectQuery(
                 select=[ast.Field(chain=["log_source_id"])],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["console_logs_log_entries"])),
-                where=ast.And(exprs=console_logs_predicates),
+                where=self._filter.ast_operand(exprs=console_logs_predicates),
             )
 
-            exprs.append(
+            optional_exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.In,
                     left=ast.Field(chain=["session_id"]),
@@ -249,11 +251,14 @@ class SessionRecordingListFromFilters:
                 )
             )
 
+        if optional_exprs:
+            exprs.append(self._filter.ast_operand(exprs=optional_exprs))
+
         return ast.And(exprs=exprs)
 
     def _having_predicates(self) -> ast.And | Constant:
         exprs: list[ast.Expr] = [
-            # a missing first url indicate delayed or incomplete ingestion and we can ignore those
+            # a missing first url indicates delayed or incomplete ingestion and we can ignore those
             ast.CompareOperation(
                 op=ast.CompareOperationOp.NotEq, left=ast.Field(chain=["first_url"]), right=ast.Constant(value=None)
             )
@@ -273,7 +278,7 @@ class SessionRecordingListFromFilters:
                 ),
             )
 
-        return ast.And(exprs=exprs) if exprs else Constant(value=True)
+        return ast.And(exprs=exprs)
 
     def _strip_person_and_event_properties(self, property_group: PropertyGroup) -> PropertyGroup | None:
         property_groups_to_keep = [
@@ -282,7 +287,7 @@ class SessionRecordingListFromFilters:
 
         return (
             PropertyGroup(
-                type=PropertyOperatorType.AND,
+                type=self._filter.property_operand,
                 values=property_groups_to_keep,
             )
             if property_groups_to_keep
@@ -320,7 +325,7 @@ class PersonsPropertiesSubQuery:
         person_property_groups = [g for g in self._filter.property_groups.flat if is_person_property(g)]
         return (
             PropertyGroup(
-                type=PropertyOperatorType.AND,
+                type=self._filter.property_operand,
                 values=person_property_groups,
             )
             if person_property_groups
@@ -366,7 +371,7 @@ class PersonsIdSubQuery:
         person_property_groups = [g for g in self._filter.property_groups.flat if is_person_property(g)]
         return (
             PropertyGroup(
-                type=PropertyOperatorType.AND,
+                type=self._filter.property_operand,
                 values=person_property_groups,
             )
             if person_property_groups
@@ -469,7 +474,7 @@ class EventsSubQuery:
 
         (event_where_exprs, _) = self._event_predicates
         if event_where_exprs:
-            exprs.append(ast.Or(exprs=event_where_exprs))
+            exprs.append(self._filter.events_operand(exprs=event_where_exprs))
 
         if self.event_properties:
             exprs.append(property_to_expr(self.event_properties, team=self._team, scope="replay"))
@@ -478,7 +483,7 @@ class EventsSubQuery:
             exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.In,
-                    left=ast.Constant(value="`$session_id`"),
+                    left=ast.Field(chain=["$session_id"]),
                     right=ast.Constant(value=self._filter.session_ids),
                 )
             )
@@ -490,7 +495,7 @@ class EventsSubQuery:
 
         if event_names:
             return ast.Call(
-                name="hasAll",
+                name="hasAll" if self._filter._operand == "AND" else "hasAny",
                 args=[
                     ast.Call(name="groupUniqArray", args=[ast.Field(chain=["event"])]),
                     # KLUDGE: sorting only so that snapshot tests are consistent

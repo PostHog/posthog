@@ -976,6 +976,7 @@ export interface RecordingFilters {
     console_search_query?: string
     console_logs?: FilterableLogLevel[]
     filter_test_accounts?: boolean
+    operand?: FilterLogicalOperator
 }
 
 export interface RecordingUniversalFilters {
@@ -1005,15 +1006,6 @@ export type ErrorCluster = {
     viewed: number
 }
 export type ErrorClusterResponse = ErrorCluster[] | null
-
-export type ErrorTrackingGroup = {
-    id: string
-    title: string
-    description: string
-    occurrences: number
-    uniqueSessions: number
-    uniqueUsers: number
-}
 
 export type EntityType = 'actions' | 'events' | 'data_warehouse' | 'new_entity'
 
@@ -3843,6 +3835,11 @@ export interface SimpleExternalDataSourceSchema {
 export interface ExternalDataSourceSyncSchema {
     table: string
     should_sync: boolean
+    sync_type: 'full_refresh' | 'incremental'
+    sync_types: {
+        full_refresh: boolean
+        incremental: boolean
+    }
 }
 
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
