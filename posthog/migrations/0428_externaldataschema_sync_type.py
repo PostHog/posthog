@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0428_alter_datawarehousetable_format"),
+        ("posthog", "0427_hogfunction_icon_url_hogfunction_template_id"),
     ]
 
     operations = [
