@@ -8,7 +8,7 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 from posthog.models.action.action import Action
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDModel
-from posthog.plugins.reload import reload_hog_functions_on_workers
+from posthog.plugins.plugin_server_api import reload_hog_functions_on_workers
 
 
 class HogFunction(UUIDModel):

@@ -38,16 +38,8 @@ export function PipelineHogFunctionConfiguration({
 }): JSX.Element {
     const logicProps = { templateId, id }
     const logic = pipelineHogFunctionConfigurationLogic(logicProps)
-    const {
-        isConfigurationSubmitting,
-        configurationChanged,
-        showSource,
-        configuration,
-        loading,
-        loaded,
-        hogFunction,
-        matchingEventsQuery,
-    } = useValues(logic)
+    const { isConfigurationSubmitting, configurationChanged, showSource, configuration, loading, loaded, hogFunction } =
+        useValues(logic)
     const {
         submitConfiguration,
         resetForm,

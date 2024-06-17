@@ -3,7 +3,7 @@ from typing import Optional
 from celery import shared_task
 
 from posthog.models.action.action import Action
-from posthog.plugins.reload import reload_hog_functions_on_workers
+from posthog.plugins.plugin_server_api import reload_hog_functions_on_workers
 from posthog.tasks.utils import CeleryQueue
 
 
