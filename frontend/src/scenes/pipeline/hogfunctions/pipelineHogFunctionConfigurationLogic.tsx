@@ -7,7 +7,6 @@ import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
 
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema'
 import {
     FilterType,
@@ -85,12 +84,20 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
         duplicate: true,
         duplicateFromTemplate: true,
         resetToTemplate: true,
+        setTestingMode: (testingMode: boolean) => ({ testingMode }),
     }),
     reducers({
         showSource: [
             false,
             {
                 setShowSource: (_, { showSource }) => showSource,
+            },
+        ],
+
+        testingMode: [
+            false,
+            {
+                setTestingMode: (_, { testingMode }) => testingMode,
             },
         ],
     }),
@@ -245,8 +252,6 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
                 if (!filters) {
                     return null
                 }
-
-                console.log({ filters, columns: defaultDataTableColumns(NodeKind.EventsQuery) })
 
                 return {
                     kind: NodeKind.DataTableNode,

@@ -47,6 +47,7 @@ export function PipelineHogFunctionConfiguration({
         loaded,
         hogFunction,
         matchingEventsQuery,
+        testingMode,
     } = useValues(logic)
     const {
         submitConfiguration,
@@ -56,6 +57,7 @@ export function PipelineHogFunctionConfiguration({
         resetToTemplate,
         duplicateFromTemplate,
         setConfigurationValue,
+        setTestingMode,
     } = useActions(logic)
 
     const hogFunctionsEnabled = !!useFeatureFlag('HOG_FUNCTIONS')
@@ -92,6 +94,15 @@ export function PipelineHogFunctionConfiguration({
 
     const saveButtons = (
         <>
+            {!testingMode ? (
+                <LemonButton
+                    type="secondary"
+                    disabledReason={isConfigurationSubmitting ? 'Saving in progress…' : undefined}
+                    onClick={() => setTestingMode(true)}
+                >
+                    Test function
+                </LemonButton>
+            ) : null}
             <LemonButton
                 type="secondary"
                 htmlType="reset"
@@ -355,6 +366,10 @@ export function PipelineHogFunctionConfiguration({
                                         </div>
                                     )}
                                 </div>
+                            </div>
+
+                            <div className="border bg-bg-light rounded p-3 space-y-2">
+                                <h4>Testing</h4>
                             </div>
                             <div className="flex gap-2 justify-end">{saveButtons}</div>
                         </div>
