@@ -158,6 +158,10 @@ export const surveysLogic = kea<surveysLogicType>([
             (s) => [s.hasAvailableFeature],
             (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.SURVEYS_RECURRING),
         ],
+        surveysEventsAvailable: [
+            (s) => [s.hasAvailableFeature],
+            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.SURVEYS_EVENTS),
+        ],
         showSurveysDisabledBanner: [
             (s) => [s.currentTeam, s.currentTeamLoading, s.surveys],
             (currentTeam, currentTeamLoading, surveys) => {

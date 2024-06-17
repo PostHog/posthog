@@ -89,6 +89,7 @@ export enum AvailableFeature {
     SURVEYS_SLACK_NOTIFICATIONS = 'surveys_slack_notifications',
     SURVEYS_WAIT_PERIODS = 'surveys_wait_periods',
     SURVEYS_RECURRING = 'surveys_recurring',
+    SURVEYS_EVENTS = 'survey_events',
     TRACKED_USERS = 'tracked_users',
     TEAM_MEMBERS = 'team_members',
     API_ACCESS = 'api_access',
