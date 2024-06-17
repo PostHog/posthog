@@ -112,38 +112,46 @@ export interface HogFunctionLogEntry {
     message: string
 }
 
+export interface HogFunctionTiming {
+    kind: 'hog' | 'async_function'
+    duration_ms: number
+}
+
 export type HogFunctionInvocation = {
     id: string
     globals: HogFunctionInvocationGlobals
+    teamId: number
+    hogFunctionId: HogFunctionType['id']
+    // Logs and timings _could_ be passed in from the async function service
+    logs: HogFunctionLogEntry[]
+    timings: HogFunctionTiming[]
 }
 
 export type HogFunctionInvocationResult = HogFunctionInvocation & {
-    teamId: number
-    hogFunctionId: HogFunctionType['id']
-    success: boolean
+    finished: boolean
     error?: any
     logs: HogFunctionLogEntry[]
-    asyncFunction?: HogFunctionInvocationAsyncRequest
+    timings: HogFunctionTiming[]
+    asyncFunctionRequest?: {
+        name: string // TODO: Type this all more strongly
+        args: any[]
+        vmState: VMState
+    }
 }
 
-export type HogFunctionInvocationAsyncRequest = HogFunctionInvocation & {
-    teamId: number
-    hogFunctionId: HogFunctionType['id']
-    vmState?: VMState
-    asyncFunctionName: string // TODO: Type this all more strongly
-    asyncFunctionArgs?: any[]
-}
-
-export type HogFunctionInvocationAsyncResponse = HogFunctionInvocationAsyncRequest & {
-    /** An error message to indicate something went wrong and the invocation should be stopped */
-    error?: any
-    /** The data to be passed to the Hog function from the response */
-    vmResponse?: any
+export type HogFunctionInvocationAsyncResponse = HogFunctionInvocationResult & {
+    asyncFunctionResponse: {
+        /** An error message to indicate something went wrong and the invocation should be stopped */
+        error?: any
+        /** The data to be passed to the Hog function from the response */
+        vmResponse?: any
+        timings: HogFunctionTiming[]
+    }
 }
 
 export type HogFunctionMessageToQueue = {
     topic: string
-    value: HogFunctionInvocationAsyncResponse
+    value: object
     key: string
 }
 

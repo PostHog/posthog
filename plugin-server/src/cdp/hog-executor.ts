@@ -1,9 +1,9 @@
 import { convertHogToJS, convertJSToHog, exec, VMState } from '@posthog/hogvm'
 import { DateTime } from 'luxon'
 
-import { PluginsServerConfig, TimestampFormat } from '../types'
+import { PluginsServerConfig } from '../types'
 import { status } from '../utils/status'
-import { castTimestampOrNow, UUIDT } from '../utils/utils'
+import { UUIDT } from '../utils/utils'
 import { HogFunctionManager } from './hog-function-manager'
 import {
     HogFunctionInvocation,
@@ -139,6 +139,10 @@ export class HogExecutor {
             const result = this.execute(hogFunction, {
                 id: new UUIDT().toString(),
                 globals: modifiedGlobals,
+                teamId: hogFunction.team_id,
+                hogFunctionId: hogFunction.id,
+                logs: [],
+                timings: [],
             })
 
             results.push(result)
@@ -165,28 +169,34 @@ export class HogExecutor {
         const baseInvocation: HogFunctionInvocation = {
             id: invocation.id,
             globals: invocation.globals,
+            teamId: invocation.teamId,
+            hogFunctionId: invocation.hogFunctionId,
+            timings: invocation.asyncFunctionResponse.timings,
+            // Logs we always reset as we don't want to carry over logs between calls
+            logs: [],
         }
 
         const errorRes = (error = 'Something went wrong'): HogFunctionInvocationResult => ({
             ...baseInvocation,
-            hogFunctionId: invocation.hogFunctionId,
-            teamId: invocation.teamId,
-            success: false,
+            finished: false,
             error,
-            // TODO: Probably useful to save a log as well?
-            logs: [],
         })
 
         if (!hogFunction) {
             return errorRes(`Hog Function with ID ${invocation.hogFunctionId} not found`)
         }
 
-        if (!invocation.vmState || invocation.error) {
+        const { vmState } = invocation.asyncFunctionRequest ?? {}
+        const { asyncFunctionResponse } = invocation
+
+        if (!vmState || !asyncFunctionResponse.vmResponse || asyncFunctionResponse.error) {
             return errorRes(invocation.error ?? 'No VM state provided for async response')
         }
-        invocation.vmState.stack.push(convertJSToHog(invocation.vmResponse ?? null))
 
-        return this.execute(hogFunction, baseInvocation, invocation.vmState)
+        // Add the response to the stack to continue execution
+        vmState.stack.push(convertJSToHog(asyncFunctionResponse.vmResponse ?? null))
+
+        return this.execute(hogFunction, baseInvocation, vmState)
     }
 
     execute(
@@ -204,10 +214,8 @@ export class HogExecutor {
 
         const result: HogFunctionInvocationResult = {
             ...invocation,
-            teamId: hogFunction.team_id,
-            hogFunctionId: hogFunction.id,
-            success: false,
-            logs: [],
+            asyncFunctionRequest: undefined,
+            finished: false,
         }
 
         if (!state) {
@@ -223,9 +231,10 @@ export class HogExecutor {
         }
 
         try {
+            const start = performance.now()
             const globals = this.buildHogFunctionGlobals(hogFunction, invocation)
 
-            const res = exec(state ?? hogFunction.bytecode, {
+            const execRes = exec(state ?? hogFunction.bytecode, {
                 globals,
                 timeout: 100, // NOTE: This will likely be configurable in the future
                 maxAsyncSteps: MAX_ASYNC_STEPS, // NOTE: This will likely be configurable in the future
@@ -243,31 +252,41 @@ export class HogExecutor {
                 },
             })
 
-            if (!res.finished) {
-                addLog(result, 'debug', `Suspending function due to async function call '${res.asyncFunctionName}'`)
+            const duration = performance.now() - start
+
+            result.finished = execRes.finished
+            result.timings.push({
+                kind: 'hog',
+                duration_ms: duration,
+            })
+
+            if (!execRes.finished) {
+                addLog(result, 'debug', `Suspending function due to async function call '${execRes.asyncFunctionName}'`)
                 status.info('🦔', `[HogExecutor] Function returned not finished. Executing async function`, {
                     ...loggingContext,
-                    asyncFunctionName: res.asyncFunctionName,
+                    asyncFunctionName: execRes.asyncFunctionName,
                 })
 
-                const args = (res.asyncFunctionArgs ?? []).map((arg) => convertHogToJS(arg))
+                const args = (execRes.asyncFunctionArgs ?? []).map((arg) => convertHogToJS(arg))
 
-                if (res.asyncFunctionName) {
-                    result.asyncFunction = {
-                        ...invocation,
-                        teamId: hogFunction.team_id,
-                        hogFunctionId: hogFunction.id,
-                        asyncFunctionName: res.asyncFunctionName,
-                        asyncFunctionArgs: args,
-                        vmState: res.state,
+                if (!execRes.state) {
+                    // TODO: This shouldn't be possible
+                    throw new Error('State should not be returned from a sync function')
+                }
+                if (execRes.asyncFunctionName) {
+                    result.asyncFunctionRequest = {
+                        name: execRes.asyncFunctionName,
+                        args: args,
+                        vmState: execRes.state,
                     }
                 } else {
                     addLog(result, 'warn', `Function was not finished but also had no async function to execute.`)
                 }
             } else {
-                addLog(result, 'debug', `Function completed`)
+                const totalDuration = result.timings.reduce((acc, timing) => acc + timing.duration_ms, 0)
+
+                addLog(result, 'debug', `Function completed. Processing time ${totalDuration}ms`)
             }
-            result.success = true
         } catch (err) {
             result.error = err
             status.error('🦔', `[HogExecutor] Error executing function ${hogFunction.id} - ${hogFunction.name}`, err)

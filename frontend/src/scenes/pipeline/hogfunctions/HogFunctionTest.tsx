@@ -107,16 +107,12 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
 
                     {testResult ? (
                         <div className="space-y-2">
-                            <LemonLabel>Test invocation context</LemonLabel>
-                            <HogFunctionTestEditor value={testInvocation.globals} />
-                            <LemonLabel>
-                                <div className="flex flex-1 justify-between gap-2">
-                                    Test invocation result{' '}
-                                    <LemonTag type={testResult.status === 'success' ? 'success' : 'danger'}>
-                                        {testResult.status}
-                                    </LemonTag>
-                                </div>
-                            </LemonLabel>
+                            <div className="flex justify-between items-center">
+                                <LemonLabel>Test invocation result </LemonLabel>
+                                <LemonTag type={testResult.status === 'success' ? 'success' : 'danger'}>
+                                    {testResult.status}
+                                </LemonTag>
+                            </div>
 
                             <LemonTable
                                 dataSource={testResult.logs ?? []}
@@ -145,6 +141,9 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
                                 rowKey="timestamp"
                                 pagination={{ pageSize: 200, hideOnSinglePage: true }}
                             />
+
+                            <LemonLabel>Test invocation context</LemonLabel>
+                            <HogFunctionTestEditor value={testInvocation.globals} />
                         </div>
                     ) : testEvent === null ? (
                         <div>

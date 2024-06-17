@@ -9,10 +9,11 @@ import { createRdConnectionConfigFromEnvVars, createRdProducerConfigFromEnvVars 
 import { createKafkaProducer } from '../kafka/producer'
 import { addSentryBreadcrumbsEventListeners } from '../main/ingestion-queues/kafka-metrics'
 import { runInstrumentedFunction } from '../main/utils'
-import { GroupTypeToColumnIndex, Hub, PluginsServerConfig, RawClickHouseEvent, TeamId } from '../types'
+import { GroupTypeToColumnIndex, Hub, PluginsServerConfig, RawClickHouseEvent, TeamId, TimestampFormat } from '../types'
 import { KafkaProducerWrapper } from '../utils/db/kafka-producer-wrapper'
 import { PostgresRouter } from '../utils/db/postgres'
 import { status } from '../utils/status'
+import { castTimestampOrNow } from '../utils/utils'
 import { AppMetrics } from '../worker/ingestion/app-metrics'
 import { GroupTypeManager } from '../worker/ingestion/group-type-manager'
 import { OrganizationManager } from '../worker/ingestion/organization-manager'
@@ -92,19 +93,33 @@ abstract class CdpConsumerBase {
 
                 await Promise.all(
                     results.map(async (result) => {
-                        result.logs.forEach((x) => {
+                        // Tricky: We want to pull all the logs out as we don't want them to be passed around to any subsequent functions
+                        const logs = result.logs
+                        result.logs = []
+
+                        logs.forEach((x) => {
+                            // TODO: Maybe put this somewhere else
+                            const sanitized = {
+                                ...x,
+                                timestamp: castTimestampOrNow(x.timestamp, TimestampFormat.ClickHouse),
+                            }
+                            // Convert timestamps to ISO strings
                             messagesToProduce.push({
                                 topic: KAFKA_LOG_ENTRIES,
-                                value: x,
+                                value: sanitized,
                                 key: x.instance_id,
                             })
                         })
 
-                        if (result.asyncFunction) {
-                            const res = await this.asyncFunctionExecutor!.execute(result.asyncFunction)
+                        if (result.asyncFunctionRequest) {
+                            const res = await this.asyncFunctionExecutor!.execute(result)
 
                             if (res) {
-                                messagesToProduce.push(res)
+                                messagesToProduce.push({
+                                    topic: KAFKA_CDP_FUNCTION_CALLBACKS,
+                                    value: res,
+                                    key: res.id,
+                                })
                             }
                         }
                     })
@@ -362,7 +377,7 @@ export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
     public addApiRoutes(app: express.Application) {
         app.post('/api/projects/:team_id/hog_functions/:id/invocations', async (req, res): Promise<void> => {
             try {
-                const { id } = req.params
+                const { id, team_id } = req.params
                 const { globals, mock_async_functions, configuration } = req.body
 
                 // TODO: Some double checking of the configuration
@@ -370,50 +385,44 @@ export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
                 const invocation: HogFunctionInvocation = {
                     id,
                     globals: globals as HogFunctionInvocationGlobals,
+                    teamId: parseInt(team_id),
+                    hogFunctionId: id,
+                    logs: [],
+                    timings: [],
                 }
 
                 let response = this.hogExecutor.execute(configuration, invocation)
 
-                while (response.asyncFunction) {
-                    let nextResponse: HogFunctionInvocationResult | undefined
-                    // TODO: Loop over the async functions and update the response
-                    if (mock_async_functions) {
-                        addLog(
-                            response,
-                            'info',
-                            `Async function ${response.asyncFunction.asyncFunctionName} was mocked`
-                        )
+                while (response.asyncFunctionRequest) {
+                    const asyncFunctionRequest = response.asyncFunctionRequest
 
-                        response.asyncFunction.vmState?.stack.push(convertJSToHog({ status: 200, body: {} }))
-                        nextResponse = this.hogExecutor.execute(
-                            configuration,
-                            response.asyncFunction,
-                            response.asyncFunction.vmState
-                        )
+                    if (mock_async_functions || asyncFunctionRequest.name !== 'fetch') {
+                        addLog(response, 'info', `Async function ${asyncFunctionRequest.name} was mocked`)
+
+                        // Add the state, simulating what executeAsyncResponse would do
+                        asyncFunctionRequest.vmState.stack.push(convertJSToHog({ status: 200, body: {} }))
                     } else {
-                        const asyncRes = await this.asyncFunctionExecutor!.execute(response.asyncFunction)
+                        const asyncRes = await this.asyncFunctionExecutor!.execute(response, {
+                            sync: true,
+                        })
 
-                        if (!asyncRes || asyncRes.value.error) {
+                        if (!asyncRes || asyncRes.asyncFunctionResponse.error) {
                             addLog(response, 'error', 'Failed to execute async function')
                         }
-
-                        response.asyncFunction.vmState?.stack.push(convertJSToHog(asyncRes?.value.vmResponse ?? null))
-
-                        nextResponse = this.hogExecutor.execute(
-                            configuration,
-                            response.asyncFunction,
-                            response.asyncFunction.vmState
+                        asyncFunctionRequest.vmState.stack.push(
+                            convertJSToHog(asyncRes?.asyncFunctionResponse.vmResponse ?? null)
                         )
+                        response.timings.push(...(asyncRes?.asyncFunctionResponse.timings ?? []))
                     }
 
-                    response = {
-                        ...nextResponse,
-                        logs: [...response.logs, ...nextResponse.logs],
-                    }
+                    // Clear it so we can't ever end up in a loop
+                    delete response.asyncFunctionRequest
+
+                    response = this.hogExecutor.execute(configuration, response, asyncFunctionRequest.vmState)
                 }
 
                 res.json({
-                    status: response.success ? 'success' : 'error',
+                    status: response.finished ? 'success' : 'error',
                     error: response.error,
                     logs: response.logs,
                 })
