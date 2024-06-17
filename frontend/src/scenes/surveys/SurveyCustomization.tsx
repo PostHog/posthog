@@ -2,6 +2,7 @@ import { LemonButton, LemonCheckbox, LemonInput, LemonSelect } from '@posthog/le
 import { useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
+import { surveyLogic } from 'scenes/surveys/surveyLogic'
 
 import {
     AvailableFeature,
@@ -25,6 +26,10 @@ interface WidgetCustomizationProps extends Omit<CustomizationProps, 'surveyQuest
 
 export function Customization({ appearance, surveyQuestionItem, onAppearanceChange }: CustomizationProps): JSX.Element {
     const { surveysStylingAvailable } = useValues(surveysLogic)
+    const { surveyShufflingQuestionsAvailable } = useValues(surveyLogic)
+    const surveyShufflingQuestionsDisabledReason = surveyShufflingQuestionsAvailable
+        ? ''
+        : 'Please add more than one question to the survey to enable shuffling questions'
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     return (
         <>
@@ -117,9 +122,9 @@ export function Customization({ appearance, surveyQuestionItem, onAppearanceChan
                         checked={appearance?.whiteLabel}
                     />
                 </div>
-
                 <div className="mt-2">
                     <LemonCheckbox
+                        disabledReason={surveyShufflingQuestionsDisabledReason}
                         label={
                             <div className="flex items-center">
                                 <span>Shuffle questions</span>
