@@ -621,7 +621,10 @@ export default function SurveyEdit(): JSX.Element {
                                                 </BindLogic>
                                             </LemonField.Pure>
                                             {featureFlags[FEATURE_FLAGS.SURVEYS_EVENTS] && surveysEventsAvailable && (
-                                                <LemonField.Pure label="User sends events">
+                                                <LemonField.Pure
+                                                    label="User sends events"
+                                                    info="Note that these events are only observed, and activate this survey, in the current user session."
+                                                >
                                                     <EventSelect
                                                         filterGroupTypes={[TaxonomicFilterGroupType.CustomEvents]}
                                                         onChange={(includedEvents) => {
@@ -644,20 +647,10 @@ export default function SurveyEdit(): JSX.Element {
                                                             <LemonButton
                                                                 size="small"
                                                                 type="secondary"
-                                                                tooltip="activate this survey based on a user event being sent"
                                                                 icon={<IconPlus />}
                                                                 sideIcon={null}
                                                             >
                                                                 Add event
-                                                                <>
-                                                                    <Tooltip
-                                                                        className="ml-2"
-                                                                        title="Estimate of users active in the last 30 seconds."
-                                                                        placement="right"
-                                                                    >
-                                                                        <IconInfo />
-                                                                    </Tooltip>
-                                                                </>
                                                             </LemonButton>
                                                         }
                                                     />
