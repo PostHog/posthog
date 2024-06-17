@@ -273,7 +273,7 @@ class SessionRecordingListFromFilters:
                 ),
             )
 
-        return ast.And(exprs=exprs)
+        return ast.And(exprs=exprs) if exprs else ast.Constant(value=True)
 
     def _strip_person_and_event_properties(self, property_group: PropertyGroup) -> PropertyGroup | None:
         property_groups_to_keep = [
