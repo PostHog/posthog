@@ -27,6 +27,7 @@ REALTIME_SUBSCRIPTIONS_DATA_LENGTH = Histogram(
     "realtime_snapshots_data_length",
     "The length of the data received from the realtime channel. It's ok for this to be zero _some times_ an increase in the rate of zero indicates a possible issue.",
     labelnames=["attempt_count"],
+    buckets=(0, 1, 2, 5, 10, 20, 100, 1000, float("inf")),
 )
 
 
