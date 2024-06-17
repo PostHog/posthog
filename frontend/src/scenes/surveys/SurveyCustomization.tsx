@@ -27,6 +27,9 @@ interface WidgetCustomizationProps extends Omit<CustomizationProps, 'surveyQuest
 export function Customization({ appearance, surveyQuestionItem, onAppearanceChange }: CustomizationProps): JSX.Element {
     const { surveysStylingAvailable } = useValues(surveysLogic)
     const { surveyShufflingQuestionsAvailable } = useValues(surveyLogic)
+    const surveyShufflingQuestionsDisabledReason = surveyShufflingQuestionsAvailable
+        ? ''
+        : 'Please add more than one question to the survey to enable shuffling questions'
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     return (
         <>
@@ -119,19 +122,18 @@ export function Customization({ appearance, surveyQuestionItem, onAppearanceChan
                         checked={appearance?.whiteLabel}
                     />
                 </div>
-                {surveyShufflingQuestionsAvailable && (
-                    <div className="mt-2">
-                        <LemonCheckbox
-                            label={
-                                <div className="flex items-center">
-                                    <span>Shuffle questions</span>
-                                </div>
-                            }
-                            onChange={(checked) => onAppearanceChange({ ...appearance, shuffleQuestions: checked })}
-                            checked={appearance?.shuffleQuestions}
-                        />
-                    </div>
-                )}
+                <div className="mt-2">
+                    <LemonCheckbox
+                        disabledReason={surveyShufflingQuestionsDisabledReason}
+                        label={
+                            <div className="flex items-center">
+                                <span>Shuffle questions</span>
+                            </div>
+                        }
+                        onChange={(checked) => onAppearanceChange({ ...appearance, shuffleQuestions: checked })}
+                        checked={appearance?.shuffleQuestions}
+                    />
+                </div>
             </div>
         </>
     )
