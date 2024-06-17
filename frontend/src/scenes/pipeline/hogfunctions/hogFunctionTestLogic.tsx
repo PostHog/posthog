@@ -21,7 +21,7 @@ export interface HogFunctionTestLogicProps {
 
 export type HogFunctionTestInvocationForm = {
     globals: string // HogFunctionInvocationGlobals
-    mockAsyncFunctions: boolean
+    mock_async_functions: boolean
 }
 
 export type HogFunctionTestInvocationResult = {
@@ -56,7 +56,7 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
     forms(({ props, actions }) => ({
         testInvocation: {
             defaults: {
-                mockAsyncFunctions: true,
+                mock_async_functions: true,
             } as HogFunctionTestInvocationForm,
             alwaysShowErrors: true,
             errors: ({ globals }) => {
@@ -73,7 +73,7 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                 try {
                     const res = await api.hogFunctions.createTestInvocation(props.id, {
                         globals,
-                        mockAsyncFunctions: data.mockAsyncFunctions,
+                        mock_async_functions: data.mock_async_functions,
                         configuration: props.configuration,
                     })
 

@@ -1691,7 +1691,7 @@ const api = {
             id: HogFunctionType['id'],
             data: {
                 configuration: Partial<HogFunctionType>
-                mockAsyncFunctions: boolean
+                mock_async_functions: boolean
                 globals: HogFunctionInvocationGlobals
             }
         ): Promise<any> {

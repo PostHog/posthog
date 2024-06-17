@@ -47,3 +47,24 @@ def reset_available_product_features_cache_on_workers(organization_id: str):
 def populate_plugin_capabilities_on_workers(plugin_id: str):
     logger.info(f"Populating plugin capabilities for plugin {plugin_id} on workers")
     publish_message("populate-plugin-capabilities", {"plugin_id": plugin_id})
+
+
+def create_hog_invocation_test(
+    team_id: int,
+    hog_function_id: str,
+    globals: dict,
+    configuration: dict,
+    mock_async_functions: bool,
+):
+    logger.info(f"Creating hog invocation test for hog function {hog_function_id} on workers")
+    # TODO: Move this to an api instead
+    publish_message(
+        "create-hog-invocation-test",
+        {
+            "teamId": team_id,
+            "hogFunctionId": hog_function_id,
+            "globals": globals,
+            "configuration": configuration,
+            "mockAsyncFunctions": mock_async_functions,
+        },
+    )

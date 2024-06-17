@@ -32,7 +32,7 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
                             </LemonButton>
                         ) : (
                             <>
-                                <LemonField name="mockAsyncFunctions">
+                                <LemonField name="mock_async_functions">
                                     {({ value, onChange }) => (
                                         <LemonSwitch
                                             bordered
