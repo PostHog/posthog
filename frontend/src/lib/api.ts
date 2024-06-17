@@ -45,6 +45,7 @@ import {
     Group,
     GroupListParams,
     HogFunctionIconResponse,
+    HogFunctionInvocationGlobals,
     HogFunctionTemplateType,
     HogFunctionType,
     InsightModel,
@@ -1684,6 +1685,17 @@ const api = {
 
         async listIcons(params: { query?: string } = {}): Promise<HogFunctionIconResponse[]> {
             return await new ApiRequest().hogFunctions().withAction('icons').withQueryString(params).get()
+        },
+
+        async createTestInvocation(
+            id: HogFunctionType['id'],
+            data: {
+                configuration: Partial<HogFunctionType>
+                mockAsyncFunctions: boolean
+                globals: HogFunctionInvocationGlobals
+            }
+        ): Promise<any> {
+            return await new ApiRequest().hogFunction(id).withAction('invocations').create({ data })
         },
     },
 

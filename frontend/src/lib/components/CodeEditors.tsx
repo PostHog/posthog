@@ -38,7 +38,7 @@ export function CodeEditor({ options, ...editorProps }: CodeEditorProps): JSX.El
 }
 
 export function CodeEditorResizeable({
-    height: defaultHeight = 200,
+    height: defaultHeight,
     minHeight = '5rem',
     maxHeight = '90vh',
     ...props
@@ -48,7 +48,7 @@ export function CodeEditorResizeable({
     maxHeight?: string | number
 }): JSX.Element {
     const [height, setHeight] = useState(defaultHeight)
-    const [manualHeight, setManualHeight] = useState<number>()
+    const [manualHeight, setManualHeight] = useState<number | undefined>(defaultHeight)
 
     const ref = useRef<HTMLDivElement | null>(null)
 

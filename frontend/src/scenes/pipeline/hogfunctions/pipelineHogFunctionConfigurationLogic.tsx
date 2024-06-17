@@ -7,17 +7,15 @@ import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
 
-import { DataTableNode, NodeKind } from '~/queries/schema'
 import {
     FilterType,
+    HogFunctionConfigurationType,
     HogFunctionTemplateType,
     HogFunctionType,
     PipelineNodeTab,
     PipelineStage,
     PluginConfigFilters,
     PluginConfigTypeNew,
-    PropertyFilterType,
-    PropertyOperator,
 } from '~/types'
 
 import type { pipelineHogFunctionConfigurationLogicType } from './pipelineHogFunctionConfigurationLogicType'
@@ -26,8 +24,6 @@ export interface PipelineHogFunctionConfigurationLogicProps {
     templateId?: string
     id?: string
 }
-
-export type HogFunctionConfigurationType = Omit<HogFunctionType, 'created_at' | 'created_by' | 'updated_at'>
 
 const NEW_FUNCTION_TEMPLATE: HogFunctionTemplateType = {
     id: 'new',
@@ -84,7 +80,6 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
         duplicate: true,
         duplicateFromTemplate: true,
         resetToTemplate: true,
-        setTestingMode: (testingMode: boolean) => ({ testingMode }),
     }),
     reducers({
         showSource: [
@@ -93,15 +88,8 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
                 setShowSource: (_, { showSource }) => showSource,
             },
         ],
-
-        testingMode: [
-            false,
-            {
-                setTestingMode: (_, { testingMode }) => testingMode,
-            },
-        ],
     }),
-    loaders(({ props, values }) => ({
+    loaders(({ props }) => ({
         template: [
             null as HogFunctionTemplateType | null,
             {
@@ -243,39 +231,6 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
                           inputs: inputErrors,
                       }
                     : null
-            },
-        ],
-
-        matchingEventsQuery: [
-            (s) => [s.configuration],
-            ({ filters }): DataTableNode | null => {
-                if (!filters) {
-                    return null
-                }
-
-                return {
-                    kind: NodeKind.DataTableNode,
-                    source: {
-                        kind: NodeKind.EventsQuery,
-                        select: ['event'],
-                        properties: [
-                            {
-                                type: PropertyFilterType.Event,
-                                key: '$browser',
-                                operator: PropertyOperator.Exact,
-                                value: 'Chrome',
-                            },
-                        ],
-                    },
-                    full: false,
-                    showEventFilter: false,
-                    showPropertyFilter: false,
-                    showTimings: false,
-                    showOpenEditorButton: false,
-                    expandable: true,
-                    showColumnConfigurator: false,
-                    embedded: true,
-                }
             },
         ],
     })),

@@ -22,11 +22,11 @@ import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import { groupsModel } from '~/models/groupsModel'
-import { Query } from '~/queries/Query/Query'
 import { EntityTypes } from '~/types'
 
 import { HogFunctionIconEditable } from './HogFunctionIcon'
 import { HogFunctionInputWithSchema } from './HogFunctionInputs'
+import { HogFunctionTest } from './HogFunctionTest'
 import { pipelineHogFunctionConfigurationLogic } from './pipelineHogFunctionConfigurationLogic'
 
 export function PipelineHogFunctionConfiguration({
@@ -47,7 +47,6 @@ export function PipelineHogFunctionConfiguration({
         loaded,
         hogFunction,
         matchingEventsQuery,
-        testingMode,
     } = useValues(logic)
     const {
         submitConfiguration,
@@ -57,7 +56,6 @@ export function PipelineHogFunctionConfiguration({
         resetToTemplate,
         duplicateFromTemplate,
         setConfigurationValue,
-        setTestingMode,
     } = useActions(logic)
 
     const hogFunctionsEnabled = !!useFeatureFlag('HOG_FUNCTIONS')
@@ -94,15 +92,6 @@ export function PipelineHogFunctionConfiguration({
 
     const saveButtons = (
         <>
-            {!testingMode ? (
-                <LemonButton
-                    type="secondary"
-                    disabledReason={isConfigurationSubmitting ? 'Saving in progress…' : undefined}
-                    onClick={() => setTestingMode(true)}
-                >
-                    Test function
-                </LemonButton>
-            ) : null}
             <LemonButton
                 type="secondary"
                 htmlType="reset"
@@ -276,10 +265,6 @@ export function PipelineHogFunctionConfiguration({
                                 <p className="italic text-muted-alt">
                                     This destination will be triggered if <b>any of</b> the above filters match.
                                 </p>
-
-                                <div className="flex flex-col border rounded overflow-y-auto max-h-120">
-                                    {matchingEventsQuery ? <Query query={matchingEventsQuery} /> : null}
-                                </div>
                             </div>
                         </div>
 
@@ -368,9 +353,7 @@ export function PipelineHogFunctionConfiguration({
                                 </div>
                             </div>
 
-                            <div className="border bg-bg-light rounded p-3 space-y-2">
-                                <h4>Testing</h4>
-                            </div>
+                            {id && <HogFunctionTest id={id} configuration={configuration} />}
                             <div className="flex gap-2 justify-end">{saveButtons}</div>
                         </div>
                     </div>

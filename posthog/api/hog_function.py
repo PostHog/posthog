@@ -105,6 +105,14 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         return super().create(validated_data=validated_data)
 
 
+class HogFunctionInvocationSerializer(serializers.Serializer):
+    configuration = HogFunctionSerializer(write_only=True)
+    globals = serializers.DictField(write_only=True)
+    mockAsyncFunctions = serializers.BooleanField(default=True, write_only=True)
+    status = serializers.CharField(read_only=True)
+    logs = serializers.ListField(read_only=True)
+
+
 class HogFunctionViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "INTERNAL"  # Keep internal until we are happy to release this GA
     queryset = HogFunction.objects.all()
@@ -143,3 +151,18 @@ class HogFunctionViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, ForbidDestroyMod
         icon_service = CDPIconsService()
 
         return icon_service.get_icon_http_response(id)
+
+    @action(detail=True, methods=["POST"])
+    def invocations(self, request: Request, *args, **kwargs):
+        serializer = HogFunctionInvocationSerializer(data=request.data, context=self.get_serializer_context())
+
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=400)
+
+        configuration = serializer.validated_data["configuration"]
+        globals = serializer.validated_data["globals"]
+        mockAsyncFunctions = serializer.validated_data["mockAsyncFunctions"]
+
+        print("TODO")
+
+        return Response(serializer.data)
