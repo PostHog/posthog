@@ -147,6 +147,14 @@ def replaceAll(name: str, args: list[Any], team: Optional["Team"], stdout: Optio
     return args[0].replace(args[1], args[2])
 
 
+def generateUUIDv4(
+    name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int
+) -> str:
+    import uuid
+
+    return str(uuid.uuid4())
+
+
 STL: dict[str, Callable[[str, list[Any], Optional["Team"], list[str] | None, int], Any]] = {
     "concat": concat,
     "match": match,
@@ -173,4 +181,5 @@ STL: dict[str, Callable[[str, list[Any], Optional["Team"], list[str] | None, int
     "decodeURLComponent": decodeURLComponent,
     "replaceOne": replaceOne,
     "replaceAll": replaceAll,
+    "generateUUIDv4": generateUUIDv4,
 }

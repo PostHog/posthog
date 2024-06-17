@@ -32,13 +32,16 @@ class TestIngestionWarningsAPI(ClickhouseTestMixin, APIBaseTest):
     @freeze_time("2021-12-04T19:20:00Z")
     def test_ingestion_warnings_api(self):
         a_lot_of_ingestion_warning_timestamps: list[str] = []
-        # more than the number the front end will show
+
         # KLUDGE: it is 59 here so that timestamp creation can be naive
+        # more than the number the front end will show
         for i in range(59):
             seconds = f"0{i}" if i < 10 else str(i)
             minutes = floor(i / 10)
             formatted_minutes = f"0{minutes}" if minutes < 10 else str(minutes)
-            timestamp = f"2021-12-04T13:{formatted_minutes}:{seconds}Z"
+            day = (i % 5) + 1
+            formatted_day = f"0{day}" if day < 10 else str(day)
+            timestamp = f"2021-12-{formatted_day}T13:{formatted_minutes}:{seconds}Z"
             a_lot_of_ingestion_warning_timestamps.insert(0, timestamp)
             create_ingestion_warning(
                 team_id=self.team.id,
@@ -86,14 +89,21 @@ class TestIngestionWarningsAPI(ClickhouseTestMixin, APIBaseTest):
         )
 
         response = self.client.get(f"/api/projects/{self.team.pk}/ingestion_warnings")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         assert (
             response.json()
             == {
                 "results": [
                     {
                         "count": 59,  # count is correct and not limited like the examples are
-                        "lastSeen": "2021-12-04T13:05:58Z",
+                        "lastSeen": "2021-12-05T13:05:54Z",
+                        "sparkline": [
+                            [12, "2021-12-03"],
+                            [12, "2021-12-02"],
+                            [12, "2021-12-01"],
+                            [11, "2021-12-05"],
+                            [12, "2021-12-04"],
+                        ],
                         "type": "replay_timestamp_too_far",
                         "warnings": [
                             {
@@ -102,12 +112,13 @@ class TestIngestionWarningsAPI(ClickhouseTestMixin, APIBaseTest):
                                 "type": "replay_timestamp_too_far",
                                 # even though there are very many warnings we limit the number of examples we send to the frontend
                             }
-                            for t in a_lot_of_ingestion_warning_timestamps[:50]
+                            for t in sorted(a_lot_of_ingestion_warning_timestamps, reverse=True)[:50]
                         ],
                     },
                     {
                         "type": "cannot_merge_already_identified",
                         "lastSeen": "2021-12-03T00:00:00Z",
+                        "sparkline": [[1, "2021-12-03"], [1, "2021-12-02"]],
                         "warnings": [
                             {
                                 "type": "cannot_merge_already_identified",
@@ -130,6 +141,7 @@ class TestIngestionWarningsAPI(ClickhouseTestMixin, APIBaseTest):
                     {
                         "type": "another_type",
                         "lastSeen": "2021-11-15T00:00:00Z",
+                        "sparkline": [[1, "2021-11-15"]],
                         "warnings": [
                             {
                                 "type": "another_type",
