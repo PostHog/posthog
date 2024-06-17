@@ -232,43 +232,47 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         call_count = getattr(posthog.hogql.query.sync_execute, "call_count", None)
         query_series: list[EventsNode | ActionsNode] = [EventsNode(event="$pageview")] if series is None else series
         insight_date_range = InsightDateRange(date_from=date_from, date_to=date_to, explicitDate=explicit_date)
+
         if date_to is not None:
             with freeze_time(date_to):
                 date_range = QueryDateRange(insight_date_range, self.team, interval, datetime.now())
-            if date_range.n_intervals_in_date_range() < 2:
-                return
+        else:
+            date_range = QueryDateRange(insight_date_range, self.team, interval, datetime.now())
 
-            relative_date_from = f"-{date_range.n_intervals_in_date_range()}{interval.value[0]}"
-            midpoint_date = date_range.date_from() + (date_range.date_to() - date_range.date_from()) / 2
-            with freeze_time(midpoint_date):
-                first_query = TrendsQuery(
-                    dateRange=InsightDateRange(date_from=relative_date_from),
-                    interval=interval,
-                    series=query_series,
-                    trendsFilter=trends_filters,
-                    breakdownFilter=breakdown,
-                    filterTestAccounts=filter_test_accounts,
-                )
-                TrendsQueryRunner(
-                    team=self.team, query=first_query, modifiers=hogql_modifiers, limit_context=limit_context
-                ).run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        if date_range.n_intervals_in_date_range() < 2:
+            return
 
-            with freeze_time(date_to):
-                second_query = TrendsQuery(
-                    dateRange=InsightDateRange(date_from=relative_date_from),
-                    interval=interval,
-                    series=query_series,
-                    trendsFilter=trends_filters,
-                    breakdownFilter=breakdown,
-                    filterTestAccounts=filter_test_accounts,
-                )
-                runner = TrendsQueryRunner(
-                    team=self.team, query=second_query, modifiers=hogql_modifiers, limit_context=limit_context
-                )
-                with patch.object(runner, "_caching", wraps=runner._caching) as wrapped:
-                    cast(CachedTrendsQueryResponse, runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS))
-                    if runner.can_compute_from_cache() and limit_context != LimitContext.EXPORT:
-                        wrapped.assert_called_once()
+        relative_date_from = f"-{date_range.n_intervals_in_date_range()}{interval.value[0]}"
+        midpoint_date = date_range.date_from() + (date_range.date_to() - date_range.date_from()) / 2
+        with freeze_time(midpoint_date):
+            first_query = TrendsQuery(
+                dateRange=InsightDateRange(date_from=relative_date_from),
+                interval=interval,
+                series=query_series,
+                trendsFilter=trends_filters,
+                breakdownFilter=breakdown,
+                filterTestAccounts=filter_test_accounts,
+            )
+            TrendsQueryRunner(
+                team=self.team, query=first_query, modifiers=hogql_modifiers, limit_context=limit_context
+            ).run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        with freeze_time(date_to):
+            second_query = TrendsQuery(
+                dateRange=InsightDateRange(date_from=relative_date_from),
+                interval=interval,
+                series=query_series,
+                trendsFilter=trends_filters,
+                breakdownFilter=breakdown,
+                filterTestAccounts=filter_test_accounts,
+            )
+            runner = TrendsQueryRunner(
+                team=self.team, query=second_query, modifiers=hogql_modifiers, limit_context=limit_context
+            )
+            with patch.object(runner, "_caching", wraps=runner._caching) as wrapped:
+                cast(CachedTrendsQueryResponse, runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS))
+                if runner.can_compute_from_cache() and limit_context != LimitContext.EXPORT:
+                    wrapped.assert_called_once()
         if call_count is not None:
             posthog.hogql.query.sync_execute.call_count = call_count
 
@@ -2382,10 +2386,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 BreakdownFilter(breakdown="breakdown_value", breakdown_type=BreakdownType.EVENT),
                 CompareFilter(compare=True),
             )
-            first_response = cast(
-                CachedTrendsQueryResponse,
-                cast(CachedTrendsQueryResponse, runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)),
-            )
+            first_response = cast(CachedTrendsQueryResponse, runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS))
             assert len(first_response.results) == 2
 
         runner = self._create_query_runner(
