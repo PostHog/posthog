@@ -4,6 +4,7 @@ pub mod flag_definitions;
 pub mod flag_matching;
 pub mod property_matching;
 pub mod redis;
+pub mod database;
 pub mod router;
 pub mod server;
 pub mod team;

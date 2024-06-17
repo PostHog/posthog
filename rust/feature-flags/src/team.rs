@@ -4,14 +4,15 @@ use tracing::instrument;
 
 use crate::{
     api::FlagError,
-    redis::{Client, CustomRedisError},
+    redis::{Client as RedisClient, CustomRedisError},
+    database::Client as DatabaseClient,
 };
 
 // TRICKY: This cache data is coming from django-redis. If it ever goes out of sync, we'll bork.
 // TODO: Add integration tests across repos to ensure this doesn't happen.
 pub const TEAM_TOKEN_CACHE_PREFIX: &str = "posthog:1:team_token:";
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, sqlx::FromRow)]
 pub struct Team {
     pub id: i64,
     pub name: String,
@@ -23,7 +24,7 @@ impl Team {
 
     #[instrument(skip_all)]
     pub async fn from_redis(
-        client: Arc<dyn Client + Send + Sync>,
+        client: Arc<dyn RedisClient + Send + Sync>,
         token: String,
     ) -> Result<Team, FlagError> {
         // TODO: Instead of failing here, i.e. if not in redis, fallback to pg
@@ -50,6 +51,26 @@ impl Team {
 
         Ok(team)
     }
+
+    pub async fn from_pg(client: Arc<dyn DatabaseClient + Send + Sync>, token: String) -> Result<Team, FlagError> {
+        let query = "SELECT id, name, api_token FROM posthog_team WHERE api_token = $1";
+        let mut conn = client.get_connection().await.map_err(|e| {
+            tracing::error!("failed to get connection: {}", e);
+            FlagError::DatabaseUnavailable
+        })?;
+        // TODO: Clean up error handling here
+
+        let row = sqlx::query_as::<_, Team>(query)
+            .bind(&token)
+            .fetch_one(&mut *conn)
+            .await.map_err(|e| {
+                tracing::error!("failed to fetch data: {}", e);
+                FlagError::DatabaseUnavailable
+            })?;
+
+        Ok(row)
+        
+    }
 }
 
 #[cfg(test)]
@@ -60,14 +81,14 @@ mod tests {
     use super::*;
     use crate::{
         team,
-        test_utils::{insert_new_team_in_redis, random_string, setup_redis_client},
+        test_utils::{insert_new_team_in_pg, insert_new_team_in_redis, random_string, run_database_migrations, setup_pg_client, setup_redis_client},
     };
 
     #[tokio::test]
     async fn test_fetch_team_from_redis() {
         let client = setup_redis_client(None);
 
-        let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+        let team = insert_new_team_in_redis(client.clone()).await.expect("Failed to insert team in redis");
 
         let target_token = team.api_token;
 
@@ -136,5 +157,25 @@ mod tests {
             Err(other) => panic!("Expected DataParsingError, got {:?}", other),
             Ok(_) => panic!("Expected DataParsingError"),
         };
+    }
+
+    #[tokio::test]
+    async fn test_fetch_team_from_pg() {
+        // match run_database_migrations() {
+        //     Err(e) => panic!("Failed to run migrations: {}", e),
+        //     _ => {}
+        // }
+        let client = setup_pg_client(None).await;
+
+        let team = insert_new_team_in_pg(client.clone()).await.expect("Failed to insert team in pg");
+
+        let target_token = team.api_token;
+
+        let team_from_pg = Team::from_pg(client.clone(), target_token.clone())
+            .await
+            .unwrap();
+
+        assert_eq!(team_from_pg.api_token, target_token);
+        assert_eq!(team_from_pg.id, team.id);
     }
 }

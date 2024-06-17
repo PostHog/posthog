@@ -1,6 +1,6 @@
-use crate::flag_definitions::{FeatureFlag, FlagGroupType};
+use crate::{database::Client as DatabaseClient, flag_definitions::{FeatureFlag, FlagGroupType}};
 use sha1::{Digest, Sha1};
-use std::fmt::Write;
+use std::{fmt::Write, sync::Arc};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct FeatureFlagMatch {
@@ -21,19 +21,21 @@ pub struct FeatureFlagMatch {
 // for all teams. If not, we can have a LRU cache, or a cache that stores only the most recent N keys.
 // But, this can be a future refactor, for now just focusing on getting the basic matcher working, write lots and lots of tests
 // and then we can easily refactor stuff around.
-#[derive(Debug)]
+// #[derive(Debug)]
 pub struct FeatureFlagMatcher {
     // pub flags: Vec<FeatureFlag>,
     pub distinct_id: String,
+    pub database_client: Option<Arc<dyn DatabaseClient + Send + Sync>>,
 }
 
 const LONG_SCALE: u64 = 0xfffffffffffffff;
 
 impl FeatureFlagMatcher {
-    pub fn new(distinct_id: String) -> Self {
+    pub fn new(distinct_id: String, database_client: Option<Arc<dyn DatabaseClient + Send + Sync>>) -> Self {
         FeatureFlagMatcher {
             // flags,
             distinct_id,
+            database_client,
         }
     }
 

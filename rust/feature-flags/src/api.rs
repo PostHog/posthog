@@ -42,6 +42,8 @@ pub enum FlagError {
     DataParsingError,
     #[error("redis unavailable")]
     RedisUnavailable,
+    #[error("database unavailable")]
+    DatabaseUnavailable,
 }
 
 impl IntoResponse for FlagError {
@@ -58,7 +60,7 @@ impl IntoResponse for FlagError {
 
             FlagError::RateLimited => (StatusCode::TOO_MANY_REQUESTS, self.to_string()),
 
-            FlagError::DataParsingError | FlagError::RedisUnavailable => {
+            FlagError::DataParsingError | FlagError::RedisUnavailable | FlagError::DatabaseUnavailable => {
                 (StatusCode::SERVICE_UNAVAILABLE, self.to_string())
             }
         }

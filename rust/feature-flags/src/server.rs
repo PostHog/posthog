@@ -6,6 +6,7 @@ use tokio::net::TcpListener;
 
 use crate::config::Config;
 
+use crate::database::PgClient;
 use crate::redis::RedisClient;
 use crate::router;
 
@@ -15,8 +16,10 @@ where
 {
     let redis_client =
         Arc::new(RedisClient::new(config.redis_url).expect("failed to create redis client"));
+    
+    let postgres_client = Arc::new(PgClient::new(config.read_database_url).await.expect("failed to create postgres client"));
 
-    let app = router::router(redis_client);
+    let app = router::router(redis_client, postgres_client);
 
     // run our app with hyper
     // `axum::Server` is a re-export of `hyper::Server`
