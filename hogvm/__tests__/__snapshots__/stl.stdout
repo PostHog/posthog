@@ -50,3 +50,6 @@ true
 -- replaceAll, replaceOne --
 heLLo worLd
 heLlo world
+
+-- generateUUIDv4 --
+36

@@ -2,7 +2,7 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 
 
 template: HogFunctionTemplate = HogFunctionTemplate(
-    status="alpha",
+    status="beta",
     id="template-webhook",
     name="HTTP Webhook",
     description="Sends a webhook templated by the incoming event data",

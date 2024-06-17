@@ -50,4 +50,7 @@ print('')
 print('-- replaceAll, replaceOne --')
 print(replaceAll('hello world', 'l', 'L'))
 print(replaceOne('hello world', 'l', 'L'))
+print('')
+print('-- generateUUIDv4 --')
+print(length(generateUUIDv4()))
 
