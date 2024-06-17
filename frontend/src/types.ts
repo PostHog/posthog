@@ -2946,6 +2946,7 @@ export enum ItemMode { // todo: consolidate this and dashboardmode
     Subscriptions = 'subscriptions',
     Sharing = 'sharing',
     Alerts = 'alerts',
+    Dashboards = 'dashboards',
 }
 
 export enum DashboardPlacement {

@@ -505,6 +505,7 @@ export const routes: Record<string, Scene> = {
     [urls.alert(':shortId' as InsightShortId, ':subscriptionId')]: Scene.Insight,
     [urls.alerts(':shortId' as InsightShortId)]: Scene.Insight,
     [urls.insightSharing(':shortId' as InsightShortId)]: Scene.Insight,
+    [urls.insightDashboards(':shortId' as InsightShortId)]: Scene.Insight,
     [urls.savedInsights()]: Scene.SavedInsights,
     [urls.webAnalytics()]: Scene.WebAnalytics,
     [urls.actions()]: Scene.DataManagement,

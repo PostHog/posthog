@@ -183,7 +183,9 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             { searchParams: previousSearchParams } // previous location
         ) => {
             const insightMode =
-                mode === 'subscriptions'
+                mode === 'dashboards'
+                    ? ItemMode.Dashboards
+                    : mode === 'subscriptions'
                     ? ItemMode.Subscriptions
                     : mode === 'alerts'
                     ? ItemMode.Alerts

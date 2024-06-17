@@ -15,7 +15,6 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import { useState } from 'react'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { insightCommandLogic } from 'scenes/insights/insightCommandLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -62,8 +61,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { currentTeamId } = useValues(teamLogic)
     const { push } = useActions(router)
 
-    const [addToDashboardModalOpen, setAddToDashboardModalOpenModal] = useState<boolean>(false)
-
     return (
         <>
             {hasDashboardItemId && (
@@ -83,8 +80,8 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         previewIframe
                     />
                     <AddToDashboardModal
-                        isOpen={addToDashboardModalOpen}
-                        closeModal={() => setAddToDashboardModalOpenModal(false)}
+                        isOpen={insightMode === ItemMode.Dashboards}
+                        closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
                         insight={legacyInsight}
                         canEditInsight={canEditInsight}
                     />
@@ -123,7 +120,11 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                 {insight.favorited ? 'Remove from favorites' : 'Add to favorites'}
                                             </LemonButton>
                                             <LemonButton
-                                                onClick={() => setAddToDashboardModalOpenModal(true)}
+                                                onClick={() =>
+                                                    insight.short_id
+                                                        ? push(urls.insightDashboards(insight.short_id))
+                                                        : null
+                                                }
                                                 fullWidth
                                             >
                                                 Add to dashboard
@@ -256,7 +257,12 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                     }}
                                     type="secondary"
                                 />
-                                <AddToDashboard insight={insight} setOpenModal={setAddToDashboardModalOpenModal} />
+                                <AddToDashboard
+                                    insight={insight}
+                                    setOpenModal={() =>
+                                        insight.short_id ? push(urls.insightDashboards(insight.short_id)) : null
+                                    }
+                                />
                             </>
                         )}
 
