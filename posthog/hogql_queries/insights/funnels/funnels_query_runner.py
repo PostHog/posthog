@@ -28,13 +28,15 @@ from posthog.schema import (
     FunnelsQuery,
     FunnelsQueryResponse,
     HogQLQueryModifiers,
+    CacheMissResponse,
 )
 
 
 class FunnelsQueryRunner(QueryRunner):
     query: FunnelsQuery
     response: FunnelsQueryResponse
-    cached_response: CachedFunnelsQueryResponse
+    cached_response_type: CachedFunnelsQueryResponse
+    cached_response: cached_response_type | CacheMissResponse
     context: FunnelQueryContext
 
     def __init__(

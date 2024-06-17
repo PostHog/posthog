@@ -9,13 +9,15 @@ from posthog.schema import (
     InsightActorsQueryOptions,
     InsightActorsQueryOptionsResponse,
     CachedInsightActorsQueryOptionsResponse,
+    CacheMissResponse,
 )
 
 
 class InsightActorsQueryOptionsRunner(QueryRunner):
     query: InsightActorsQueryOptions
     response: InsightActorsQueryOptionsResponse
-    cached_response: CachedInsightActorsQueryOptionsResponse
+    cached_response_type: CachedInsightActorsQueryOptionsResponse
+    cached_response: cached_response_type | CacheMissResponse
 
     @cached_property
     def source_runner(self) -> QueryRunner:

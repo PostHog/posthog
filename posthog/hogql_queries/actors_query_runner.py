@@ -8,13 +8,20 @@ from posthog.hogql_queries.actor_strategies import ActorStrategy, PersonStrategy
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
-from posthog.schema import ActorsQuery, ActorsQueryResponse, CachedActorsQueryResponse, DashboardFilter
+from posthog.schema import (
+    ActorsQuery,
+    ActorsQueryResponse,
+    CachedActorsQueryResponse,
+    DashboardFilter,
+    CacheMissResponse,
+)
 
 
 class ActorsQueryRunner(QueryRunner):
     query: ActorsQuery
     response: ActorsQueryResponse
-    cached_response: CachedActorsQueryResponse
+    cached_response_type: CachedActorsQueryResponse
+    cached_response: cached_response_type | CacheMissResponse
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

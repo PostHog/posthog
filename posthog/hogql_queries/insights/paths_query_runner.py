@@ -34,6 +34,7 @@ from posthog.schema import (
     PathType,
     FunnelPathType,
     FunnelConversionWindowTimeUnit,
+    CacheMissResponse,
 )
 from posthog.schema import PathsQuery
 
@@ -45,7 +46,8 @@ EDGE_LIMIT_DEFAULT = 50
 class PathsQueryRunner(QueryRunner):
     query: PathsQuery
     response: PathsQueryResponse
-    cached_response: CachedPathsQueryResponse
+    cached_response_type: CachedPathsQueryResponse
+    cached_response: cached_response_type | CacheMissResponse
 
     def __init__(
         self,

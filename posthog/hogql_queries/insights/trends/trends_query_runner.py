@@ -101,7 +101,8 @@ logger = structlog.get_logger(__name__)
 class TrendsQueryRunner(QueryRunner):
     query: TrendsQuery
     response: TrendsQueryResponse
-    cached_response: CachedTrendsQueryResponse | CacheMissResponse
+    cached_response_type = CachedTrendsQueryResponse
+    cached_response: cached_response_type | CacheMissResponse
     series: list[SeriesWithExtras]
 
     def __init__(

@@ -361,6 +361,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     query: Q
     response: R
     cached_response: CR | CacheMissResponse
+    cached_response_type: CR
     query_id: Optional[str]
 
     team: Team
@@ -393,10 +394,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     @property
     def query_type(self) -> type[Q]:
         return self.__annotations__["query"]  # Enforcing the type annotation of `query` at runtime
-
-    @property
-    def cached_response_type(self) -> type[CR]:
-        return self.__annotations__["cached_response"]
 
     def is_query_node(self, data) -> TypeGuard[Q]:
         return isinstance(data, self.query_type)

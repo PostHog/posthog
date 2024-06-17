@@ -30,6 +30,7 @@ from posthog.schema import (
     StickinessQuery,
     HogQLQueryModifiers,
     StickinessQueryResponse,
+    CacheMissResponse,
 )
 
 
@@ -49,7 +50,8 @@ class SeriesWithExtras:
 class StickinessQueryRunner(QueryRunner):
     query: StickinessQuery
     response: StickinessQueryResponse
-    cached_response: CachedStickinessQueryResponse
+    cached_response_type: CachedStickinessQueryResponse
+    cached_response: cached_response_type | CacheMissResponse
     series: list[SeriesWithExtras]
 
     def __init__(

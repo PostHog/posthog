@@ -34,7 +34,7 @@ class TestQueryRunner(BaseTest):
         class TestQueryRunner(QueryRunner):
             query: TestQuery
             response: TestBasicQueryResponse
-            cached_response: TestCachedBasicQueryResponse
+            cached_response_type: TestCachedBasicQueryResponse
 
             def calculate(self):
                 return TestBasicQueryResponse(

@@ -30,6 +30,7 @@ from posthog.schema import (
     IntervalType,
     RetentionEntity,
     EntityType,
+    CacheMissResponse,
 )
 from posthog.schema import RetentionQuery, RetentionType
 
@@ -47,7 +48,8 @@ DEFAULT_ENTITY = RetentionEntity(
 class RetentionQueryRunner(QueryRunner):
     query: RetentionQuery
     response: RetentionQueryResponse
-    cached_response: CachedRetentionQueryResponse
+    cached_response_type: CachedRetentionQueryResponse
+    cached_response: cached_response_type | CacheMissResponse
     target_entity: RetentionEntity
     returning_entity: RetentionEntity
 

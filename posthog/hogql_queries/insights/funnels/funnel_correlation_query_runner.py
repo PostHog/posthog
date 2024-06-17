@@ -40,6 +40,7 @@ from posthog.schema import (
     HogQLQueryModifiers,
     HogQLQueryResponse,
     EventOddsRatioSerialized,
+    CacheMissResponse,
 )
 
 
@@ -87,7 +88,8 @@ class FunnelCorrelationQueryRunner(QueryRunner):
 
     query: FunnelCorrelationQuery
     response: FunnelCorrelationResponse
-    cached_response: CachedFunnelCorrelationResponse
+    cached_response_type: CachedFunnelCorrelationResponse
+    cached_response: cached_response_type | CacheMissResponse
 
     funnels_query: FunnelsQuery
     actors_query: FunnelsActorsQuery

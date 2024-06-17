@@ -16,13 +16,15 @@ from posthog.schema import (
     DashboardFilter,
     HogQLFilters,
     DateRange,
+    CacheMissResponse,
 )
 
 
 class HogQLQueryRunner(QueryRunner):
     query: HogQLQuery
     response: HogQLQueryResponse
-    cached_response: CachedHogQLQueryResponse
+    cached_response_type: CachedHogQLQueryResponse
+    cached_response: cached_response_type | CacheMissResponse
 
     def to_query(self) -> ast.SelectQuery:
         if self.timings is None:

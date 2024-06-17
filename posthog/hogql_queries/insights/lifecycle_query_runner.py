@@ -25,6 +25,7 @@ from posthog.schema import (
     EventsNode,
     LifecycleQueryResponse,
     InsightActorsQueryOptionsResponse,
+    CacheMissResponse,
 )
 from posthog.utils import format_label_date
 
@@ -32,7 +33,8 @@ from posthog.utils import format_label_date
 class LifecycleQueryRunner(QueryRunner):
     query: LifecycleQuery
     response: LifecycleQueryResponse
-    cached_response: CachedLifecycleQueryResponse
+    cached_response_type: CachedLifecycleQueryResponse
+    cached_response: cached_response_type | CacheMissResponse
 
     def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         if self.query.samplingFactor == 0:

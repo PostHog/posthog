@@ -17,13 +17,15 @@ from posthog.schema import (
     WebStatsTableQuery,
     WebStatsBreakdown,
     WebStatsTableQueryResponse,
+    CacheMissResponse,
 )
 
 
 class LegacyWebStatsTableQueryRunner(WebAnalyticsQueryRunner):
     query: WebStatsTableQuery
     response: WebStatsTableQueryResponse
-    cached_response: CachedWebStatsTableQueryResponse
+    cached_response_type: CachedWebStatsTableQueryResponse
+    cached_response: cached_response_type | CacheMissResponse
     paginator: HogQLHasMorePaginator
 
     def __init__(self, *args, **kwargs):
