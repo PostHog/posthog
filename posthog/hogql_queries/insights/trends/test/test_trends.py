@@ -186,6 +186,7 @@ def convert_filter_to_trends_query(filter: Filter) -> TrendsQuery:
             breakdowns=filter.breakdowns,
             breakdown_group_type_index=filter.breakdown_group_type_index,
             breakdown_histogram_bin_count=filter.breakdown_histogram_bin_count,
+            breakdown_limit=filter._breakdown_limit,
         ),
         properties=_props(filter.to_dict()),
         interval=filter.interval,
@@ -526,6 +527,25 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 ),
                 self.team,
             )
+            self._run(
+                Filter(
+                    team=self.team,
+                    data={
+                        "date_from": "-14d",
+                        "breakdowns": [{"property": "$some_property"}],
+                        "events": [
+                            {
+                                "id": "sign up",
+                                "name": "sign up",
+                                "type": "events",
+                                "order": 0,
+                            },
+                            {"id": "no events"},
+                        ],
+                    },
+                ),
+                self.team,
+            )
 
     def test_no_props_numeric(self):
         PropertyDefinition.objects.create(
@@ -555,6 +575,25 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 ),
                 self.team,
             )
+            self._run(
+                Filter(
+                    team=self.team,
+                    data={
+                        "date_from": "-14d",
+                        "breakdowns": [{"property": "$some_property"}],
+                        "events": [
+                            {
+                                "id": "sign up",
+                                "name": "sign up",
+                                "type": "events",
+                                "order": 0,
+                            },
+                            {"id": "no events"},
+                        ],
+                    },
+                ),
+                self.team,
+            )
 
     def test_no_props_boolean(self):
         PropertyDefinition.objects.create(
@@ -571,6 +610,25 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     data={
                         "date_from": "-14d",
                         "breakdown": "$some_property",
+                        "events": [
+                            {
+                                "id": "sign up",
+                                "name": "sign up",
+                                "type": "events",
+                                "order": 0,
+                            },
+                            {"id": "no events"},
+                        ],
+                    },
+                ),
+                self.team,
+            )
+            self._run(
+                Filter(
+                    team=self.team,
+                    data={
+                        "date_from": "-14d",
+                        "breakdowns": [{"property": "$some_property"}],
                         "events": [
                             {
                                 "id": "sign up",
@@ -1279,6 +1337,82 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             else:
                 self.assertEqual(result["aggregated_value"], 5)
 
+    def test_trends_multiple_breakdowns_single_aggregate(self):
+        self._create_person(
+            team_id=self.team.pk,
+            distinct_ids=["blabla", "anonymous_id"],
+            properties={"$some_prop": "some_val"},
+        )
+        with freeze_time("2020-01-01 00:06:34"):
+            self._create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$some_property": "value", "$browser": "Chrome", "$variant": "1"},
+            )
+            self._create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$some_property": "value", "$browser": "Chrome", "$variant": "2"},
+            )
+            self._create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$some_property": "value", "$browser": "Safari", "$variant": "1"},
+            )
+            self._create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$some_property": "value", "$browser": "Safari", "$variant": "1"},
+            )
+            self._create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$some_property": "value", "$browser": "Safari", "$variant": "2"},
+            )
+
+        with freeze_time("2020-01-02 00:06:34"):
+            self._create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$some_property": "value", "$browser": "Safari", "$variant": "2"},
+            )
+            self._create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$some_property": "value", "$browser": "Safari", "$variant": "2"},
+            )
+
+        with freeze_time("2020-01-04T13:00:01Z"):
+            response = self._run(
+                Filter(
+                    team=self.team,
+                    data={
+                        "display": TRENDS_TABLE,
+                        "breakdowns": [
+                            {"property": "$browser"},
+                            {"property": "$variant"},
+                        ],
+                        "events": [{"id": "sign up"}],
+                    },
+                ),
+                self.team,
+            )
+
+        for result in response:
+            self.assertIsInstance(result["breakdown_value"], list)
+
+        self.assertEqual(response[0]["breakdown_value"], ["Safari", "2"], "idx 0")
+        self.assertEqual(response[1]["breakdown_value"], ["Safari", "1"], "idx 1")
+        self.assertEqual(response[2]["breakdown_value"], ["Chrome", "2"], "idx 2")
+        self.assertEqual(response[3]["breakdown_value"], ["Chrome", "1"], "idx 3")
+
     def test_trends_breakdown_single_aggregate_with_zero_person_ids(self):
         # only a person-on-event test
         if not get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
@@ -1389,6 +1523,26 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             else:
                 self.assertEqual(result["aggregated_value"], 5)
 
+        # multiple
+        with freeze_time("2020-01-04T13:00:01Z"):
+            daily_response = self._run(
+                Filter(
+                    team=self.team,
+                    data={
+                        "display": TRENDS_TABLE,
+                        "breakdowns": [{"property": "$browser"}],
+                        "events": [{"id": "sign up"}],
+                    },
+                ),
+                self.team,
+            )
+
+        for result in daily_response:
+            if result["breakdown_value"] == "Chrome":
+                self.assertEqual(result["aggregated_value"], 2)
+            else:
+                self.assertEqual(result["aggregated_value"], 5)
+
     def test_trends_breakdown_single_aggregate_math(self):
         self._create_person(
             team_id=self.team.pk,
@@ -1441,51 +1595,52 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 properties={"$some_property": "value", "$math_prop": 4},
             )
 
-        with freeze_time("2020-01-04T13:00:01Z"):
-            daily_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "display": TRENDS_TABLE,
-                        "interval": "day",
-                        "breakdown": "$some_property",
-                        "events": [
-                            {
-                                "id": "sign up",
-                                "math": "median",
-                                "math_property": "$math_prop",
-                            }
-                        ],
-                    },
-                ),
-                self.team,
-            )
+        for breakdown_filter in ({"breakdown": "$some_property"}, {"breakdowns": [{"property": "$some_property"}]}):
+            with freeze_time("2020-01-04T13:00:01Z"):
+                daily_response = self._run(
+                    Filter(
+                        team=self.team,
+                        data={
+                            **breakdown_filter,
+                            "display": TRENDS_TABLE,
+                            "interval": "day",
+                            "events": [
+                                {
+                                    "id": "sign up",
+                                    "math": "median",
+                                    "math_property": "$math_prop",
+                                }
+                            ],
+                        },
+                    ),
+                    self.team,
+                )
 
-        with freeze_time("2020-01-04T13:00:01Z"):
-            weekly_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "display": TRENDS_TABLE,
-                        "interval": "week",
-                        "breakdown": "$some_property",
-                        "events": [
-                            {
-                                "id": "sign up",
-                                "math": "median",
-                                "math_property": "$math_prop",
-                            }
-                        ],
-                    },
-                ),
-                self.team,
-            )
+            with freeze_time("2020-01-04T13:00:01Z"):
+                weekly_response = self._run(
+                    Filter(
+                        team=self.team,
+                        data={
+                            **breakdown_filter,
+                            "display": TRENDS_TABLE,
+                            "interval": "week",
+                            "events": [
+                                {
+                                    "id": "sign up",
+                                    "math": "median",
+                                    "math_property": "$math_prop",
+                                }
+                            ],
+                        },
+                    ),
+                    self.team,
+                )
 
-        self.assertEqual(daily_response[0]["aggregated_value"], 2.0)
-        self.assertEqual(
-            daily_response[0]["aggregated_value"],
-            weekly_response[0]["aggregated_value"],
-        )
+            self.assertEqual(daily_response[0]["aggregated_value"], 2.0)
+            self.assertEqual(
+                daily_response[0]["aggregated_value"],
+                weekly_response[0]["aggregated_value"],
+            )
 
     @snapshot_clickhouse_queries
     def test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown(self):
@@ -1577,6 +1732,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
         # Fourth session lasted 15 seconds
 
+        # single breakdown
         with freeze_time("2020-01-04T13:00:33Z"):
             daily_response = self._run(
                 Filter(
@@ -1614,6 +1770,65 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "display": TRENDS_TABLE,
                         "interval": "day",
                         "breakdown": "$some_property",
+                        "events": [
+                            {
+                                "id": "sign up",
+                                "math": "median",
+                                "math_property": "$session_duration",
+                            }
+                        ],
+                    },
+                ),
+                self.team,
+            )
+
+        self.assertEqual(
+            [resp["breakdown_value"] for resp in daily_response],
+            [resp["breakdown_value"] for resp in weekly_response],
+        )
+        self.assertEqual(
+            [resp["aggregated_value"] for resp in daily_response],
+            [resp["aggregated_value"] for resp in weekly_response],
+        )
+
+        # multiple breakdowns
+        with freeze_time("2020-01-04T13:00:33Z"):
+            daily_response = self._run(
+                Filter(
+                    team=self.team,
+                    data={
+                        "display": TRENDS_TABLE,
+                        "interval": "week",
+                        "breakdowns": [{"property": "$some_property"}],
+                        "events": [
+                            {
+                                "id": "sign up",
+                                "math": "median",
+                                "math_property": "$session_duration",
+                            }
+                        ],
+                    },
+                ),
+                self.team,
+            )
+
+        # value1 has: 5 seconds, 10 seconds, 15 seconds
+        # value2 has: 10 seconds, 15 seconds (aggregated by session, so 15 is not double counted)
+        # empty has: 1 seconds
+        self.assertEqual(
+            [resp["breakdown_value"] for resp in daily_response],
+            [["value1"], ["value2"], ["$$_posthog_breakdown_null_$$"]],
+        )
+        self.assertEqual(sorted([resp["aggregated_value"] for resp in daily_response]), sorted([12.5, 10, 1]))
+
+        with freeze_time("2020-01-04T13:00:01Z"):
+            weekly_response = self._run(
+                Filter(
+                    team=self.team,
+                    data={
+                        "display": TRENDS_TABLE,
+                        "interval": "day",
+                        "breakdowns": [{"property": "$some_property"}],
                         "events": [
                             {
                                 "id": "sign up",
@@ -1751,6 +1966,35 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             sorted([resp["breakdown_value"] for resp in daily_response]),
             ["another_val", "some_val"],
+        )
+        self.assertEqual(sorted([resp["aggregated_value"] for resp in daily_response]), [5.0, 10.0])
+
+        with freeze_time("2020-01-04T13:00:01Z"):
+            daily_response = self._run(
+                Filter(
+                    team=self.team,
+                    data={
+                        "display": TRENDS_TABLE,
+                        "interval": "week",
+                        "breakdowns": [{"property": "$some_prop"}],
+                        "breakdown_type": "person",
+                        "events": [
+                            {
+                                "id": "sign up",
+                                "math": "median",
+                                "math_property": "$session_duration",
+                            }
+                        ],
+                    },
+                ),
+                self.team,
+            )
+
+        # another_val has: 10 seconds
+        # some_val has: 1, 5 seconds, 15 seconds
+        self.assertEqual(
+            sorted([resp["breakdown_value"] for resp in daily_response]),
+            [["another_val"], ["some_val"]],
         )
         self.assertEqual(sorted([resp["aggregated_value"] for resp in daily_response]), [5.0, 10.0])
 
@@ -8558,79 +8802,3 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             response[0]["data"],
             [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23],
         )
-
-    def test_trends_multiple_breakdowns_single_aggregate(self):
-        self._create_person(
-            team_id=self.team.pk,
-            distinct_ids=["blabla", "anonymous_id"],
-            properties={"$some_prop": "some_val"},
-        )
-        with freeze_time("2020-01-01 00:06:34"):
-            self._create_event(
-                team=self.team,
-                event="sign up",
-                distinct_id="blabla",
-                properties={"$some_property": "value", "$browser": "Chrome", "$variant": "1"},
-            )
-            self._create_event(
-                team=self.team,
-                event="sign up",
-                distinct_id="blabla",
-                properties={"$some_property": "value", "$browser": "Chrome", "$variant": "2"},
-            )
-            self._create_event(
-                team=self.team,
-                event="sign up",
-                distinct_id="blabla",
-                properties={"$some_property": "value", "$browser": "Safari", "$variant": "1"},
-            )
-            self._create_event(
-                team=self.team,
-                event="sign up",
-                distinct_id="blabla",
-                properties={"$some_property": "value", "$browser": "Safari", "$variant": "1"},
-            )
-            self._create_event(
-                team=self.team,
-                event="sign up",
-                distinct_id="blabla",
-                properties={"$some_property": "value", "$browser": "Safari", "$variant": "2"},
-            )
-
-        with freeze_time("2020-01-02 00:06:34"):
-            self._create_event(
-                team=self.team,
-                event="sign up",
-                distinct_id="blabla",
-                properties={"$some_property": "value", "$browser": "Safari", "$variant": "2"},
-            )
-            self._create_event(
-                team=self.team,
-                event="sign up",
-                distinct_id="blabla",
-                properties={"$some_property": "value", "$browser": "Safari", "$variant": "2"},
-            )
-
-        with freeze_time("2020-01-04T13:00:01Z"):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "display": TRENDS_TABLE,
-                        "breakdowns": [
-                            {"property": "$browser"},
-                            {"property": "$variant"},
-                        ],
-                        "events": [{"id": "sign up"}],
-                    },
-                ),
-                self.team,
-            )
-
-        for result in response:
-            self.assertIsInstance(result["breakdown_value"], list)
-
-        self.assertEqual(response[0]["breakdown_value"], ["Safari", "2"], "idx 0")
-        self.assertEqual(response[1]["breakdown_value"], ["Safari", "1"], "idx 1")
-        self.assertEqual(response[2]["breakdown_value"], ["Chrome", "2"], "idx 2")
-        self.assertEqual(response[3]["breakdown_value"], ["Chrome", "1"], "idx 3")
