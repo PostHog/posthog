@@ -1,4 +1,13 @@
-import { LemonButton, LemonInput, LemonSwitch, LemonTextArea, SpinnerOverlay } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonDropdown,
+    LemonInput,
+    LemonSwitch,
+    LemonTextArea,
+    Link,
+    SpinnerOverlay,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { NotFound } from 'lib/components/NotFound'
@@ -10,6 +19,7 @@ import { HogQueryEditor } from 'scenes/debug/HogDebug'
 import { NodeKind } from '~/queries/schema'
 
 import { PipelineNodeFilters } from '../configuration/PipelineNodeFilters'
+import { HogFunctionIconEditable } from './HogFunctionIcon'
 import { HogFunctionInput } from './HogFunctionInputs'
 import { HogFunctionInputsEditor } from './HogFunctionInputsEditor'
 import { pipelineHogFunctionConfigurationLogic } from './pipelineHogFunctionConfigurationLogic'
@@ -23,9 +33,10 @@ export function PipelineHogFunctionConfiguration({
 }): JSX.Element {
     const logicProps = { templateId, id }
     const logic = pipelineHogFunctionConfigurationLogic(logicProps)
-    const { isConfigurationSubmitting, configurationChanged, showSource, configuration, loading, loaded } =
+    const { isConfigurationSubmitting, configurationChanged, showSource, configuration, loading, loaded, hogFunction } =
         useValues(logic)
-    const { submitConfiguration, resetForm, setShowSource } = useActions(logic)
+    const { submitConfiguration, resetForm, setShowSource, duplicate, resetToTemplate, duplicateFromTemplate } =
+        useActions(logic)
 
     const hogFunctionsEnabled = !!useFeatureFlag('HOG_FUNCTIONS')
 
@@ -47,7 +58,18 @@ export function PipelineHogFunctionConfiguration({
             </div>
         )
     }
-    const buttons = (
+
+    const headerButtons = (
+        <>
+            {!templateId && (
+                <LemonButton type="secondary" onClick={() => duplicate()}>
+                    Duplicate
+                </LemonButton>
+            )}
+        </>
+    )
+
+    const saveButtons = (
         <>
             <LemonButton
                 type="secondary"
@@ -72,7 +94,15 @@ export function PipelineHogFunctionConfiguration({
 
     return (
         <div className="space-y-3">
-            <PageHeader buttons={buttons} />
+            <PageHeader
+                buttons={
+                    <>
+                        {headerButtons}
+                        {saveButtons}
+                    </>
+                }
+            />
+
             <Form
                 logic={pipelineHogFunctionConfigurationLogic}
                 props={logicProps}
@@ -83,11 +113,20 @@ export function PipelineHogFunctionConfiguration({
                     <div className="flex flex-col gap-4 flex-1 min-w-100">
                         <div className="border bg-bg-light rounded p-3 space-y-2">
                             <div className="flex flex-row gap-2 min-h-16 items-center">
-                                <span>🦔</span>
-                                <div className="flex flex-col py-1 flex-1">
-                                    <span>Hog Function</span>
-                                </div>
+                                <LemonField name="icon_url">
+                                    {({ value, onChange }) => (
+                                        <HogFunctionIconEditable
+                                            logicKey={id ?? templateId ?? 'new'}
+                                            search={configuration.name}
+                                            src={value}
+                                            onChange={(val) => onChange(val)}
+                                        />
+                                    )}
+                                </LemonField>
 
+                                <div className="flex flex-col py-1 flex-1">
+                                    <span className="font-semibold">{configuration.name}</span>
+                                </div>
                                 <LemonField name="enabled">
                                     {({ value, onChange }) => (
                                         <LemonSwitch
@@ -114,6 +153,44 @@ export function PipelineHogFunctionConfiguration({
                             >
                                 <LemonTextArea disabled={loading} />
                             </LemonField>
+
+                            {hogFunction?.template ? (
+                                <p className="border border-dashed rounded text-muted-alt p-2">
+                                    Built from template:{' '}
+                                    <LemonDropdown
+                                        showArrow
+                                        overlay={
+                                            <div className="max-w-120 p-1">
+                                                <p>
+                                                    This function was built from the template{' '}
+                                                    <b>{hogFunction.template.name}</b>. If the template is updated, this
+                                                    function is not affected unless you choose to update it.
+                                                </p>
+
+                                                <div className="flex flex-1 gap-2 items-center border-t pt-2">
+                                                    <div className="flex-1">
+                                                        <LemonButton>Close</LemonButton>
+                                                    </div>
+                                                    <LemonButton onClick={() => resetToTemplate()}>
+                                                        Reset to template
+                                                    </LemonButton>
+
+                                                    <LemonButton
+                                                        type="secondary"
+                                                        onClick={() => duplicateFromTemplate()}
+                                                    >
+                                                        New function from template
+                                                    </LemonButton>
+                                                </div>
+                                            </div>
+                                        }
+                                    >
+                                        <Link subtle className="font-semibold">
+                                            {hogFunction?.template.name} <IconInfo />
+                                        </Link>
+                                    </LemonDropdown>
+                                </p>
+                            ) : null}
                         </div>
                         <PipelineNodeFilters
                             description={
@@ -165,6 +242,7 @@ export function PipelineHogFunctionConfiguration({
                                                         name={`inputs.${schema.key}`}
                                                         label={schema.label || schema.key}
                                                         showOptional={!schema.required}
+                                                        help={schema.description}
                                                     >
                                                         {({ value, onChange }) => {
                                                             return (
@@ -187,7 +265,7 @@ export function PipelineHogFunctionConfiguration({
                                 </div>
                             )}
                         </div>
-                        <div className="flex gap-2 justify-end">{buttons}</div>
+                        <div className="flex gap-2 justify-end">{saveButtons}</div>
                     </div>
                 </div>
             </Form>

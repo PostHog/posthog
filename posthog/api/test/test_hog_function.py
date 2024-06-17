@@ -5,6 +5,7 @@ from rest_framework import status
 
 from posthog.models.action.action import Action
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
+from posthog.cdp.templates.webhook.template_webhook import template as template_webhook
 
 
 EXAMPLE_FULL = {
@@ -75,11 +76,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_create_hog_function(self, *args):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
-            data={
-                "name": "Fetch URL",
-                "description": "Test description",
-                "hog": "fetch(inputs.url);",
-            },
+            data={"name": "Fetch URL", "description": "Test description", "hog": "fetch(inputs.url);", "inputs": {}},
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["created_by"]["id"] == self.user.id
@@ -96,7 +93,57 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "inputs_schema": [],
             "inputs": {},
             "filters": {"bytecode": ["_h", 29]},
+            "icon_url": None,
+            "template": None,
         }
+
+    @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
+    def test_creates_with_template_id(self, *args):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "Fetch URL",
+                "description": "Test description",
+                "hog": "fetch(inputs.url);",
+                "template_id": template_webhook.id,
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["template"] == {
+            "name": template_webhook.name,
+            "description": template_webhook.description,
+            "id": template_webhook.id,
+            "status": template_webhook.status,
+            "icon_url": template_webhook.icon_url,
+            "inputs_schema": template_webhook.inputs_schema,
+            "hog": template_webhook.hog,
+            "filters": None,
+        }
+
+    @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
+    def test_deletes_via_update(self, *args):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={"name": "Fetch URL", "description": "Test description", "hog": "fetch(inputs.url);"},
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        list_res = self.client.get(f"/api/projects/{self.team.id}/hog_functions/")
+        assert list_res.status_code == status.HTTP_200_OK, list_res.json()
+        # Assert that it isn't in the list
+        assert (
+            next((item for item in list_res.json()["results"] if item["id"] == response.json()["id"]), None) is not None
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{response.json()['id']}/",
+            data={"deleted": True},
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        list_res = self.client.get(f"/api/projects/{self.team.id}/hog_functions/")
+        assert list_res.status_code == status.HTTP_200_OK, list_res.json()
+        assert next((item for item in list_res.json()["results"] if item["id"] == response.json()["id"]), None) is None
 
     @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
     def test_inputs_required(self, *args):

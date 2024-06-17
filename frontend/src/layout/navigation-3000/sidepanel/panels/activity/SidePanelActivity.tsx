@@ -122,11 +122,11 @@ export const SidePanelActivity = (): JSX.Element => {
     )
 
     return (
-        <div className="flex flex-col overflow-hidden flex-1">
+        <>
             <SidePanelPaneHeader title="Team activity" />
             <PayGateMini
                 feature={AvailableFeature.AUDIT_LOGS}
-                className="m-4"
+                className="flex flex-col overflow-hidden flex-1"
                 overrideShouldShowGate={user?.is_impersonated || !!featureFlags[FEATURE_FLAGS.AUDIT_LOGS_ACCESS]}
             >
                 <div className="flex flex-col overflow-hidden flex-1">
@@ -276,6 +276,6 @@ export const SidePanelActivity = (): JSX.Element => {
                     </div>
                 </div>
             </PayGateMini>
-        </div>
+        </>
     )
 }

@@ -11,12 +11,15 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 
 import { sessionRecordingsPlaylistLogic } from '../playlist/sessionRecordingsPlaylistLogic'
+import { DurationFilter } from './DurationFilter'
 
 export const RecordingsUniversalFilters = (): JSX.Element => {
     useMountedLogic(cohortsModel)
     useMountedLogic(actionsModel)
     const { universalFilters } = useValues(sessionRecordingsPlaylistLogic)
     const { setUniversalFilters } = useActions(sessionRecordingsPlaylistLogic)
+
+    const durationFilter = universalFilters.duration[0]
 
     return (
         <div className="divide-y bg-bg-light rounded border">
@@ -43,6 +46,16 @@ export const RecordingsUniversalFilters = (): JSX.Element => {
                         ]}
                         dropdownPlacement="bottom-start"
                         size="small"
+                    />
+                    <DurationFilter
+                        onChange={(newRecordingDurationFilter, newDurationType) => {
+                            setUniversalFilters({
+                                duration: [{ ...newRecordingDurationFilter, key: newDurationType }],
+                            })
+                        }}
+                        recordingDurationFilter={durationFilter}
+                        durationTypeFilter={durationFilter.key}
+                        pageKey="session-recordings"
                     />
                     <TestAccountFilter
                         filters={universalFilters}
@@ -76,11 +89,10 @@ export const RecordingsUniversalFilters = (): JSX.Element => {
                 <UniversalFilters
                     rootKey="session-recordings"
                     group={universalFilters.filter_group}
-                    taxonomicEntityFilterGroupTypes={[
+                    taxonomicGroupTypes={[
+                        TaxonomicFilterGroupType.Replay,
                         TaxonomicFilterGroupType.Events,
                         TaxonomicFilterGroupType.Actions,
-                    ]}
-                    taxonomicPropertyFilterGroupTypes={[
                         TaxonomicFilterGroupType.Cohorts,
                         TaxonomicFilterGroupType.PersonProperties,
                         TaxonomicFilterGroupType.SessionProperties,
@@ -93,7 +105,6 @@ export const RecordingsUniversalFilters = (): JSX.Element => {
                     }}
                 >
                     <RecordingsUniversalFilterGroup />
-                    <UniversalFilters.AddFilterButton />
                 </UniversalFilters>
             </div>
         </div>
@@ -110,6 +121,7 @@ const RecordingsUniversalFilterGroup = (): JSX.Element => {
                 return isUniversalGroupFilterLike(filterOrGroup) ? (
                     <UniversalFilters.Group key={index} index={index} group={filterOrGroup}>
                         <RecordingsUniversalFilterGroup />
+                        <UniversalFilters.AddFilterButton />
                     </UniversalFilters.Group>
                 ) : (
                     <UniversalFilters.Value

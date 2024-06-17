@@ -537,6 +537,156 @@ describe('PersonState.update()', () => {
             expect(persons[0]).toEqual(person)
         })
 
+        it('updates person properties - no update if not needed', async () => {
+            await hub.db.createPerson(timestamp, { $current_url: 123 }, {}, {}, teamId, null, false, newUserUuid, [
+                newUserDistinctId,
+            ])
+
+            const [person, kafkaAcks] = await personState({
+                event: '$pageview',
+                distinct_id: newUserDistinctId,
+                properties: {
+                    $set: { $current_url: 4 },
+                },
+            }).updateProperties()
+            await hub.db.kafkaProducer.flush()
+            await kafkaAcks
+
+            expect(person).toEqual(
+                expect.objectContaining({
+                    id: expect.any(Number),
+                    uuid: newUserUuid,
+                    properties: { $current_url: 4 }, // Here we keep 4 for passing forward to PoE
+                    created_at: timestamp,
+                    version: 0,
+                    is_identified: false,
+                })
+            )
+
+            expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
+
+            // verify Postgres persons
+            const persons = await fetchPostgresPersonsH()
+            expect(persons).toEqual([
+                expect.objectContaining({
+                    id: expect.any(Number),
+                    uuid: newUserUuid,
+                    properties: { $current_url: 123 }, // We didn 't update this as it's auto added and it's not a person event
+                    created_at: timestamp,
+                    version: 0,
+                    is_identified: false,
+                }),
+            ])
+        })
+
+        it('updates person properties - always update for person events', async () => {
+            await hub.db.createPerson(timestamp, { $current_url: 123 }, {}, {}, teamId, null, false, newUserUuid, [
+                newUserDistinctId,
+            ])
+
+            const [person, kafkaAcks] = await personState({
+                event: '$set',
+                distinct_id: newUserDistinctId,
+                properties: {
+                    $set: { $current_url: 4 },
+                },
+            }).updateProperties()
+            await hub.db.kafkaProducer.flush()
+            await kafkaAcks
+
+            expect(person).toEqual(
+                expect.objectContaining({
+                    id: expect.any(Number),
+                    uuid: newUserUuid,
+                    properties: { $current_url: 4 }, // Here we keep 4 for passing forward to PoE
+                    created_at: timestamp,
+                    version: 1,
+                    is_identified: false,
+                })
+            )
+
+            expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
+
+            // verify Postgres persons
+            const persons = await fetchPostgresPersonsH()
+            expect(persons.length).toEqual(1)
+            expect(persons[0]).toEqual(person) // We updated PG as it's a person event
+        })
+
+        it('updates person properties - always update if undefined before', async () => {
+            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, newUserUuid, [newUserDistinctId])
+
+            const [person, kafkaAcks] = await personState({
+                event: '$pageview',
+                distinct_id: newUserDistinctId,
+                properties: {
+                    $set: { $initial_current_url: 4 },
+                },
+            }).updateProperties()
+            await hub.db.kafkaProducer.flush()
+            await kafkaAcks
+
+            expect(person).toEqual(
+                expect.objectContaining({
+                    id: expect.any(Number),
+                    uuid: newUserUuid,
+                    properties: { $initial_current_url: 4 }, // Here we keep 4 for passing forward to PoE
+                    created_at: timestamp,
+                    version: 1,
+                    is_identified: false,
+                })
+            )
+
+            expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
+
+            // verify Postgres persons
+            const persons = await fetchPostgresPersonsH()
+            expect(persons.length).toEqual(1)
+            expect(persons[0]).toEqual(person) // We updated PG as it was undefined before
+        })
+
+        it('updates person properties - always update for initial properties', async () => {
+            await hub.db.createPerson(
+                timestamp,
+                { $initial_current_url: 123 },
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                newUserUuid,
+                [newUserDistinctId]
+            )
+
+            const [person, kafkaAcks] = await personState({
+                event: '$pageview',
+                distinct_id: newUserDistinctId,
+                properties: {
+                    $set: { $initial_current_url: 4 },
+                },
+            }).updateProperties()
+            await hub.db.kafkaProducer.flush()
+            await kafkaAcks
+
+            expect(person).toEqual(
+                expect.objectContaining({
+                    id: expect.any(Number),
+                    uuid: newUserUuid,
+                    properties: { $initial_current_url: 4 }, // Here we keep 4 for passing forward to PoE
+                    created_at: timestamp,
+                    version: 1,
+                    is_identified: false,
+                })
+            )
+
+            expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
+
+            // verify Postgres persons
+            const persons = await fetchPostgresPersonsH()
+            expect(persons.length).toEqual(1)
+            expect(persons[0]).toEqual(person) // We updated PG as it's an initial property
+        })
+
         it('updating with cached person data shortcuts to update directly', async () => {
             const personInitial = await hub.db.createPerson(
                 timestamp,
@@ -2207,7 +2357,10 @@ describe('PersonState.update()', () => {
                         // then pros can be dropped, see https://docs.google.com/presentation/d/1Osz7r8bKkDD5yFzw0cCtsGVf1LTEifXS-dzuwaS8JGY
                         // properties: { first: true, second: true, third: true },
                         created_at: timestamp,
-                        version: 1, // the test intends for it to be a chain, so must get v1, we get v2 if second->first and third->first, but we want it to be third->second->first
+                        // This is 2 because they all start with version 0, and then: x
+                        //  third -> second = max(third(0), second(0)) + 1 == version 1
+                        //  second -> first = max(second(1), first(0)) + 1 == version 2
+                        version: 2,
                         is_identified: true,
                     })
                 )
@@ -2296,7 +2449,10 @@ describe('PersonState.update()', () => {
                         uuid: firstUserUuid, // guaranteed to be merged into this based on timestamps
                         properties: { first: true, second: true, third: true },
                         created_at: timestamp,
-                        version: 1, // the test intends for it to be a chain, so must get v1, we get v2 if second->first and third->first, but we want it to be third->second->first
+                        // This is 2 because they all start with version 0, and then:
+                        //  third -> second = max(third(0), second(0)) + 1 == version 1
+                        //  second -> first = max(second(1), first(0)) + 1 == version 2
+                        version: 2,
                         is_identified: true,
                     })
                 )

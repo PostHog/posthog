@@ -197,6 +197,14 @@ class CohortPropertyFilter(BaseModel):
     value: int
 
 
+class CompareFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    compare: Optional[bool] = None
+    compare_to: Optional[str] = None
+
+
 class CountPerActorMathType(str, Enum):
     AVG_COUNT_PER_ACTOR = "avg_count_per_actor"
     MIN_COUNT_PER_ACTOR = "min_count_per_actor"
@@ -290,6 +298,12 @@ class DatetimeDay(RootModel[AwareDatetime]):
 
 class Day(RootModel[int]):
     root: int
+
+
+class DurationType(str, Enum):
+    DURATION = "duration"
+    ACTIVE_SECONDS = "active_seconds"
+    INACTIVE_SECONDS = "inactive_seconds"
 
 
 class Key(str, Enum):
@@ -551,6 +565,7 @@ class HogQueryResponse(BaseModel):
         extra="forbid",
     )
     bytecode: Optional[list] = None
+    coloredBytecode: Optional[list] = None
     results: Any
     stdout: Optional[str] = None
 
@@ -806,6 +821,7 @@ class QueryResponseAlternative6(BaseModel):
         extra="forbid",
     )
     bytecode: Optional[list] = None
+    coloredBytecode: Optional[list] = None
     results: Any
     stdout: Optional[str] = None
 
@@ -863,15 +879,15 @@ class QueryTiming(BaseModel):
     t: float = Field(..., description="Time in seconds. Shortened to 't' to save on data.")
 
 
-class RecordingDurationFilter(BaseModel):
+class RecordingPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    key: Literal["duration"] = "duration"
+    key: Union[DurationType, str]
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["recording"] = "recording"
-    value: float
+    value: Optional[Union[str, float, list[Union[str, float]]]] = None
 
 
 class Kind1(str, Enum):
@@ -957,6 +973,7 @@ class StickinessFilterLegacy(BaseModel):
         extra="forbid",
     )
     compare: Optional[bool] = None
+    compare_to: Optional[str] = None
     display: Optional[ChartDisplayType] = None
     hidden_legend_indexes: Optional[list[float]] = None
     show_legend: Optional[bool] = None
@@ -1010,11 +1027,11 @@ class TestCachedBasicQueryResponse(BaseModel):
     )
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: str
+    last_refresh: AwareDatetime
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: str
+    next_allowed_client_refresh: AwareDatetime
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -1074,7 +1091,6 @@ class TrendsFilter(BaseModel):
     aggregationAxisPostfix: Optional[str] = None
     aggregationAxisPrefix: Optional[str] = None
     breakdown_histogram_bin_count: Optional[float] = None
-    compare: Optional[bool] = False
     decimalPlaces: Optional[float] = None
     display: Optional[ChartDisplayType] = ChartDisplayType.ACTIONS_LINE_GRAPH
     formula: Optional[str] = None
@@ -1095,6 +1111,7 @@ class TrendsFilterLegacy(BaseModel):
     aggregation_axis_prefix: Optional[str] = None
     breakdown_histogram_bin_count: Optional[float] = None
     compare: Optional[bool] = None
+    compare_to: Optional[str] = None
     decimal_places: Optional[float] = None
     display: Optional[ChartDisplayType] = None
     formula: Optional[str] = None
@@ -1328,13 +1345,13 @@ class CachedActorsQueryResponse(BaseModel):
     hasMore: Optional[bool] = None
     hogql: str = Field(..., description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: str
+    last_refresh: AwareDatetime
     limit: int
     missing_actors_count: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: str
+    next_allowed_client_refresh: AwareDatetime
     offset: int
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -1360,12 +1377,12 @@ class CachedEventsQueryResponse(BaseModel):
     hasMore: Optional[bool] = None
     hogql: str = Field(..., description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: str
+    last_refresh: AwareDatetime
     limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: str
+    next_allowed_client_refresh: AwareDatetime
     offset: Optional[int] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -1391,12 +1408,12 @@ class CachedFunnelCorrelationResponse(BaseModel):
     hasMore: Optional[bool] = None
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: str
+    last_refresh: AwareDatetime
     limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: str
+    next_allowed_client_refresh: AwareDatetime
     offset: Optional[int] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -1420,11 +1437,11 @@ class CachedFunnelsQueryResponse(BaseModel):
     )
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: str
+    last_refresh: AwareDatetime
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: str
+    next_allowed_client_refresh: AwareDatetime
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -1445,8 +1462,8 @@ class CachedInsightActorsQueryOptionsResponse(BaseModel):
     day: Optional[list[DayItem]] = None
     interval: Optional[list[IntervalItem]] = None
     is_cached: bool
-    last_refresh: str
-    next_allowed_client_refresh: str
+    last_refresh: AwareDatetime
+    next_allowed_client_refresh: AwareDatetime
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -1466,11 +1483,11 @@ class CachedLifecycleQueryResponse(BaseModel):
     )
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: str
+    last_refresh: AwareDatetime
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: str
+    next_allowed_client_refresh: AwareDatetime
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -1492,11 +1509,11 @@ class CachedPathsQueryResponse(BaseModel):
     )
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: str
+    last_refresh: AwareDatetime
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: str
+    next_allowed_client_refresh: AwareDatetime
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -1519,11 +1536,11 @@ class CachedSessionsTimelineQueryResponse(BaseModel):
     hasMore: Optional[bool] = None
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: str
+    last_refresh: AwareDatetime
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: str
+    next_allowed_client_refresh: AwareDatetime
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -1545,11 +1562,11 @@ class CachedStickinessQueryResponse(BaseModel):
     )
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: str
+    last_refresh: AwareDatetime
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: str
+    next_allowed_client_refresh: AwareDatetime
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -1571,11 +1588,11 @@ class CachedTrendsQueryResponse(BaseModel):
     )
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: str
+    last_refresh: AwareDatetime
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: str
+    next_allowed_client_refresh: AwareDatetime
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -1599,11 +1616,11 @@ class CachedWebOverviewQueryResponse(BaseModel):
     )
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: str
+    last_refresh: AwareDatetime
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: str
+    next_allowed_client_refresh: AwareDatetime
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -1628,12 +1645,12 @@ class CachedWebStatsTableQueryResponse(BaseModel):
     hasMore: Optional[bool] = None
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: str
+    last_refresh: AwareDatetime
     limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: str
+    next_allowed_client_refresh: AwareDatetime
     offset: Optional[int] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -1659,11 +1676,11 @@ class CachedWebTopClicksQueryResponse(BaseModel):
     )
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: str
+    last_refresh: AwareDatetime
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: str
+    next_allowed_client_refresh: AwareDatetime
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -1968,6 +1985,17 @@ class FunnelsQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+
+
+class GenericCachedQueryResponse(BaseModel):
+    cache_key: str
+    is_cached: bool
+    last_refresh: AwareDatetime
+    next_allowed_client_refresh: AwareDatetime
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    timezone: str
 
 
 class GroupPropertyFilter(BaseModel):
@@ -2741,13 +2769,13 @@ class CachedHogQLQueryResponse(BaseModel):
     hasMore: Optional[bool] = None
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: str
+    last_refresh: AwareDatetime
     limit: Optional[int] = None
     metadata: Optional[HogQLMetadataResponse] = Field(default=None, description="Query metadata output")
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: str
+    next_allowed_client_refresh: AwareDatetime
     offset: Optional[int] = None
     query: Optional[str] = Field(default=None, description="Input query string")
     query_status: Optional[QueryStatus] = Field(
@@ -2772,11 +2800,11 @@ class CachedRetentionQueryResponse(BaseModel):
     )
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: str
+    last_refresh: AwareDatetime
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: str
+    next_allowed_client_refresh: AwareDatetime
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -2801,7 +2829,7 @@ class DashboardFilter(BaseModel):
                 ElementPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
-                RecordingDurationFilter,
+                RecordingPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -2854,7 +2882,7 @@ class DataWarehouseNode(BaseModel):
                 ElementPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
-                RecordingDurationFilter,
+                RecordingPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -2885,7 +2913,7 @@ class DataWarehouseNode(BaseModel):
                 ElementPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
-                RecordingDurationFilter,
+                RecordingPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -2927,7 +2955,7 @@ class EntityNode(BaseModel):
                 ElementPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
-                RecordingDurationFilter,
+                RecordingPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -2956,7 +2984,7 @@ class EntityNode(BaseModel):
                 ElementPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
-                RecordingDurationFilter,
+                RecordingPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -2983,7 +3011,7 @@ class EventsNode(BaseModel):
                 ElementPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
-                RecordingDurationFilter,
+                RecordingPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -3014,7 +3042,7 @@ class EventsNode(BaseModel):
                 ElementPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
-                RecordingDurationFilter,
+                RecordingPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -3044,7 +3072,7 @@ class EventsQuery(BaseModel):
                 ElementPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
-                RecordingDurationFilter,
+                RecordingPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -3073,7 +3101,7 @@ class EventsQuery(BaseModel):
                 ElementPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
-                RecordingDurationFilter,
+                RecordingPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -3101,7 +3129,7 @@ class FunnelExclusionActionsNode(BaseModel):
                 ElementPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
-                RecordingDurationFilter,
+                RecordingPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -3133,7 +3161,7 @@ class FunnelExclusionActionsNode(BaseModel):
                 ElementPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
-                RecordingDurationFilter,
+                RecordingPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -3160,7 +3188,7 @@ class FunnelExclusionEventsNode(BaseModel):
                 ElementPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
-                RecordingDurationFilter,
+                RecordingPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -3193,7 +3221,7 @@ class FunnelExclusionEventsNode(BaseModel):
                 ElementPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
-                RecordingDurationFilter,
+                RecordingPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -3220,7 +3248,7 @@ class HogQLFilters(BaseModel):
                 ElementPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
-                RecordingDurationFilter,
+                RecordingPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -3263,7 +3291,7 @@ class PersonsNode(BaseModel):
                 ElementPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
-                RecordingDurationFilter,
+                RecordingPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -3290,7 +3318,7 @@ class PersonsNode(BaseModel):
                 ElementPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
-                RecordingDurationFilter,
+                RecordingPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -3318,7 +3346,7 @@ class PropertyGroupFilterValue(BaseModel):
                 ElementPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
-                RecordingDurationFilter,
+                RecordingPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -3397,7 +3425,7 @@ class ActionsNode(BaseModel):
                 ElementPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
-                RecordingDurationFilter,
+                RecordingPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -3427,7 +3455,7 @@ class ActionsNode(BaseModel):
                 ElementPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
-                RecordingDurationFilter,
+                RecordingPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -3536,7 +3564,7 @@ class RetentionQuery(BaseModel):
                     ElementPropertyFilter,
                     SessionPropertyFilter,
                     CohortPropertyFilter,
-                    RecordingDurationFilter,
+                    RecordingPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
                     HogQLPropertyFilter,
@@ -3557,6 +3585,7 @@ class StickinessQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    compareFilter: Optional[CompareFilter] = Field(default=None, description="Compare to date range")
     dateRange: Optional[InsightDateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
@@ -3578,7 +3607,7 @@ class StickinessQuery(BaseModel):
                     ElementPropertyFilter,
                     SessionPropertyFilter,
                     CohortPropertyFilter,
-                    RecordingDurationFilter,
+                    RecordingPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
                     HogQLPropertyFilter,
@@ -3606,6 +3635,7 @@ class TrendsQuery(BaseModel):
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
     breakdownFilter: Optional[BreakdownFilter] = Field(default=None, description="Breakdown of the events and actions")
+    compareFilter: Optional[CompareFilter] = Field(default=None, description="Compare to date range")
     dateRange: Optional[InsightDateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
@@ -3627,7 +3657,7 @@ class TrendsQuery(BaseModel):
                     ElementPropertyFilter,
                     SessionPropertyFilter,
                     CohortPropertyFilter,
-                    RecordingDurationFilter,
+                    RecordingPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
                     HogQLPropertyFilter,
@@ -3688,7 +3718,7 @@ class FilterType(BaseModel):
                     ElementPropertyFilter,
                     SessionPropertyFilter,
                     CohortPropertyFilter,
-                    RecordingDurationFilter,
+                    RecordingPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
                     HogQLPropertyFilter,
@@ -3732,7 +3762,7 @@ class FunnelsQuery(BaseModel):
                     ElementPropertyFilter,
                     SessionPropertyFilter,
                     CohortPropertyFilter,
-                    RecordingDurationFilter,
+                    RecordingPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
                     HogQLPropertyFilter,
@@ -3773,7 +3803,7 @@ class InsightsQueryBaseFunnelsQueryResponse(BaseModel):
                     ElementPropertyFilter,
                     SessionPropertyFilter,
                     CohortPropertyFilter,
-                    RecordingDurationFilter,
+                    RecordingPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
                     HogQLPropertyFilter,
@@ -3811,7 +3841,7 @@ class InsightsQueryBaseLifecycleQueryResponse(BaseModel):
                     ElementPropertyFilter,
                     SessionPropertyFilter,
                     CohortPropertyFilter,
-                    RecordingDurationFilter,
+                    RecordingPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
                     HogQLPropertyFilter,
@@ -3849,7 +3879,7 @@ class InsightsQueryBasePathsQueryResponse(BaseModel):
                     ElementPropertyFilter,
                     SessionPropertyFilter,
                     CohortPropertyFilter,
-                    RecordingDurationFilter,
+                    RecordingPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
                     HogQLPropertyFilter,
@@ -3887,7 +3917,7 @@ class InsightsQueryBaseRetentionQueryResponse(BaseModel):
                     ElementPropertyFilter,
                     SessionPropertyFilter,
                     CohortPropertyFilter,
-                    RecordingDurationFilter,
+                    RecordingPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
                     HogQLPropertyFilter,
@@ -3925,7 +3955,7 @@ class InsightsQueryBaseTrendsQueryResponse(BaseModel):
                     ElementPropertyFilter,
                     SessionPropertyFilter,
                     CohortPropertyFilter,
-                    RecordingDurationFilter,
+                    RecordingPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
                     HogQLPropertyFilter,
@@ -3970,7 +4000,7 @@ class LifecycleQuery(BaseModel):
                     ElementPropertyFilter,
                     SessionPropertyFilter,
                     CohortPropertyFilter,
-                    RecordingDurationFilter,
+                    RecordingPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
                     HogQLPropertyFilter,
@@ -4147,7 +4177,7 @@ class PathsQuery(BaseModel):
                     ElementPropertyFilter,
                     SessionPropertyFilter,
                     CohortPropertyFilter,
-                    RecordingDurationFilter,
+                    RecordingPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
                     HogQLPropertyFilter,
@@ -4227,7 +4257,7 @@ class FunnelCorrelationActorsQuery(BaseModel):
                 ElementPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
-                RecordingDurationFilter,
+                RecordingPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,

@@ -3,11 +3,13 @@ import { useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
+import { ManualLinkSourceType } from '~/types'
+
 import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
-import { ManualLinkProvider, sourceWizardLogic } from './sourceWizardLogic'
+import { sourceWizardLogic } from './sourceWizardLogic'
 
 const ProviderMappings: Record<
-    ManualLinkProvider,
+    ManualLinkSourceType,
     {
         fileUrlPatternPlaceholder: string
         accessKeyPlaceholder: string
