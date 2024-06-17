@@ -256,20 +256,29 @@ class SessionRecordingListFromFilters:
 
         return ast.And(exprs=exprs)
 
-    def _having_predicates(self) -> ast.CompareOperation | Constant:
-        if not self._filter.recording_duration_filter:
-            return Constant(value=True)
+    def _having_predicates(self) -> ast.And | Constant:
+        exprs: list[ast.Expr] = [
+            # a missing first url indicates delayed or incomplete ingestion and we can ignore those
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.NotEq, left=ast.Field(chain=["first_url"]), right=ast.Constant(value=None)
+            )
+        ]
 
-        op = (
-            ast.CompareOperationOp.GtEq
-            if self._filter.recording_duration_filter.operator == "gt"
-            else ast.CompareOperationOp.LtEq
-        )
-        return ast.CompareOperation(
-            op=op,
-            left=ast.Field(chain=[self._filter.duration_type_filter]),
-            right=ast.Constant(value=self._filter.recording_duration_filter.value),
-        )
+        if self._filter.recording_duration_filter:
+            op = (
+                ast.CompareOperationOp.GtEq
+                if self._filter.recording_duration_filter.operator == "gt"
+                else ast.CompareOperationOp.LtEq
+            )
+            exprs.append(
+                ast.CompareOperation(
+                    op=op,
+                    left=ast.Field(chain=[self._filter.duration_type_filter]),
+                    right=ast.Constant(value=self._filter.recording_duration_filter.value),
+                ),
+            )
+
+        return ast.And(exprs=exprs)
 
     def _strip_person_and_event_properties(self, property_group: PropertyGroup) -> PropertyGroup | None:
         property_groups_to_keep = [

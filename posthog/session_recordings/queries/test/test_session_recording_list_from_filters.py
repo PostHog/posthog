@@ -131,7 +131,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             first_timestamp=(self.an_hour_ago + relativedelta(seconds=20)),
             last_timestamp=(self.an_hour_ago + relativedelta(seconds=2000)),
             distinct_id=user,
-            first_url=None,
+            first_url="https://another-url.com",
             click_count=2,
             keypress_count=2,
             mouse_activity_count=2,
@@ -153,7 +153,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                 "inactive_seconds": 1188.0,
                 "start_time": self.an_hour_ago + relativedelta(seconds=20),
                 "end_time": self.an_hour_ago + relativedelta(seconds=2000),
-                "first_url": None,
+                "first_url": "https://another-url.com",
                 "console_log_count": 0,
                 "console_warn_count": 0,
                 "console_error_count": 0,
@@ -312,7 +312,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             first_timestamp=(self.an_hour_ago + relativedelta(seconds=20)),
             last_timestamp=(self.an_hour_ago + relativedelta(seconds=2000)),
             distinct_id=user,
-            first_url=None,
+            first_url="https://another-url.com",
             click_count=2,
             keypress_count=2,
             mouse_activity_count=2,
@@ -336,7 +336,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                 "inactive_seconds": 1188.0,
                 "start_time": self.an_hour_ago + relativedelta(seconds=20),
                 "end_time": self.an_hour_ago + relativedelta(seconds=2000),
-                "first_url": None,
+                "first_url": "https://another-url.com",
                 "console_log_count": 0,
                 "console_warn_count": 0,
                 "console_error_count": 0,
@@ -562,17 +562,17 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                     "session_id": session_id_two,
                     "first_url": "https://first-is-on-second-event.com",
                 },
-                {
-                    "session_id": session_id_three,
-                    "first_url": None,
-                },
+                # sessions without urls are not included
+                # {
+                #     "session_id": session_id_three,
+                #     "first_url": None,
+                # },
                 {
                     "session_id": session_id_four,
                     "first_url": "https://on-second-received-event-but-actually-first.com",
                 },
             ],
-            # mypy unhappy about this lambda 🤷️
-            key=lambda x: x["session_id"],  # type: ignore
+            key=lambda x: x["session_id"],
         )
 
     def test_recordings_dont_leak_data_between_teams(self):
@@ -590,7 +590,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             distinct_id=user,
             first_timestamp=self.an_hour_ago,
             last_timestamp=self.an_hour_ago + relativedelta(seconds=20),
-            first_url=None,
             click_count=2,
             keypress_count=2,
             mouse_activity_count=2,
@@ -603,7 +602,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             distinct_id=user,
             first_timestamp=self.an_hour_ago,
             last_timestamp=self.an_hour_ago + relativedelta(seconds=20),
-            first_url=None,
             click_count=2,
             keypress_count=2,
             mouse_activity_count=2,
@@ -1229,6 +1227,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             first_timestamp=self.an_hour_ago,
             last_timestamp=(self.an_hour_ago + relativedelta(seconds=60)),
             team_id=self.team.id,
+            first_url="https://recieved-out-of-order.com/second",
         )
         self.create_event(
             user,
@@ -1241,6 +1240,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             first_timestamp=self.an_hour_ago,
             last_timestamp=(self.an_hour_ago + relativedelta(seconds=30)),
             team_id=self.team.id,
+            first_url="https://recieved-out-of-order.com/first",
         )
 
         (session_recordings, _, _) = self._filter_recordings_by(
@@ -1265,7 +1265,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                 "end_time": self.an_hour_ago + relativedelta(seconds=60),
                 "active_seconds": 0.0,
                 "click_count": 0,
-                "first_url": None,
+                "first_url": "https://recieved-out-of-order.com/first",
                 "inactive_seconds": 60.0,
                 "keypress_count": 0,
                 "mouse_activity_count": 0,
