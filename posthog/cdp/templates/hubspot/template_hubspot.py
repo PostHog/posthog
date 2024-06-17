@@ -32,7 +32,7 @@ let res := fetch('https://api.hubapi.com/crm/v3/objects/contacts', {
 })
 
 if (res.status == 409) {
-    let existingId := replace(res.body.message, 'Contact already exists. Existing ID: ', '')
+    let existingId := replaceOne(res.body.message, 'Contact already exists. Existing ID: ', '')
     let updateRes := fetch(f'https://api.hubapi.com/crm/v3/objects/contacts/{existingId}', {
         'method': 'PATCH',
         'headers': headers,

@@ -14,7 +14,7 @@ class BaseHogFunctionTemplateTest(BaseTest):
 
     def setUp(self):
         super().setUp()
-        self.compiled_hog = compile_hog(self.template.hog, supported_functions={"fetch", "print", "replace"})
+        self.compiled_hog = compile_hog(self.template.hog, supported_functions={"fetch", "print"})
 
         self.mock_print = MagicMock(side_effect=lambda *args: print("[DEBUG HogFunctionPrint]", *args))  # noqa: T201
         # Side effect - log the fetch call and return  with sensible output
@@ -46,9 +46,5 @@ class BaseHogFunctionTemplateTest(BaseTest):
         return execute_bytecode(
             self.compiled_hog,
             globals,
-            functions={
-                "fetch": self.mock_fetch,
-                "print": self.mock_print,
-                "replace": lambda a, b, c: a.replace(b, c),
-            },
+            functions={"fetch": self.mock_fetch, "print": self.mock_print},
         )
