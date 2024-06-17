@@ -1006,15 +1006,6 @@ export type ErrorCluster = {
 }
 export type ErrorClusterResponse = ErrorCluster[] | null
 
-export type ErrorTrackingGroup = {
-    id: string
-    title: string
-    description: string
-    occurrences: number
-    uniqueSessions: number
-    uniqueUsers: number
-}
-
 export type EntityType = 'actions' | 'events' | 'data_warehouse' | 'new_entity'
 
 export interface Entity {
