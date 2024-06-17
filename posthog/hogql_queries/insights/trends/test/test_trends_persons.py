@@ -343,7 +343,6 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         )
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=20)
-
         self.assertEqual(len(result), 1)
         self.assertEqual(get_distinct_id(result[0]), "person1")
         self.assertEqual(get_event_count(result[0]), 1)
