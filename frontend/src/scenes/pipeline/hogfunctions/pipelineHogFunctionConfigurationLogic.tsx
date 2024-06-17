@@ -7,6 +7,8 @@ import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
 
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { DataTableNode, NodeKind } from '~/queries/schema'
 import {
     FilterType,
     HogFunctionTemplateType,
@@ -15,6 +17,8 @@ import {
     PipelineStage,
     PluginConfigFilters,
     PluginConfigTypeNew,
+    PropertyFilterType,
+    PropertyOperator,
 } from '~/types'
 
 import type { pipelineHogFunctionConfigurationLogicType } from './pipelineHogFunctionConfigurationLogicType'
@@ -90,7 +94,7 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
             },
         ],
     }),
-    loaders(({ props }) => ({
+    loaders(({ props, values }) => ({
         template: [
             null as HogFunctionTemplateType | null,
             {
@@ -232,6 +236,41 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
                           inputs: inputErrors,
                       }
                     : null
+            },
+        ],
+
+        matchingEventsQuery: [
+            (s) => [s.configuration],
+            ({ filters }): DataTableNode | null => {
+                if (!filters) {
+                    return null
+                }
+
+                console.log({ filters, columns: defaultDataTableColumns(NodeKind.EventsQuery) })
+
+                return {
+                    kind: NodeKind.DataTableNode,
+                    source: {
+                        kind: NodeKind.EventsQuery,
+                        select: ['event'],
+                        properties: [
+                            {
+                                type: PropertyFilterType.Event,
+                                key: '$browser',
+                                operator: PropertyOperator.Exact,
+                                value: 'Chrome',
+                            },
+                        ],
+                    },
+                    full: false,
+                    showEventFilter: false,
+                    showPropertyFilter: false,
+                    showTimings: false,
+                    showOpenEditorButton: false,
+                    expandable: true,
+                    showColumnConfigurator: false,
+                    embedded: true,
+                }
             },
         ],
     })),

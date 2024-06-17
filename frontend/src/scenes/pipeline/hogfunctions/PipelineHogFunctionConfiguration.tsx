@@ -22,6 +22,7 @@ import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import { groupsModel } from '~/models/groupsModel'
+import { Query } from '~/queries/Query/Query'
 import { EntityTypes } from '~/types'
 
 import { HogFunctionIconEditable } from './HogFunctionIcon'
@@ -37,8 +38,16 @@ export function PipelineHogFunctionConfiguration({
 }): JSX.Element {
     const logicProps = { templateId, id }
     const logic = pipelineHogFunctionConfigurationLogic(logicProps)
-    const { isConfigurationSubmitting, configurationChanged, showSource, configuration, loading, loaded, hogFunction } =
-        useValues(logic)
+    const {
+        isConfigurationSubmitting,
+        configurationChanged,
+        showSource,
+        configuration,
+        loading,
+        loaded,
+        hogFunction,
+        matchingEventsQuery,
+    } = useValues(logic)
     const {
         submitConfiguration,
         resetForm,
@@ -256,6 +265,10 @@ export function PipelineHogFunctionConfiguration({
                                 <p className="italic text-muted-alt">
                                     This destination will be triggered if <b>any of</b> the above filters match.
                                 </p>
+
+                                <div className="flex flex-col border rounded overflow-y-auto max-h-120">
+                                    {matchingEventsQuery ? <Query query={matchingEventsQuery} /> : null}
+                                </div>
                             </div>
                         </div>
 
