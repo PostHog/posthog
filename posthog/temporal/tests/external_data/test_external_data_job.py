@@ -698,6 +698,7 @@ async def test_run_postgres_job(
         BUCKET_URL=f"s3://{BUCKET_NAME}",
         AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
         AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
     ):
         await asyncio.gather(
             activity_environment.run(import_data_activity, job_1_inputs),
