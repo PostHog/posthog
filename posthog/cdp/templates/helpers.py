@@ -33,8 +33,15 @@ class BaseHogFunctionTemplateTest(BaseTest):
         return [call.args for call in self.mock_print.mock_calls]
 
     def createHogGlobals(self, globals=None) -> dict:
-        # Return an object simulating the
-        return {}
+        # Return an object simulating the globals object
+        return {
+            "event": {
+                "name": "test_event",
+                "uuid": "1234",
+                "distinct_id": "1234",
+                "properties": {"$browser": "Chrome", "$os": "Windows"},
+            },
+        }
 
     def run_function(self, inputs: dict, globals=None):
         # Create the globals object
