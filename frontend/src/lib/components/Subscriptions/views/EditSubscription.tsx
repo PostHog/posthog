@@ -93,6 +93,10 @@ export function EditSubscription({
         subscription.target_type === 'slack' &&
         !isMemberOfSlackChannel(subscription.target_value)
 
+    const formatter = new Intl.DateTimeFormat('en-US', { timeZoneName: 'shortGeneric' })
+    const parts = formatter.formatToParts(new Date())
+    const currentTimezone = parts?.find((part) => part.type === 'timeZoneName')?.value
+
     return (
         <Form
             logic={subscriptionLogic}
@@ -331,7 +335,10 @@ export function EditSubscription({
                         ) : null}
 
                         <div>
-                            <LemonLabel className="mb-2">Recurrence</LemonLabel>
+                            <div className="flex items-baseline justify-between w-full">
+                                <LemonLabel className="mb-2">Recurrence</LemonLabel>
+                                <div className="text-xs text-muted text-right">{currentTimezone}</div>
+                            </div>
                             <div className="flex gap-2 items-center rounded border p-2 flex-wrap">
                                 <span>Send every</span>
                                 <LemonField name="interval">

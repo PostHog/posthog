@@ -110,17 +110,16 @@ export function renderColumn(
 
         if (value === '$autocapture' && eventRecord) {
             return autoCaptureEventToDescription(eventRecord)
-        } else {
-            const content = <PropertyKeyInfo value={value} type={TaxonomicFilterGroupType.Events} />
-            const $sentry_url = eventRecord?.properties?.$sentry_url
-            return $sentry_url ? (
-                <Link to={$sentry_url} target="_blank">
-                    {content}
-                </Link>
-            ) : (
-                content
-            )
         }
+        const content = <PropertyKeyInfo value={value} type={TaxonomicFilterGroupType.Events} />
+        const $sentry_url = eventRecord?.properties?.$sentry_url
+        return $sentry_url ? (
+            <Link to={$sentry_url} target="_blank">
+                {content}
+            </Link>
+        ) : (
+            content
+        )
     } else if (key === 'timestamp' || key === 'created_at' || key === 'session_start' || key === 'session_end') {
         return <TZLabel time={value} showSeconds />
     } else if (!Array.isArray(record) && key.startsWith('properties.')) {
@@ -250,6 +249,9 @@ export function renderColumn(
         const columnName = trimQuotes(key.substring(16)) // 16 = "context.columns.".length
         const Component = context?.columns?.[columnName]?.render
         return Component ? <Component record={record} columnName={columnName} value={value} query={query} /> : ''
+    } else if (context?.columns?.[key]) {
+        const Component = context?.columns?.[key]?.render
+        return Component ? <Component record={record} columnName={key} value={value} query={query} /> : ''
     } else if (key === 'id' && (isPersonsNode(query.source) || isActorsQuery(query.source))) {
         return (
             <CopyToClipboardInline
@@ -263,25 +265,18 @@ export function renderColumn(
     } else if (key.startsWith('user.') && isTimeToSeeDataSessionsQuery(query.source)) {
         const [parent, child] = key.split('.')
         return typeof record === 'object' ? record[parent][child] : 'unknown'
-    } else {
-        if (typeof value === 'object') {
-            return <JSONViewer src={value} name={null} collapsed={Object.keys(value).length > 10 ? 0 : 1} />
-        } else if (
-            typeof value === 'string' &&
-            ((value.startsWith('{') && value.endsWith('}')) || (value.startsWith('[') && value.endsWith(']')))
-        ) {
-            try {
-                return (
-                    <JSONViewer
-                        src={JSON.parse(value)}
-                        name={null}
-                        collapsed={Object.keys(value).length > 10 ? 0 : 1}
-                    />
-                )
-            } catch (e) {
-                // do nothing
-            }
-        }
-        return String(value)
     }
+    if (typeof value === 'object') {
+        return <JSONViewer src={value} name={null} collapsed={Object.keys(value).length > 10 ? 0 : 1} />
+    } else if (
+        typeof value === 'string' &&
+        ((value.startsWith('{') && value.endsWith('}')) || (value.startsWith('[') && value.endsWith(']')))
+    ) {
+        try {
+            return <JSONViewer src={JSON.parse(value)} name={null} collapsed={Object.keys(value).length > 10 ? 0 : 1} />
+        } catch (e) {
+            // do nothing
+        }
+    }
+    return String(value)
 }

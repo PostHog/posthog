@@ -70,7 +70,7 @@ class AggregationFinder(TraversingVisitor):
 def property_to_expr(
     property: Union[BaseModel, PropertyGroup, Property, dict, list, ast.Expr],
     team: Team,
-    scope: Literal["event", "person", "session", "replay", "replay_entity"] = "event",
+    scope: Literal["event", "person", "session", "replay", "replay_entity", "replay_pdi"] = "event",
 ) -> ast.Expr:
     if isinstance(property, dict):
         try:
@@ -105,8 +105,8 @@ def property_to_expr(
             raise NotImplementedError(f'PropertyGroup of unknown type "{property.type}"')
         if (
             (isinstance(property, PropertyGroupFilter) or isinstance(property, PropertyGroupFilterValue))
-            and property.type != FilterLogicalOperator.AND
-            and property.type != FilterLogicalOperator.OR
+            and property.type != FilterLogicalOperator.AND_
+            and property.type != FilterLogicalOperator.OR_
         ):
             raise NotImplementedError(f'PropertyGroupFilter of unknown type "{property.type}"')
 
@@ -115,7 +115,7 @@ def property_to_expr(
         if len(property.values) == 1:
             return property_to_expr(property.values[0], team, scope)
 
-        if property.type == PropertyOperatorType.AND or property.type == FilterLogicalOperator.AND:
+        if property.type == PropertyOperatorType.AND or property.type == FilterLogicalOperator.AND_:
             return ast.And(exprs=[property_to_expr(p, team, scope) for p in property.values])
         else:
             return ast.Or(exprs=[property_to_expr(p, team, scope) for p in property.values])
@@ -143,7 +143,7 @@ def property_to_expr(
     ):
         if (scope == "person" and property.type != "person") or (scope == "session" and property.type != "session"):
             raise NotImplementedError(f"The '{property.type}' property filter does not work in '{scope}' scope")
-        operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.exact
+        operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.EXACT
         value = property.value
 
         if property.type == "person" and scope != "person":
@@ -195,20 +195,20 @@ def property_to_expr(
                     for v in value
                 ]
                 if (
-                    operator == PropertyOperator.not_icontains
-                    or operator == PropertyOperator.not_regex
-                    or operator == PropertyOperator.is_not
+                    operator == PropertyOperator.NOT_ICONTAINS
+                    or operator == PropertyOperator.NOT_REGEX
+                    or operator == PropertyOperator.IS_NOT
                 ):
                     return ast.And(exprs=exprs)
                 return ast.Or(exprs=exprs)
 
-        if operator == PropertyOperator.is_set:
+        if operator == PropertyOperator.IS_SET:
             return ast.CompareOperation(
                 op=ast.CompareOperationOp.NotEq,
                 left=field,
                 right=ast.Constant(value=None),
             )
-        elif operator == PropertyOperator.is_not_set:
+        elif operator == PropertyOperator.IS_NOT_SET:
             return ast.Or(
                 exprs=[
                     ast.CompareOperation(
@@ -230,19 +230,19 @@ def property_to_expr(
                     ]
                 )
             )
-        elif operator == PropertyOperator.icontains:
+        elif operator == PropertyOperator.ICONTAINS:
             return ast.CompareOperation(
                 op=ast.CompareOperationOp.ILike,
                 left=field,
                 right=ast.Constant(value=f"%{value}%"),
             )
-        elif operator == PropertyOperator.not_icontains:
+        elif operator == PropertyOperator.NOT_ICONTAINS:
             return ast.CompareOperation(
                 op=ast.CompareOperationOp.NotILike,
                 left=field,
                 right=ast.Constant(value=f"%{value}%"),
             )
-        elif operator == PropertyOperator.regex:
+        elif operator == PropertyOperator.REGEX:
             return ast.Call(
                 name="ifNull",
                 args=[
@@ -250,7 +250,7 @@ def property_to_expr(
                     ast.Constant(value=False),
                 ],
             )
-        elif operator == PropertyOperator.not_regex:
+        elif operator == PropertyOperator.NOT_REGEX:
             return ast.Call(
                 name="ifNull",
                 args=[
@@ -265,17 +265,17 @@ def property_to_expr(
                     ast.Constant(value=True),
                 ],
             )
-        elif operator == PropertyOperator.exact or operator == PropertyOperator.is_date_exact:
+        elif operator == PropertyOperator.EXACT or operator == PropertyOperator.IS_DATE_EXACT:
             op = ast.CompareOperationOp.Eq
-        elif operator == PropertyOperator.is_not:
+        elif operator == PropertyOperator.IS_NOT:
             op = ast.CompareOperationOp.NotEq
-        elif operator == PropertyOperator.lt or operator == PropertyOperator.is_date_before:
+        elif operator == PropertyOperator.LT or operator == PropertyOperator.IS_DATE_BEFORE:
             op = ast.CompareOperationOp.Lt
-        elif operator == PropertyOperator.gt or operator == PropertyOperator.is_date_after:
+        elif operator == PropertyOperator.GT or operator == PropertyOperator.IS_DATE_AFTER:
             op = ast.CompareOperationOp.Gt
-        elif operator == PropertyOperator.lte:
+        elif operator == PropertyOperator.LTE:
             op = ast.CompareOperationOp.LtEq
-        elif operator == PropertyOperator.gte:
+        elif operator == PropertyOperator.GTE:
             op = ast.CompareOperationOp.GtEq
         else:
             raise NotImplementedError(f"PropertyOperator {operator} not implemented")
@@ -365,7 +365,7 @@ def property_to_expr(
         if scope == "person":
             raise NotImplementedError(f"property_to_expr for scope {scope} not implemented for type '{property.type}'")
         value = property.value
-        operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.exact
+        operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.EXACT
         if isinstance(value, list):
             if len(value) == 1:
                 value = value[0]
@@ -385,20 +385,20 @@ def property_to_expr(
                     for v in value
                 ]
                 if (
-                    operator == PropertyOperator.is_not
-                    or operator == PropertyOperator.not_icontains
-                    or operator == PropertyOperator.not_regex
+                    operator == PropertyOperator.IS_NOT
+                    or operator == PropertyOperator.NOT_ICONTAINS
+                    or operator == PropertyOperator.NOT_REGEX
                 ):
                     return ast.And(exprs=exprs)
                 return ast.Or(exprs=exprs)
 
         if property.key == "selector" or property.key == "tag_name":
-            if operator != PropertyOperator.exact and operator != PropertyOperator.is_not:
+            if operator != PropertyOperator.EXACT and operator != PropertyOperator.IS_NOT:
                 raise NotImplementedError(
                     f"property_to_expr for element {property.key} only supports exact and is_not operators, not {operator}"
                 )
             expr = selector_to_expr(str(value)) if property.key == "selector" else tag_name_to_expr(str(value))
-            if operator == PropertyOperator.is_not:
+            if operator == PropertyOperator.IS_NOT:
                 return ast.Call(name="not", args=[expr])
             return expr
 
@@ -445,19 +445,19 @@ def action_to_expr(action: Action) -> ast.Expr:
                 exprs.append(tag_name_to_expr(step.tag_name))
             if step.href is not None:
                 if step.href_matching == "regex":
-                    operator = PropertyOperator.regex
+                    operator = PropertyOperator.REGEX
                 elif step.href_matching == "contains":
-                    operator = PropertyOperator.icontains
+                    operator = PropertyOperator.ICONTAINS
                 else:
-                    operator = PropertyOperator.exact
+                    operator = PropertyOperator.EXACT
                 exprs.append(element_chain_key_filter("href", step.href, operator))
             if step.text is not None:
                 if step.text_matching == "regex":
-                    operator = PropertyOperator.regex
+                    operator = PropertyOperator.REGEX
                 elif step.text_matching == "contains":
-                    operator = PropertyOperator.icontains
+                    operator = PropertyOperator.ICONTAINS
                 else:
-                    operator = PropertyOperator.exact
+                    operator = PropertyOperator.EXACT
                 exprs.append(element_chain_key_filter("text", step.text, operator))
 
         if step.url:
@@ -510,28 +510,28 @@ def entity_to_expr(entity: RetentionEntity) -> ast.Expr:
 
 def element_chain_key_filter(key: str, text: str, operator: PropertyOperator):
     escaped = text.replace('"', r"\"")
-    if operator == PropertyOperator.is_set or operator == PropertyOperator.is_not_set:
+    if operator == PropertyOperator.IS_SET or operator == PropertyOperator.IS_NOT_SET:
         value = r'[^"]+'
-    elif operator == PropertyOperator.icontains or operator == PropertyOperator.not_icontains:
+    elif operator == PropertyOperator.ICONTAINS or operator == PropertyOperator.NOT_ICONTAINS:
         value = rf'[^"]*{re.escape(escaped)}[^"]*'
-    elif operator == PropertyOperator.regex or operator == PropertyOperator.not_regex:
+    elif operator == PropertyOperator.REGEX or operator == PropertyOperator.NOT_REGEX:
         value = escaped
-    elif operator == PropertyOperator.exact or operator == PropertyOperator.is_not:
+    elif operator == PropertyOperator.EXACT or operator == PropertyOperator.IS_NOT:
         value = re.escape(escaped)
     else:
         raise NotImplementedError(f"element_href_to_expr not implemented for operator {operator}")
 
     regex = f'({key}="{value}")'
-    if operator == PropertyOperator.icontains or operator == PropertyOperator.not_icontains:
+    if operator == PropertyOperator.ICONTAINS or operator == PropertyOperator.NOT_ICONTAINS:
         expr = parse_expr("elements_chain =~* {regex}", {"regex": ast.Constant(value=str(regex))})
     else:
         expr = parse_expr("elements_chain =~ {regex}", {"regex": ast.Constant(value=str(regex))})
 
     if (
-        operator == PropertyOperator.is_not_set
-        or operator == PropertyOperator.not_icontains
-        or operator == PropertyOperator.is_not
-        or operator == PropertyOperator.not_regex
+        operator == PropertyOperator.IS_NOT_SET
+        or operator == PropertyOperator.NOT_ICONTAINS
+        or operator == PropertyOperator.IS_NOT
+        or operator == PropertyOperator.NOT_REGEX
     ):
         expr = ast.Call(name="not", args=[expr])
     return expr

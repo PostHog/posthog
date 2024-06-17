@@ -9,6 +9,8 @@ export enum Scene {
     Error404 = '404',
     ErrorNetwork = '4xx',
     ErrorProjectUnavailable = 'ProjectUnavailable',
+    ErrorTracking = 'ErrorTracking',
+    ErrorTrackingGroup = 'ErrorTrackingGroup',
     Dashboards = 'Dashboards',
     Dashboard = 'Dashboard',
     Insight = 'Insight',

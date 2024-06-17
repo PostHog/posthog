@@ -9,7 +9,8 @@ datamodel-codegen \
     --input frontend/src/queries/schema.json --input-file-type jsonschema \
     --output posthog/schema.py --output-model-type pydantic_v2.BaseModel \
     --custom-file-header "# mypy: disable-error-code=\"assignment\"" \
-    --set-default-enum-member
+    --set-default-enum-member --capitalise-enum-members \
+    --wrap-string-literal
 
 # Format schema.py
 ruff format posthog/schema.py

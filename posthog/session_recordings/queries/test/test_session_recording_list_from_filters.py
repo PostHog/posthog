@@ -4,7 +4,6 @@ from uuid import uuid4
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from freezegun import freeze_time
-
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
 from posthog.constants import AvailableFeature
@@ -86,7 +85,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         return session_recording_list_instance.run()
 
     @property
-    def base_time(self):
+    def an_hour_ago(self):
         return (now() - relativedelta(hours=1)).replace(microsecond=0, second=0)
 
     @snapshot_clickhouse_queries
@@ -101,8 +100,8 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             session_id=session_id_one,
             team_id=self.team.pk,
             # can CH handle a timestamp with no T
-            first_timestamp=self.base_time.isoformat().replace("T", " "),
-            last_timestamp=(self.base_time + relativedelta(seconds=20)).isoformat().replace("T", " "),
+            first_timestamp=self.an_hour_ago.isoformat().replace("T", " "),
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=20)).isoformat().replace("T", " "),
             distinct_id=user,
             first_url="https://example.io/home",
             click_count=2,
@@ -115,8 +114,8 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             session_id=session_id_one,
             team_id=self.team.pk,
             # can CH handle a timestamp with no T
-            first_timestamp=(self.base_time + relativedelta(seconds=10)),
-            last_timestamp=(self.base_time + relativedelta(seconds=50)),
+            first_timestamp=(self.an_hour_ago + relativedelta(seconds=10)),
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=50)),
             distinct_id=user,
             first_url="https://a-different-url.com",
             click_count=2,
@@ -129,10 +128,10 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             session_id=session_id_two,
             team_id=self.team.pk,
             # can CH handle a timestamp with no T
-            first_timestamp=(self.base_time + relativedelta(seconds=20)),
-            last_timestamp=(self.base_time + relativedelta(seconds=2000)),
+            first_timestamp=(self.an_hour_ago + relativedelta(seconds=20)),
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=2000)),
             distinct_id=user,
-            first_url=None,
+            first_url="https://another-url.com",
             click_count=2,
             keypress_count=2,
             mouse_activity_count=2,
@@ -152,9 +151,9 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                 "duration": 1980,
                 "active_seconds": 792.0,
                 "inactive_seconds": 1188.0,
-                "start_time": self.base_time + relativedelta(seconds=20),
-                "end_time": self.base_time + relativedelta(seconds=2000),
-                "first_url": None,
+                "start_time": self.an_hour_ago + relativedelta(seconds=20),
+                "end_time": self.an_hour_ago + relativedelta(seconds=2000),
+                "first_url": "https://another-url.com",
                 "console_log_count": 0,
                 "console_warn_count": 0,
                 "console_error_count": 0,
@@ -169,8 +168,8 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                 "duration": 50,
                 "active_seconds": 25.0,
                 "inactive_seconds": 25.0,
-                "start_time": self.base_time,
-                "end_time": self.base_time + relativedelta(seconds=50),
+                "start_time": self.an_hour_ago,
+                "end_time": self.an_hour_ago + relativedelta(seconds=50),
                 "first_url": "https://example.io/home",
                 "console_log_count": 0,
                 "console_warn_count": 0,
@@ -195,8 +194,8 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             session_id=session_id_total_is_61,
             team_id=self.team.pk,
             # can CH handle a timestamp with no T
-            first_timestamp=self.base_time.isoformat().replace("T", " "),
-            last_timestamp=(self.base_time + relativedelta(seconds=61)).isoformat().replace("T", " "),
+            first_timestamp=self.an_hour_ago.isoformat().replace("T", " "),
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=61)).isoformat().replace("T", " "),
             distinct_id=user,
             first_url="https://example.io/home",
             click_count=2,
@@ -209,8 +208,8 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             session_id=session_id_active_is_61,
             team_id=self.team.pk,
             # can CH handle a timestamp with no T
-            first_timestamp=self.base_time,
-            last_timestamp=(self.base_time + relativedelta(seconds=59)),
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=59)),
             distinct_id=user,
             first_url="https://a-different-url.com",
             click_count=2,
@@ -223,8 +222,8 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             session_id=session_id_inactive_is_61,
             team_id=self.team.pk,
             # can CH handle a timestamp with no T
-            first_timestamp=self.base_time,
-            last_timestamp=(self.base_time + relativedelta(seconds=61)),
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=61)),
             distinct_id=user,
             first_url="https://a-different-url.com",
             click_count=0,
@@ -282,8 +281,8 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             session_id=session_id_one,
             team_id=self.team.pk,
             # can CH handle a timestamp with no T
-            first_timestamp=self.base_time.isoformat().replace("T", " "),
-            last_timestamp=(self.base_time + relativedelta(seconds=20)).isoformat().replace("T", " "),
+            first_timestamp=self.an_hour_ago.isoformat().replace("T", " "),
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=20)).isoformat().replace("T", " "),
             distinct_id=user,
             first_url="https://example.io/home",
             click_count=2,
@@ -296,8 +295,8 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             session_id=session_id_one,
             team_id=self.team.pk,
             # can CH handle a timestamp with no T
-            first_timestamp=(self.base_time + relativedelta(seconds=10)),
-            last_timestamp=(self.base_time + relativedelta(seconds=50)),
+            first_timestamp=(self.an_hour_ago + relativedelta(seconds=10)),
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=50)),
             distinct_id=user,
             first_url="https://a-different-url.com",
             click_count=2,
@@ -310,10 +309,10 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             session_id=session_id_two,
             team_id=self.team.pk,
             # can CH handle a timestamp with no T
-            first_timestamp=(self.base_time + relativedelta(seconds=20)),
-            last_timestamp=(self.base_time + relativedelta(seconds=2000)),
+            first_timestamp=(self.an_hour_ago + relativedelta(seconds=20)),
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=2000)),
             distinct_id=user,
-            first_url=None,
+            first_url="https://another-url.com",
             click_count=2,
             keypress_count=2,
             mouse_activity_count=2,
@@ -335,9 +334,9 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                 "duration": 1980,
                 "active_seconds": 792.0,
                 "inactive_seconds": 1188.0,
-                "start_time": self.base_time + relativedelta(seconds=20),
-                "end_time": self.base_time + relativedelta(seconds=2000),
-                "first_url": None,
+                "start_time": self.an_hour_ago + relativedelta(seconds=20),
+                "end_time": self.an_hour_ago + relativedelta(seconds=2000),
+                "first_url": "https://another-url.com",
                 "console_log_count": 0,
                 "console_warn_count": 0,
                 "console_error_count": 0,
@@ -361,8 +360,8 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                 "duration": 50,
                 "active_seconds": 25.0,
                 "inactive_seconds": 25.0,
-                "start_time": self.base_time,
-                "end_time": self.base_time + relativedelta(seconds=50),
+                "start_time": self.an_hour_ago,
+                "end_time": self.an_hour_ago + relativedelta(seconds=50),
                 "first_url": "https://example.io/home",
                 "console_log_count": 0,
                 "console_warn_count": 0,
@@ -388,13 +387,13 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         session_id_one = f"test_basic_query_with_ordering-session-1-{str(uuid4())}"
         session_id_two = f"test_basic_query_with_ordering-session-2-{str(uuid4())}"
 
-        session_one_start = self.base_time + relativedelta(seconds=10)
+        session_one_start = self.an_hour_ago + relativedelta(seconds=10)
         produce_replay_summary(
             session_id=session_id_one,
             team_id=self.team.pk,
             # can CH handle a timestamp with no T
             first_timestamp=session_one_start,
-            last_timestamp=(self.base_time + relativedelta(seconds=50)),
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=50)),
             distinct_id=user,
             console_error_count=1000,
             active_milliseconds=1,  # most errors, but the least activity
@@ -405,19 +404,19 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.pk,
             # can CH handle a timestamp with no T
             first_timestamp=session_one_start,
-            last_timestamp=(self.base_time + relativedelta(seconds=50)),
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=50)),
             distinct_id=user,
             console_error_count=12,
             active_milliseconds=1,  # most errors, but the least activity
         )
 
-        session_two_start = self.base_time
+        session_two_start = self.an_hour_ago
         produce_replay_summary(
             session_id=session_id_two,
             team_id=self.team.pk,
             # starts before session one
             first_timestamp=session_two_start,
-            last_timestamp=(self.base_time + relativedelta(seconds=50)),
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=50)),
             distinct_id=user,
             console_error_count=430,
             active_milliseconds=1000,  # most activity, but the least errors
@@ -458,24 +457,24 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             session_id=session_id_one,
             team_id=self.team.pk,
             # can CH handle a timestamp with no T
-            first_timestamp=self.base_time,
-            last_timestamp=self.base_time + relativedelta(seconds=20),
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=self.an_hour_ago + relativedelta(seconds=20),
             first_url="https://on-first-event.com",
         )
 
         produce_replay_summary(
             session_id=session_id_one,
             team_id=self.team.pk,
-            first_timestamp=self.base_time + relativedelta(seconds=10),
-            last_timestamp=self.base_time + relativedelta(seconds=20),
+            first_timestamp=self.an_hour_ago + relativedelta(seconds=10),
+            last_timestamp=self.an_hour_ago + relativedelta(seconds=20),
             first_url="https://on-second-event.com",
         )
 
         produce_replay_summary(
             session_id=session_id_one,
             team_id=self.team.pk,
-            first_timestamp=self.base_time + relativedelta(seconds=20),
-            last_timestamp=self.base_time + relativedelta(seconds=40),
+            first_timestamp=self.an_hour_ago + relativedelta(seconds=20),
+            last_timestamp=self.an_hour_ago + relativedelta(seconds=40),
             first_url="https://on-third-event.com",
         )
 
@@ -483,24 +482,24 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             session_id=session_id_two,
             team_id=self.team.pk,
-            first_timestamp=(self.base_time + relativedelta(seconds=10)),
-            last_timestamp=(self.base_time + relativedelta(seconds=50)),
+            first_timestamp=(self.an_hour_ago + relativedelta(seconds=10)),
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=50)),
             first_url=None,
         )
 
         produce_replay_summary(
             session_id=session_id_two,
             team_id=self.team.pk,
-            first_timestamp=(self.base_time + relativedelta(seconds=20)),
-            last_timestamp=(self.base_time + relativedelta(seconds=30)),
+            first_timestamp=(self.an_hour_ago + relativedelta(seconds=20)),
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=30)),
             first_url="https://first-is-on-second-event.com",
         )
 
         produce_replay_summary(
             session_id=session_id_two,
             team_id=self.team.pk,
-            first_timestamp=(self.base_time + relativedelta(seconds=25)),
-            last_timestamp=(self.base_time + relativedelta(seconds=30)),
+            first_timestamp=(self.an_hour_ago + relativedelta(seconds=25)),
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=30)),
             first_url="https://another-on-the-session.com",
         )
 
@@ -508,8 +507,8 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             session_id=session_id_three,
             team_id=self.team.pk,
-            first_timestamp=self.base_time,
-            last_timestamp=self.base_time + relativedelta(seconds=50),
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=self.an_hour_ago + relativedelta(seconds=50),
             distinct_id=user,
             first_url=None,
         )
@@ -517,8 +516,8 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             session_id=session_id_three,
             team_id=self.team.pk,
-            first_timestamp=(self.base_time + relativedelta(seconds=10)),
-            last_timestamp=self.base_time + relativedelta(seconds=50),
+            first_timestamp=(self.an_hour_ago + relativedelta(seconds=10)),
+            last_timestamp=self.an_hour_ago + relativedelta(seconds=50),
             distinct_id=user,
             first_url=None,
         )
@@ -526,8 +525,8 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             session_id=session_id_three,
             team_id=self.team.pk,
-            first_timestamp=(self.base_time + relativedelta(seconds=20)),
-            last_timestamp=self.base_time + relativedelta(seconds=60),
+            first_timestamp=(self.an_hour_ago + relativedelta(seconds=20)),
+            last_timestamp=self.an_hour_ago + relativedelta(seconds=60),
             distinct_id=user,
             first_url=None,
         )
@@ -536,15 +535,15 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             session_id=session_id_four,
             team_id=self.team.pk,
-            first_timestamp=self.base_time + relativedelta(seconds=20),
-            last_timestamp=self.base_time + relativedelta(seconds=25),
+            first_timestamp=self.an_hour_ago + relativedelta(seconds=20),
+            last_timestamp=self.an_hour_ago + relativedelta(seconds=25),
             first_url="https://on-first-received-event.com",
         )
         produce_replay_summary(
             session_id=session_id_four,
             team_id=self.team.pk,
-            first_timestamp=self.base_time + relativedelta(seconds=10),
-            last_timestamp=self.base_time + relativedelta(seconds=25),
+            first_timestamp=self.an_hour_ago + relativedelta(seconds=10),
+            last_timestamp=self.an_hour_ago + relativedelta(seconds=25),
             first_url="https://on-second-received-event-but-actually-first.com",
         )
 
@@ -563,17 +562,17 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                     "session_id": session_id_two,
                     "first_url": "https://first-is-on-second-event.com",
                 },
-                {
-                    "session_id": session_id_three,
-                    "first_url": None,
-                },
+                # sessions without urls are not included
+                # {
+                #     "session_id": session_id_three,
+                #     "first_url": None,
+                # },
                 {
                     "session_id": session_id_four,
                     "first_url": "https://on-second-received-event-but-actually-first.com",
                 },
             ],
-            # mypy unhappy about this lambda 🤷️
-            key=lambda x: x["session_id"],  # type: ignore
+            key=lambda x: x["session_id"],
         )
 
     def test_recordings_dont_leak_data_between_teams(self):
@@ -589,9 +588,8 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             session_id=session_id_one,
             team_id=another_team.pk,
             distinct_id=user,
-            first_timestamp=self.base_time,
-            last_timestamp=self.base_time + relativedelta(seconds=20),
-            first_url=None,
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=self.an_hour_ago + relativedelta(seconds=20),
             click_count=2,
             keypress_count=2,
             mouse_activity_count=2,
@@ -602,9 +600,8 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             session_id=session_id_two,
             team_id=self.team.pk,
             distinct_id=user,
-            first_timestamp=self.base_time,
-            last_timestamp=self.base_time + relativedelta(seconds=20),
-            first_url=None,
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=self.an_hour_ago + relativedelta(seconds=20),
             click_count=2,
             keypress_count=2,
             mouse_activity_count=2,
@@ -625,18 +622,18 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             distinct_id=user,
             session_id=session_id_one,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
         self.create_event(
             user,
-            self.base_time,
+            self.an_hour_ago,
             properties={"$session_id": session_id_one, "$window_id": str(uuid4())},
         )
         produce_replay_summary(
             distinct_id=user,
             session_id=session_id_one,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
 
@@ -680,13 +677,13 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             distinct_id=user,
             session_id=session_id_one,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
         # but the page view event is outside TTL
         self.create_event(
             user,
-            self.base_time - relativedelta(days=SessionRecordingListFromFilters.SESSION_RECORDINGS_DEFAULT_LIMIT + 1),
+            self.an_hour_ago - relativedelta(days=SessionRecordingListFromFilters.SESSION_RECORDINGS_DEFAULT_LIMIT + 1),
             properties={"$session_id": session_id_one, "$window_id": str(uuid4())},
         )
 
@@ -743,8 +740,8 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             session_id=first_session_id,
             team_id=self.team.pk,
-            first_timestamp=self.base_time,
-            last_timestamp=(self.base_time + relativedelta(minutes=5)),
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=(self.an_hour_ago + relativedelta(minutes=5)),
             distinct_id=user,
             first_url="https://example.io/home",
             click_count=2,
@@ -756,8 +753,8 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             session_id=second_session_id,
             team_id=self.team.pk,
-            first_timestamp=self.base_time,
-            last_timestamp=(self.base_time + relativedelta(minutes=1)),
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=(self.an_hour_ago + relativedelta(minutes=1)),
             distinct_id=user,
             first_url="https://example.io/home",
             click_count=2,
@@ -769,8 +766,8 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             session_id=third_session_id,
             team_id=self.team.pk,
-            first_timestamp=self.base_time,
-            last_timestamp=(self.base_time + relativedelta(minutes=10)),
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=(self.an_hour_ago + relativedelta(minutes=10)),
             distinct_id=user,
             first_url="https://example.io/home",
             click_count=0,
@@ -813,7 +810,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
         self.create_event(
             user,
-            self.base_time,
+            self.an_hour_ago,
             properties={
                 "$session_id": session_id_total_is_61,
                 "$window_id": str(uuid4()),
@@ -823,8 +820,8 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             session_id=session_id_total_is_61,
             team_id=self.team.pk,
             # can CH handle a timestamp with no T
-            first_timestamp=self.base_time.isoformat().replace("T", " "),
-            last_timestamp=(self.base_time + relativedelta(seconds=61)).isoformat().replace("T", " "),
+            first_timestamp=self.an_hour_ago.isoformat().replace("T", " "),
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=61)).isoformat().replace("T", " "),
             distinct_id=user,
             first_url="https://example.io/home",
             click_count=2,
@@ -835,7 +832,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
         self.create_event(
             user,
-            self.base_time,
+            self.an_hour_ago,
             properties={
                 "$session_id": session_id_active_is_61,
                 "$window_id": str(uuid4()),
@@ -845,8 +842,8 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             session_id=session_id_active_is_61,
             team_id=self.team.pk,
             # can CH handle a timestamp with no T
-            first_timestamp=self.base_time,
-            last_timestamp=(self.base_time + relativedelta(seconds=59)),
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=59)),
             distinct_id=user,
             first_url="https://a-different-url.com",
             click_count=2,
@@ -902,12 +899,12 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             distinct_id=user,
             session_id=session_id_one,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
         self.create_event(
             user,
-            self.base_time,
+            self.an_hour_ago,
             properties={
                 "$browser": "Chrome",
                 "$session_id": session_id_one,
@@ -916,7 +913,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         )
         self.create_event(
             user,
-            self.base_time,
+            self.an_hour_ago,
             event_name="a_different_event",
             properties={
                 "$browser": "Safari",
@@ -927,7 +924,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             distinct_id=user,
             session_id=session_id_one,
-            first_timestamp=(self.base_time + relativedelta(seconds=30)),
+            first_timestamp=(self.an_hour_ago + relativedelta(seconds=30)),
             team_id=self.team.id,
         )
 
@@ -1029,25 +1026,25 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             distinct_id=user,
             session_id=session_id,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
 
         self.create_event(
             user,
-            self.base_time,
+            self.an_hour_ago,
             properties={"$session_id": session_id, "$window_id": "1"},
         )
         self.create_event(
             user,
-            self.base_time,
+            self.an_hour_ago,
             properties={"$session_id": session_id, "$window_id": "1"},
             event_name="new-event",
         )
         produce_replay_summary(
             distinct_id=user,
             session_id=session_id,
-            first_timestamp=(self.base_time + relativedelta(seconds=30)),
+            first_timestamp=(self.an_hour_ago + relativedelta(seconds=30)),
             team_id=self.team.id,
         )
 
@@ -1120,12 +1117,12 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             distinct_id=user,
             session_id=session_id_one,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
         self.create_event(
             user,
-            self.base_time,
+            self.an_hour_ago,
             event_name="custom-event",
             properties={
                 "$browser": "Chrome",
@@ -1136,7 +1133,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             distinct_id=user,
             session_id=session_id_one,
-            first_timestamp=(self.base_time + relativedelta(seconds=30)),
+            first_timestamp=(self.an_hour_ago + relativedelta(seconds=30)),
             team_id=self.team.id,
         )
 
@@ -1227,21 +1224,23 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             distinct_id=user,
             session_id=session_id,
-            first_timestamp=self.base_time,
-            last_timestamp=(self.base_time + relativedelta(seconds=60)),
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=60)),
             team_id=self.team.id,
+            first_url="https://recieved-out-of-order.com/second",
         )
         self.create_event(
             user,
-            self.base_time,
+            self.an_hour_ago,
             properties={"$session_id": session_id, "$window_id": window_id},
         )
         produce_replay_summary(
             distinct_id=user,
             session_id=session_id,
-            first_timestamp=self.base_time,
-            last_timestamp=(self.base_time + relativedelta(seconds=30)),
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=30)),
             team_id=self.team.id,
+            first_url="https://recieved-out-of-order.com/first",
         )
 
         (session_recordings, _, _) = self._filter_recordings_by(
@@ -1262,11 +1261,11 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                 "session_id": session_id,
                 "distinct_id": user,
                 "duration": 60,
-                "start_time": self.base_time,
-                "end_time": self.base_time + relativedelta(seconds=60),
+                "start_time": self.an_hour_ago,
+                "end_time": self.an_hour_ago + relativedelta(seconds=60),
                 "active_seconds": 0.0,
                 "click_count": 0,
-                "first_url": None,
+                "first_url": "https://recieved-out-of-order.com/first",
                 "inactive_seconds": 60.0,
                 "keypress_count": 0,
                 "mouse_activity_count": 0,
@@ -1286,8 +1285,8 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             distinct_id=user,
             session_id=session_id_one,
-            first_timestamp=self.base_time,
-            last_timestamp=(self.base_time + relativedelta(seconds=29)),
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=29)),
             team_id=self.team.id,
         )
 
@@ -1295,8 +1294,8 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             distinct_id=user,
             session_id=session_id_two,
-            first_timestamp=self.base_time,
-            last_timestamp=(self.base_time + relativedelta(seconds=61)),
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=61)),
             team_id=self.team.id,
         )
 
@@ -1311,6 +1310,308 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         assert [r["session_id"] for r in session_recordings] == [session_id_one]
 
     @snapshot_clickhouse_queries
+    def test_operand_or_person_filters(self):
+        user = "test_operand_or_filter-user"
+        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "test@posthog.com"})
+
+        second_user = "test_operand_or_filter-second_user"
+        Person.objects.create(team=self.team, distinct_ids=[second_user], properties={"email": "david@posthog.com"})
+
+        session_id_one = "session_id_one"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_id_one,
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=30)),
+            team_id=self.team.id,
+        )
+
+        session_id_two = "session_id_two"
+        produce_replay_summary(
+            distinct_id=second_user,
+            session_id=session_id_two,
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=30)),
+            team_id=self.team.id,
+        )
+
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {
+                "properties": [
+                    {
+                        "key": "email",
+                        "value": ["test@posthog.com"],
+                        "operator": "exact",
+                        "type": "person",
+                    },
+                    {
+                        "key": "email",
+                        "value": ["david@posthog.com"],
+                        "operator": "exact",
+                        "type": "person",
+                    },
+                ],
+                "operand": "AND",
+            }
+        )
+        assert len(session_recordings) == 0
+
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {
+                "properties": [
+                    {
+                        "key": "email",
+                        "value": ["test@posthog.com"],
+                        "operator": "exact",
+                        "type": "person",
+                    },
+                    {
+                        "key": "email",
+                        "value": ["david@posthog.com"],
+                        "operator": "exact",
+                        "type": "person",
+                    },
+                ],
+                "operand": "OR",
+            }
+        )
+        assert len(session_recordings) == 2
+        assert sorted([r["session_id"] for r in session_recordings]) == sorted([session_id_one, session_id_two])
+
+    @snapshot_clickhouse_queries
+    def test_operand_or_event_filters(self):
+        user = "test_operand_or_filter-user"
+        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "test@posthog.com"})
+
+        second_user = "test_operand_or_filter-second_user"
+        Person.objects.create(team=self.team, distinct_ids=[second_user], properties={"email": "david@posthog.com"})
+
+        session_id_one = "session_id_one"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_id_one,
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=30)),
+            team_id=self.team.id,
+        )
+        self.create_event(
+            user,
+            self.an_hour_ago + relativedelta(seconds=10),
+            properties={"$session_id": session_id_one},
+        )
+
+        session_id_two = "session_id_two"
+        produce_replay_summary(
+            distinct_id=second_user,
+            session_id=session_id_two,
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=30)),
+            team_id=self.team.id,
+        )
+        self.create_event(
+            user,
+            self.an_hour_ago + relativedelta(seconds=10),
+            event_name="custom_event",
+            properties={"$session_id": session_id_two},
+        )
+
+        session_id_three = "session_id_three"
+        produce_replay_summary(
+            distinct_id=second_user,
+            session_id=session_id_three,
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=30)),
+            team_id=self.team.id,
+        )
+
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                    },
+                    {
+                        "id": "custom_event",
+                        "type": "events",
+                        "order": 0,
+                        "name": "custom_event",
+                    },
+                ],
+                "operand": "AND",
+            }
+        )
+        assert len(session_recordings) == 0
+
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                    },
+                    {
+                        "id": "custom_event",
+                        "type": "events",
+                        "order": 0,
+                        "name": "custom_event",
+                    },
+                ],
+                "operand": "OR",
+            }
+        )
+        assert len(session_recordings) == 2
+        assert sorted([r["session_id"] for r in session_recordings]) == sorted([session_id_two, session_id_one])
+
+    @snapshot_clickhouse_queries
+    def test_operand_or_filters(self):
+        user = "test_operand_or_filter-user"
+        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+
+        session_with_both_log_filters = "both_log_filters"
+        produce_replay_summary(
+            distinct_id="user",
+            session_id=session_with_both_log_filters,
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+            console_warn_count=1,
+            log_messages={
+                "warn": [
+                    "random",
+                ],
+            },
+        )
+        session_with_one_log_filter = "one_log_filter"
+        produce_replay_summary(
+            distinct_id="user",
+            session_id=session_with_one_log_filter,
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+            console_warn_count=1,
+            log_messages={
+                "warn": [
+                    "warn",
+                ],
+            },
+        )
+
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {"console_logs": ["warn"], "console_search_query": "random"}
+        )
+        assert len(session_recordings) == 1
+        assert session_recordings[0]["session_id"] == session_with_both_log_filters
+
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {"console_logs": ["warn"], "console_search_query": "random", "operand": "OR"}
+        )
+        assert len(session_recordings) == 2
+
+    @snapshot_clickhouse_queries
+    def test_operand_or_mandatory_filters(self):
+        user = "test_operand_or_filter-user"
+        person = Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+
+        second_user = "test_operand_or_filter-second_user"
+        second_person = Person.objects.create(team=self.team, distinct_ids=[second_user], properties={"email": "bla"})
+
+        session_id_one = "session_id_one"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_id_one,
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=30)),
+            team_id=self.team.id,
+        )
+        self.create_event(
+            user,
+            self.an_hour_ago + relativedelta(seconds=10),
+            properties={"$session_id": session_id_one},
+        )
+
+        session_id_two = "session_id_two"
+        produce_replay_summary(
+            distinct_id=second_user,
+            session_id=session_id_two,
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=30)),
+            team_id=self.team.id,
+        )
+
+        # person or event filter -> person matches, event matches -> returns session
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {
+                "person_uuid": str(person.uuid),
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                    }
+                ],
+                "operand": "OR",
+            }
+        )
+        assert len(session_recordings) == 1
+        assert session_recordings[0]["session_id"] == session_id_one
+
+        # person or event filter -> person does not match, event matches -> does not return session
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {
+                "person_uuid": str(second_person.uuid),
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                    }
+                ],
+                "operand": "OR",
+            }
+        )
+        assert len(session_recordings) == 0
+
+        # session_id or event filter -> person matches, event matches -> returns session
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {
+                "session_ids": [session_id_one],
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                    }
+                ],
+                "operand": "OR",
+            }
+        )
+        assert len(session_recordings) == 1
+        assert session_recordings[0]["session_id"] == session_id_one
+
+        # session_id or event filter -> person does not match, event matches -> does not return session
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {
+                "session_ids": [session_id_two],
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                    }
+                ],
+                "operand": "OR",
+            }
+        )
+        assert len(session_recordings) == 0
+
+    @snapshot_clickhouse_queries
     def test_date_from_filter(self):
         user = "test_date_from_filter-user"
         Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
@@ -1318,63 +1619,63 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             distinct_id=user,
             session_id="three days before base time",
-            first_timestamp=(self.base_time - relativedelta(days=3, seconds=100)),
-            last_timestamp=(self.base_time - relativedelta(days=3)),
+            first_timestamp=(self.an_hour_ago - relativedelta(days=3, seconds=100)),
+            last_timestamp=(self.an_hour_ago - relativedelta(days=3)),
             team_id=self.team.id,
         )
         produce_replay_summary(
             distinct_id=user,
             session_id="two days before base time",
-            first_timestamp=(self.base_time - relativedelta(days=2, seconds=100)),
-            last_timestamp=(self.base_time - relativedelta(days=2)),
+            first_timestamp=(self.an_hour_ago - relativedelta(days=2, seconds=100)),
+            last_timestamp=(self.an_hour_ago - relativedelta(days=2)),
             team_id=self.team.id,
         )
 
-        (session_recordings, _, _) = self._filter_recordings_by({"date_from": self.base_time.strftime("%Y-%m-%d")})
+        (session_recordings, _, _) = self._filter_recordings_by({"date_from": self.an_hour_ago.strftime("%Y-%m-%d")})
         assert session_recordings == []
 
         (session_recordings, _, _) = self._filter_recordings_by(
-            {"date_from": (self.base_time - relativedelta(days=2)).strftime("%Y-%m-%d")}
+            {"date_from": (self.an_hour_ago - relativedelta(days=2)).strftime("%Y-%m-%d")}
         )
         assert len(session_recordings) == 1
         assert session_recordings[0]["session_id"] == "two days before base time"
 
     @snapshot_clickhouse_queries
     def test_date_from_filter_cannot_search_before_ttl(self):
-        with freeze_time(self.base_time):
+        with freeze_time(self.an_hour_ago):
             user = "test_date_from_filter_cannot_search_before_ttl-user"
             Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
 
             produce_replay_summary(
                 distinct_id=user,
                 session_id="storage is past ttl",
-                first_timestamp=(self.base_time - relativedelta(days=22)),
+                first_timestamp=(self.an_hour_ago - relativedelta(days=22)),
                 # an illegally long session but it started 22 days ago
-                last_timestamp=(self.base_time - relativedelta(days=3)),
+                last_timestamp=(self.an_hour_ago - relativedelta(days=3)),
                 team_id=self.team.id,
             )
             produce_replay_summary(
                 distinct_id=user,
                 session_id="storage is not past ttl",
-                first_timestamp=(self.base_time - relativedelta(days=19)),
-                last_timestamp=(self.base_time - relativedelta(days=2)),
+                first_timestamp=(self.an_hour_ago - relativedelta(days=19)),
+                last_timestamp=(self.an_hour_ago - relativedelta(days=2)),
                 team_id=self.team.id,
             )
 
             (session_recordings, _, _) = self._filter_recordings_by(
-                {"date_from": (self.base_time - relativedelta(days=20)).strftime("%Y-%m-%d")}
+                {"date_from": (self.an_hour_ago - relativedelta(days=20)).strftime("%Y-%m-%d")}
             )
             assert len(session_recordings) == 1
             assert session_recordings[0]["session_id"] == "storage is not past ttl"
 
             (session_recordings, _, _) = self._filter_recordings_by(
-                {"date_from": (self.base_time - relativedelta(days=21)).strftime("%Y-%m-%d")}
+                {"date_from": (self.an_hour_ago - relativedelta(days=21)).strftime("%Y-%m-%d")}
             )
             assert len(session_recordings) == 1
             assert session_recordings[0]["session_id"] == "storage is not past ttl"
 
             (session_recordings, _, _) = self._filter_recordings_by(
-                {"date_from": (self.base_time - relativedelta(days=22)).strftime("%Y-%m-%d")}
+                {"date_from": (self.an_hour_ago - relativedelta(days=22)).strftime("%Y-%m-%d")}
             )
             assert len(session_recordings) == 1
             assert session_recordings[0]["session_id"] == "storage is not past ttl"
@@ -1386,25 +1687,25 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             distinct_id=user,
             session_id="three days before base time",
-            first_timestamp=(self.base_time - relativedelta(days=3, seconds=100)),
-            last_timestamp=(self.base_time - relativedelta(days=3)),
+            first_timestamp=(self.an_hour_ago - relativedelta(days=3, seconds=100)),
+            last_timestamp=(self.an_hour_ago - relativedelta(days=3)),
             team_id=self.team.id,
         )
         produce_replay_summary(
             distinct_id=user,
             session_id="two days before base time",
-            first_timestamp=(self.base_time - relativedelta(days=2, seconds=100)),
-            last_timestamp=(self.base_time - relativedelta(days=2)),
+            first_timestamp=(self.an_hour_ago - relativedelta(days=2, seconds=100)),
+            last_timestamp=(self.an_hour_ago - relativedelta(days=2)),
             team_id=self.team.id,
         )
 
         (session_recordings, _, _) = self._filter_recordings_by(
-            {"date_to": (self.base_time - relativedelta(days=4)).strftime("%Y-%m-%d")}
+            {"date_to": (self.an_hour_ago - relativedelta(days=4)).strftime("%Y-%m-%d")}
         )
         assert session_recordings == []
 
         (session_recordings, _, _) = self._filter_recordings_by(
-            {"date_to": (self.base_time - relativedelta(days=3)).strftime("%Y-%m-%d")}
+            {"date_to": (self.an_hour_ago - relativedelta(days=3)).strftime("%Y-%m-%d")}
         )
 
         assert len(session_recordings) == 1
@@ -1478,38 +1779,38 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             distinct_id=three_user_ids[0],
             session_id=target_session_id,
-            first_timestamp=(self.base_time - relativedelta(days=3)),
+            first_timestamp=(self.an_hour_ago - relativedelta(days=3)),
             team_id=self.team.id,
         )
         produce_replay_summary(
             # does not match because of user distinct id
             distinct_id=three_user_ids[2],
             session_id=target_session_id,
-            first_timestamp=(self.base_time - relativedelta(days=3)),
+            first_timestamp=(self.an_hour_ago - relativedelta(days=3)),
             team_id=self.team.id,
         )
         self.create_event(
             three_user_ids[0],
-            self.base_time - relativedelta(days=3),
+            self.an_hour_ago - relativedelta(days=3),
             properties={"$session_id": target_session_id},
         )
         self.create_event(
             three_user_ids[0],
-            self.base_time - relativedelta(days=3),
+            self.an_hour_ago - relativedelta(days=3),
             event_name="custom-event",
             properties={"$browser": "Chrome", "$session_id": target_session_id},
         )
         produce_replay_summary(
             distinct_id=three_user_ids[1],
             session_id=target_session_id,
-            first_timestamp=(self.base_time - relativedelta(days=3) + relativedelta(hours=6)),
+            first_timestamp=(self.an_hour_ago - relativedelta(days=3) + relativedelta(hours=6)),
             team_id=self.team.id,
         )
         produce_replay_summary(
             distinct_id=three_user_ids[1],
             # does not match because of session id
             session_id=str(uuid4()),
-            first_timestamp=(self.base_time - relativedelta(days=3) + relativedelta(hours=6)),
+            first_timestamp=(self.an_hour_ago - relativedelta(days=3) + relativedelta(hours=6)),
             team_id=self.team.id,
         )
 
@@ -1518,8 +1819,8 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         (session_recordings, _, _) = self._filter_recordings_by(
             {
                 "person_uuid": str(p.uuid),
-                "date_to": (self.base_time + relativedelta(days=3)).strftime("%Y-%m-%d"),
-                "date_from": (self.base_time - relativedelta(days=10)).strftime("%Y-%m-%d"),
+                "date_to": (self.an_hour_ago + relativedelta(days=3)).strftime("%Y-%m-%d"),
+                "date_from": (self.an_hour_ago - relativedelta(days=10)).strftime("%Y-%m-%d"),
                 "session_recording_duration": '{"type":"recording","key":"duration","value":60,"operator":"gt"}',
                 "events": [
                     {
@@ -1552,14 +1853,14 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             distinct_id=user,
             session_id=session_id,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
-        self.create_event(1, self.base_time + relativedelta(seconds=15), team=another_team)
+        self.create_event(1, self.an_hour_ago + relativedelta(seconds=15), team=another_team)
         produce_replay_summary(
             distinct_id=user,
             session_id=session_id,
-            first_timestamp=(self.base_time + relativedelta(seconds=30)),
+            first_timestamp=(self.an_hour_ago + relativedelta(seconds=30)),
             team_id=self.team.id,
         )
 
@@ -1579,46 +1880,19 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(person_properties=["email"])
-    def test_event_filter_with_person_properties(self):
-        user_one = "test_event_filter_with_person_properties-user"
-        user_two = "test_event_filter_with_person_properties-user2"
-        session_id_one = f"test_event_filter_with_person_properties-1-{str(uuid4())}"
-        session_id_two = f"test_event_filter_with_person_properties-2-{str(uuid4())}"
-
-        Person.objects.create(team=self.team, distinct_ids=[user_one], properties={"email": "bla"})
-        Person.objects.create(team=self.team, distinct_ids=[user_two], properties={"email": "bla2"})
-
-        produce_replay_summary(
-            distinct_id=user_one,
-            session_id=session_id_one,
-            first_timestamp=self.base_time,
-            team_id=self.team.id,
-        )
-        produce_replay_summary(
-            distinct_id=user_one,
-            session_id=session_id_one,
-            first_timestamp=(self.base_time + relativedelta(seconds=30)),
-            team_id=self.team.id,
-        )
-        produce_replay_summary(
-            distinct_id=user_two,
-            session_id=session_id_two,
-            first_timestamp=self.base_time,
-            team_id=self.team.id,
-        )
-        produce_replay_summary(
-            distinct_id=user_two,
-            session_id=session_id_two,
-            first_timestamp=(self.base_time + relativedelta(seconds=30)),
-            team_id=self.team.id,
+    def test_filter_with_person_properties_exact(self):
+        session_id_one, session_id_two = self._two_sessions_two_persons(
+            "test_filter_with_person_properties_exact",
+            session_one_person_properties={"email": "bla@gmail.com"},
+            session_two_person_properties={"email": "bla2@hotmail.com"},
         )
 
-        (session_recordings, _, _) = self._filter_recordings_by(
+        query_results: SessionRecordingQueryResult = self._filter_recordings_by(
             {
                 "properties": [
                     {
                         "key": "email",
-                        "value": ["bla"],
+                        "value": ["bla@gmail.com"],
                         "operator": "exact",
                         "type": "person",
                     }
@@ -1626,8 +1900,53 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        assert len(session_recordings) == 1
-        assert session_recordings[0]["session_id"] == session_id_one
+        assert [x["session_id"] for x in query_results.results] == [session_id_one]
+
+    @snapshot_clickhouse_queries
+    @also_test_with_materialized_columns(person_properties=["email"])
+    def test_filter_with_person_properties_not_contains(self):
+        session_id_one, session_id_two = self._two_sessions_two_persons(
+            "test_filter_with_person_properties_not_contains",
+            session_one_person_properties={"email": "bla@gmail.com"},
+            session_two_person_properties={"email": "bla2@hotmail.com"},
+        )
+
+        query_results: SessionRecordingQueryResult = self._filter_recordings_by(
+            {"properties": [{"key": "email", "value": "gmail.com", "operator": "not_icontains", "type": "person"}]}
+        )
+
+        assert [x["session_id"] for x in query_results.results] == [session_id_two]
+
+    def _two_sessions_two_persons(
+        self, label: str, session_one_person_properties: dict, session_two_person_properties: dict
+    ) -> tuple[str, str]:
+        sessions = []
+
+        for i in range(2):
+            user = f"{label}-user-{i}"
+            session = f"{label}-session-{i}"
+            sessions.append(session)
+
+            Person.objects.create(
+                team=self.team,
+                distinct_ids=[user],
+                properties=session_one_person_properties if i == 0 else session_two_person_properties,
+            )
+
+            produce_replay_summary(
+                distinct_id=user,
+                session_id=session,
+                first_timestamp=self.an_hour_ago,
+                team_id=self.team.id,
+            )
+            produce_replay_summary(
+                distinct_id=user,
+                session_id=session,
+                first_timestamp=(self.an_hour_ago + relativedelta(seconds=30)),
+                team_id=self.team.id,
+            )
+
+        return sessions[0], sessions[1]
 
     @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(person_properties=["$some_prop"])
@@ -1665,27 +1984,27 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                 produce_replay_summary(
                     distinct_id=user_one,
                     session_id=session_id_one,
-                    first_timestamp=self.base_time,
+                    first_timestamp=self.an_hour_ago,
                     team_id=self.team.id,
                 )
                 # self.create_event(user_one, self.base_time, team=self.team)
                 produce_replay_summary(
                     distinct_id=user_one,
                     session_id=session_id_one,
-                    first_timestamp=self.base_time + relativedelta(seconds=30),
+                    first_timestamp=self.an_hour_ago + relativedelta(seconds=30),
                     team_id=self.team.id,
                 )
                 produce_replay_summary(
                     distinct_id=user_two,
                     session_id=session_id_two,
-                    first_timestamp=self.base_time,
+                    first_timestamp=self.an_hour_ago,
                     team_id=self.team.id,
                 )
                 # self.create_event(user_two, self.base_time, team=self.team)
                 produce_replay_summary(
                     distinct_id=user_two,
                     session_id=session_id_two,
-                    first_timestamp=self.base_time + relativedelta(seconds=30),
+                    first_timestamp=self.an_hour_ago + relativedelta(seconds=30),
                     team_id=self.team.id,
                 )
 
@@ -1741,12 +2060,12 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                 produce_replay_summary(
                     distinct_id=user_one,
                     session_id=session_id_one,
-                    first_timestamp=self.base_time,
+                    first_timestamp=self.an_hour_ago,
                     team_id=self.team.id,
                 )
                 self.create_event(
                     user_one,
-                    self.base_time,
+                    self.an_hour_ago,
                     team=self.team,
                     event_name="custom_event",
                     properties={"$session_id": session_id_one},
@@ -1754,18 +2073,18 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                 produce_replay_summary(
                     distinct_id=user_one,
                     session_id=session_id_one,
-                    first_timestamp=self.base_time + relativedelta(seconds=30),
+                    first_timestamp=self.an_hour_ago + relativedelta(seconds=30),
                     team_id=self.team.id,
                 )
                 produce_replay_summary(
                     distinct_id=user_two,
                     session_id=session_id_two,
-                    first_timestamp=self.base_time,
+                    first_timestamp=self.an_hour_ago,
                     team_id=self.team.id,
                 )
                 self.create_event(
                     user_two,
-                    self.base_time,
+                    self.an_hour_ago,
                     team=self.team,
                     event_name="custom_event",
                     properties={"$session_id": session_id_two},
@@ -1773,7 +2092,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                 produce_replay_summary(
                     distinct_id=user_two,
                     session_id=session_id_two,
-                    first_timestamp=self.base_time + relativedelta(seconds=30),
+                    first_timestamp=self.an_hour_ago + relativedelta(seconds=30),
                     team_id=self.team.id,
                 )
 
@@ -1835,13 +2154,13 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
         self.create_event(
             user_distinct_id,
-            self.base_time,
+            self.an_hour_ago,
             event_name="$pageview",
             properties={"$session_id": session_id},
         )
         self.create_event(
             user_distinct_id,
-            self.base_time,
+            self.an_hour_ago,
             event_name="$autocapture",
             properties={"$session_id": str(uuid4())},
         )
@@ -1849,13 +2168,13 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             distinct_id=user_distinct_id,
             session_id=session_id,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
         produce_replay_summary(
             distinct_id=user_distinct_id,
             session_id=session_id,
-            first_timestamp=self.base_time + relativedelta(seconds=30),
+            first_timestamp=self.an_hour_ago + relativedelta(seconds=30),
             team_id=self.team.id,
         )
 
@@ -1899,7 +2218,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         session_id = f"test_event_filter_with_hogql_properties-1-{str(uuid4())}"
         self.create_event(
             user,
-            self.base_time,
+            self.an_hour_ago,
             properties={
                 "$browser": "Chrome",
                 "$session_id": session_id,
@@ -1910,13 +2229,13 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             distinct_id=user,
             session_id=session_id,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
         produce_replay_summary(
             distinct_id=user,
             session_id=session_id,
-            first_timestamp=self.base_time + relativedelta(seconds=30),
+            first_timestamp=self.an_hour_ago + relativedelta(seconds=30),
             team_id=self.team.id,
         )
 
@@ -1964,7 +2283,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         session_id = f"test_event_filter_with_hogql_properties-1-{str(uuid4())}"
         self.create_event(
             user,
-            self.base_time,
+            self.an_hour_ago,
             properties={
                 "$browser": "Chrome",
                 "$session_id": session_id,
@@ -1975,13 +2294,13 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             distinct_id=user,
             session_id=session_id,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
         produce_replay_summary(
             distinct_id=user,
             session_id=session_id,
-            first_timestamp=self.base_time + relativedelta(seconds=30),
+            first_timestamp=self.an_hour_ago + relativedelta(seconds=30),
             team_id=self.team.id,
         )
 
@@ -2040,7 +2359,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
         self.create_event(
             "user",
-            self.base_time,
+            self.an_hour_ago,
             properties={
                 "$browser": "Chrome",
                 "$session_id": page_view_session_id,
@@ -2051,7 +2370,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
         self.create_event(
             "user",
-            self.base_time,
+            self.an_hour_ago,
             properties={
                 "$browser": "Chrome",
                 "$session_id": my_custom_event_session_id,
@@ -2062,7 +2381,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
         self.create_event(
             "user",
-            self.base_time,
+            self.an_hour_ago,
             properties={
                 "$browser": "Safari",
                 "$session_id": non_matching__event_session_id,
@@ -2074,19 +2393,19 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             distinct_id="user",
             session_id=page_view_session_id,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
         produce_replay_summary(
             distinct_id="user",
             session_id=my_custom_event_session_id,
-            first_timestamp=self.base_time + relativedelta(seconds=30),
+            first_timestamp=self.an_hour_ago + relativedelta(seconds=30),
             team_id=self.team.id,
         )
         produce_replay_summary(
             distinct_id="user",
             session_id=non_matching__event_session_id,
-            first_timestamp=self.base_time + relativedelta(seconds=30),
+            first_timestamp=self.an_hour_ago + relativedelta(seconds=30),
             team_id=self.team.id,
         )
 
@@ -2175,7 +2494,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             distinct_id="user",
             session_id=with_logs_session_id,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
             console_log_count=4,
             log_messages={
@@ -2190,7 +2509,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             distinct_id="user",
             session_id=without_logs_session_id,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
 
@@ -2219,7 +2538,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             distinct_id="user",
             session_id=with_logs_session_id,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
             console_warn_count=4,
             log_messages={
@@ -2234,7 +2553,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             distinct_id="user",
             session_id=without_logs_session_id,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
 
@@ -2262,7 +2581,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             distinct_id="user",
             session_id=with_logs_session_id,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
             console_error_count=4,
             log_messages={
@@ -2277,7 +2596,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             distinct_id="user",
             session_id=without_logs_session_id,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
 
@@ -2307,7 +2626,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             distinct_id="user",
             session_id=with_logs_session_id,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
             console_log_count=4,
             log_messages={
@@ -2322,7 +2641,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             distinct_id="user",
             session_id=with_warns_session_id,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
             console_warn_count=4,
             log_messages={
@@ -2337,7 +2656,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             distinct_id="user",
             session_id=with_errors_session_id,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
             console_error_count=4,
             log_messages={
@@ -2352,7 +2671,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             distinct_id="user",
             session_id=with_two_session_id,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
             console_error_count=4,
             console_log_count=3,
@@ -2403,7 +2722,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             distinct_id="user",
             session_id=with_logs_session_id,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
             console_log_count=4,
             log_messages={
@@ -2418,7 +2737,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             distinct_id="user",
             session_id=with_warns_session_id,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
             console_warn_count=5,
             log_messages={
@@ -2434,7 +2753,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             distinct_id="user",
             session_id=with_errors_session_id,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
             console_error_count=4,
             log_messages={
@@ -2449,7 +2768,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             distinct_id="user",
             session_id=with_two_session_id,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
             console_error_count=4,
             console_log_count=3,
@@ -2548,12 +2867,12 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             distinct_id="user",
             session_id="1",
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
         self.create_event(
             "user",
-            self.base_time,
+            self.an_hour_ago,
             properties={
                 "$session_id": "1",
                 "$window_id": "1",
@@ -2563,7 +2882,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             distinct_id="user",
             session_id="1",
-            first_timestamp=self.base_time + relativedelta(seconds=30),
+            first_timestamp=self.an_hour_ago + relativedelta(seconds=30),
             team_id=self.team.id,
         )
 
@@ -2620,30 +2939,30 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             distinct_id="user",
             session_id="1",
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
         self.create_event(
             "user",
-            self.base_time,
+            self.an_hour_ago,
             properties={"$session_id": "1", "$window_id": "1", "$browser": "Chrome"},
         )
         produce_replay_summary(
             distinct_id="user",
             session_id="1",
-            first_timestamp=self.base_time + relativedelta(seconds=30),
+            first_timestamp=self.an_hour_ago + relativedelta(seconds=30),
             team_id=self.team.id,
         )
 
         produce_replay_summary(
             distinct_id="user2",
             session_id="2",
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
         self.create_event(
             "user2",
-            self.base_time,
+            self.an_hour_ago,
             properties={"$session_id": "2", "$window_id": "1", "$browser": "Firefox"},
         )
 
@@ -2731,12 +3050,12 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             distinct_id="user",
             session_id="1",
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
         self.create_event(
             "user",
-            self.base_time,
+            self.an_hour_ago,
             properties={
                 "$session_id": "1",
                 "$window_id": "1",
@@ -2746,19 +3065,19 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             distinct_id="user",
             session_id="1",
-            first_timestamp=self.base_time + relativedelta(seconds=30),
+            first_timestamp=self.an_hour_ago + relativedelta(seconds=30),
             team_id=self.team.id,
         )
 
         produce_replay_summary(
             distinct_id="user2",
             session_id="2",
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
         self.create_event(
             "user2",
-            self.base_time,
+            self.an_hour_ago,
             properties={
                 "$session_id": "2",
                 "$window_id": "1",
@@ -2823,12 +3142,12 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             produce_replay_summary(
                 distinct_id="user",
                 session_id="1",
-                first_timestamp=self.base_time,
+                first_timestamp=self.an_hour_ago,
                 team_id=self.team.id,
             )
             self.create_event(
                 "user",
-                self.base_time,
+                self.an_hour_ago,
                 properties={
                     "$session_id": "1",
                     "$window_id": "1",
@@ -2838,19 +3157,19 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             produce_replay_summary(
                 distinct_id="user",
                 session_id="1",
-                first_timestamp=self.base_time + relativedelta(seconds=30),
+                first_timestamp=self.an_hour_ago + relativedelta(seconds=30),
                 team_id=self.team.id,
             )
 
             produce_replay_summary(
                 distinct_id="user2",
                 session_id="2",
-                first_timestamp=self.base_time,
+                first_timestamp=self.an_hour_ago,
                 team_id=self.team.id,
             )
             self.create_event(
                 "user2",
-                self.base_time,
+                self.an_hour_ago,
                 properties={
                     "$session_id": "2",
                     "$window_id": "1",
@@ -2908,12 +3227,12 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             distinct_id="user",
             session_id="1",
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
         self.create_event(
             "user",
-            self.base_time,
+            self.an_hour_ago,
             properties={
                 "$session_id": "1",
                 "$window_id": "1",
@@ -2923,19 +3242,19 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             distinct_id="user",
             session_id="1",
-            first_timestamp=self.base_time + relativedelta(seconds=30),
+            first_timestamp=self.an_hour_ago + relativedelta(seconds=30),
             team_id=self.team.id,
         )
 
         produce_replay_summary(
             distinct_id="user2",
             session_id="2",
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
         self.create_event(
             "user2",
-            self.base_time,
+            self.an_hour_ago,
             properties={
                 "$session_id": "2",
                 "$window_id": "1",
@@ -2993,12 +3312,12 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             distinct_id="user",
             session_id="1",
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
         self.create_event(
             "user",
-            self.base_time,
+            self.an_hour_ago,
             properties={
                 "$session_id": "1",
                 "$window_id": "1",
@@ -3008,19 +3327,19 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             distinct_id="user",
             session_id="1",
-            first_timestamp=self.base_time + relativedelta(seconds=30),
+            first_timestamp=self.an_hour_ago + relativedelta(seconds=30),
             team_id=self.team.id,
         )
 
         produce_replay_summary(
             distinct_id="user2",
             session_id="2",
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
         self.create_event(
             "user2",
-            self.base_time,
+            self.an_hour_ago,
             properties={
                 "$session_id": "2",
                 "$window_id": "1",
@@ -3076,12 +3395,12 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             distinct_id="user",
             session_id="1",
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
         self.create_event(
             "user",
-            self.base_time,
+            self.an_hour_ago,
             properties={
                 "$session_id": "1",
                 "$window_id": "1",
@@ -3091,19 +3410,19 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             distinct_id="user",
             session_id="1",
-            first_timestamp=self.base_time + relativedelta(seconds=30),
+            first_timestamp=self.an_hour_ago + relativedelta(seconds=30),
             team_id=self.team.id,
         )
 
         produce_replay_summary(
             distinct_id="user2",
             session_id="2",
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
         self.create_event(
             "user2",
-            self.base_time,
+            self.an_hour_ago,
             properties={
                 "$session_id": "2",
                 "$window_id": "1",
@@ -3174,19 +3493,19 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             distinct_id="user",
             session_id=session_id,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=team.pk,
         )
         self.create_event(
             "user",
-            self.base_time,
+            self.an_hour_ago,
             team=team,
             event_name="$pageview",
             properties={"$session_id": session_id, "$window_id": "1"},
         )
         self.create_event(
             "user",
-            self.base_time,
+            self.an_hour_ago,
             team=team,
             event_name="$pageleave",
             properties={"$session_id": session_id, "$window_id": "1"},
@@ -3202,13 +3521,13 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             distinct_id="user",
             session_id=session_id,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.pk,
         )
         produce_replay_summary(
             distinct_id="user",
             session_id=different_group_session,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.pk,
         )
 
@@ -3230,7 +3549,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
         self.create_event(
             "user",
-            self.base_time,
+            self.an_hour_ago,
             team=self.team,
             event_name="$pageview",
             properties={
@@ -3241,7 +3560,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         )
         self.create_event(
             "user",
-            self.base_time,
+            self.an_hour_ago,
             team=self.team,
             event_name="$pageview",
             properties={

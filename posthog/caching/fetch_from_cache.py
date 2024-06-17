@@ -23,6 +23,7 @@ class InsightResult:
     next_allowed_client_refresh: Optional[datetime] = None
     timings: Optional[list[QueryTiming]] = None
     columns: Optional[list] = None
+    query_status: Optional[Any] = None
 
 
 @dataclass(frozen=True)

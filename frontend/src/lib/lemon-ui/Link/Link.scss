@@ -29,7 +29,7 @@
     }
 
     &--subtle {
-        color: var(--default);
+        color: var(--text-3000);
 
         &:not(:disabled):hover {
             color: var(--primary-3000-hover);

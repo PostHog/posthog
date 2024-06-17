@@ -29,8 +29,8 @@ from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 from clickhouse_driver.errors import ServerException
 from asgiref.sync import sync_to_async
-from posthog.utils import camel_to_snake_case
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
+from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 
 def dlt_to_hogql_type(dlt_type: TDataType | None) -> str:
@@ -128,7 +128,8 @@ async def validate_schema_and_update_table(
     incremental = _schema_name in PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING[job.pipeline.source_type]
 
     table_name = f"{job.pipeline.prefix or ''}{job.pipeline.source_type}_{_schema_name}".lower()
-    new_url_pattern = job.url_pattern_by_schema(camel_to_snake_case(_schema_name))
+    normalized_schema_name = NamingConvention().normalize_identifier(_schema_name)
+    new_url_pattern = job.url_pattern_by_schema(normalized_schema_name)
 
     # Check
     try:

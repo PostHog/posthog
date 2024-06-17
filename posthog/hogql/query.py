@@ -32,7 +32,7 @@ def execute_hogql_query(
     query_type: str = "hogql_query",
     filters: Optional[HogQLFilters] = None,
     placeholders: Optional[dict[str, ast.Expr]] = None,
-    workload: Workload = Workload.ONLINE,
+    workload: Workload = Workload.DEFAULT,
     settings: Optional[HogQLGlobalSettings] = None,
     modifiers: Optional[HogQLQueryModifiers] = None,
     limit_context: Optional[LimitContext] = LimitContext.QUERY,

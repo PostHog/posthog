@@ -1,5 +1,5 @@
 import { IconArrowRightDown, IconInfo } from '@posthog/icons'
-import { LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { compactNumber } from 'lib/utils'
 
@@ -35,7 +35,9 @@ export const BillingProductPricingTable = ({
         {
             title: 'Total',
             dataIndex: 'total',
-            render: (_, item: BillingTableTierRow) => <span className="font-bold mb-0 text-default">{item.total}</span>,
+            render: (_, item: BillingTableTierRow) => (
+                <span className="font-bold mb-0 text-text-3000">{item.total}</span>
+            ),
         },
         { title: 'Projected Total', dataIndex: 'projectedTotal' },
     ]
@@ -192,6 +194,9 @@ export const BillingProductPricingTable = ({
                             .
                         </p>
                     )}
+                    <LemonBanner type="warning" className="text-sm pt-2">
+                        Tier breakdowns are updated once daily and may differ from the gauge above.
+                    </LemonBanner>
                 </>
             ) : (
                 <LemonTable

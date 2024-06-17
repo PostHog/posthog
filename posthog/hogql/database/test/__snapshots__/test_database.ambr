@@ -351,6 +351,7 @@
                       "$start_timestamp",
                       "$end_timestamp",
                       "$urls",
+                      "$num_uniq_urls",
                       "$entry_current_url",
                       "$entry_pathname",
                       "$exit_current_url",
@@ -787,6 +788,7 @@
                       "$start_timestamp",
                       "$end_timestamp",
                       "$urls",
+                      "$num_uniq_urls",
                       "$entry_current_url",
                       "$entry_pathname",
                       "$exit_current_url",
@@ -1038,6 +1040,15 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "array"
+              },
+              "$num_uniq_urls": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$num_uniq_urls`",
+                  "name": "$num_uniq_urls",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
               },
               "$entry_current_url": {
                   "chain": null,
@@ -1648,6 +1659,7 @@
                       "$start_timestamp",
                       "$end_timestamp",
                       "$urls",
+                      "$num_uniq_urls",
                       "$entry_current_url",
                       "$entry_pathname",
                       "$exit_current_url",
@@ -2084,6 +2096,7 @@
                       "$start_timestamp",
                       "$end_timestamp",
                       "$urls",
+                      "$num_uniq_urls",
                       "$entry_current_url",
                       "$entry_pathname",
                       "$exit_current_url",
@@ -2335,6 +2348,15 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "array"
+              },
+              "$num_uniq_urls": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$num_uniq_urls`",
+                  "name": "$num_uniq_urls",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
               },
               "$entry_current_url": {
                   "chain": null,

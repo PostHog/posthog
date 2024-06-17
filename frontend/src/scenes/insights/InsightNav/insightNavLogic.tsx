@@ -250,8 +250,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
                 if (view === InsightType.JSON) {
                     actions.setQuery(TotalEventsTable)
                 } else if (view === InsightType.SQL) {
-                    const biVizFlag = Boolean(values.featureFlags[FEATURE_FLAGS.BI_VIZ])
-                    actions.setQuery(biVizFlag ? examples.DataVisualization : examples.HogQLTable)
+                    actions.setQuery(examples.DataVisualization)
                 } else if (view === InsightType.HOG) {
                     actions.setQuery(examples.Hoggonacci)
                 }

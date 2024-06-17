@@ -46,7 +46,7 @@ export function LiveEventsTable(): JSX.Element {
             <div className="mb-4 flex w-full justify-between items-center">
                 <div className="flex justify-center">
                     <Tooltip title="Estimate of users active in the last 30 seconds." placement="right">
-                        <div className="flex flex-justify-center items-center bg-white px-3 py-2 rounded border border-3000 text-xs font-medium text-gray-600 space-x-2.5">
+                        <div className="flex flex-justify-center items-center bg-bg-light px-3 py-2 rounded border border-3000 text-xs font-medium text-gray-600 space-x-2.5">
                             <span className="relative flex h-2.5 w-2.5">
                                 <span
                                     className={clsx(
@@ -62,7 +62,7 @@ export function LiveEventsTable(): JSX.Element {
                                 <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-danger" />
                             </span>
                             <span className="text-sm cursor-default">
-                                Active users: <b>{stats?.users_on_product ?? '—'}</b>
+                                Users active right now: <b>{stats?.users_on_product ?? '—'}</b>
                             </span>
                         </div>
                     </Tooltip>

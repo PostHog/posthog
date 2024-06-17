@@ -36,6 +36,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         setEditSchemaIsLoading: (isLoading: boolean) => ({ isLoading }),
         cancelEditSchema: () => ({ database: values.database }),
         deleteDataWarehouseTable: (tableId: string) => ({ tableId }),
+        toggleSchemaModal: true,
     })),
     reducers({
         selectedRow: [
@@ -122,6 +123,12 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                 loadDatabaseFailure: () => false,
             },
         ],
+        schemaModalIsOpen: [
+            false,
+            {
+                toggleSchemaModal: (state) => !state,
+            },
+        ],
     }),
     selectors({
         dataWarehouseTablesBySourceType: [
@@ -146,8 +153,9 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
     }),
     listeners(({ actions, values }) => ({
         deleteDataWarehouseSavedQuery: async (tableId) => {
-            await api.dataWarehouseTables.delete(tableId)
+            await api.dataWarehouseSavedQueries.delete(tableId)
             actions.selectRow(null)
+            actions.loadDatabase()
             lemonToast.success('View successfully deleted')
         },
         selectRow: () => {

@@ -142,9 +142,11 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         query, params = parse_prop_grouped_clauses(
             team_id=self.team.pk,
             property_group=filter.property_groups,
-            person_properties_mode=PersonPropertiesMode.USING_SUBQUERY
-            if self.team.person_on_events_mode == PersonsOnEventsMode.disabled
-            else PersonPropertiesMode.DIRECT_ON_EVENTS,
+            person_properties_mode=(
+                PersonPropertiesMode.USING_SUBQUERY
+                if self.team.person_on_events_mode == PersonsOnEventsMode.DISABLED
+                else PersonPropertiesMode.DIRECT_ON_EVENTS
+            ),
             hogql_context=filter.hogql_context,
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
@@ -197,9 +199,11 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         query, params = parse_prop_grouped_clauses(
             team_id=self.team.pk,
             property_group=filter.property_groups,
-            person_properties_mode=PersonPropertiesMode.USING_SUBQUERY
-            if self.team.person_on_events_mode == PersonsOnEventsMode.disabled
-            else PersonPropertiesMode.DIRECT_ON_EVENTS,
+            person_properties_mode=(
+                PersonPropertiesMode.USING_SUBQUERY
+                if self.team.person_on_events_mode == PersonsOnEventsMode.DISABLED
+                else PersonPropertiesMode.DIRECT_ON_EVENTS
+            ),
             hogql_context=filter.hogql_context,
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
@@ -222,9 +226,11 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         query, params = parse_prop_grouped_clauses(
             team_id=self.team.pk,
             property_group=filter.property_groups,
-            person_properties_mode=PersonPropertiesMode.USING_SUBQUERY
-            if self.team.person_on_events_mode == PersonsOnEventsMode.disabled
-            else PersonPropertiesMode.DIRECT_ON_EVENTS,
+            person_properties_mode=(
+                PersonPropertiesMode.USING_SUBQUERY
+                if self.team.person_on_events_mode == PersonsOnEventsMode.DISABLED
+                else PersonPropertiesMode.DIRECT_ON_EVENTS
+            ),
             hogql_context=filter.hogql_context,
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
@@ -273,9 +279,11 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         query, params = parse_prop_grouped_clauses(
             team_id=self.team.pk,
             property_group=filter.property_groups,
-            person_properties_mode=PersonPropertiesMode.USING_SUBQUERY
-            if self.team.person_on_events_mode == PersonsOnEventsMode.disabled
-            else PersonPropertiesMode.DIRECT_ON_EVENTS,
+            person_properties_mode=(
+                PersonPropertiesMode.USING_SUBQUERY
+                if self.team.person_on_events_mode == PersonsOnEventsMode.DISABLED
+                else PersonPropertiesMode.DIRECT_ON_EVENTS
+            ),
             hogql_context=filter.hogql_context,
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
@@ -294,9 +302,11 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         query, params = parse_prop_grouped_clauses(
             team_id=self.team.pk,
             property_group=filter.property_groups,
-            person_properties_mode=PersonPropertiesMode.USING_SUBQUERY
-            if self.team.person_on_events_mode == PersonsOnEventsMode.disabled
-            else PersonPropertiesMode.DIRECT_ON_EVENTS,
+            person_properties_mode=(
+                PersonPropertiesMode.USING_SUBQUERY
+                if self.team.person_on_events_mode == PersonsOnEventsMode.DISABLED
+                else PersonPropertiesMode.DIRECT_ON_EVENTS
+            ),
             hogql_context=filter.hogql_context,
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)

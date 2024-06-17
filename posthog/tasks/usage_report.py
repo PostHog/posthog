@@ -881,26 +881,26 @@ def _add_team_report_to_org_reports(
 
 
 def _get_all_org_reports(period_start: datetime, period_end: datetime) -> dict[str, OrgReport]:
-    print("Getting all usage data...")  # noqa T201
+    logger.info("Getting all usage data...")  # noqa T201
     time_now = datetime.now()
     all_data = _get_all_usage_data_as_team_rows(period_start, period_end)
-    print(f"Getting all usage data took {(datetime.now() - time_now).total_seconds()} seconds.")  # noqa T201
+    logger.debug(f"Getting all usage data took {(datetime.now() - time_now).total_seconds()} seconds.")  # noqa T201
 
-    print("Getting teams for usage reports...")  # noqa T201
+    logger.info("Getting teams for usage reports...")  # noqa T201
     time_now = datetime.now()
     teams = _get_teams_for_usage_reports()
-    print(f"Getting teams for usage reports took {(datetime.now() - time_now).total_seconds()} seconds.")  # noqa T201
+    logger.debug(f"Getting teams for usage reports took {(datetime.now() - time_now).total_seconds()} seconds.")  # noqa T201
 
     org_reports: dict[str, OrgReport] = {}
 
-    print("Generating reports for teams...")  # noqa T201
+    logger.info("Generating reports for teams...")  # noqa T201
     time_now = datetime.now()
     for team in teams:
         team_report = _get_team_report(all_data, team)
         _add_team_report_to_org_reports(org_reports, team, team_report, period_start)
 
     time_since = datetime.now() - time_now
-    print(f"Generating reports for teams took {time_since.total_seconds()} seconds.")  # noqa T201
+    logger.debug(f"Generating reports for teams took {time_since.total_seconds()} seconds.")  # noqa T201
     return org_reports
 
 
@@ -934,7 +934,7 @@ def send_all_org_usage_reports(
     try:
         org_reports = _get_all_org_reports(period_start, period_end)
 
-        print("Sending usage reports to PostHog and Billing...")  # noqa T201
+        logger.info("Sending usage reports to PostHog and Billing...")  # noqa T201
         time_now = datetime.now()
         for org_report in org_reports.values():
             org_id = org_report.organization_id
@@ -957,7 +957,7 @@ def send_all_org_usage_reports(
             if has_non_zero_usage(full_report):
                 send_report_to_billing_service.delay(org_id, full_report_dict)
         time_since = datetime.now() - time_now
-        print(f"Sending usage reports to PostHog and Billing took {time_since.total_seconds()} seconds.")  # noqa T201
+        logger.debug(f"Sending usage reports to PostHog and Billing took {time_since.total_seconds()} seconds.")  # noqa T201
     except Exception as err:
         capture_exception(err)
         raise err

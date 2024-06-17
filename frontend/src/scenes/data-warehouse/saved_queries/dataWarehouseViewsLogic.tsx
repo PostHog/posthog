@@ -39,6 +39,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
     }),
     listeners(({ actions }) => ({
         createDataWarehouseSavedQuerySuccess: () => {
+            actions.loadDatabase()
             router.actions.push(urls.dataWarehouse())
         },
         updateDataWarehouseSavedQuerySuccess: () => {
