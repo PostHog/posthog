@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0426_externaldatasource_sync_frequency"),
+        ("posthog", "0427_hogfunction_icon_url_hogfunction_template_id"),
     ]
 
     operations = [

@@ -10,7 +10,7 @@ import { Counter } from 'prom-client'
 import v8Profiler from 'v8-profiler-next'
 
 import { getPluginServerCapabilities } from '../capabilities'
-import { CdpProcessedEventsConsumer } from '../cdp/cdp-processed-events-consumer'
+import { CdpFunctionCallbackConsumer, CdpProcessedEventsConsumer } from '../cdp/cdp-processed-events-consumer'
 import { defaultConfig, sessionRecordingConsumerConfig } from '../config/config'
 import { Hub, PluginServerCapabilities, PluginsServerConfig } from '../types'
 import { createHub, createKafkaClient, createKafkaProducerWrapper } from '../utils/db/hub'
@@ -504,6 +504,21 @@ export async function startPluginsServer(
                 await consumer.stop()
             })
             healthChecks['cdp-processed-events'] = () => consumer.isHealthy() ?? false
+        }
+
+        if (capabilities.cdpFunctionCallbacks) {
+            ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, capabilities)
+            const consumer = new CdpFunctionCallbackConsumer(serverConfig, hub)
+            await consumer.start()
+
+            if (consumer.batchConsumer) {
+                shutdownOnConsumerExit(consumer.batchConsumer)
+            }
+
+            shutdownCallbacks.push(async () => {
+                await consumer.stop()
+            })
+            healthChecks['cdp-function-callbacks'] = () => consumer.isHealthy() ?? false
         }
 
         if (capabilities.personOverrides) {

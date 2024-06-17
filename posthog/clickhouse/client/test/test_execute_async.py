@@ -266,7 +266,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         # First add in the request information that should be added to the sql.
         # We check this to make sure it is not removed by the comment stripping
         with self.capture_select_queries() as sqls:
-            tag_queries(kind="request", id="1")
+            tag_queries(kind="request", id="1", user_id=self.user_id)
             sync_execute(
                 query="""
                     -- this request returns 1

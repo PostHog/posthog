@@ -14,6 +14,7 @@ import { AvailableFeature, BatchExportService, HogFunctionTemplateType, Pipeline
 
 import { pipelineDestinationsLogic } from './destinationsLogic'
 import { frontendAppsLogic } from './frontendAppsLogic'
+import { HogFunctionIcon } from './hogfunctions/HogFunctionIcon'
 import { PipelineHogFunctionConfiguration } from './hogfunctions/PipelineHogFunctionConfiguration'
 import { PipelineBatchExportConfiguration } from './PipelineBatchExportConfiguration'
 import { PIPELINE_TAB_TO_NODE_STAGE } from './PipelineNode'
@@ -86,7 +87,7 @@ function convertHogFunctionToTableEntry(hogFunction: HogFunctionTemplateType): T
         id: `hog-${hogFunction.id}`, // TODO: This weird identifier thing isn't great
         name: hogFunction.name,
         description: hogFunction.description,
-        icon: <span>🦔</span>,
+        icon: <HogFunctionIcon size="small" src={hogFunction.icon_url} />,
     }
 }
 

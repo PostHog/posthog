@@ -22,9 +22,9 @@ export class HogFunctionManager {
         this.cache = {}
 
         this.pubSub = new PubSub(this.serverConfig, {
-            'reload-hog-function': async (message) => {
-                const { hogFunctionId, teamId } = JSON.parse(message)
-                await this.reloadHogFunction(teamId, hogFunctionId)
+            'reload-hog-functions': async (message) => {
+                const { hogFunctionIds, teamId } = JSON.parse(message)
+                await this.reloadHogFunctions(teamId, hogFunctionIds)
             },
         })
     }
@@ -71,13 +71,21 @@ export class HogFunctionManager {
         status.info('🍿', 'Fetched all hog functions from DB anew')
     }
 
-    public async reloadHogFunction(teamId: Team['id'], id: HogFunctionType['id']): Promise<void> {
-        status.info('🍿', `Reloading hog function ${id} from DB`)
-        const item = await fetchHogFunction(this.postgres, id)
-        if (item) {
-            this.cache[teamId][id] = item
-        } else {
+    public async reloadHogFunctions(teamId: Team['id'], ids: HogFunctionType['id'][]): Promise<void> {
+        status.info('🍿', `Reloading hog functions ${ids} from DB`)
+        const items = await fetchHogFunctions(this.postgres, ids)
+
+        if (!this.cache[teamId]) {
+            this.cache[teamId] = {}
+        }
+
+        for (const id of ids) {
+            // First of all delete the item from the cache - this covers the case where the item was deleted or disabled
             delete this.cache[teamId][id]
+        }
+
+        for (const item of items) {
+            this.cache[teamId][item.id] = item
         }
     }
 }
@@ -110,23 +118,19 @@ export async function fetchAllHogFunctionsGroupedByTeam(client: PostgresRouter):
     return cache
 }
 
-export async function fetchHogFunction(
+export async function fetchHogFunctions(
     client: PostgresRouter,
-    id: HogFunctionType['id']
-): Promise<HogFunctionType | null> {
+    ids: HogFunctionType['id'][]
+): Promise<HogFunctionType[]> {
     const items: HogFunctionType[] = (
         await client.query(
             PostgresUse.COMMON_READ,
             `SELECT ${HOG_FUNCTION_FIELDS.join(', ')}
                 FROM posthog_hogfunction
-                WHERE id = $1 AND deleted = FALSE AND enabled = TRUE`,
-            [id],
-            'fetchHogFunction'
+                WHERE id = ANY($1) AND deleted = FALSE AND enabled = TRUE`,
+            [ids],
+            'fetchHogFunctions'
         )
     ).rows
-    if (!items.length) {
-        return null
-    }
-
-    return items[0]
+    return items
 }

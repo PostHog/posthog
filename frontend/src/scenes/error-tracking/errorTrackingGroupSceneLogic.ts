@@ -44,7 +44,7 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
                         kind: NodeKind.HogQLQuery,
                         query: hogql`SELECT properties
                                 FROM events e
-                                WHERE event = '$exception' AND properties.$exception_type = '${props.id}'`,
+                                WHERE event = '$exception' AND properties.$exception_type = ${props.id}`,
                     }
                     const res = await api.query(query)
                     return res.results.map((r) => JSON.parse(r[0]))
