@@ -60,7 +60,8 @@ export default function SurveyEdit(): JSX.Element {
         setFlagPropertyErrors,
         setSchedule,
     } = useActions(surveyLogic)
-    const { surveysMultipleQuestionsAvailable, surveysRecurringScheduleAvailable } = useValues(surveysLogic)
+    const { surveysMultipleQuestionsAvailable, surveysRecurringScheduleAvailable, surveysEventsAvailable } =
+        useValues(surveysLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const sortedItemIds = survey.questions.map((_, idx) => idx.toString())
     const { thankYouMessageDescriptionContentType } = survey.appearance
@@ -619,7 +620,7 @@ export default function SurveyEdit(): JSX.Element {
                                                     )}
                                                 </BindLogic>
                                             </LemonField.Pure>
-                                            {featureFlags[FEATURE_FLAGS.SURVEYS_EVENTS] && (
+                                            {featureFlags[FEATURE_FLAGS.SURVEYS_EVENTS] && surveysEventsAvailable && (
                                                 <LemonField.Pure label="User sends events">
                                                     <EventSelect
                                                         filterGroupTypes={[TaxonomicFilterGroupType.CustomEvents]}
