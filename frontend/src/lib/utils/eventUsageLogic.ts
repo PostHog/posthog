@@ -36,6 +36,7 @@ import {
     InsightShortId,
     InsightType,
     ItemMode,
+    MultipleSurveyQuestion,
     PersonType,
     PropertyFilterType,
     PropertyFilterValue,
@@ -1210,6 +1211,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             })
         },
         reportSurveyCreated: ({ survey, isDuplicate }) => {
+            const questionsWithShuffledOptions = survey.questions.filter((question) => {
+                return question.hasOwnProperty('shuffleOptions') && (question as MultipleSurveyQuestion).shuffleOptions
+            })
+
             posthog.capture('survey created', {
                 name: survey.name,
                 id: survey.id,
@@ -1217,6 +1222,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 questions_length: survey.questions.length,
                 question_types: survey.questions.map((question) => question.type),
                 is_duplicate: isDuplicate ?? false,
+                events_count: survey.conditions?.events?.values.length,
+                recurring_survey_iteration_count: survey.iteration_count == undefined ? 0 : survey.iteration_count,
+                recurring_survey_iteration_interval:
+                    survey.iteration_frequency_days == undefined ? 0 : survey.iteration_frequency_days,
+                shuffle_questions_enabled: !!survey.appearance.shuffleQuestions,
+                shuffle_question_options_enabled_count: questionsWithShuffledOptions.length,
             })
         },
         reportSurveyLaunched: ({ survey }) => {
@@ -1265,11 +1276,21 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             })
         },
         reportSurveyEdited: ({ survey }) => {
+            const questionsWithShuffledOptions = survey.questions.filter((question) => {
+                return question.hasOwnProperty('shuffleOptions') && (question as MultipleSurveyQuestion).shuffleOptions
+            })
+
             posthog.capture('survey edited', {
                 name: survey.name,
                 id: survey.id,
                 created_at: survey.created_at,
                 start_date: survey.start_date,
+                events_count: survey.conditions?.events?.values.length,
+                recurring_survey_iteration_count: survey.iteration_count == undefined ? 0 : survey.iteration_count,
+                recurring_survey_iteration_interval:
+                    survey.iteration_frequency_days == undefined ? 0 : survey.iteration_frequency_days,
+                shuffle_questions_enabled: !!survey.appearance.shuffleQuestions,
+                shuffle_question_options_enabled_count: questionsWithShuffledOptions.length,
             })
         },
         reportSurveyTemplateClicked: ({ template }) => {
