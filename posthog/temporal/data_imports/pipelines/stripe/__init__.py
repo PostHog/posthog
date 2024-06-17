@@ -10,7 +10,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
     resources: dict[str, EndpointResource] = {
         "BalanceTransaction": {
             "name": "BalanceTransaction",
-            "table_name": "balancetransaction",
+            "table_name": "balance_transaction",
             "primary_key": "id",
             "write_disposition": "merge",
             "columns": get_dlt_mapping_for_external_table("stripe_balancetransaction"),  # type: ignore
