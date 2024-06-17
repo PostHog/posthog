@@ -64,6 +64,10 @@ def notEmpty(name: str, args: list[Any], team: Optional["Team"], stdout: Optiona
     return bool(args[0])
 
 
+def _tuple(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int):
+    return tuple(args)
+
+
 def lower(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int):
     return args[0].lower()
 
@@ -135,6 +139,14 @@ def decodeURLComponent(
     return urllib.parse.unquote(args[0])
 
 
+def replaceOne(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int) -> str:
+    return args[0].replace(args[1], args[2], 1)
+
+
+def replaceAll(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int) -> str:
+    return args[0].replace(args[1], args[2])
+
+
 STL: dict[str, Callable[[str, list[Any], Optional["Team"], list[str] | None, int], Any]] = {
     "concat": concat,
     "match": match,
@@ -146,6 +158,7 @@ STL: dict[str, Callable[[str, list[Any], Optional["Team"], list[str] | None, int
     "length": length,
     "empty": empty,
     "notEmpty": notEmpty,
+    "tuple": _tuple,
     "lower": lower,
     "upper": upper,
     "reverse": reverse,
@@ -158,4 +171,6 @@ STL: dict[str, Callable[[str, list[Any], Optional["Team"], list[str] | None, int
     "base64Decode": base64Decode,
     "encodeURLComponent": encodeURLComponent,
     "decodeURLComponent": decodeURLComponent,
+    "replaceOne": replaceOne,
+    "replaceAll": replaceAll,
 }
