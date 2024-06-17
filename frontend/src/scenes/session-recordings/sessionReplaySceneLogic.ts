@@ -9,7 +9,7 @@ import { urls } from 'scenes/urls'
 import { ActivityFilters } from '~/layout/navigation-3000/sidepanel/panels/activity/activityForSceneLogic'
 import { ActivityScope, Breadcrumb, ReplayTabs } from '~/types'
 
-import type { sessionRecordingsLogicType } from './sessionRecordingsLogicType'
+import type { sessionReplaySceneLogicType } from './sessionReplaySceneLogicType'
 
 export const humanFriendlyTabName = (tab: ReplayTabs): string => {
     switch (tab) {
@@ -24,8 +24,8 @@ export const humanFriendlyTabName = (tab: ReplayTabs): string => {
 
 export const PLAYLIST_LIMIT_REACHED_MESSAGE = `You have reached the free limit of ${SESSION_RECORDINGS_PLAYLIST_FREE_COUNT} saved playlists`
 
-export const sessionRecordingsLogic = kea<sessionRecordingsLogicType>([
-    path(() => ['scenes', 'session-recordings', 'root']),
+export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
+    path(() => ['scenes', 'session-recordings', 'sessionReplaySceneLogic']),
     connect({
         values: [featureFlagLogic, ['featureFlags']],
     }),
