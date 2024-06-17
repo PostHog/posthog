@@ -507,9 +507,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     ) -> CR | CacheMissResponse | QueryStatusResponse:
         self.query_id = query_id or self.query_id
 
-        # always load cached response (even if we're always calculating) so that we can compare it
-        self.load_cached_response()
-
         if execution_mode == ExecutionMode.CALCULATE_ASYNC_ALWAYS:
             # We should always kick off async calculation and disregard the cache
             return self.enqueue_async_calculation(refresh_requested=True, cache_key=self.cache_key, user=user)
