@@ -5,7 +5,6 @@ import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { objectClean, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
-import { LogEntry } from 'scenes/pipeline/pipelineNodeLogsLogic'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
@@ -51,6 +50,7 @@ import {
     InsightModel,
     IntegrationType,
     ListOrganizationMembersParams,
+    LogEntry,
     MediaUploadResponse,
     NewEarlyAccessFeatureType,
     NotebookListItemType,

@@ -1,5 +1,6 @@
 import json
 from typing import Union
+import requests
 import structlog
 from django.conf import settings
 
@@ -55,16 +56,14 @@ def create_hog_invocation_test(
     globals: dict,
     configuration: dict,
     mock_async_functions: bool,
-):
+) -> requests.Response:
     logger.info(f"Creating hog invocation test for hog function {hog_function_id} on workers")
-    # TODO: Move this to an api instead
-    publish_message(
-        "create-hog-invocation-test",
-        {
-            "teamId": team_id,
-            "hogFunctionId": hog_function_id,
+
+    return requests.post(
+        settings.CDP_FUNCTION_EXECUTOR_API_URL + f"/api/projects/{team_id}/hog_functions/{hog_function_id}/invocations",
+        json={
             "globals": globals,
             "configuration": configuration,
-            "mockAsyncFunctions": mock_async_functions,
+            "mock_async_functions": mock_async_functions,
         },
     )

@@ -157,15 +157,15 @@ class HogFunctionViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, ForbidDestroyMod
     def invocations(self, request: Request, *args, **kwargs):
         hog_function = self.get_object()
         serializer = HogFunctionInvocationSerializer(data=request.data, context=self.get_serializer_context())
-
         if not serializer.is_valid():
             return Response(serializer.errors, status=400)
 
         configuration = serializer.validated_data["configuration"]
+        # Remove the team from the config
+        configuration.pop("team")
+
         globals = serializer.validated_data["globals"]
         mock_async_functions = serializer.validated_data["mock_async_functions"]
-
-        print("TODO")
 
         res = create_hog_invocation_test(
             team_id=hog_function.team_id,
@@ -175,4 +175,7 @@ class HogFunctionViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, ForbidDestroyMod
             mock_async_functions=mock_async_functions,
         )
 
-        return Response(serializer.data)
+        if res.status_code != 200:
+            return Response({"status": "error"}, status=res.status_code)
+
+        return Response(res.json())

@@ -45,6 +45,27 @@ export const formatInput = (bytecode: any, globals: HogFunctionInvocation['globa
     }
 }
 
+export const addLog = (result: HogFunctionInvocationResult, level: HogFunctionLogEntryLevel, message: string) => {
+    const lastLog = result.logs[result.logs.length - 1]
+    // TRICKY: The log entries table is de-duped by timestamp, so we need to ensure that the timestamps are unique
+    // It is unclear how this affects parallel execution environments
+    let now = DateTime.now()
+    if (lastLog && now <= lastLog.timestamp) {
+        // Ensure that the timestamps are unique
+        now = lastLog.timestamp.plus(1)
+    }
+
+    result.logs.push({
+        team_id: result.teamId,
+        log_source: 'hog_function',
+        log_source_id: result.hogFunctionId,
+        instance_id: result.id,
+        timestamp: now,
+        level,
+        message,
+    })
+}
+
 export class HogExecutor {
     constructor(private serverConfig: PluginsServerConfig, private hogFunctionManager: HogFunctionManager) {}
 
@@ -181,8 +202,6 @@ export class HogExecutor {
 
         status.info('🦔', `[HogExecutor] Executing function`, loggingContext)
 
-        let lastTimestamp = DateTime.now()
-
         const result: HogFunctionInvocationResult = {
             ...invocation,
             teamId: hogFunction.team_id,
@@ -191,37 +210,16 @@ export class HogExecutor {
             logs: [],
         }
 
-        const log = (level: HogFunctionLogEntryLevel, message: string) => {
-            // TRICKY: The log entries table is de-duped by timestamp, so we need to ensure that the timestamps are unique
-            // It is unclear how this affects parallel execution environments
-            let now = DateTime.now()
-            if (now <= lastTimestamp) {
-                // Ensure that the timestamps are unique
-                now = lastTimestamp.plus(1)
-            }
-            lastTimestamp = now
-
-            result.logs.push({
-                team_id: hogFunction.team_id,
-                log_source: 'hog_function',
-                log_source_id: hogFunction.id,
-                instance_id: invocation.id,
-                timestamp: castTimestampOrNow(now, TimestampFormat.ClickHouse),
-                level,
-                message,
-            })
-        }
-
         if (!state) {
-            log('debug', `Executing function`)
+            addLog(result, 'debug', `Executing function`)
         } else {
             // NOTE: We do our own check here for async steps as it saves executing Hog and is easier to handle
             if (state.asyncSteps >= MAX_ASYNC_STEPS) {
-                log('error', `Function exceeded maximum async steps`)
+                addLog(result, 'error', `Function exceeded maximum async steps`)
                 result.error = 'Function exceeded maximum async steps'
                 return result
             }
-            log('debug', `Resuming function`)
+            addLog(result, 'debug', `Resuming function`)
         }
 
         try {
@@ -240,13 +238,13 @@ export class HogExecutor {
                         const message = args
                             .map((arg) => (typeof arg !== 'string' ? JSON.stringify(arg) : arg))
                             .join(', ')
-                        log('info', message)
+                        addLog(result, 'info', message)
                     },
                 },
             })
 
             if (!res.finished) {
-                log('debug', `Suspending function due to async function call '${res.asyncFunctionName}'`)
+                addLog(result, 'debug', `Suspending function due to async function call '${res.asyncFunctionName}'`)
                 status.info('🦔', `[HogExecutor] Function returned not finished. Executing async function`, {
                     ...loggingContext,
                     asyncFunctionName: res.asyncFunctionName,
@@ -264,10 +262,10 @@ export class HogExecutor {
                         vmState: res.state,
                     }
                 } else {
-                    log('warn', `Function was not finished but also had no async function to execute.`)
+                    addLog(result, 'warn', `Function was not finished but also had no async function to execute.`)
                 }
             } else {
-                log('debug', `Function completed`)
+                addLog(result, 'debug', `Function completed`)
             }
             result.success = true
         } catch (err) {

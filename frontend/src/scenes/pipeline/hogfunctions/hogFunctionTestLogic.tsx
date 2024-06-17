@@ -7,6 +7,7 @@ import { DataTableNode, NodeKind } from '~/queries/schema'
 import {
     HogFunctionConfigurationType,
     HogFunctionInvocationGlobals,
+    LogEntry,
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
@@ -26,7 +27,7 @@ export type HogFunctionTestInvocationForm = {
 
 export type HogFunctionTestInvocationResult = {
     status: 'success' | 'error'
-    logs: string[]
+    logs: LogEntry[]
 }
 
 // Should likely be somewhat similar to pipelineBatchExportConfigurationLogic
@@ -86,7 +87,7 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
     })),
     selectors(() => ({
         matchingEventsQuery: [
-            (s, p) => [p.configuration],
+            (_, p) => [p.configuration],
             ({ filters }): DataTableNode | null => {
                 if (!filters) {
                     return null

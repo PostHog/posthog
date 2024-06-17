@@ -1,5 +1,6 @@
+import { TZLabel } from '@posthog/apps-common'
 import { IconInfo } from '@posthog/icons'
-import { LemonButton, LemonLabel, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonLabel, LemonSwitch, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { CodeEditorResizeable } from 'lib/components/CodeEditors'
@@ -8,6 +9,42 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Query } from '~/queries/Query/Query'
 
 import { hogFunctionTestLogic, HogFunctionTestLogicProps } from './hogFunctionTestLogic'
+
+const HogFunctionTestEditor = ({
+    value,
+    onChange,
+}: {
+    value: string
+    onChange?: (value?: string) => void
+}): JSX.Element => {
+    return (
+        <CodeEditorResizeable
+            language="json"
+            value={value}
+            height={300}
+            onChange={onChange}
+            options={{
+                lineNumbers: 'off',
+                minimap: {
+                    enabled: false,
+                },
+                quickSuggestions: {
+                    other: true,
+                    strings: true,
+                },
+                suggest: {
+                    showWords: false,
+                    showFields: false,
+                    showKeywords: false,
+                },
+                scrollbar: {
+                    vertical: 'hidden',
+                    verticalScrollbarSize: 0,
+                },
+            }}
+        />
+    )
+}
 
 export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
     const { testEvent, testInvocation, isTestInvocationSubmitting, matchingEventsQuery, testResult } = useValues(
@@ -69,34 +106,45 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
                     </div>
 
                     {testResult ? (
-                        <div>
+                        <div className="space-y-2">
                             <LemonLabel>Test invocation context</LemonLabel>
-                            <CodeEditorResizeable
-                                language="json"
-                                value={testInvocation.globals}
-                                height={300}
-                                options={{
-                                    lineNumbers: 'off',
-                                    minimap: {
-                                        enabled: false,
+                            <HogFunctionTestEditor value={testInvocation.globals} />
+                            <LemonLabel>
+                                <div className="flex flex-1 justify-between gap-2">
+                                    Test invocation result{' '}
+                                    <LemonTag type={testResult.status === 'success' ? 'success' : 'danger'}>
+                                        {testResult.status}
+                                    </LemonTag>
+                                </div>
+                            </LemonLabel>
+
+                            <LemonTable
+                                dataSource={testResult.logs ?? []}
+                                columns={[
+                                    {
+                                        title: 'Timestamp',
+                                        key: 'timestamp',
+                                        dataIndex: 'timestamp',
+                                        render: (timestamp) => <TZLabel time={timestamp} />,
+                                        width: 0,
                                     },
-                                    quickSuggestions: {
-                                        other: true,
-                                        strings: true,
+                                    {
+                                        width: 100,
+                                        title: 'Level',
+                                        key: 'level',
+                                        dataIndex: 'level',
                                     },
-                                    suggest: {
-                                        showWords: false,
-                                        showFields: false,
-                                        showKeywords: false,
+                                    {
+                                        title: 'Message',
+                                        key: 'message',
+                                        dataIndex: 'message',
+                                        render: (message) => <code className="whitespace-pre-wrap">{message}</code>,
                                     },
-                                    scrollbar: {
-                                        vertical: 'hidden',
-                                        verticalScrollbarSize: 0,
-                                    },
-                                }}
+                                ]}
+                                className="ph-no-capture"
+                                rowKey="timestamp"
+                                pagination={{ pageSize: 200, hideOnSinglePage: true }}
                             />
-                            <LemonLabel>Test invocation result</LemonLabel>
-                            <p>Result!: {JSON.stringify(testResult)}</p>
                         </div>
                     ) : testEvent === null ? (
                         <div>
@@ -124,31 +172,7 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
                                             </LemonButton>
                                         </div>
 
-                                        <CodeEditorResizeable
-                                            language="json"
-                                            value={value}
-                                            height={300}
-                                            onChange={onChange}
-                                            options={{
-                                                lineNumbers: 'off',
-                                                minimap: {
-                                                    enabled: false,
-                                                },
-                                                quickSuggestions: {
-                                                    other: true,
-                                                    strings: true,
-                                                },
-                                                suggest: {
-                                                    showWords: false,
-                                                    showFields: false,
-                                                    showKeywords: false,
-                                                },
-                                                scrollbar: {
-                                                    vertical: 'hidden',
-                                                    verticalScrollbarSize: 0,
-                                                },
-                                            }}
-                                        />
+                                        <HogFunctionTestEditor value={value} onChange={onChange} />
                                     </>
                                 )}
                             </LemonField>

@@ -1,4 +1,5 @@
 import { VMState } from '@posthog/hogvm'
+import { DateTime } from 'luxon'
 
 import { ElementPropertyFilter, EventPropertyFilter, PersonPropertyFilter } from '../types'
 
@@ -106,7 +107,7 @@ export interface HogFunctionLogEntry {
     log_source: string // The kind of source (hog_function)
     log_source_id: string // The id of the hog function
     instance_id: string // The id of the specific invocation
-    timestamp: string
+    timestamp: DateTime
     level: HogFunctionLogEntryLevel
     message: string
 }

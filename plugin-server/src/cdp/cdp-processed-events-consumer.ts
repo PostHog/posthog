@@ -1,3 +1,5 @@
+import { convertJSToHog } from '@posthog/hogvm'
+import express from 'express'
 import { features, librdkafkaVersion, Message } from 'node-rdkafka'
 import { Histogram } from 'prom-client'
 
@@ -17,9 +19,10 @@ import { OrganizationManager } from '../worker/ingestion/organization-manager'
 import { TeamManager } from '../worker/ingestion/team-manager'
 import { RustyHook } from '../worker/rusty-hook'
 import { AsyncFunctionExecutor } from './async-function-executor'
-import { HogExecutor } from './hog-executor'
+import { addLog, HogExecutor } from './hog-executor'
 import { HogFunctionManager } from './hog-function-manager'
 import {
+    HogFunctionInvocation,
     HogFunctionInvocationAsyncResponse,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationResult,
@@ -354,5 +357,57 @@ export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
         })
 
         return events
+    }
+
+    public addApiRoutes(app: express.Application) {
+        app.post('/api/projects/:team_id/hog_functions/:id/invocations', async (req, res) => {
+            try {
+                const { id } = req.params
+                const { globals, mock_async_functions, configuration } = req.body
+
+                // TODO: Some double checking of the configuration
+
+                const invocation: HogFunctionInvocation = {
+                    id,
+                    globals: globals as HogFunctionInvocationGlobals,
+                }
+
+                let response = this.hogExecutor.execute(configuration, invocation)
+
+                while (response.asyncFunction) {
+                    let nextResponse: HogFunctionInvocationResult | undefined
+                    // TODO: Loop over the async functions and update the response
+                    if (mock_async_functions) {
+                        addLog(
+                            response,
+                            'info',
+                            `Async function ${response.asyncFunction.asyncFunctionName} was mocked`
+                        )
+
+                        response.asyncFunction.vmState?.stack.push(convertJSToHog({ status: 200, body: {} }))
+                        nextResponse = this.hogExecutor.execute(
+                            configuration,
+                            response.asyncFunction,
+                            response.asyncFunction.vmState
+                        )
+                    } else {
+                        throw new Error('Async functions are not supported in this environment')
+                    }
+
+                    response = {
+                        ...nextResponse,
+                        logs: [...response.logs, ...nextResponse.logs],
+                    }
+                }
+
+                res.json({
+                    status: response.success ? 'success' : 'error',
+                    error: response.error,
+                    logs: response.logs,
+                })
+            } catch (e) {
+                res.status(500).json({ error: e.message })
+            }
+        })
     }
 }

@@ -1947,6 +1947,15 @@ export interface PluginErrorType {
     event?: Record<string, any>
 }
 
+// The general log entry format that eventually everything should match
+export type LogEntry = {
+    log_source_id: string
+    instance_id: string
+    timestamp: string
+    level: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
+    message: string
+}
+
 export enum PluginLogEntryType {
     Debug = 'DEBUG',
     Log = 'LOG',
