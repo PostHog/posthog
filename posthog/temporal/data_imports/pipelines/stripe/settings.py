@@ -5,4 +5,4 @@
 # These endpoints are converted into ExternalDataSchema objects when a source is linked.
 ENDPOINTS = ("BalanceTransaction", "Subscription", "Customer", "Product", "Price", "Invoice", "Charge")
 
-INCREMENTAL_ENDPOINTS = "Invoice"
+INCREMENTAL_ENDPOINTS = ("Invoice",)
