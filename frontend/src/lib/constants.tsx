@@ -212,6 +212,7 @@ export const FEATURE_FLAGS = {
     ALERTS: 'alerts', // owner: github.com/nikitaevg
     ERROR_TRACKING: 'error-tracking', // owner: #team-replay
     SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE: 'settings-bounce-rate-page-view-mode', // owner: @robbie-c
+    BATCH_EXPORT_FILTERING: 'batch-export-filtering', // owner: @tomasfarias
     SURVEYS_BRANCHING_LOGIC: 'surveys-branching-logic', // owner: @jurajmajerik #team-feature-success
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]

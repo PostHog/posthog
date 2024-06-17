@@ -1,5 +1,6 @@
 import { Meta, StoryFn } from '@storybook/react'
 import { router } from 'kea-router'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
@@ -20,6 +21,7 @@ export default {
         },
         mockDate: '2023-02-01',
         viewMode: 'story',
+        featureFlags: [FEATURE_FLAGS.BATCH_EXPORT_FILTERING],
     },
     decorators: [
         mswDecorator(

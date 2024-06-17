@@ -35,37 +35,10 @@ class HogFunction(UUIDModel):
 
         return HOG_FUNCTION_TEMPLATES_BY_ID.get(self.template_id, None)
 
-    @property
-    def filter_action_ids(self) -> list[int]:
-        if not self.filters:
-            return []
-        try:
-            return [int(action["id"]) for action in self.filters.get("actions", [])]
-        except KeyError:
-            return []
-
-    def compile_filters_bytecode(self, actions: Optional[dict[int, Action]] = None):
-        from .utils import hog_function_filters_to_expr
-        from posthog.hogql.bytecode import create_bytecode
-
-        self.filters = self.filters or {}
-
-        if actions is None:
-            # If not provided as an optimization we fetch all actions
-            actions_list = (
-                Action.objects.select_related("team").filter(team_id=self.team_id).filter(id__in=self.filter_action_ids)
-            )
-            actions = {action.id: action for action in actions_list}
-
-        try:
-            self.filters["bytecode"] = create_bytecode(hog_function_filters_to_expr(self.filters, self.team, actions))
-        except Exception as e:
-            # TODO: Better reporting of this issue
-            self.filters["bytecode"] = None
-            self.filters["bytecode_error"] = str(e)
-
     def save(self, *args, **kwargs):
-        self.compile_filters_bytecode()
+        from posthog.models.cdp.filters import compile_filters_bytecode
+
+        self.filters = compile_filters_bytecode(self.team, self.filters)
         return super().save(*args, **kwargs)
 
     def __str__(self):
