@@ -357,7 +357,7 @@ class PersonsIdSubQuery:
                 """
                 SELECT distinct_id
                 FROM person_distinct_ids
-                WHERE person.id = {person_id}
+                WHERE person_id = {person_id}
                 """,
                 {
                     "person_id": ast.Constant(value=self._filter.person_uuid),
