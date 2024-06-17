@@ -414,6 +414,9 @@
                         }
                     ]
                 },
+                "histogram_bin_count": {
+                    "type": "integer"
+                },
                 "normalize_url": {
                     "type": "boolean"
                 },

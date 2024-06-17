@@ -1297,6 +1297,7 @@ class Breakdown(BaseModel):
         extra="forbid",
     )
     group_type_index: Optional[int] = None
+    histogram_bin_count: Optional[int] = None
     normalize_url: Optional[bool] = None
     property: Optional[Union[str, float, list[Union[str, float]]]] = None
     type: Optional[BreakdownType] = None
