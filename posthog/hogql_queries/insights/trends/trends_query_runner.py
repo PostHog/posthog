@@ -146,7 +146,12 @@ class TrendsQueryRunner(QueryRunner):
             and (
                 # We don't support queries that are relative to a fixed date with compare set to True, because we would
                 # have to expand the compare window backwards in time. It either has a delta mapping, or it doesn't have a compare
-                relative_date_parse_with_delta_mapping(self.query.dateRange.date_from, self.team.timezone_info)[1]
+                (
+                    self.query.dateRange.date_from
+                    and relative_date_parse_with_delta_mapping(self.query.dateRange.date_from, self.team.timezone_info)[
+                        1
+                    ]
+                )
                 or not self.query.compareFilter
                 or not self.query.compareFilter.compare
             )
@@ -286,7 +291,7 @@ class TrendsQueryRunner(QueryRunner):
                 new_date_from = self.query_previous_date_range.date_from() + (
                     aligned_last_refresh - self.query_date_range.date_from()
                 )
-            query_date_range.date_from = types.MethodType(
+            query_date_range.date_from = types.MethodType(  # type: ignore
                 lambda self, new_date_from=new_date_from: new_date_from, query_date_range
             )
 
@@ -584,8 +589,8 @@ class TrendsQueryRunner(QueryRunner):
                     threading.Thread(target=run, args=(index, True, query_tagging.get_query_tags()))
                     for index in range(len(queries))
                 ]
-                [j.start() for j in jobs]
-                [j.join() for j in jobs]  # Ensure all of the threads have finished
+                [j.start() for j in jobs]  # type: ignore
+                [j.join() for j in jobs]  # type: ignore
 
         run_queries()
 

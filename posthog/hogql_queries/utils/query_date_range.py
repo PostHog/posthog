@@ -102,9 +102,6 @@ class QueryDateRange:
         date_from = self.date_from()
         if self.interval_name in ("minute", "hour", "day", "week"):
             return math.ceil((date_to - date_from) / self.interval_timedelta())
-        # month or year
-        if self.interval_name == "year":
-            return (date_to.year - date_from.year) + (1 if date_from.replace(year=date_to.year) < date_to else 0)
         if self.interval_name == "month":
             return (
                 (date_to.year - date_from.year) * 12
@@ -176,7 +173,7 @@ class QueryDateRange:
             minutes=1 if self.interval_name == "minute" else 0,
         )
 
-    def interval_timedelta(self) -> relativedelta:
+    def interval_timedelta(self) -> timedelta:
         return timedelta(
             days=1 if self.interval_name == "day" else (7 if self.interval_name == "week" else 0),
             hours=1 if self.interval_name == "hour" else 0,
