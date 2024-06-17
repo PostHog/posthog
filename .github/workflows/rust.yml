@@ -56,7 +56,7 @@ jobs:
 
             - name: Install rust
               if: needs.changes.outputs.rust == 'true'
-              uses: dtolnay/rust-toolchain@1.77
+              uses: dtolnay/rust-toolchain@1.90
 
             - uses: actions/cache@v3
               if: needs.changes.outputs.rust == 'true'
@@ -107,7 +107,7 @@ jobs:
 
             - name: Install rust
               if: needs.changes.outputs.rust == 'true'
-              uses: dtolnay/rust-toolchain@1.77
+              uses: dtolnay/rust-toolchain@1.90
 
             - uses: actions/cache@v3
               if: needs.changes.outputs.rust == 'true'
@@ -143,7 +143,7 @@ jobs:
 
             - name: Install rust
               if: needs.changes.outputs.rust == 'true'
-              uses: dtolnay/rust-toolchain@1.77
+              uses: dtolnay/rust-toolchain@1.90
               with:
                   components: clippy,rustfmt
 
