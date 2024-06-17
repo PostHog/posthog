@@ -2,7 +2,7 @@ import types
 
 import structlog
 from natsort import natsorted, ns
-from typing import Union
+from typing import Union, cast
 from copy import deepcopy
 from datetime import timedelta
 from math import ceil
@@ -74,6 +74,7 @@ from posthog.schema import (
     HogQLQueryModifiers,
     DataWarehouseEventsModifier,
     BreakdownType,
+    CacheMissResponse,
 )
 from posthog.settings import TEST
 from posthog.warehouse.models import DataWarehouseTable
@@ -100,7 +101,7 @@ logger = structlog.get_logger(__name__)
 class TrendsQueryRunner(QueryRunner):
     query: TrendsQuery
     response: TrendsQueryResponse
-    cached_response: CachedTrendsQueryResponse
+    cached_response: CachedTrendsQueryResponse | CacheMissResponse
     series: list[SeriesWithExtras]
 
     def __init__(
@@ -264,6 +265,9 @@ class TrendsQueryRunner(QueryRunner):
         return queries
 
     def to_cached_queries(self, skip_breakdowns=False) -> list[ast.SelectQuery | ast.SelectUnionQuery]:
+        # We don't call this function unless cached_response is valid
+        self.cached_response = cast(CachedTrendsQueryResponse, self.cached_response)
+
         queries = []
         aligned_last_refresh = self.query_date_range.align_with_interval(
             self.cached_response.last_refresh.astimezone(self.team.timezone_info)
@@ -633,6 +637,9 @@ class TrendsQueryRunner(QueryRunner):
         caching_debug_errors,
         processed_actual_results,
     ):
+        # We don't call this function unless cached_response is valid
+        self.cached_response = cast(CachedTrendsQueryResponse, self.cached_response)
+
         if len(caching_errors) > 0 or len(caching_debug_errors) > 0:
             # This function is called in a try, so this will be caught and reported
             raise Exception("\n".join(caching_errors) + "\n".join(caching_debug_errors))

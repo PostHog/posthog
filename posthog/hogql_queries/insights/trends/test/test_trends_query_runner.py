@@ -1,7 +1,7 @@
 import zoneinfo
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, Any, cast
 from unittest.mock import MagicMock, patch
 from django.test import override_settings
 from freezegun import freeze_time
@@ -266,7 +266,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     team=self.team, query=second_query, modifiers=hogql_modifiers, limit_context=limit_context
                 )
                 with patch.object(runner, "_caching", wraps=runner._caching) as wrapped:
-                    runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+                    cast(CachedTrendsQueryResponse, runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS))
                     if runner.can_compute_from_cache() and limit_context != LimitContext.EXPORT:
                         wrapped.assert_called_once()
         if call_count is not None:
@@ -314,13 +314,15 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual("$pageview", response.results[0]["label"])
 
     def test_query_can_compute_from_cache(self):
-        kwargs = {
+        kwargs: dict[str, Any] = {
             "date_from": self.default_date_from,
             "date_to": self.default_date_to,
             "interval": IntervalType.DAY,
             "series": None,
             "trends_filters": None,
         }
+
+        # Mypy doesn't like passing non typed dicts as kwargs here
         self.assertFalse(self._create_query_runner(**kwargs).query_can_compute_from_cache())
 
         kwargs["date_to"] = None
@@ -351,7 +353,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     )
     def test_can_compute_from_cache(self, mock_query_can_compute_from_cache):
         with freeze_time("2020-04-28T01:00:00"):
-            kwargs = {
+            kwargs: dict[str, Any] = {
                 "date_from": "-4w",
                 "date_to": None,
                 "interval": IntervalType.DAY,
@@ -2380,7 +2382,10 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 BreakdownFilter(breakdown="breakdown_value", breakdown_type=BreakdownType.EVENT),
                 CompareFilter(compare=True),
             )
-            first_response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            first_response = cast(
+                CachedTrendsQueryResponse,
+                cast(CachedTrendsQueryResponse, runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)),
+            )
             assert len(first_response.results) == 2
 
         runner = self._create_query_runner(
@@ -2396,7 +2401,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             freeze_time("2020-01-21"),
             patch.object(runner, "to_cached_queries", wraps=runner.to_cached_queries) as wrapped,
         ):
-            second_response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            second_response = cast(CachedTrendsQueryResponse, runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS))
             assert len(second_response.results) == 2
             wrapped.assert_called_once()
 
@@ -2419,7 +2424,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
                 BreakdownFilter(breakdown="breakdown_value", breakdown_type=BreakdownType.EVENT),
             )
-            first_response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            first_response = cast(CachedTrendsQueryResponse, runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS))
             assert len(first_response.results) == 2
 
         runner = self._create_query_runner(
@@ -2434,7 +2439,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             freeze_time("2020-01-21"),
             patch.object(runner, "to_cached_queries", wraps=runner.to_cached_queries) as wrapped,
         ):
-            second_response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            second_response = cast(CachedTrendsQueryResponse, runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS))
             assert len(second_response.results) == 0
             wrapped.assert_called_once()
 
@@ -2450,7 +2455,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 BreakdownFilter(breakdown="breakdown_value", breakdown_type=BreakdownType.EVENT),
                 CompareFilter(compare=True),
             )
-            first_response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            first_response = cast(CachedTrendsQueryResponse, runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS))
             assert len(first_response.results) == 0
 
         for value in list(range(30)):
@@ -2475,7 +2480,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             freeze_time("2020-01-15"),
             patch.object(runner, "to_cached_queries", wraps=runner.to_cached_queries) as wrapped,
         ):
-            second_response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            second_response = cast(CachedTrendsQueryResponse, runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS))
             assert len(second_response.results) == 2
             wrapped.assert_not_called()
 
@@ -2490,7 +2495,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 BreakdownFilter(breakdown="breakdown_value", breakdown_type=BreakdownType.EVENT),
                 CompareFilter(compare=True),
             )
-            first_response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            first_response = cast(CachedTrendsQueryResponse, runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS))
             assert len(first_response.results) == 0
 
         for value in list(range(30)):
@@ -2515,7 +2520,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             freeze_time("2020-01-12"),
             patch.object(runner, "to_cached_queries", wraps=runner.to_cached_queries) as wrapped,
         ):
-            second_response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            second_response = cast(CachedTrendsQueryResponse, runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS))
             assert len(second_response.results) == 2
             wrapped.assert_called_once()
 
@@ -2530,7 +2535,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 BreakdownFilter(breakdown="breakdown_value", breakdown_type=BreakdownType.EVENT),
                 CompareFilter(compare=True),
             )
-            first_response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            first_response = cast(CachedTrendsQueryResponse, runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS))
             assert len(first_response.results) == 0
 
         runner = self._create_query_runner(
@@ -2546,7 +2551,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             freeze_time("2020-01-12"),
             patch.object(runner, "to_cached_queries", wraps=runner.to_cached_queries) as wrapped,
         ):
-            second_response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            second_response = cast(CachedTrendsQueryResponse, runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS))
             assert len(second_response.results) == 0
             wrapped.assert_called_once()
 
@@ -2577,7 +2582,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-11T00:00:00-00:00"):
             runner = spawn_runner()
             with patch.object(runner, "_caching", wraps=runner._caching) as wrapped:
-                response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+                response = cast(CachedTrendsQueryResponse, runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS))
                 assert len(response.results) == 2
                 assert all(result["compare_label"] == "current" for result in response.results)
                 wrapped.assert_not_called()
@@ -2585,7 +2590,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-14T00:00:00-00:00"):
             runner = spawn_runner()
             with patch.object(runner, "_caching", wraps=runner._caching) as wrapped:
-                response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+                response = cast(CachedTrendsQueryResponse, runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS))
                 wrapped.assert_not_called()
                 assert len(response.results) == 2
                 assert all(result["compare_label"] == "previous" for result in response.results)
@@ -2619,7 +2624,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             runner = spawn_runner()
 
             with patch.object(runner, "_caching", wraps=runner._caching) as wrapped:
-                response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+                response = cast(CachedTrendsQueryResponse, runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS))
                 assert len(response.results) == 2
                 assert all(result["compare_label"] == "current" for result in response.results)
                 wrapped.assert_not_called()
@@ -2628,7 +2633,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             runner = spawn_runner()
 
             with patch.object(runner, "_caching", wraps=runner._caching) as wrapped:
-                response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+                response = cast(CachedTrendsQueryResponse, runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS))
                 wrapped.assert_not_called()
                 assert len(response.results) == 2
                 assert all(result["compare_label"] == "previous" for result in response.results)
@@ -2657,14 +2662,14 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     properties={"breakdown_value": f"{value % 2}"},
                 )
             runner = spawn_runner()
-            response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            response = cast(CachedTrendsQueryResponse, runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS))
             assert len(response.results) == 4
             assert all(x["data"] == [6, 12, 12, 6] for x in response.results if x["compare_label"] == "current")
             assert all(x["data"] == [0, 0, 6, 12] for x in response.results if x["compare_label"] == "previous")
         with freeze_time("2024-05-05T18:00:00-00:00"):
             runner = spawn_runner()
             with patch.object(runner, "_caching", wraps=runner._caching) as wrapped:
-                response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+                response = cast(CachedTrendsQueryResponse, runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS))
                 assert len(response.results) == 4
                 assert all(x["data"] == [3, 12, 12, 6] for x in response.results if x["compare_label"] == "current")
                 assert all(x["data"] == [0, 0, 6, 12] for x in response.results if x["compare_label"] == "previous")
@@ -2695,14 +2700,14 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     properties={"breakdown_value": f"{value % 2}"},
                 )
             runner = spawn_runner()
-            response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            response = cast(CachedTrendsQueryResponse, runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS))
             assert len(response.results) == 4
             assert all(x["data"] == [12, 12, 12, 6] for x in response.results if x["compare_label"] == "current")
             assert all(x["data"] == [0, 0, 0, 6] for x in response.results if x["compare_label"] == "previous")
         with freeze_time("2024-05-05T18:00:00-00:00"):
             runner = spawn_runner()
             with patch.object(runner, "_caching", wraps=runner._caching) as wrapped:
-                response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+                response = cast(CachedTrendsQueryResponse, runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS))
                 assert len(response.results) == 4
                 assert all(x["data"] == [12, 12, 12, 6] for x in response.results if x["compare_label"] == "current")
                 assert all(x["data"] == [0, 0, 0, 6] for x in response.results if x["compare_label"] == "previous")
@@ -2741,13 +2746,13 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     properties={"breakdown_value": "1"},
                 )
             runner = spawn_runner()
-            response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            response = cast(CachedTrendsQueryResponse, runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS))
             assert len(response.results) == 2
             assert all(x["data"] == [4, 7, 7, 3] for x in response.results if x["compare_label"] == "current")
         with freeze_time("2024-06-06T12:00:00-00:00"):
             runner = spawn_runner()
             with patch.object(runner, "_caching", wraps=runner._caching) as wrapped:
-                response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+                response = cast(CachedTrendsQueryResponse, runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS))
                 assert len(response.results) == 4
                 assert all(x["data"] == [4, 7, 7, 3] for x in response.results if x["compare_label"] == "current")
                 assert all(x["data"] == [0, 0, 0, 1] for x in response.results if x["compare_label"] == "previous")
@@ -2786,14 +2791,14 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         with freeze_time("2024-06-07T12:00:00-00:00"):
             runner = spawn_runner()
-            response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            response = cast(CachedTrendsQueryResponse, runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS))
             assert len(response.results) == 2
             assert [x["data"] == [1, 1, 1] for x in response.results]
 
         with freeze_time("2024-06-08T12:00:00-00:00"):
             runner = spawn_runner()
             with patch.object(runner, "_caching", wraps=runner._caching) as wrapped:
-                response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+                response = cast(CachedTrendsQueryResponse, runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS))
                 assert len(response.results) == 2
                 assert [x["data"] == [1, 1, 1, 1] for x in response.results]
                 wrapped.assert_called_once()
@@ -2801,7 +2806,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2024-06-10T12:00:00-00:00"):
             runner = spawn_runner()
             with patch.object(runner, "_caching", wraps=runner._caching) as wrapped:
-                response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+                response = cast(CachedTrendsQueryResponse, runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS))
                 assert len(response.results) == 2
                 assert [x["data"] == [1, 1, 1, 1, 0, 0] for x in response.results]
                 wrapped.assert_called_once()

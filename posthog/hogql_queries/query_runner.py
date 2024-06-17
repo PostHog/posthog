@@ -360,7 +360,7 @@ CR = TypeVar("CR", bound=GenericCachedQueryResponse)
 class QueryRunner(ABC, Generic[Q, R, CR]):
     query: Q
     response: R
-    cached_response: CR
+    cached_response: CR | CacheMissResponse
     query_id: Optional[str]
 
     team: Team
@@ -383,12 +383,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         _modifiers = modifiers or (query.modifiers if hasattr(query, "modifiers") else None)
         self.modifiers = create_default_modifiers_for_team(team, _modifiers)
         self.query_id = query_id
-        self.cached_response = None
 
         if not self.is_query_node(query):
             query = self.query_type.model_validate(query)
         assert isinstance(query, self.query_type)
         self.query = query
+        self.load_cached_response()
 
     @property
     def query_type(self) -> type[Q]:
@@ -434,7 +434,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     ) -> Optional[CR | CacheMissResponse]:
         CachedResponse: type[CR] = self.cached_response_type
 
-        if not (self.cached_response is None or isinstance(self.cached_response, CacheMissResponse)):
+        if not isinstance(self.cached_response, CacheMissResponse):
             if not self._is_stale(self.cached_response):
                 QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="hit").inc()
                 # We have a valid result that's fresh enough, let's return it
@@ -475,8 +475,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # Nothing useful out of cache, nor async query status
         return None
 
-    store_it = []
-
     def load_cached_response(self):
         tag_queries(cache_key=self.cache_key)
 
@@ -486,7 +484,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         cached_response_candidate: Optional[dict] = (
             OrjsonJsonSerializer({}).loads(cached_response_candidate_bytes) if cached_response_candidate_bytes else None
         )
-        QueryRunner.store_it.append((self.cache_key, self))
         if self.is_cached_response(cached_response_candidate):
             cached_response_candidate["is_cached"] = True
             cached_response = CachedResponse(**cached_response_candidate)
