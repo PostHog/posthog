@@ -3835,6 +3835,11 @@ export interface SimpleExternalDataSourceSchema {
 export interface ExternalDataSourceSyncSchema {
     table: string
     should_sync: boolean
+    sync_type: 'full_refresh' | 'incremental'
+    sync_types: {
+        full_refresh: boolean
+        incremental: boolean
+    }
 }
 
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
