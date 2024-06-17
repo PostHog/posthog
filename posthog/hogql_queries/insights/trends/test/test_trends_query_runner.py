@@ -225,16 +225,16 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         hogql_modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
         explicit_date: Optional[bool] = None,
-    ) -> TrendsQueryRunner:
+    ) -> None:
         import posthog.hogql.query
 
         # call count is used in some tests. reset the state here to be what it was before
         call_count = getattr(posthog.hogql.query.sync_execute, "call_count", None)
         query_series: list[EventsNode | ActionsNode] = [EventsNode(event="$pageview")] if series is None else series
-        date_range = InsightDateRange(date_from=date_from, date_to=date_to, explicitDate=explicit_date)
+        insight_date_range = InsightDateRange(date_from=date_from, date_to=date_to, explicitDate=explicit_date)
         if date_to is not None:
             with freeze_time(date_to):
-                date_range = QueryDateRange(date_range, self.team, interval, datetime.now())
+                date_range = QueryDateRange(insight_date_range, self.team, interval, datetime.now())
             if date_range.n_intervals_in_date_range() < 2:
                 return
 

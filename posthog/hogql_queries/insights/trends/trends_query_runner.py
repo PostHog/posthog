@@ -669,7 +669,7 @@ class TrendsQueryRunner(QueryRunner):
             results_dict = {unique_result_key(x): x for x in results}
             caching_results_dict = {unique_result_key(x): x for x in caching_results}
 
-            defaults = {}
+            defaults: dict[tuple[str, str] | str, Any] = {}
             for k, data in (("cache", caching_results), ("results", results)):
                 for result in data:
                     if result["days"] != []:
@@ -719,13 +719,15 @@ class TrendsQueryRunner(QueryRunner):
                 if self.query.compareFilter is not None and self.query.compareFilter.compare:
                     composed_result["labels"] = [
                         "{} {}".format(
-                            self.query.interval if self.query.interval is not None else "day",
+                            self.query_date_range.interval_name,
                             i,
                         )
                         for i in range(result_length)
                     ]
                 else:
-                    composed_result["labels"] = [utils.format_label_date(x, self.query.interval.value) for x in dates]
+                    composed_result["labels"] = [
+                        utils.format_label_date(x, self.query_date_range.interval_name) for x in dates
+                    ]
 
                 # Days
                 composed_result["days"] = [
