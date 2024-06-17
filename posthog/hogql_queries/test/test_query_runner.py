@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Any, Literal, Optional
+from typing import TypeAlias, Any, Literal, Optional
 from unittest import mock
 from zoneinfo import ZoneInfo
 
@@ -34,7 +34,7 @@ class TestQueryRunner(BaseTest):
         class TestQueryRunner(QueryRunner):
             query: TestQuery
             response: TestBasicQueryResponse
-            cached_response_type: TestCachedBasicQueryResponse
+            CachedResponseType: TypeAlias = TestCachedBasicQueryResponse
 
             def calculate(self):
                 return TestBasicQueryResponse(

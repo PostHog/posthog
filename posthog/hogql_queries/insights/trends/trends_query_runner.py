@@ -2,7 +2,7 @@ import types
 
 import structlog
 from natsort import natsorted, ns
-from typing import Union, cast
+from typing import TypeAlias, Union, cast
 from copy import deepcopy
 from datetime import timedelta
 from math import ceil
@@ -101,8 +101,8 @@ logger = structlog.get_logger(__name__)
 class TrendsQueryRunner(QueryRunner):
     query: TrendsQuery
     response: TrendsQueryResponse
-    cached_response_type = CachedTrendsQueryResponse
-    cached_response: cached_response_type | CacheMissResponse
+    CachedResponseType: TypeAlias = CachedTrendsQueryResponse
+    cached_response: CachedResponseType | CacheMissResponse
     series: list[SeriesWithExtras]
 
     def __init__(

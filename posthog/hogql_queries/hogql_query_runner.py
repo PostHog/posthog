@@ -1,4 +1,4 @@
-from typing import Optional, cast
+from typing import TypeAlias, Optional, cast
 from collections.abc import Callable
 
 from posthog.hogql import ast
@@ -23,8 +23,8 @@ from posthog.schema import (
 class HogQLQueryRunner(QueryRunner):
     query: HogQLQuery
     response: HogQLQueryResponse
-    cached_response_type: CachedHogQLQueryResponse
-    cached_response: cached_response_type | CacheMissResponse
+    CachedResponseType: TypeAlias = CachedHogQLQueryResponse
+    cached_response: CachedResponseType | CacheMissResponse
 
     def to_query(self) -> ast.SelectQuery:
         if self.timings is None:

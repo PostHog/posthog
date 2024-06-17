@@ -1,5 +1,5 @@
 import itertools
-from typing import Optional
+from typing import TypeAlias, Optional
 from collections.abc import Sequence, Iterator
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_order_expr
@@ -20,8 +20,8 @@ from posthog.schema import (
 class ActorsQueryRunner(QueryRunner):
     query: ActorsQuery
     response: ActorsQueryResponse
-    cached_response_type: CachedActorsQueryResponse
-    cached_response: cached_response_type | CacheMissResponse
+    CachedResponseType: TypeAlias = CachedActorsQueryResponse
+    cached_response: CachedResponseType | CacheMissResponse
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

@@ -1,6 +1,6 @@
 from datetime import timedelta
 from math import ceil
-from typing import Optional, Any, cast
+from typing import TypeAlias, Optional, Any, cast
 
 from django.utils.timezone import datetime
 from posthog.caching.insights_api import (
@@ -50,8 +50,8 @@ class SeriesWithExtras:
 class StickinessQueryRunner(QueryRunner):
     query: StickinessQuery
     response: StickinessQueryResponse
-    cached_response_type: CachedStickinessQueryResponse
-    cached_response: cached_response_type | CacheMissResponse
+    CachedResponseType: TypeAlias = CachedStickinessQueryResponse
+    cached_response: CachedResponseType | CacheMissResponse
     series: list[SeriesWithExtras]
 
     def __init__(

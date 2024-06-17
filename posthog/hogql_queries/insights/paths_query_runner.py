@@ -3,7 +3,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from math import ceil
 from re import escape
-from typing import Any, Literal, cast
+from typing import TypeAlias, Any, Literal, cast
 from typing import Optional
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
@@ -46,8 +46,8 @@ EDGE_LIMIT_DEFAULT = 50
 class PathsQueryRunner(QueryRunner):
     query: PathsQuery
     response: PathsQueryResponse
-    cached_response_type: CachedPathsQueryResponse
-    cached_response: cached_response_type | CacheMissResponse
+    CachedResponseType: TypeAlias = CachedPathsQueryResponse
+    cached_response: CachedResponseType | CacheMissResponse
 
     def __init__(
         self,

@@ -360,8 +360,8 @@ CR = TypeVar("CR", bound=GenericCachedQueryResponse)
 class QueryRunner(ABC, Generic[Q, R, CR]):
     query: Q
     response: R
+    CachedResponseType: CR
     cached_response: CR | CacheMissResponse
-    cached_response_type: CR
     query_id: Optional[str]
 
     team: Team
@@ -429,8 +429,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def handle_cache_and_async_logic(
         self, execution_mode: ExecutionMode, cache_key: str, user: Optional[User] = None
     ) -> Optional[CR | CacheMissResponse]:
-        CachedResponse: type[CR] = self.cached_response_type
-
         if not isinstance(self.cached_response, CacheMissResponse):
             if not self._is_stale(self.cached_response):
                 QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="hit").inc()
@@ -449,7 +447,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 return self.cached_response
             elif execution_mode == ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE:
                 # We're allowed to calculate if the cache is older than 24 hours, but we'll do it asynchronously
-                assert isinstance(self.cached_response, CachedResponse)
+                assert isinstance(self.cached_response, self.CachedResponseType)
                 if datetime.now(timezone.utc) - self.cached_response.last_refresh > EXTENDED_CACHE_AGE:
                     query_status_response = self.enqueue_async_calculation(cache_key=cache_key, user=user)
                     self.cached_response.query_status = query_status_response.query_status
@@ -475,32 +473,31 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def load_cached_response(self):
         tag_queries(cache_key=self.cache_key)
 
-        CachedResponse: type[CR] = self.cached_response_type
-        cached_response: CR | CacheMissResponse
         cached_response_candidate_bytes: Optional[bytes] = get_safe_cache(self.cache_key)
         cached_response_candidate: Optional[dict] = (
             OrjsonJsonSerializer({}).loads(cached_response_candidate_bytes) if cached_response_candidate_bytes else None
         )
         if self.is_cached_response(cached_response_candidate):
             cached_response_candidate["is_cached"] = True
-            cached_response = CachedResponse(**cached_response_candidate)
-            if cached_response.last_refresh >= datetime.now(self.team.timezone_info):
+            self.cached_response = self.CachedResponseType(**cached_response_candidate)
+            if cast(self.CachedResponseType, self.cached_response).last_refresh >= datetime.now(
+                self.team.timezone_info
+            ):
                 # A cache hit in the future. Ignore. Record.
-                cached_response = CacheMissResponse(cache_key=self.cache_key)
+                self.cached_response = CacheMissResponse(cache_key=self.cache_key)
                 with push_scope() as scope:
                     scope.set_tag("cache_key", self.cache_key)
                     capture_exception(ValueError(f"Cached response is from the future, ignoring it"))
         elif cached_response_candidate is None:
-            cached_response = CacheMissResponse(cache_key=self.cache_key)
+            self.cached_response = CacheMissResponse(cache_key=self.cache_key)
         else:
             # Whatever's in cache is malformed, so let's treat is as non-existent
-            cached_response = CacheMissResponse(cache_key=self.cache_key)
+            self.cached_response = CacheMissResponse(cache_key=self.cache_key)
             with push_scope() as scope:
                 scope.set_tag("cache_key", self.cache_key)
                 capture_exception(
-                    ValueError(f"Cached response is of unexpected type {type(cached_response)}, ignoring it")
+                    ValueError(f"Cached response is of unexpected type {type(self.cached_response)}, ignoring it")
                 )
-        self.cached_response = cached_response
 
     def run(
         self,
@@ -508,8 +505,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         user: Optional[User] = None,
         query_id: Optional[str] = None,
     ) -> CR | CacheMissResponse | QueryStatusResponse:
-        CachedResponse: type[CR] = self.cached_response_type
-
         self.query_id = query_id or self.query_id
 
         # always load cached response (even if we're always calculating) so that we can compare it
@@ -534,7 +529,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             "cache_key": self.cache_key,
             "timezone": self.team.timezone,
         }
-        fresh_response = CachedResponse(**fresh_response_dict)
+        fresh_response = self.CachedResponseType(**fresh_response_dict)
 
         # Don't cache debug queries with errors and export queries
         has_error: Optional[list] = fresh_response_dict.get("error", None)

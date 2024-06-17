@@ -1,6 +1,6 @@
 from datetime import timedelta
 from math import ceil
-from typing import Optional
+from typing import Optional, TypeAlias
 
 from django.utils.timezone import datetime
 from posthog.caching.insights_api import (
@@ -33,8 +33,8 @@ from posthog.utils import format_label_date
 class LifecycleQueryRunner(QueryRunner):
     query: LifecycleQuery
     response: LifecycleQueryResponse
-    cached_response_type: CachedLifecycleQueryResponse
-    cached_response: cached_response_type | CacheMissResponse
+    CachedResponseType: TypeAlias = CachedLifecycleQueryResponse
+    cached_response: CachedResponseType | CacheMissResponse
 
     def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         if self.query.samplingFactor == 0:

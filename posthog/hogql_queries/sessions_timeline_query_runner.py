@@ -1,5 +1,5 @@
 import json
-from typing import cast
+from typing import TypeAlias, cast
 from posthog.api.element import ElementSerializer
 
 
@@ -40,8 +40,8 @@ class SessionsTimelineQueryRunner(QueryRunner):
 
     query: SessionsTimelineQuery
     response: SessionsTimelineQueryResponse
-    cached_response_type: CachedSessionsTimelineQueryResponse
-    cached_response: cached_response_type | CacheMissResponse
+    CachedResponseType: TypeAlias = CachedSessionsTimelineQueryResponse
+    cached_response: CachedResponseType | CacheMissResponse
 
     def _get_events_subquery(self) -> ast.SelectQuery:
         after = relative_date_parse(self.query.after or "-24h", self.team.timezone_info)
@@ -155,9 +155,7 @@ class SessionsTimelineQueryRunner(QueryRunner):
             formal_session_id,
             informal_session_id,
             recording_duration_s,
-        ) in reversed(
-            query_result.results[: self.EVENT_LIMIT]
-        ):  # The last result is a marker of more results
+        ) in reversed(query_result.results[: self.EVENT_LIMIT]):  # The last result is a marker of more results
             entry_id = str(formal_session_id or informal_session_id)
             if entry_id not in timeline_entries_map:
                 timeline_entries_map[entry_id] = TimelineEntry(

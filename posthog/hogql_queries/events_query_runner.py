@@ -1,6 +1,6 @@
 import json
 from datetime import timedelta
-from typing import Optional
+from typing import TypeAlias, Optional
 
 from dateutil.parser import isoparse
 from django.db.models import Prefetch
@@ -43,8 +43,8 @@ SELECT_STAR_FROM_EVENTS_FIELDS = [
 class EventsQueryRunner(QueryRunner):
     query: EventsQuery
     response: EventsQueryResponse
-    cached_response_type: CachedEventsQueryResponse
-    cached_response: cached_response_type | CacheMissResponse
+    CachedResponseType: TypeAlias = CachedEventsQueryResponse
+    cached_response: CachedResponseType | CacheMissResponse
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

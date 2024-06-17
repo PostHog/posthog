@@ -1,6 +1,6 @@
 from datetime import timedelta
 from math import ceil
-from typing import Optional, Any
+from typing import TypeAlias, Optional, Any
 
 from django.utils.timezone import datetime
 from posthog.caching.insights_api import (
@@ -35,8 +35,8 @@ from posthog.schema import (
 class FunnelsQueryRunner(QueryRunner):
     query: FunnelsQuery
     response: FunnelsQueryResponse
-    cached_response_type: CachedFunnelsQueryResponse
-    cached_response: cached_response_type | CacheMissResponse
+    CachedResponseType: TypeAlias = CachedFunnelsQueryResponse
+    cached_response: CachedResponseType | CacheMissResponse
     context: FunnelQueryContext
 
     def __init__(

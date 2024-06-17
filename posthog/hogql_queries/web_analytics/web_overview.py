@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, TypeAlias
 
 from django.utils.timezone import datetime
 
@@ -17,8 +17,8 @@ from posthog.schema import CachedWebOverviewQueryResponse, WebOverviewQueryRespo
 class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
     query: WebOverviewQuery
     response: WebOverviewQueryResponse
-    cached_response_type: CachedWebOverviewQueryResponse
-    cached_response: cached_response_type | CacheMissResponse
+    CachedResponseType: TypeAlias = CachedWebOverviewQueryResponse
+    cached_response: CachedResponseType | CacheMissResponse
 
     def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         with self.timings.measure("date_expr"):
