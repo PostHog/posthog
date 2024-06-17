@@ -27,7 +27,7 @@ class TestTemplateCustomerio(BaseHogFunctionTemplateTest):
                 "method": "POST",
                 "headers": {
                     "User-Agent": "PostHog Customer.io App",
-                    "Authorization": "Basic SITE_ID:TOKEN",
+                    "Authorization": "Basic U0lURV9JRDpUT0tFTg==",
                     "Content-Type": "application/json",
                 },
                 "body": {

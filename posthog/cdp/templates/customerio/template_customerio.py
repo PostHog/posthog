@@ -15,7 +15,7 @@ fn callCustomerIoApi(method, path, body) {
         'method': 'POST',
         'headers': {
             'User-Agent': 'PostHog Customer.io App',
-            'Authorization': f'Basic {inputs.site_id}:{inputs.token}',
+            'Authorization': f'Basic {base64Encode(f'{inputs.site_id}:{inputs.token}')}',
             'Content-Type': 'application/json'
         },
         'body': body
