@@ -9,7 +9,7 @@ import { urls } from 'scenes/urls'
 import { ActivityFilters } from '~/layout/navigation-3000/sidepanel/panels/activity/activityForSceneLogic'
 import { ActivityScope, Breadcrumb, ReplayTabs } from '~/types'
 
-import type { sessionReplaySceneLogic } from './sessionReplaySceneLogic'
+import type { sessionReplaySceneLogicType } from './sessionReplaySceneLogicType'
 
 export const humanFriendlyTabName = (tab: ReplayTabs): string => {
     switch (tab) {
