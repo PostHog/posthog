@@ -854,6 +854,12 @@ export const surveyLogic = kea<surveyLogicType>([
                 return !!(survey.start_date && !survey.end_date)
             },
         ],
+        surveyShufflingQuestionsAvailable: [
+            (s) => [s.survey],
+            (survey: Survey): boolean => {
+                return survey.questions.length > 1
+            },
+        ],
         showSurveyRepeatSchedule: [(s) => [s.schedule], (schedule: ScheduleType) => schedule == 'recurring'],
         descriptionContentType: [
             (s) => [s.survey],

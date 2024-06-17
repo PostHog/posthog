@@ -8,7 +8,6 @@ from dlt.pipeline.exceptions import PipelineStepFailed
 
 from asgiref.sync import async_to_sync
 import asyncio
-import os
 from posthog.settings.base_variables import TEST
 from structlog.typing import FilteringBoundLogger
 from dlt.sources import DltSource
@@ -46,15 +45,6 @@ class DataImportPipeline:
     def _get_pipeline_name(self):
         return f"{self.inputs.job_type}_pipeline_{self.inputs.team_id}_run_{self.inputs.schema_id}"
 
-    @property
-    def _get_pipelines_dir_base(self):
-        return f"{os.getcwd()}/.dlt/{self.inputs.team_id}"
-
-    def _get_pipelines_dir(self):
-        base = self._get_pipelines_dir_base
-
-        return f"{base}/{self.inputs.source_id}/{self.inputs.job_type}"
-
     def _get_destination(self):
         if TEST:
             credentials = {
@@ -76,12 +66,10 @@ class DataImportPipeline:
 
     def _create_pipeline(self):
         pipeline_name = self._get_pipeline_name()
-        pipelines_dir = self._get_pipelines_dir()
         destination = self._get_destination()
 
         return dlt.pipeline(
             pipeline_name=pipeline_name,
-            pipelines_dir=pipelines_dir,
             destination=destination,
             dataset_name=self.inputs.dataset_name,
         )
