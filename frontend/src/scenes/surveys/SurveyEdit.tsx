@@ -18,6 +18,7 @@ import {
 import { BindLogic, useActions, useValues } from 'kea'
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
 import { FlagSelector } from 'lib/components/FlagSelector'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -621,6 +622,7 @@ export default function SurveyEdit(): JSX.Element {
                                             {featureFlags[FEATURE_FLAGS.SURVEYS_EVENTS] && (
                                                 <LemonField.Pure label="User sends events">
                                                     <EventSelect
+                                                        filterGroupTypes={[TaxonomicFilterGroupType.CustomEvents]}
                                                         onChange={(includedEvents) => {
                                                             setSurveyValue('conditions', {
                                                                 ...survey.conditions,
@@ -641,10 +643,20 @@ export default function SurveyEdit(): JSX.Element {
                                                             <LemonButton
                                                                 size="small"
                                                                 type="secondary"
+                                                                tooltip="activate this survey based on a user event being sent"
                                                                 icon={<IconPlus />}
                                                                 sideIcon={null}
                                                             >
                                                                 Add event
+                                                                <>
+                                                                    <Tooltip
+                                                                        className="ml-2"
+                                                                        title="Estimate of users active in the last 30 seconds."
+                                                                        placement="right"
+                                                                    >
+                                                                        <IconInfo />
+                                                                    </Tooltip>
+                                                                </>
                                                             </LemonButton>
                                                         }
                                                     />
