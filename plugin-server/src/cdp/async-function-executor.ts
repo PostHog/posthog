@@ -31,7 +31,8 @@ export class AsyncFunctionExecutor {
     }
 
     private async asyncFunctionFetch(
-        request: HogFunctionInvocationAsyncRequest
+        request: HogFunctionInvocationAsyncRequest,
+        sync: boolean = false
     ): Promise<HogFunctionMessageToQueue | undefined> {
         // TODO: validate the args
         const args = request.asyncFunctionArgs ?? []
@@ -51,18 +52,19 @@ export class AsyncFunctionExecutor {
             body: typeof body === 'string' ? body : JSON.stringify(body, undefined, 4),
         }
 
-        // NOTE: Purposefully disabled for now - once we have callback support we can re-enable
-        // const SPECIAL_CONFIG_ID = -3 // Hardcoded to mean Hog
-        // const success = await this.rustyHook.enqueueIfEnabledForTeam({
-        //     webhook: webhook,
-        //     teamId: hogFunction.team_id,
-        //     pluginId: SPECIAL_CONFIG_ID,
-        //     pluginConfigId: SPECIAL_CONFIG_ID,
-        // })
-
         const success = false
 
-        // TODO: Temporary test code
+        if (!sync) {
+            // NOTE: Purposefully disabled for now - once we have callback support we can re-enable
+            // const SPECIAL_CONFIG_ID = -3 // Hardcoded to mean Hog
+            // const success = await this.rustyHook.enqueueIfEnabledForTeam({
+            //     webhook: webhook,
+            //     teamId: hogFunction.team_id,
+            //     pluginId: SPECIAL_CONFIG_ID,
+            //     pluginConfigId: SPECIAL_CONFIG_ID,
+            // })
+        }
+
         if (!success) {
             status.info('🦔', `[HogExecutor] Webhook not sent via rustyhook, sending directly instead`)
             const response: HogFunctionInvocationAsyncResponse = {

@@ -143,7 +143,7 @@ export type HogFunctionInvocationAsyncResponse = HogFunctionInvocationAsyncReque
 
 export type HogFunctionMessageToQueue = {
     topic: string
-    value: object
+    value: HogFunctionInvocationAsyncResponse
     key: string
 }
 

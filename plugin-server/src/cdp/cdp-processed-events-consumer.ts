@@ -360,7 +360,7 @@ export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
     }
 
     public addApiRoutes(app: express.Application) {
-        app.post('/api/projects/:team_id/hog_functions/:id/invocations', async (req, res) => {
+        app.post('/api/projects/:team_id/hog_functions/:id/invocations', async (req, res): Promise<void> => {
             try {
                 const { id } = req.params
                 const { globals, mock_async_functions, configuration } = req.body
@@ -391,7 +391,19 @@ export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
                             response.asyncFunction.vmState
                         )
                     } else {
-                        throw new Error('Async functions are not supported in this environment')
+                        const asyncRes = await this.asyncFunctionExecutor!.execute(response.asyncFunction)
+
+                        if (!asyncRes || asyncRes.value.error) {
+                            addLog(response, 'error', 'Failed to execute async function')
+                        }
+
+                        response.asyncFunction.vmState?.stack.push(convertJSToHog(asyncRes?.value.vmResponse ?? null))
+
+                        nextResponse = this.hogExecutor.execute(
+                            configuration,
+                            response.asyncFunction,
+                            response.asyncFunction.vmState
+                        )
                     }
 
                     response = {
