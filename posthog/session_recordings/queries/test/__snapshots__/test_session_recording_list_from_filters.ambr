@@ -3321,7 +3321,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                          GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                                                                                                                                                          HAVING hasAll(groupUniqArray(events.event), ['$pageview', 'custom_event']))))
   GROUP BY s.session_id
-  HAVING true
+  HAVING isNotNull(first_url)
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
@@ -3358,7 +3358,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                          GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                                                                                                                                                          HAVING hasAny(groupUniqArray(events.event), ['$pageview', 'custom_event']))))
   GROUP BY s.session_id
-  HAVING true
+  HAVING isNotNull(first_url)
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
@@ -3396,7 +3396,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE and(equals(log_entries.team_id, 2), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
                                                                                                                                                                                                                                                                                                                                                                                                                          WHERE and(ifNull(in(console_logs_log_entries.level, ['warn']), 0), ifNull(greater(positionCaseInsensitive(console_logs_log_entries.message, 'random'), 0), 0)))))
   GROUP BY s.session_id
-  HAVING true
+  HAVING isNotNull(first_url)
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
@@ -3434,7 +3434,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE and(equals(log_entries.team_id, 2), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
                                                                                                                                                                                                                                                                                                                                                                                                                          WHERE or(ifNull(in(console_logs_log_entries.level, ['warn']), 0), ifNull(greater(positionCaseInsensitive(console_logs_log_entries.message, 'random'), 0), 0)))))
   GROUP BY s.session_id
-  HAVING true
+  HAVING isNotNull(first_url)
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
@@ -3485,7 +3485,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   HAVING hasAny(groupUniqArray(events.event), ['$pageview']))))
   GROUP BY s.session_id
-  HAVING true
+  HAVING isNotNull(first_url)
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
@@ -3536,7 +3536,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   HAVING hasAny(groupUniqArray(events.event), ['$pageview']))))
   GROUP BY s.session_id
-  HAVING true
+  HAVING isNotNull(first_url)
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
@@ -3573,7 +3573,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                                                                                                                                                                                                HAVING hasAny(groupUniqArray(events.event), ['$pageview']))))
   GROUP BY s.session_id
-  HAVING true
+  HAVING isNotNull(first_url)
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
@@ -3610,7 +3610,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                                                                                                                                                                                                HAVING hasAny(groupUniqArray(events.event), ['$pageview']))))
   GROUP BY s.session_id
-  HAVING true
+  HAVING isNotNull(first_url)
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
@@ -3659,7 +3659,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                               HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids__person ON equals(person_distinct_ids.person_distinct_ids___person_id, person_distinct_ids__person.id)
                                                                                                                                                                                                                                                                                                                                                                                                                          WHERE and(ifNull(equals(person_distinct_ids__person.properties___email, 'test@posthog.com'), 0), ifNull(equals(person_distinct_ids__person.properties___email, 'david@posthog.com'), 0)))))
   GROUP BY s.session_id
-  HAVING true
+  HAVING isNotNull(first_url)
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
@@ -3708,7 +3708,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                               HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids__person ON equals(person_distinct_ids.person_distinct_ids___person_id, person_distinct_ids__person.id)
                                                                                                                                                                                                                                                                                                                                                                                                                          WHERE or(ifNull(equals(person_distinct_ids__person.properties___email, 'test@posthog.com'), 0), ifNull(equals(person_distinct_ids__person.properties___email, 'david@posthog.com'), 0)))))
   GROUP BY s.session_id
-  HAVING true
+  HAVING isNotNull(first_url)
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
