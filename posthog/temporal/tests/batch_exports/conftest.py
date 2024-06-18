@@ -5,6 +5,8 @@ import pytest
 import pytest_asyncio
 from psycopg import sql
 
+from posthog.batch_exports.service import BatchExportModel
+
 
 @pytest.fixture
 def interval(request) -> str:
@@ -57,6 +59,19 @@ def batch_export_schema(request) -> dict | None:
         return request.param
     except AttributeError:
         return None
+
+
+@pytest.fixture
+def batch_export_model(request) -> BatchExportModel | None:
+    """A parametrizable fixture to configure a batch export schema.
+
+    By decorating a test function with @pytest.mark.parametrize("batch_export_model", ..., indirect=True)
+    it's possible to set the batch_export_schema that will be used to create a BatchExport.
+    """
+    try:
+        return request.param
+    except AttributeError:
+        return BatchExportModel(name="events")
 
 
 @pytest_asyncio.fixture
