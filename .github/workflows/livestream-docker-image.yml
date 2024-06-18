@@ -44,8 +44,8 @@ jobs:
               if: github.ref == 'refs/heads/master'
               uses: docker/build-push-action@v5
               with:
-                  context: .
-                  file: ./livestream/Dockerfile
+                  context: livestream/
+                  file: Dockerfile
                   push: true
                   platforms: linux/amd64,linux/arm64
                   tags: ${{ steps.meta.outputs.tags }}
