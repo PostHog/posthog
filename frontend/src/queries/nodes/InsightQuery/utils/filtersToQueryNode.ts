@@ -351,7 +351,7 @@ export const trendsFilterToQuery = (filters: Partial<TrendsFilterType>): TrendsF
     return objectCleanWithEmpty({
         smoothingIntervals: filters.smoothing_intervals,
         showLegend: filters.show_legend,
-        hidden_legend_indexes: cleanHiddenLegendIndexes(filters.hidden_legend_keys),
+        hiddenLegendIndexes: cleanHiddenLegendIndexes(filters.hidden_legend_keys),
         aggregationAxisFormat: filters.aggregation_axis_format,
         aggregationAxisPrefix: filters.aggregation_axis_prefix,
         aggregationAxisPostfix: filters.aggregation_axis_postfix,
@@ -432,7 +432,7 @@ export const stickinessFilterToQuery = (filters: Record<string, any>): Stickines
     return objectCleanWithEmpty({
         display: filters.display,
         showLegend: filters.show_legend,
-        hidden_legend_indexes: cleanHiddenLegendIndexes(filters.hidden_legend_keys),
+        hiddenLegendIndexes: cleanHiddenLegendIndexes(filters.hidden_legend_keys),
         showValuesOnSeries: filters.show_values_on_series,
     })
 }

@@ -669,12 +669,8 @@ export interface InsightsQueryBase<R extends AnalyticsQueryResponseBase<any>> ex
     modifiers?: HogQLQueryModifiers
 }
 
-/** `TrendsFilterType` minus everything inherited from `FilterType` and
- * `hidden_legend_keys` replaced by `hidden_legend_indexes` */
-export type TrendsFilterLegacy = Omit<
-    TrendsFilterType & { hidden_legend_indexes?: number[] },
-    keyof FilterType | 'hidden_legend_keys' | 'shown_as'
->
+/** `TrendsFilterType` minus everything inherited from `FilterType` and `shown_as` */
+export type TrendsFilterLegacy = Omit<TrendsFilterType, keyof FilterType | 'shown_as'>
 
 export type TrendsFilter = {
     /** @default 1 */
@@ -695,10 +691,10 @@ export type TrendsFilter = {
     showLabelsOnSeries?: TrendsFilterLegacy['show_labels_on_series']
     /** @default false */
     showPercentStackView?: TrendsFilterLegacy['show_percent_stack_view']
-    hidden_legend_indexes?: TrendsFilterLegacy['hidden_legend_indexes']
+    hiddenLegendIndexes?: integer[]
 }
 
-export const TRENDS_FILTER_PROPERTIES = new Set([
+export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'smoothingIntervals',
     'formula',
     'display',
@@ -711,7 +707,7 @@ export const TRENDS_FILTER_PROPERTIES = new Set([
     'showValuesOnSeries',
     'showLabelsOnSeries',
     'showPercentStackView',
-    'hidden_legend_indexes',
+    'hiddenLegendIndexes',
 ])
 
 export interface TrendsQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}
@@ -897,28 +893,21 @@ export interface PathsQuery extends InsightsQueryBase<PathsQueryResponse> {
     funnelPathsFilter?: FunnelPathsFilter
 }
 
-/** `StickinessFilterType` minus everything inherited from `FilterType` and persons modal related params
- * and `hidden_legend_keys` replaced by `hidden_legend_indexes` */
-export type StickinessFilterLegacy = Omit<
-    StickinessFilterType & { hidden_legend_indexes?: number[] },
-    keyof FilterType | 'hidden_legend_keys' | 'stickiness_days' | 'shown_as'
->
+/** `StickinessFilterType` minus everything inherited from `FilterType` and persons modal related params  */
+export type StickinessFilterLegacy = Omit<StickinessFilterType, keyof FilterType | 'stickiness_days' | 'shown_as'>
 
 export type StickinessFilter = {
-    /** @default false */
-    compare?: StickinessFilterLegacy['compare']
     display?: StickinessFilterLegacy['display']
     showLegend?: StickinessFilterLegacy['show_legend']
     showValuesOnSeries?: StickinessFilterLegacy['show_values_on_series']
-    hidden_legend_indexes?: StickinessFilterLegacy['hidden_legend_indexes']
+    hiddenLegendIndexes?: integer[]
 }
 
-export const STICKINESS_FILTER_PROPERTIES = new Set([
-    'compare',
+export const STICKINESS_FILTER_PROPERTIES = new Set<keyof StickinessFilter>([
     'display',
     'showLegend',
     'showValuesOnSeries',
-    'hidden_legend_indexes',
+    'hiddenLegendIndexes',
 ])
 
 export interface StickinessQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}

@@ -48,8 +48,7 @@ export function InsightsTable({
     isMainInsightView = false,
 }: InsightsTableProps): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
-    const { insightProps, isInDashboardContext, insight, hiddenLegendKeys } = useValues(insightLogic)
-    const { toggleVisibility } = useActions(insightLogic)
+    const { insightProps, isInDashboardContext, insight } = useValues(insightLogic)
     const {
         insightDataLoading,
         indexedResults,
@@ -61,7 +60,9 @@ export function InsightsTable({
         breakdownFilter,
         trendsFilter,
         isSingleSeries,
+        hiddenLegendIndexes,
     } = useValues(trendsDataLogic(insightProps))
+    const { toggleHiddenLegendIndex } = useActions(trendsDataLogic(insightProps))
     const { aggregation, allowAggregation } = useValues(insightsTableDataLogic(insightProps))
     const { setAggregationType } = useActions(insightsTableDataLogic(insightProps))
 
@@ -90,8 +91,8 @@ export function InsightsTable({
                     <SeriesCheckColumnTitle
                         indexedResults={indexedResults}
                         canCheckUncheckSeries={canCheckUncheckSeries}
-                        hiddenLegendKeys={hiddenLegendKeys}
-                        toggleVisibility={toggleVisibility}
+                        hiddenLegendIndexes={hiddenLegendIndexes}
+                        toggleHiddenLegendIndex={toggleHiddenLegendIndex}
                     />
                 )}
                 <span>Series</span>
@@ -112,8 +113,8 @@ export function InsightsTable({
                 <SeriesCheckColumnItem
                     item={item}
                     canCheckUncheckSeries={canCheckUncheckSeries}
-                    hiddenLegendKeys={hiddenLegendKeys}
-                    toggleVisibility={toggleVisibility}
+                    hiddenLegendIndexes={hiddenLegendIndexes}
+                    toggleHiddenLegendIndex={toggleHiddenLegendIndex}
                     label={<div className="ml-2 font-normal">{label}</div>}
                 />
             ) : (
