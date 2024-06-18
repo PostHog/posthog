@@ -1,4 +1,3 @@
-import ast
 from itertools import product
 from unittest import mock
 from uuid import uuid4
@@ -11,6 +10,7 @@ from parameterized import parameterized
 from ee.clickhouse.materialized_columns.columns import materialize
 from posthog.clickhouse.client import sync_execute
 from posthog.hogql.ast import CompareOperation, And, SelectQuery
+from posthog.hogql.base import Expr
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import print_ast
 from posthog.models import Person
@@ -189,7 +189,7 @@ class TestClickhouseSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBas
             )
             hogql_parsed_select = session_recording_list_instance.get_query()
 
-            where_conditions: list[ast.Expr] = hogql_parsed_select.where.exprs
+            where_conditions: list[Expr] = hogql_parsed_select.where.exprs
             ands = [x for x in where_conditions if isinstance(x, And)]
             assert len(ands) == 1
             and_comparisons = [x for x in ands[0].exprs if isinstance(x, CompareOperation)]
