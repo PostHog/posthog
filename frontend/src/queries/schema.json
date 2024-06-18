@@ -2610,6 +2610,9 @@
                 },
                 {
                     "$ref": "#/definitions/DatabaseSchemaViewTable"
+                },
+                {
+                    "$ref": "#/definitions/DatabaseSchemaBatchExportTable"
                 }
             ]
         },
