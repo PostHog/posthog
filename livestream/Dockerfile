@@ -1,6 +1,6 @@
 FROM golang:1.22 as builder
 WORKDIR /code
-COPY go.sum go.mod .
+COPY go.sum go.mod ./
 RUN go mod download -x
 
 COPY . ./
