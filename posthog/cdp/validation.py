@@ -3,10 +3,24 @@ from typing import Any, Optional
 from rest_framework import serializers
 
 from posthog.hogql.bytecode import create_bytecode
-from posthog.hogql.parser import parse_program
-from posthog.models.hog_functions.utils import generate_template_bytecode
+from posthog.hogql.parser import parse_program, parse_string_template
 
 logger = logging.getLogger(__name__)
+
+
+def generate_template_bytecode(obj: Any) -> Any:
+    """
+    Clones an object, compiling any string values to bytecode templates
+    """
+
+    if isinstance(obj, dict):
+        return {key: generate_template_bytecode(value) for key, value in obj.items()}
+    elif isinstance(obj, list):
+        return [generate_template_bytecode(item) for item in obj]
+    elif isinstance(obj, str):
+        return create_bytecode(parse_string_template(obj))
+    else:
+        return obj
 
 
 class InputsSchemaItemSerializer(serializers.Serializer):
