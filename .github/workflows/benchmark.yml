@@ -2,9 +2,6 @@ name: Benchmark
 
 on:
     pull_request:
-        branches: ['*']
-        paths:
-            - .github/workflows/benchmark.yml
     schedule:
         - cron: '0 4 * * 1-5' # Mon-Fri 4AM UTC
     workflow_dispatch: {}
