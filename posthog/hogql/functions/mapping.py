@@ -466,6 +466,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "timeStampSub": HogQLFunctionMeta("timeStampSub", 2, 2),
     "now": HogQLFunctionMeta("now64", 0, 1, tz_aware=True, case_sensitive=False),
     "nowInBlock": HogQLFunctionMeta("nowInBlock", 1, 1),
+    "rowNumberInAllBlocks": HogQLFunctionMeta("rowNumberInAllBlocks", 0, 0),
     "today": HogQLFunctionMeta("today"),
     "yesterday": HogQLFunctionMeta("yesterday"),
     "timeSlot": HogQLFunctionMeta("timeSlot", 1, 1),

@@ -17,7 +17,7 @@ import { BASE_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
 import { queryNodeToFilter, seriesNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import {
     getBreakdown,
-    getCompare,
+    getCompareFilter,
     getDisplay,
     getFormula,
     getInterval,
@@ -30,6 +30,7 @@ import {
 } from '~/queries/nodes/InsightViz/utils'
 import {
     BreakdownFilter,
+    CompareFilter,
     DatabaseSchemaField,
     DataWarehouseNode,
     DateRange,
@@ -96,6 +97,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         updateInsightFilter: (insightFilter: InsightFilter) => ({ insightFilter }),
         updateDateRange: (dateRange: DateRange) => ({ dateRange }),
         updateBreakdownFilter: (breakdownFilter: BreakdownFilter) => ({ breakdownFilter }),
+        updateCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
         updateDisplay: (display: ChartDisplayType | undefined) => ({ display }),
         setTimedOutQueryId: (id: string | null) => ({ id }),
     }),
@@ -150,8 +152,8 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 
         dateRange: [(s) => [s.querySource], (q) => (q ? q.dateRange : null)],
         breakdownFilter: [(s) => [s.querySource], (q) => (q ? getBreakdown(q) : null)],
+        compareFilter: [(s) => [s.querySource], (q) => (q ? getCompareFilter(q) : null)],
         display: [(s) => [s.querySource], (q) => (q ? getDisplay(q) : null)],
-        compare: [(s) => [s.querySource], (q) => (q ? getCompare(q) : null)],
         formula: [(s) => [s.querySource], (q) => (q ? getFormula(q) : null)],
         series: [(s) => [s.querySource], (q) => (q ? getSeries(q) : null)],
         interval: [(s) => [s.querySource], (q) => (q ? getInterval(q) : null)],
@@ -362,12 +364,24 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
     listeners(({ actions, values, props }) => ({
         updateDateRange: async ({ dateRange }, breakpoint) => {
             await breakpoint(300)
-            actions.updateQuerySource({ dateRange: { ...values.dateRange, ...dateRange } })
+            actions.updateQuerySource({
+                dateRange: {
+                    ...values.dateRange,
+                    ...dateRange,
+                },
+                ...(dateRange.date_from == 'all' ? ({ compareFilter: undefined } as Partial<TrendsQuery>) : {}),
+            })
         },
         updateBreakdownFilter: async ({ breakdownFilter }, breakpoint) => {
             await breakpoint(500) // extra debounce time because of number input
             actions.updateQuerySource({
                 breakdownFilter: { ...values.breakdownFilter, ...breakdownFilter },
+            } as Partial<TrendsQuery>)
+        },
+        updateCompareFilter: async ({ compareFilter }, breakpoint) => {
+            await breakpoint(500) // extra debounce time because of number input
+            actions.updateQuerySource({
+                compareFilter: { ...values.compareFilter, ...compareFilter },
             } as Partial<TrendsQuery>)
         },
         updateInsightFilter: async ({ insightFilter }, breakpoint) => {

@@ -112,6 +112,7 @@ async function executeQuery<N extends DataNode>(
     setPollResponse?: (response: QueryStatus) => void
 ): Promise<NonNullable<N['response']>> {
     const isAsyncQuery =
+        methodOptions?.async !== false &&
         !SYNC_ONLY_QUERY_KINDS.includes(queryNode.kind) &&
         !!featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.QUERY_ASYNC]
 

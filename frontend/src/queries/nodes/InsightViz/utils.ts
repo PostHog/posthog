@@ -5,6 +5,7 @@ import { getEventNamesForAction, isEmptyObject } from 'lib/utils'
 import {
     ActionsNode,
     BreakdownFilter,
+    CompareFilter,
     DataWarehouseNode,
     EventsNode,
     InsightQueryNode,
@@ -15,6 +16,7 @@ import {
 } from '~/queries/schema'
 import {
     isInsightQueryWithBreakdown,
+    isInsightQueryWithCompare,
     isInsightQueryWithSeries,
     isLifecycleQuery,
     isStickinessQuery,
@@ -51,15 +53,6 @@ export const getDisplay = (query: InsightQueryNode): ChartDisplayType | undefine
     return undefined
 }
 
-export const getCompare = (query: InsightQueryNode): boolean | undefined => {
-    if (isStickinessQuery(query)) {
-        return query.stickinessFilter?.compare
-    } else if (isTrendsQuery(query)) {
-        return query.trendsFilter?.compare
-    }
-    return undefined
-}
-
 export const getFormula = (query: InsightQueryNode): string | undefined => {
     if (isTrendsQuery(query)) {
         return query.trendsFilter?.formula
@@ -84,6 +77,13 @@ export const getInterval = (query: InsightQueryNode): IntervalType | undefined =
 export const getBreakdown = (query: InsightQueryNode): BreakdownFilter | undefined => {
     if (isInsightQueryWithBreakdown(query)) {
         return query.breakdownFilter
+    }
+    return undefined
+}
+
+export const getCompareFilter = (query: InsightQueryNode): CompareFilter | undefined => {
+    if (isInsightQueryWithCompare(query)) {
+        return query.compareFilter
     }
     return undefined
 }

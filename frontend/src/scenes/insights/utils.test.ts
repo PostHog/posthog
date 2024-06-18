@@ -250,6 +250,28 @@ describe('formatBreakdownLabel()', () => {
         expect(formatBreakdownLabel('[124.8,124.8]', breakdownFilter, [], identity)).toEqual('124.8')
     })
 
+    it('handles histogram breakdowns for "other" value', () => {
+        const breakdownFilter: BreakdownFilter = {
+            breakdown: '$browser_version',
+            breakdown_type: 'event',
+            breakdown_histogram_bin_count: 10,
+        }
+        expect(formatBreakdownLabel('$$_posthog_breakdown_other_$$', breakdownFilter, [], identity)).toEqual(
+            'Other (i.e. all remaining values)'
+        )
+    })
+
+    it('handles histogram breakdowns for "null" value', () => {
+        const breakdownFilter: BreakdownFilter = {
+            breakdown: '$browser_version',
+            breakdown_type: 'event',
+            breakdown_histogram_bin_count: 10,
+        }
+        expect(formatBreakdownLabel('$$_posthog_breakdown_null_$$', breakdownFilter, [], identity)).toEqual(
+            'None (i.e. no value)'
+        )
+    })
+
     it('handles numeric breakdowns', () => {
         const breakdownFilter: BreakdownFilter = {
             breakdown: 'coolness_factor',

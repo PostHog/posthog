@@ -16,7 +16,7 @@ export const WebAnalyticsNotice = (): JSX.Element => {
         <LemonBanner type="info" className="my-4">
             <div className="flex items-center flex-wrap gap-2 justify-between">
                 <div className="flex-1 min-w-full sm:min-w-0">
-                    PostHog Web Analytics is in opt-in Beta. Thanks for taking part! We'd love to hear what you think.
+                    PostHog Web Analytics is in open beta. Thanks for taking part! We'd love to hear what you think.
                 </div>
                 {showSupportOptions ? (
                     <span className="flex items-center gap-2">
