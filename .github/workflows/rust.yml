@@ -58,7 +58,7 @@ jobs:
               if: needs.changes.outputs.rust == 'true'
               uses: dtolnay/rust-toolchain@1.77
 
-            - uses: actions/cache@v3
+            - uses: actions/cache@v4
               if: needs.changes.outputs.rust == 'true'
               with:
                   path: |
@@ -94,6 +94,7 @@ jobs:
             - name: Login to DockerHub
               if: needs.changes.outputs.rust == 'true'
               uses: docker/login-action@v2
+              continue-on-error: true
               with:
                   username: posthog
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -109,7 +110,7 @@ jobs:
               if: needs.changes.outputs.rust == 'true'
               uses: dtolnay/rust-toolchain@1.77
 
-            - uses: actions/cache@v3
+            - uses: actions/cache@v4
               if: needs.changes.outputs.rust == 'true'
               with:
                   path: |
@@ -147,7 +148,7 @@ jobs:
               with:
                   components: clippy,rustfmt
 
-            - uses: actions/cache@v3
+            - uses: actions/cache@v4
               if: needs.changes.outputs.rust == 'true'
               with:
                   path: |
