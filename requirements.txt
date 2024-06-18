@@ -76,14 +76,14 @@ celery==5.3.4
     #   sentry-sdk
 celery-redbeat==2.1.1
     # via -r requirements.in
-certifi==2019.11.28
+certifi==2024.6.2
     # via
     #   httpcore
     #   httpx
     #   requests
+    #   selenium
     #   sentry-sdk
     #   snowflake-connector-python
-    #   urllib3
 cffi==1.14.5
     # via
     #   cryptography
@@ -121,7 +121,6 @@ cryptography==37.0.2
     #   pyopenssl
     #   snowflake-connector-python
     #   social-auth-core
-    #   urllib3
 cssselect==1.1.0
     # via toronado
 cssutils==1.0.2
@@ -293,7 +292,6 @@ idna==2.8
     #   requests
     #   snowflake-connector-python
     #   trio
-    #   urllib3
     #   yarl
 infi-clickhouse-orm @ git+https://github.com/PostHog/infi.clickhouse_orm@9578c79f29635ee2c1d01b7979e89adab8383de2
     # via -r requirements.in
@@ -316,9 +314,9 @@ jsonschema==4.20.0
 jsonschema-specifications==2023.12.1
     # via jsonschema
 kafka-python==2.0.2
-    # via
-    #   -r requirements.in
-    #   aiokafka
+    # via aiokafka
+kafka-python-ng==2.2.2
+    # via -r requirements.in
 kombu==5.3.2
     # via
     #   -r requirements.in
@@ -447,9 +445,7 @@ pyjwt==2.4.0
 pynacl==1.5.0
     # via paramiko
 pyopenssl==22.0.0
-    # via
-    #   snowflake-connector-python
-    #   urllib3
+    # via snowflake-connector-python
 pypng==0.20220715.0
     # via qrcode
 pysocks==1.7.1
@@ -536,7 +532,7 @@ scikit-learn==1.4.0
     # via -r requirements.in
 scipy==1.12.0
     # via scikit-learn
-selenium==4.1.5
+selenium==4.21.0
     # via -r requirements.in
 semantic-version==2.8.5
     # via -r requirements.in
@@ -635,7 +631,7 @@ types-protobuf==4.22.0.0
     # via temporalio
 types-setuptools==69.0.0.0
     # via requirements-parser
-typing-extensions==4.7.1
+typing-extensions==4.12.2
     # via
     #   anyio
     #   asgiref
@@ -645,6 +641,7 @@ typing-extensions==4.7.1
     #   pydantic
     #   pydantic-core
     #   qrcode
+    #   selenium
     #   snowflake-connector-python
     #   stripe
     #   temporalio
@@ -668,8 +665,6 @@ urllib3==1.26.18
     #   requests
     #   selenium
     #   sentry-sdk
-urllib3-secure-extra==0.1.0
-    # via urllib3
 vine==5.0.0
     # via
     #   amqp
