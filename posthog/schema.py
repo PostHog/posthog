@@ -342,7 +342,7 @@ class EntityType(StrEnum):
     NEW_ENTITY = "new_entity"
 
 
-class ErrorTrackingOrder(str, Enum):
+class ErrorTrackingOrder(StrEnum):
     LAST_SEEN = "last_seen"
     FIRST_SEEN = "first_seen"
     UNIQUE_OCCURRENCES = "unique_occurrences"
