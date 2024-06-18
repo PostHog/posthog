@@ -88,7 +88,7 @@ export function Products(): JSX.Element {
     const { isFirstProductOnboarding } = useValues(onboardingLogic)
 
     return (
-        <div className="flex flex-col flex-1 w-full px-6 items-center justify-center bg-mid h-[calc(100vh-var(--breadcrumbs-height-full)-2*var(--scene-padding))]">
+        <div className="flex flex-col flex-1 w-full px-6 items-center justify-center bg-bg-3000 h-[calc(100vh-var(--breadcrumbs-height-full)-2*var(--scene-padding))]">
             <div className="mb-8">
                 {isFirstProductOnboarding ? (
                     <h2 className="text-center text-4xl">Where do you want to start?</h2>
