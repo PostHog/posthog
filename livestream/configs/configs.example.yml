@@ -1,14 +1,11 @@
 prod: true
-tailscale:
-    controlUrl:
-    hostname: "live-events-dev"
 kafka:
-    brokers: "localhost:9092"
-    topic: ""
-    group_id: "livestream-dev"
+    brokers: 'localhost:9092'
+    topic: ''
+    group_id: 'livestream-dev'
 mmdb:
-    path: "mmdb.db"
+    path: 'mmdb.db'
 jwt:
-    token: "<randomly generated secret key>"
+    token: '<randomly generated secret key>'
 postgres:
-    url: "postgres://postgres:postgres@localhost:5432/postgres"
+    url: 'postgres://postgres:postgres@localhost:5432/postgres'
