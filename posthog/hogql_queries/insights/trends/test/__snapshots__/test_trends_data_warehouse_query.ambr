@@ -2,7 +2,7 @@
 # name: TestTrendsDataWarehouseQuery.test_trends_breakdown
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayMap(i -> arraySum(arrayMap(x -> arrayElement(x, i), groupArray(total))), arrayEnumerate(date)) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-01 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-07 23:59:59', 6, 'UTC'))))), 1))) AS date,
@@ -35,7 +35,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=1000000,
                      max_expanded_ast_elements=1000000,
-                     max_query_size=524288
+                     max_query_size=524288,
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrendsDataWarehouseQuery.test_trends_breakdown.1
@@ -74,7 +75,7 @@
 # name: TestTrendsDataWarehouseQuery.test_trends_breakdown_with_property
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayMap(i -> arraySum(arrayMap(x -> arrayElement(x, i), groupArray(total))), arrayEnumerate(date)) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-01 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-07 23:59:59', 6, 'UTC'))))), 1))) AS date,
@@ -107,7 +108,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=1000000,
                      max_expanded_ast_elements=1000000,
-                     max_query_size=524288
+                     max_query_size=524288,
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrendsDataWarehouseQuery.test_trends_breakdown_with_property.1
@@ -166,7 +168,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=1000000,
                      max_expanded_ast_elements=1000000,
-                     max_query_size=524288
+                     max_query_size=524288,
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrendsDataWarehouseQuery.test_trends_entity_property
@@ -192,7 +195,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=1000000,
                      max_expanded_ast_elements=1000000,
-                     max_query_size=524288
+                     max_query_size=524288,
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrendsDataWarehouseQuery.test_trends_property
@@ -218,6 +222,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=1000000,
                      max_expanded_ast_elements=1000000,
-                     max_query_size=524288
+                     max_query_size=524288,
+                     max_bytes_before_external_group_by=0
   '''
 # ---

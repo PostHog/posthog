@@ -36,6 +36,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         setEditSchemaIsLoading: (isLoading: boolean) => ({ isLoading }),
         cancelEditSchema: () => ({ database: values.database }),
         deleteDataWarehouseTable: (tableId: string) => ({ tableId }),
+        toggleSchemaModal: true,
     })),
     reducers({
         selectedRow: [
@@ -120,6 +121,12 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                 setEditSchemaIsLoading: (_, { isLoading }) => isLoading,
                 loadDatabaseSuccess: () => false,
                 loadDatabaseFailure: () => false,
+            },
+        ],
+        schemaModalIsOpen: [
+            false,
+            {
+                toggleSchemaModal: (state) => !state,
             },
         ],
     }),
