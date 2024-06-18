@@ -67,7 +67,7 @@ function sanitizeFilters(filters?: FilterType): PluginConfigTypeNew['filters'] {
     return Object.keys(sanitized).length > 0 ? sanitized : undefined
 }
 
-export function sanitizeConfiguration(data: HogFunctionConfigurationType) {
+export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFunctionConfigurationType {
     const sanitizedInputs = {}
 
     data.inputs_schema?.forEach((input) => {
