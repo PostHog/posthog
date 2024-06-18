@@ -24,9 +24,10 @@ export const BillingCTAHero = ({ product }: { product: BillingProductV2Type }): 
                 <h1 className="mb-0">Get the whole hog.</h1>
                 <h1 className="text-danger">Only pay for what you use.</h1>
                 <div className="mt-2 mb-0 max-w-xl">
+                    <p>PostHog comes with all product features on every plan.</p>
                     <p>
-                        PostHog comes with all product features on every plan. Add your credit card to remove usage
-                        limits and unlock all platform features.
+                        Add your credit card to remove usage limits and unlock all platform features. Set billing limits
+                        as low as $0 to control your spend.
                     </p>
                     <p className="italic">P.S. You still keep the monthly free allotment for every product!</p>
                 </div>

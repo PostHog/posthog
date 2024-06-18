@@ -344,7 +344,9 @@ export const PlanComparison = ({
                         })}
                 <tr>
                     <th colSpan={1} className="PlanTable__th__section rounded text-left">
-                        <h3 className="mt-6 mb-2">Product Features:</h3>
+                        <h3 className="mt-6 mb-2">
+                            {product.type === 'platform_and_support' ? 'Platform' : 'Product'} features:
+                        </h3>
                     </th>
                 </tr>
                 {fullyFeaturedPlan?.features?.map((feature, i) => (
