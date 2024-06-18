@@ -1,7 +1,7 @@
 import express from 'express'
 import supertest from 'supertest'
 
-import { CdpFunctionCallbackConsumer } from '../../src/cdp/cdp-processed-events-consumer'
+import { CdpFunctionCallbackConsumer } from '../../src/cdp/cdp-consumers'
 import { HogFunctionType } from '../../src/cdp/types'
 import { defaultConfig } from '../../src/config/config'
 import { Hub, PluginsServerConfig, Team } from '../../src/types'

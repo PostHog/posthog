@@ -1,4 +1,4 @@
-import { CdpProcessedEventsConsumer } from '../../src/cdp/cdp-processed-events-consumer'
+import { CdpProcessedEventsConsumer } from '../../src/cdp/cdp-consumers'
 import { HogFunctionType } from '../../src/cdp/types'
 import { defaultConfig } from '../../src/config/config'
 import { Hub, PluginsServerConfig, Team } from '../../src/types'
