@@ -21,29 +21,33 @@ export const BillingCTAHero = ({ product }: { product: BillingProductV2Type }): 
         <div className="flex relative justify-between items-center rounded-lg bg-mark" ref={billingHeroRef}>
             <div className="p-4">
                 {/* <h1>Add your credit card to unlock all the features.</h1> */}
-                <h1>Upgrade to unlock all the features.</h1>
+                <h1 className="mb-0">Get the whole hog.</h1>
                 <h1 className="text-danger">Only pay for what you use.</h1>
-                <p className="mt-2 mb-0">
-                    You're currently on the free plan. It's free but limited in features. Add your credit card to
-                    upgrade to our paid plan where you pay per use (after the generous free tier).
-                </p>
+                <div className="mt-2 mb-0 max-w-xl">
+                    <p>
+                        PostHog comes with all product features on every plan. Add your credit card to remove usage
+                        limits and unlock all platform features.
+                    </p>
+                    <p className="italic">P.S. You still keep the monthly free allotment for every product!</p>
+                </div>
                 <div className="flex justify-start space-x-2">
-                    <LemonButton
-                        className="mt-4 inline-block"
-                        onClick={() => toggleIsPlanComparisonModalOpen()}
-                        type="secondary"
-                    >
-                        Compare plans
-                    </LemonButton>
                     <LemonButton
                         className="mt-4 inline-block"
                         to={`/api/billing/activate?products=all_products:&redirect_path=${redirectPath}`}
                         type="primary"
+                        status="alt"
                         disableClientSideRouting
                         loading={!!billingProductLoading}
                         onClick={() => setBillingProductLoading(product.type)}
                     >
                         Upgrade now
+                    </LemonButton>
+                    <LemonButton
+                        className="mt-4 inline-block"
+                        onClick={() => toggleIsPlanComparisonModalOpen()}
+                        type="primary"
+                    >
+                        Compare plans
                     </LemonButton>
                 </div>
             </div>
