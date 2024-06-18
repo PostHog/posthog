@@ -562,17 +562,17 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                     "session_id": session_id_two,
                     "first_url": "https://first-is-on-second-event.com",
                 },
-                # sessions without urls are not included
-                # {
-                #     "session_id": session_id_three,
-                #     "first_url": None,
-                # },
+                {
+                    "session_id": session_id_three,
+                    "first_url": None,
+                },
                 {
                     "session_id": session_id_four,
                     "first_url": "https://on-second-received-event-but-actually-first.com",
                 },
             ],
-            key=lambda x: x["session_id"],
+            # mypy unhappy about this lambda when first_url can be None 🤷️
+            key=lambda x: x["session_id"],  # type: ignore
         )
 
     def test_recordings_dont_leak_data_between_teams(self):

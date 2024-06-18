@@ -14,6 +14,8 @@ export type TreeItem = TreeItemFolder | TreeItemLeaf | TreeTableItemLeaf
 
 export interface TreeItemFolder {
     name: string
+    table?: DatabaseSchemaTable
+    dropdownOverlay?: React.ReactNode
     items: TreeItem[]
     emptyLabel?: JSX.Element
     isLoading?: boolean
@@ -38,6 +40,7 @@ export function DatabaseTableTree({ items, onSelectRow, selectedRow, depth = 1, 
                     return (
                         <TreeFolderRow
                             key={depth + '_' + index}
+                            dropdownOverlay={item.dropdownOverlay}
                             item={item}
                             depth={depth}
                             onClick={onSelectRow}

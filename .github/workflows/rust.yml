@@ -58,7 +58,7 @@ jobs:
               if: needs.changes.outputs.rust == 'true'
               uses: dtolnay/rust-toolchain@1.77
 
-            - uses: actions/cache@v3
+            - uses: actions/cache@v4
               if: needs.changes.outputs.rust == 'true'
               with:
                   path: |
@@ -109,7 +109,7 @@ jobs:
               if: needs.changes.outputs.rust == 'true'
               uses: dtolnay/rust-toolchain@1.77
 
-            - uses: actions/cache@v3
+            - uses: actions/cache@v4
               if: needs.changes.outputs.rust == 'true'
               with:
                   path: |
@@ -147,7 +147,7 @@ jobs:
               with:
                   components: clippy,rustfmt
 
-            - uses: actions/cache@v3
+            - uses: actions/cache@v4
               if: needs.changes.outputs.rust == 'true'
               with:
                   path: |

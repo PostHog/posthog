@@ -199,7 +199,6 @@ export const FEATURE_FLAGS = {
     PLUGINS_FILTERING: 'plugins-filtering', // owner: @benjackwhite
     SESSION_REPLAY_HOG_QL_FILTERING: 'session-replay-hogql-filtering', // owner: #team-replay
     INSIGHT_LOADING_BAR: 'insight-loading-bar', // owner: @aspicer
-    SESSION_REPLAY_ARTIFICIAL_LAG: 'artificial-lag-query-performance', // owner: #team-replay
     PROXY_AS_A_SERVICE: 'proxy-as-a-service', // owner: #team-infrastructure
     LIVE_EVENTS: 'live-events', // owner: @zach or @jams
     SESSION_REPLAY_NETWORK_VIEW: 'session-replay-network-view', // owner: #team-replay

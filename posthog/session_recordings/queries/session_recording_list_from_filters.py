@@ -257,12 +257,7 @@ class SessionRecordingListFromFilters:
         return ast.And(exprs=exprs)
 
     def _having_predicates(self) -> ast.And | Constant:
-        exprs: list[ast.Expr] = [
-            # a missing first url indicates delayed or incomplete ingestion and we can ignore those
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.NotEq, left=ast.Field(chain=["first_url"]), right=ast.Constant(value=None)
-            )
-        ]
+        exprs: list[ast.Expr] = []
 
         if self._filter.recording_duration_filter:
             op = (
@@ -278,7 +273,7 @@ class SessionRecordingListFromFilters:
                 ),
             )
 
-        return ast.And(exprs=exprs)
+        return ast.And(exprs=exprs) if exprs else ast.Constant(value=True)
 
     def _strip_person_and_event_properties(self, property_group: PropertyGroup) -> PropertyGroup | None:
         property_groups_to_keep = [
@@ -357,7 +352,7 @@ class PersonsIdSubQuery:
                 """
                 SELECT distinct_id
                 FROM person_distinct_ids
-                WHERE person.id = {person_id}
+                WHERE person_id = {person_id}
                 """,
                 {
                     "person_id": ast.Constant(value=self._filter.person_uuid),
