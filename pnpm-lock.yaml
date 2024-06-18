@@ -18042,7 +18042,7 @@ packages:
       progress: 2.0.3
       proxy-from-env: 1.0.0
       rimraf: 2.7.1
-      ws: 6.2.2
+      ws: 6.2.3
     transitivePeerDependencies:
       - bufferutil
       - supports-color
@@ -21916,8 +21916,8 @@ packages:
       signal-exit: 4.1.0
     dev: true
 
-  /ws@6.2.2:
-    resolution: {integrity: sha512-zmhltoSR8u1cnDsD43TX59mzoMZsLKqUweyYBAIvTngR3shc0W6aOZylZmq/7hqyVxPdi+5Ud2QInblgyE72fw==}
+  /ws@6.2.3:
+    resolution: {integrity: sha512-jmTjYU0j60B+vHey6TfR3Z7RD61z/hmxBS3VMSGIrroOWXQEneK1zNuotOUrGyBHQj0yrpsLHPWtigEFd13ndA==}
     peerDependencies:
       bufferutil: ^4.0.1
       utf-8-validate: ^5.0.2
