@@ -3,6 +3,7 @@ from dlt.sources.helpers.rest_client.paginators import BasePaginator
 from dlt.sources.helpers.requests import Response, Request
 from posthog.temporal.data_imports.pipelines.rest_source import RESTAPIConfig, rest_api_resources
 from posthog.temporal.data_imports.pipelines.rest_source.typing import EndpointResource
+from posthog.warehouse.models.external_table_definitions import get_dlt_mapping_for_external_table
 
 
 def get_resource(name: str, is_incremental: bool) -> EndpointResource:
@@ -12,6 +13,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "table_name": "brands",
             "primary_key": "id",
             "write_disposition": "merge",
+            "columns": get_dlt_mapping_for_external_table("zendesk_brands"),  # type: ignore
             "endpoint": {
                 "data_selector": "brands",
                 "path": "/api/v2/brands",
@@ -29,6 +31,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "table_name": "organizations",
             "primary_key": "id",
             "write_disposition": "merge",
+            "columns": get_dlt_mapping_for_external_table("zendesk_organizations"),  # type: ignore
             "endpoint": {
                 "data_selector": "organizations",
                 "path": "/api/v2/organizations",
@@ -46,6 +49,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "table_name": "groups",
             "primary_key": "id",
             "write_disposition": "merge",
+            "columns": get_dlt_mapping_for_external_table("zendesk_groups"),  # type: ignore
             "endpoint": {
                 "data_selector": "groups",
                 "path": "/api/v2/groups",
@@ -65,6 +69,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "table_name": "sla_policies",
             "primary_key": "id",
             "write_disposition": "merge",
+            "columns": get_dlt_mapping_for_external_table("zendesk_sla_policies"),  # type: ignore
             "endpoint": {
                 "data_selector": "sla_policies",
                 "path": "/api/v2/slas/policies",
@@ -79,6 +84,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "table_name": "users",
             "primary_key": "id",
             "write_disposition": "merge",
+            "columns": get_dlt_mapping_for_external_table("zendesk_users"),  # type: ignore
             "endpoint": {
                 "data_selector": "users",
                 "path": "/api/v2/users",
@@ -101,6 +107,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "table_name": "ticket_fields",
             "primary_key": "id",
             "write_disposition": "merge",
+            "columns": get_dlt_mapping_for_external_table("zendesk_ticket_fields"),  # type: ignore
             "endpoint": {
                 "data_selector": "ticket_fields",
                 "path": "/api/v2/ticket_fields",
@@ -121,12 +128,15 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "table_name": "ticket_events",
             "primary_key": "id",
             "write_disposition": "merge",
+            "columns": get_dlt_mapping_for_external_table("zendesk_ticket_events"),  # type: ignore
             "endpoint": {
                 "data_selector": "ticket_events",
-                "path": "/api/v2/incremental/ticket_events",
+                "path": "/api/v2/incremental/ticket_events?start_time=0",
+                "paginator": ZendeskIncrementalEndpointPaginator(),
                 "params": {
                     "per_page": 1000,
-                    "start_time": 0,
+                    # Having to use `start_time` in the initial path until incrementality works
+                    # "start_time": 0,
                     # Incrementality is disabled as we can't access end_time on the root object
                     # "start_time": {
                     #     "type": "incremental",
@@ -141,6 +151,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "table_name": "tickets",
             "primary_key": "id",
             "write_disposition": "merge",
+            "columns": get_dlt_mapping_for_external_table("zendesk_tickets"),  # type: ignore
             "endpoint": {
                 "data_selector": "tickets",
                 "path": "/api/v2/incremental/tickets",
@@ -151,7 +162,9 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                         "type": "incremental",
                         "cursor_path": "generated_timestamp",
                         "initial_value": 0,  # type: ignore
-                    },
+                    }
+                    if is_incremental
+                    else None,
                 },
             },
         },
@@ -160,6 +173,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "table_name": "ticket_metric_events",
             "primary_key": "id",
             "write_disposition": "merge",
+            "columns": get_dlt_mapping_for_external_table("zendesk_ticket_metric_events"),  # type: ignore
             "endpoint": {
                 "data_selector": "ticket_metric_events",
                 "path": "/api/v2/incremental/ticket_metric_events?start_time=0",

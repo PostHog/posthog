@@ -7,10 +7,8 @@ from temporalio import activity
 
 # TODO: remove dependency
 from posthog.temporal.data_imports.pipelines.helpers import aupdate_job_count
-from posthog.temporal.data_imports.pipelines.zendesk.credentials import ZendeskCredentialsToken
 
 from posthog.temporal.data_imports.pipelines.pipeline import DataImportPipeline, PipelineInputs
-from posthog.temporal.data_imports.pipelines.zendesk2 import zendesk_source
 from posthog.warehouse.models import (
     ExternalDataJob,
     ExternalDataSource,
@@ -177,17 +175,9 @@ async def import_data_activity(inputs: ImportDataActivityInputs) -> tuple[TSchem
         return await _run(job_inputs=job_inputs, source=source, logger=logger, inputs=inputs, schema=schema)
 
     elif model.pipeline.source_type == ExternalDataSource.Type.ZENDESK:
-        from posthog.temporal.data_imports.pipelines.zendesk.helpers import zendesk_support
+        from posthog.temporal.data_imports.pipelines.zendesk import zendesk_source
 
-        # NOTE: this line errors on CI mypy but not locally. Putting arguments within the function causes the opposite error
-        credentials = ZendeskCredentialsToken(
-            token=model.pipeline.job_inputs.get("zendesk_api_key"),
-            subdomain=model.pipeline.job_inputs.get("zendesk_subdomain"),
-            email=model.pipeline.job_inputs.get("zendesk_email_address"),
-        )
-
-        # data_support = zendesk_support(credentials=credentials, endpoints=tuple(endpoints), team_id=inputs.team_id)
-        blah = zendesk_source(
+        source = zendesk_source(
             subdomain=model.pipeline.job_inputs.get("zendesk_subdomain"),
             api_key=model.pipeline.job_inputs.get("zendesk_api_key"),
             email_address=model.pipeline.job_inputs.get("zendesk_email_address"),
@@ -196,11 +186,6 @@ async def import_data_activity(inputs: ImportDataActivityInputs) -> tuple[TSchem
             job_id=inputs.run_id,
             is_incremental=schema.is_incremental,
         )
-        # Uncomment to support zendesk chat and talk
-        # data_chat = zendesk_chat()
-        # data_talk = zendesk_talk()
-
-        source = blah
 
         return await _run(job_inputs=job_inputs, source=source, logger=logger, inputs=inputs, schema=schema)
     else:
