@@ -56,7 +56,7 @@ jobs:
 
             - name: Docker meta
               id: meta
-              uses: docker/metadata-action@v4
+              uses: docker/metadata-action@v5
               with:
                   images: ghcr.io/posthog/posthog/hook-migrator
                   tags: |
