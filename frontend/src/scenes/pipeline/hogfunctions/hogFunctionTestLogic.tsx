@@ -36,8 +36,15 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
     actions({
         setTestEvent: (event: string | null) => ({ event }),
         setTestResult: (result: HogFunctionTestInvocationResult | null) => ({ result }),
+        toggleExpanded: (expanded?: boolean) => ({ expanded }),
     }),
     reducers({
+        expanded: [
+            false as boolean,
+            {
+                toggleExpanded: (_, { expanded }) => (expanded === undefined ? !_ : expanded),
+            },
+        ],
         testEvent: [
             JSON.stringify(createExampleGlobals()) as string | null,
             {
