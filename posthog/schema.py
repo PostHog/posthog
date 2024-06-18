@@ -4049,7 +4049,15 @@ class QueryResponseAlternative27(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    tables: dict[str, Union[DatabaseSchemaPostHogTable, DatabaseSchemaDataWarehouseTable, DatabaseSchemaViewTable]]
+    tables: dict[
+        str,
+        Union[
+            DatabaseSchemaPostHogTable,
+            DatabaseSchemaDataWarehouseTable,
+            DatabaseSchemaViewTable,
+            DatabaseSchemaBatchExportTable,
+        ],
+    ]
 
 
 class QueryResponseAlternative(
@@ -4120,7 +4128,15 @@ class DatabaseSchemaQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    tables: dict[str, Union[DatabaseSchemaPostHogTable, DatabaseSchemaDataWarehouseTable, DatabaseSchemaViewTable]]
+    tables: dict[
+        str,
+        Union[
+            DatabaseSchemaPostHogTable,
+            DatabaseSchemaDataWarehouseTable,
+            DatabaseSchemaViewTable,
+            DatabaseSchemaBatchExportTable,
+        ],
+    ]
 
 
 class FunnelPathsFilter(BaseModel):
