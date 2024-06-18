@@ -341,7 +341,7 @@ types-toml==0.10.8.20240310
     # via inline-snapshot
 types-tzlocal==5.1.0.1
     # via -r requirements-dev.in
-typing-extensions==4.7.1
+typing-extensions==4.12.1
     # via
     #   -c requirements.txt
     #   boto3-stubs
