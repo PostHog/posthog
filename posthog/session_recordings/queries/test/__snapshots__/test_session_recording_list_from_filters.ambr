@@ -7,6 +7,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -45,6 +46,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -83,6 +85,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -121,6 +124,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -159,6 +163,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -205,6 +210,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -243,6 +249,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -281,6 +288,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -319,6 +327,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -357,6 +366,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -395,6 +405,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -425,336 +436,6 @@
                     max_bytes_before_external_group_by=0
   '''
 # ---
-# name: TestSessionRecordingsListFromFilters.test_basic_query
-  '''
-  SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
-         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
-         dateDiff('SECOND', start_time, end_time) AS duration,
-         argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
-         minus(duration, active_seconds) AS inactive_seconds,
-         sum(s.console_log_count) AS console_log_count,
-         sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count
-  FROM session_replay_events AS s
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
-  GROUP BY s.session_id
-  HAVING true
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288,
-                    max_bytes_before_external_group_by=0
-  '''
-# ---
-# name: TestSessionRecordingsListFromFilters.test_basic_query_active_sessions
-  '''
-  SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
-         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
-         dateDiff('SECOND', start_time, end_time) AS duration,
-         argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
-         minus(duration, active_seconds) AS inactive_seconds,
-         sum(s.console_log_count) AS console_log_count,
-         sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count
-  FROM session_replay_events AS s
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
-  GROUP BY s.session_id
-  HAVING ifNull(greaterOrEquals(duration, 60), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288,
-                    max_bytes_before_external_group_by=0
-  '''
-# ---
-# name: TestSessionRecordingsListFromFilters.test_basic_query_active_sessions.1
-  '''
-  SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
-         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
-         dateDiff('SECOND', start_time, end_time) AS duration,
-         argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
-         minus(duration, active_seconds) AS inactive_seconds,
-         sum(s.console_log_count) AS console_log_count,
-         sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count
-  FROM session_replay_events AS s
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
-  GROUP BY s.session_id
-  HAVING ifNull(greaterOrEquals(active_seconds, 60), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288,
-                    max_bytes_before_external_group_by=0
-  '''
-# ---
-# name: TestSessionRecordingsListFromFilters.test_basic_query_active_sessions.2
-  '''
-  SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
-         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
-         dateDiff('SECOND', start_time, end_time) AS duration,
-         argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
-         minus(duration, active_seconds) AS inactive_seconds,
-         sum(s.console_log_count) AS console_log_count,
-         sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count
-  FROM session_replay_events AS s
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
-  GROUP BY s.session_id
-  HAVING ifNull(greaterOrEquals(inactive_seconds, 60), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288,
-                    max_bytes_before_external_group_by=0
-  '''
-# ---
-# name: TestSessionRecordingsListFromFilters.test_basic_query_with_ordering
-  '''
-  SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
-         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
-         dateDiff('SECOND', start_time, end_time) AS duration,
-         argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
-         minus(duration, active_seconds) AS inactive_seconds,
-         sum(s.console_log_count) AS console_log_count,
-         sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count
-  FROM session_replay_events AS s
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
-  GROUP BY s.session_id
-  HAVING true
-  ORDER BY active_seconds DESC
-  LIMIT 4
-  OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288,
-                    max_bytes_before_external_group_by=0
-  '''
-# ---
-# name: TestSessionRecordingsListFromFilters.test_basic_query_with_ordering.1
-  '''
-  SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
-         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
-         dateDiff('SECOND', start_time, end_time) AS duration,
-         argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
-         minus(duration, active_seconds) AS inactive_seconds,
-         sum(s.console_log_count) AS console_log_count,
-         sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count
-  FROM session_replay_events AS s
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
-  GROUP BY s.session_id
-  HAVING true
-  ORDER BY console_error_count DESC
-  LIMIT 4
-  OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288,
-                    max_bytes_before_external_group_by=0
-  '''
-# ---
-# name: TestSessionRecordingsListFromFilters.test_basic_query_with_ordering.2
-  '''
-  SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
-         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
-         dateDiff('SECOND', start_time, end_time) AS duration,
-         argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
-         minus(duration, active_seconds) AS inactive_seconds,
-         sum(s.console_log_count) AS console_log_count,
-         sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count
-  FROM session_replay_events AS s
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
-  GROUP BY s.session_id
-  HAVING true
-  ORDER BY start_time DESC
-  LIMIT 4
-  OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288,
-                    max_bytes_before_external_group_by=0
-  '''
-# ---
-# name: TestSessionRecordingsListFromFilters.test_basic_query_with_paging
-  '''
-  SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
-         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
-         dateDiff('SECOND', start_time, end_time) AS duration,
-         argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
-         minus(duration, active_seconds) AS inactive_seconds,
-         sum(s.console_log_count) AS console_log_count,
-         sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count
-  FROM session_replay_events AS s
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
-  GROUP BY s.session_id
-  HAVING true
-  ORDER BY start_time DESC
-  LIMIT 2
-  OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288,
-                    max_bytes_before_external_group_by=0
-  '''
-# ---
-# name: TestSessionRecordingsListFromFilters.test_basic_query_with_paging.1
-  '''
-  SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
-         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
-         dateDiff('SECOND', start_time, end_time) AS duration,
-         argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
-         minus(duration, active_seconds) AS inactive_seconds,
-         sum(s.console_log_count) AS console_log_count,
-         sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count
-  FROM session_replay_events AS s
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
-  GROUP BY s.session_id
-  HAVING true
-  ORDER BY start_time DESC
-  LIMIT 2
-  OFFSET 1 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288,
-                    max_bytes_before_external_group_by=0
-  '''
-# ---
-# name: TestSessionRecordingsListFromFilters.test_basic_query_with_paging.2
-  '''
-  SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
-         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
-         dateDiff('SECOND', start_time, end_time) AS duration,
-         argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
-         minus(duration, active_seconds) AS inactive_seconds,
-         sum(s.console_log_count) AS console_log_count,
-         sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count
-  FROM session_replay_events AS s
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
-  GROUP BY s.session_id
-  HAVING true
-  ORDER BY start_time DESC
-  LIMIT 2
-  OFFSET 2 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288,
-                    max_bytes_before_external_group_by=0
-  '''
-# ---
 # name: TestSessionRecordingsListFromFilters.test_date_from_filter
   '''
   SELECT s.session_id AS session_id,
@@ -763,6 +444,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -796,6 +478,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -829,6 +512,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -862,6 +546,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -895,6 +580,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -928,6 +614,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -961,6 +648,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -994,6 +682,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -1027,6 +716,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -1060,6 +750,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -1098,6 +789,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -1136,6 +828,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -1174,6 +867,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -1199,82 +893,6 @@
                     max_bytes_before_external_group_by=0
   '''
 # ---
-# name: TestSessionRecordingsListFromFilters.test_event_filter_with_active_sessions
-  '''
-  SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
-         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
-         dateDiff('SECOND', start_time, end_time) AS duration,
-         argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
-         minus(duration, active_seconds) AS inactive_seconds,
-         sum(s.console_log_count) AS console_log_count,
-         sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count
-  FROM session_replay_events AS s
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
-                                                                                                                                                                                                                                                                                                                                                                                                                        (SELECT events.`$session_id` AS session_id
-                                                                                                                                                                                                                                                                                                                                                                                                                         FROM events
-                                                                                                                                                                                                                                                                                                                                                                                                                         WHERE and(equals(events.team_id, 2), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-24 23:58:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), and(equals(events.event, '$pageview'), true))
-                                                                                                                                                                                                                                                                                                                                                                                                                         GROUP BY events.`$session_id`
-                                                                                                                                                                                                                                                                                                                                                                                                                         HAVING hasAll(groupUniqArray(events.event), ['$pageview']))))
-  GROUP BY s.session_id
-  HAVING ifNull(greaterOrEquals(duration, 60), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288,
-                    max_bytes_before_external_group_by=0
-  '''
-# ---
-# name: TestSessionRecordingsListFromFilters.test_event_filter_with_active_sessions.1
-  '''
-  SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
-         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
-         dateDiff('SECOND', start_time, end_time) AS duration,
-         argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
-         minus(duration, active_seconds) AS inactive_seconds,
-         sum(s.console_log_count) AS console_log_count,
-         sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count
-  FROM session_replay_events AS s
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
-                                                                                                                                                                                                                                                                                                                                                                                                                        (SELECT events.`$session_id` AS session_id
-                                                                                                                                                                                                                                                                                                                                                                                                                         FROM events
-                                                                                                                                                                                                                                                                                                                                                                                                                         WHERE and(equals(events.team_id, 2), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-24 23:58:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), and(equals(events.event, '$pageview'), true))
-                                                                                                                                                                                                                                                                                                                                                                                                                         GROUP BY events.`$session_id`
-                                                                                                                                                                                                                                                                                                                                                                                                                         HAVING hasAll(groupUniqArray(events.event), ['$pageview']))))
-  GROUP BY s.session_id
-  HAVING ifNull(greaterOrEquals(active_seconds, 60), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288,
-                    max_bytes_before_external_group_by=0
-  '''
-# ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_group_filter
   '''
   SELECT s.session_id AS session_id,
@@ -1283,6 +901,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -1326,6 +945,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -1364,6 +984,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -1419,6 +1040,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -1474,6 +1096,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -1512,6 +1135,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -1567,6 +1191,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -1622,6 +1247,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -1675,6 +1301,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -1728,6 +1355,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -1766,6 +1394,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -1804,6 +1433,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -1842,6 +1472,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -1880,6 +1511,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -1918,6 +1550,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -1956,6 +1589,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -1994,6 +1628,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -2032,6 +1667,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -2070,6 +1706,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -2108,6 +1745,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -2146,6 +1784,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -2184,6 +1823,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -2222,6 +1862,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -2260,6 +1901,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -2315,6 +1957,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -2353,6 +1996,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -2408,6 +2052,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -2446,6 +2091,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -2484,6 +2130,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -2523,6 +2170,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -2562,6 +2210,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -2601,6 +2250,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -2632,7 +2282,7 @@
                     max_bytes_before_external_group_by=0
   '''
 # ---
-# name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_with_console_errors
+# name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_by_snapshot_source
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id),
@@ -2640,6 +2290,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -2650,15 +2301,9 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
-                                                                                                                                                                                                                                                                                                                                                                                                                        (SELECT console_logs_log_entries.log_source_id AS log_source_id
-                                                                                                                                                                                                                                                                                                                                                                                                                         FROM
-                                                                                                                                                                                                                                                                                                                                                                                                                           (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level
-                                                                                                                                                                                                                                                                                                                                                                                                                            FROM log_entries
-                                                                                                                                                                                                                                                                                                                                                                                                                            WHERE and(equals(log_entries.team_id, 2), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                                                                                                                                                                                                                         WHERE ifNull(in(console_logs_log_entries.level, ['error']), 0))))
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
-  HAVING true
+  HAVING ifNull(in(snapshot_source, ['web']), 0)
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
@@ -2671,7 +2316,7 @@
                     max_bytes_before_external_group_by=0
   '''
 # ---
-# name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_with_console_errors.1
+# name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_by_snapshot_source.1
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id),
@@ -2679,6 +2324,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -2689,171 +2335,9 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
-                                                                                                                                                                                                                                                                                                                                                                                                                        (SELECT console_logs_log_entries.log_source_id AS log_source_id
-                                                                                                                                                                                                                                                                                                                                                                                                                         FROM
-                                                                                                                                                                                                                                                                                                                                                                                                                           (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level
-                                                                                                                                                                                                                                                                                                                                                                                                                            FROM log_entries
-                                                                                                                                                                                                                                                                                                                                                                                                                            WHERE and(equals(log_entries.team_id, 2), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                                                                                                                                                                                                                         WHERE ifNull(in(console_logs_log_entries.level, ['info']), 0))))
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
-  HAVING true
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288,
-                    max_bytes_before_external_group_by=0
-  '''
-# ---
-# name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_with_console_logs
-  '''
-  SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
-         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
-         dateDiff('SECOND', start_time, end_time) AS duration,
-         argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
-         minus(duration, active_seconds) AS inactive_seconds,
-         sum(s.console_log_count) AS console_log_count,
-         sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count
-  FROM session_replay_events AS s
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
-                                                                                                                                                                                                                                                                                                                                                                                                                        (SELECT console_logs_log_entries.log_source_id AS log_source_id
-                                                                                                                                                                                                                                                                                                                                                                                                                         FROM
-                                                                                                                                                                                                                                                                                                                                                                                                                           (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level
-                                                                                                                                                                                                                                                                                                                                                                                                                            FROM log_entries
-                                                                                                                                                                                                                                                                                                                                                                                                                            WHERE and(equals(log_entries.team_id, 2), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                                                                                                                                                                                                                         WHERE ifNull(in(console_logs_log_entries.level, ['info']), 0))))
-  GROUP BY s.session_id
-  HAVING true
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288,
-                    max_bytes_before_external_group_by=0
-  '''
-# ---
-# name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_with_console_logs.1
-  '''
-  SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
-         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
-         dateDiff('SECOND', start_time, end_time) AS duration,
-         argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
-         minus(duration, active_seconds) AS inactive_seconds,
-         sum(s.console_log_count) AS console_log_count,
-         sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count
-  FROM session_replay_events AS s
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
-                                                                                                                                                                                                                                                                                                                                                                                                                        (SELECT console_logs_log_entries.log_source_id AS log_source_id
-                                                                                                                                                                                                                                                                                                                                                                                                                         FROM
-                                                                                                                                                                                                                                                                                                                                                                                                                           (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level
-                                                                                                                                                                                                                                                                                                                                                                                                                            FROM log_entries
-                                                                                                                                                                                                                                                                                                                                                                                                                            WHERE and(equals(log_entries.team_id, 2), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                                                                                                                                                                                                                         WHERE ifNull(in(console_logs_log_entries.level, ['warn']), 0))))
-  GROUP BY s.session_id
-  HAVING true
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288,
-                    max_bytes_before_external_group_by=0
-  '''
-# ---
-# name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_with_console_warns
-  '''
-  SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
-         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
-         dateDiff('SECOND', start_time, end_time) AS duration,
-         argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
-         minus(duration, active_seconds) AS inactive_seconds,
-         sum(s.console_log_count) AS console_log_count,
-         sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count
-  FROM session_replay_events AS s
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
-                                                                                                                                                                                                                                                                                                                                                                                                                        (SELECT console_logs_log_entries.log_source_id AS log_source_id
-                                                                                                                                                                                                                                                                                                                                                                                                                         FROM
-                                                                                                                                                                                                                                                                                                                                                                                                                           (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level
-                                                                                                                                                                                                                                                                                                                                                                                                                            FROM log_entries
-                                                                                                                                                                                                                                                                                                                                                                                                                            WHERE and(equals(log_entries.team_id, 2), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                                                                                                                                                                                                                         WHERE ifNull(in(console_logs_log_entries.level, ['warn']), 0))))
-  GROUP BY s.session_id
-  HAVING true
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288,
-                    max_bytes_before_external_group_by=0
-  '''
-# ---
-# name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_with_console_warns.1
-  '''
-  SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
-         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
-         dateDiff('SECOND', start_time, end_time) AS duration,
-         argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
-         minus(duration, active_seconds) AS inactive_seconds,
-         sum(s.console_log_count) AS console_log_count,
-         sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count
-  FROM session_replay_events AS s
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
-                                                                                                                                                                                                                                                                                                                                                                                                                        (SELECT console_logs_log_entries.log_source_id AS log_source_id
-                                                                                                                                                                                                                                                                                                                                                                                                                         FROM
-                                                                                                                                                                                                                                                                                                                                                                                                                           (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level
-                                                                                                                                                                                                                                                                                                                                                                                                                            FROM log_entries
-                                                                                                                                                                                                                                                                                                                                                                                                                            WHERE and(equals(log_entries.team_id, 2), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                                                                                                                                                                                                                         WHERE ifNull(in(console_logs_log_entries.level, ['info']), 0))))
-  GROUP BY s.session_id
-  HAVING true
+  HAVING ifNull(in(snapshot_source, ['mobile']), 0)
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
@@ -2874,6 +2358,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -2913,6 +2398,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -2952,6 +2438,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -2990,6 +2477,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -3048,6 +2536,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -3111,6 +2600,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -3159,6 +2649,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -3207,6 +2698,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -3257,6 +2749,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -3307,6 +2800,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -3345,6 +2839,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -3383,6 +2878,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -3421,6 +2917,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -3459,6 +2956,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -3498,6 +2996,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -3537,6 +3036,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -3583,6 +3083,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -3629,6 +3130,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -3667,6 +3169,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -3705,6 +3208,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -3755,6 +3259,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -3805,6 +3310,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -3846,6 +3352,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -3884,6 +3391,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -3922,6 +3430,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -3960,6 +3469,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -3998,6 +3508,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -4036,6 +3547,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -4074,6 +3586,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -4112,6 +3625,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -4150,6 +3664,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -4188,6 +3703,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -4226,6 +3742,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -4264,6 +3781,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -4302,6 +3820,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -4340,6 +3859,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -4390,6 +3910,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -4428,6 +3949,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -4478,6 +4000,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -4516,6 +4039,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -4566,6 +4090,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),
@@ -4604,6 +4129,7 @@
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.snapshot_source) AS snapshot_source,
          argMinMerge(s.first_url) AS first_url,
          sum(s.click_count),
          sum(s.keypress_count),

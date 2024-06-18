@@ -32,6 +32,14 @@ const localProperties: PropertyDefinitionStorage = {
         is_seen_on_filtered_events: false,
         property_type: PropertyType.Duration,
     },
+    'session/snapshot_source': {
+        id: 'snapshot_source',
+        name: 'snapshot_source',
+        description: 'Platform session occurred on',
+        is_numerical: false,
+        is_seen_on_filtered_events: false,
+        property_type: PropertyType.Selector,
+    },
 }
 
 const localOptions: Record<string, PropValue[]> = {

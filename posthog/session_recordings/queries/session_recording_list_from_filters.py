@@ -127,6 +127,8 @@ class SessionRecordingListFromFilters:
             modifiers=self._hogql_query_modifiers,
         )
 
+        print(paginated_response.hogql)
+
         return SessionRecordingQueryResult(
             results=(self._data_to_return(self._paginator.results)),
             has_more_recording=self._paginator.has_more(),
@@ -274,16 +276,14 @@ class SessionRecordingListFromFilters:
                 ),
             )
 
-        # if self._filter.snapshot_source_filter:
-        #     print("Hello")
-        #     exprs.append(
-        #         ast.CompareOperation(
-        #             op=ast.CompareOperationOp.In,
-        #             left=ast.Constant(value="snapshot_source"),
-        #             # left=ast.Field(chain=["snapshot_source"]),
-        #             right=ast.Constant(value=self._filter.snapshot_source_filter),
-        #         ),
-        #     )
+        if self._filter.snapshot_source_filter:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=ast.Field(chain=["snapshot_source"]),
+                    right=ast.Constant(value=self._filter.snapshot_source_filter),
+                ),
+            )
 
         return ast.And(exprs=exprs) if exprs else ast.Constant(value=True)
 
