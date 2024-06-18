@@ -1,7 +1,7 @@
 import './Playlist.scss'
 
 import { IconCollapse } from '@posthog/icons'
-import { LemonButton, LemonButtonProps, LemonCollapse, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonProps, LemonCollapse, LemonSkeleton, Spinner, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
@@ -10,7 +10,6 @@ import { range } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 
-import { EmptyMessage } from '../EmptyMessage/EmptyMessage'
 import { Resizer } from '../Resizer/Resizer'
 
 const SCROLL_TRIGGER_OFFSET = 100
@@ -38,6 +37,9 @@ type PlaylistProps = {
     listEmptyState: JSX.Element
     onSelect: (item: any) => void
     content: ({ activeItem }: { activeItem: any }) => JSX.Element
+    onLoadMore?: () => void
+    'data-attr'?: string
+    activeItemId?: string
 }
 
 const CounterBadge = ({ children }: { children: React.ReactNode }): JSX.Element => (
@@ -47,41 +49,45 @@ const CounterBadge = ({ children }: { children: React.ReactNode }): JSX.Element 
 export function Playlist({
     title,
     notebooksHref,
+    loading,
     embedded,
+    activeItemId: propsActiveItemId,
     content,
     sections,
-    loading,
     headerActions = [],
     onScrollListEdge,
     listEmptyState,
     onSelect,
+    'data-attr': dataAttr,
+    onLoadMore,
 }: PlaylistProps): JSX.Element {
-    const [activeItemId, setActiveItemId] = useState<string | null>(null)
+    const [controlledActiveItemId, setControlledActiveItemId] = useState<string | null>(null)
     const [listCollapsed, setListCollapsed] = useState<boolean>(false)
-    const playlistRecordingsListRef = useRef<HTMLDivElement>(null)
+    const playlistListRef = useRef<HTMLDivElement>(null)
     const { ref: playlistRef, size } = useResizeBreakpoints({
         0: 'small',
         750: 'medium',
     })
 
     const onChangeActiveItem = (item: any): void => {
-        setActiveItemId(item.id)
+        setControlledActiveItemId(item.id)
         onSelect(item.id)
     }
+
+    const activeItemId = propsActiveItemId === undefined ? controlledActiveItemId : propsActiveItemId
+
+    const activeItem = sections.flatMap((s) => s.items).find((i) => i.id === activeItemId)
 
     return (
         <div
             ref={playlistRef}
-            data-attr="session-recordings-playlist"
+            data-attr={dataAttr}
             className={clsx('Playlist', {
                 'Playlist--wide': size !== 'small',
                 'Playlist--embedded': embedded,
             })}
         >
-            <div
-                ref={playlistRecordingsListRef}
-                className={clsx('Playlist__list', listCollapsed && 'Playlist__list--collapsed')}
-            >
+            <div ref={playlistListRef} className={clsx('Playlist__list', listCollapsed && 'Playlist__list--collapsed')}>
                 {listCollapsed ? (
                     <CollapsedList onClickOpen={() => setListCollapsed(false)} />
                 ) : (
@@ -96,31 +102,19 @@ export function Playlist({
                         activeItemId={activeItemId}
                         setActiveItemId={onChangeActiveItem}
                         emptyState={listEmptyState}
+                        onLoadMore={onLoadMore}
                     />
                 )}
                 <Resizer
-                    logicKey="player-recordings-list"
+                    logicKey="playlist-list"
                     placement="right"
-                    containerRef={playlistRecordingsListRef}
+                    containerRef={playlistListRef}
                     closeThreshold={100}
                     onToggleClosed={(value) => setListCollapsed(value)}
                     onDoubleClick={() => setListCollapsed(!listCollapsed)}
                 />
             </div>
-            <div className="Playlist__player">
-                {!activeItemId ? (
-                    <div className="mt-20">
-                        <EmptyMessage
-                            title="No recording selected"
-                            description="Please select a recording from the list on the left"
-                            buttonText="Learn more about recordings"
-                            buttonTo="https://posthog.com/docs/user-guides/recordings"
-                        />
-                    </div>
-                ) : (
-                    content
-                )}
-            </div>
+            <div className="Playlist__player">{content({ activeItem })}</div>
         </div>
     )
 }
@@ -142,6 +136,7 @@ const List = ({
     onScrollListEdge,
     loading,
     emptyState,
+    onLoadMore,
 }: {
     title: PlaylistProps['title']
     notebooksHref: PlaylistProps['notebooksHref']
@@ -153,6 +148,7 @@ const List = ({
     onScrollListEdge: PlaylistProps['onScrollListEdge']
     loading: PlaylistProps['loading']
     emptyState: PlaylistProps['listEmptyState']
+    onLoadMore: PlaylistProps['onLoadMore']
 }): JSX.Element => {
     const [activeHeaderActionKey, setActiveHeaderActionKey] = useState<string | null>(null)
     const lastScrollPositionRef = useRef(0)
@@ -204,7 +200,7 @@ const List = ({
                                 <>
                                     Showing {itemsCount} results.
                                     <br />
-                                    Scrolling to the bottom or the top of the list will load older or newer recordings
+                                    Scrolling to the bottom or the top of the list will load older or newer results
                                     respectively.
                                 </>
                             }
@@ -253,19 +249,15 @@ const List = ({
                         )}
 
                         <div className="m-4 h-10 flex items-center justify-center gap-2 text-muted-alt">
-                            {/* {!showOtherRecordings && totalFiltersCount ? (
-                                    <>Filters do not apply to pinned recordings</>
-                                ) : loading ? (
-                                    <>
-                                        <Spinner textColored /> Loading older recordings
-                                    </>
-                                ) : hasNext ? (
-                                    <LemonButton onClick={() => maybeLoadSessionRecordings('older')}>
-                                        Load more
-                                    </LemonButton>
-                                ) : (
-                                    'No more results'
-                                )} */}
+                            {loading ? (
+                                <>
+                                    <Spinner textColored /> Loading
+                                </>
+                            ) : onLoadMore ? (
+                                <LemonButton onClick={onLoadMore}>Load more</LemonButton>
+                            ) : (
+                                'No more results'
+                            )}
                         </div>
                     </>
                 ) : loading ? (

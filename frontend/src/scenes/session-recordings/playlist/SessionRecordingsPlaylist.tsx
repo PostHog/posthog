@@ -1,6 +1,7 @@
 import { IconFilter, IconGear } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
+import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { Playlist, PlaylistSection } from 'lib/components/Playlist/Playlist'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -41,6 +42,8 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
         sessionSummaryLoading,
         advancedFilters,
         simpleFilters,
+        activeSessionRecordingId,
+        hasNext,
     } = useValues(logic)
     const {
         maybeLoadSessionRecordings,
@@ -102,12 +105,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
             title: `${pinnedDescription} recordings`,
             items: pinnedRecordings,
             render: ({ item, isActive }) => (
-                <SessionRecordingPreview
-                    recording={item}
-                    // onClick={() => setSelectedRecordingId(rec.id)}
-                    isActive={isActive}
-                    pinned={true}
-                />
+                <SessionRecordingPreview recording={item} isActive={isActive} pinned={true} />
             ),
         })
     }
@@ -132,6 +130,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
             <div className="h-full space-y-2">
                 {useUniversalFiltering && <RecordingsUniversalFilters />}
                 <Playlist
+                    data-attr="session-recordings-playlist"
                     notebooksHref={urls.replay(ReplayTabs.Recent, filters)}
                     title={!notebookNode ? 'Recordings' : undefined}
                     embedded={!!notebookNode}
@@ -147,26 +146,39 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
                     }}
                     listEmptyState={<ListEmptyState />}
                     onSelect={setSelectedRecordingId}
-                    content={({ activeItem }) => (
-                        <SessionRecordingPlayer
-                            playerKey={props.logicKey ?? 'playlist'}
-                            sessionRecordingId={activeItem.id}
-                            matchingEventsMatchType={matchingEventsMatchType}
-                            playlistLogic={logic}
-                            noBorder
-                            pinned={!!pinnedRecordings.find((x) => x.id === activeItem.id)}
-                            setPinned={
-                                props.onPinnedChange
-                                    ? (pinned) => {
-                                          if (!activeItem.id) {
-                                              return
+                    activeItemId={activeSessionRecordingId}
+                    onLoadMore={hasNext ? () => maybeLoadSessionRecordings('older') : undefined}
+                    content={({ activeItem }) =>
+                        !activeItem ? (
+                            <div className="mt-20">
+                                <EmptyMessage
+                                    title="No recording selected"
+                                    description="Please select a recording from the list on the left"
+                                    buttonText="Learn more about recordings"
+                                    buttonTo="https://posthog.com/docs/user-guides/recordings"
+                                />
+                            </div>
+                        ) : (
+                            <SessionRecordingPlayer
+                                playerKey={props.logicKey ?? 'playlist'}
+                                sessionRecordingId={activeItem.id}
+                                matchingEventsMatchType={matchingEventsMatchType}
+                                playlistLogic={logic}
+                                noBorder
+                                pinned={!!pinnedRecordings.find((x) => x.id === activeItem.id)}
+                                setPinned={
+                                    props.onPinnedChange
+                                        ? (pinned) => {
+                                              if (!activeItem.id) {
+                                                  return
+                                              }
+                                              props.onPinnedChange?.(activeItem, pinned)
                                           }
-                                          props.onPinnedChange?.(activeItem, pinned)
-                                      }
-                                    : undefined
-                            }
-                        />
-                    )}
+                                        : undefined
+                                }
+                            />
+                        )
+                    }
                 />
             </div>
         </BindLogic>
