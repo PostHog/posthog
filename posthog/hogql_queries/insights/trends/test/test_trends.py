@@ -1977,8 +1977,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     data={
                         "display": TRENDS_TABLE,
                         "interval": "week",
-                        "breakdowns": [{"property": "$some_prop"}],
-                        "breakdown_type": "person",
+                        "breakdowns": [{"type": "person", "property": "$some_prop"}],
                         "events": [
                             {
                                 "id": "sign up",
@@ -2054,6 +2053,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 properties={"$some_property": "value_21", "$math_prop": 25},
             )
 
+        # single breakdown
         with freeze_time("2020-01-04T13:00:01Z"):
             daily_response = self._run(
                 Filter(
@@ -2076,6 +2076,30 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         breakdown_vals = [val["breakdown_value"] for val in daily_response]
         self.assertTrue("value_21" in breakdown_vals)
+
+        # multiple breakdown
+        with freeze_time("2020-01-04T13:00:01Z"):
+            daily_response = self._run(
+                Filter(
+                    team=self.team,
+                    data={
+                        "display": TRENDS_TABLE,
+                        "interval": "day",
+                        "breakdowns": [{"property": "$some_property"}],
+                        "events": [
+                            {
+                                "id": "sign up",
+                                "math": "p90",
+                                "math_property": "$math_prop",
+                            }
+                        ],
+                    },
+                ),
+                self.team,
+            )
+
+        breakdown_vals = [val["breakdown_value"] for val in daily_response]
+        self.assertTrue(["value_21"] in breakdown_vals)
 
     @snapshot_clickhouse_queries
     def test_trends_compare_day_interval_relative_range(self):
@@ -3327,67 +3351,91 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
         # Fifth session lasted 5 seconds
 
-        with freeze_time("2020-01-04T13:00:01Z"):
-            daily_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "breakdown": "$some_property",
-                        "interval": "week",
-                        "events": [
-                            {
-                                "id": "sign up",
-                                "math": "median",
-                                "math_property": "$session_duration",
-                            }
-                        ],
-                    },
-                ),
-                self.team,
+        for breakdown_type in ("single", "multiple"):
+            breakdown_filter = (
+                {"breakdown": "$some_property"}
+                if breakdown_type == "single"
+                else {"breakdowns": [{"property": "$some_property"}]}
             )
 
-        with freeze_time("2020-01-04T13:00:05Z"):
-            weekly_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "breakdown": "$some_property",
-                        "interval": "day",
-                        "events": [
-                            {
-                                "id": "sign up",
-                                "math": "median",
-                                "math_property": "$session_duration",
-                            }
-                        ],
-                    },
-                ),
-                self.team,
+            with freeze_time("2020-01-04T13:00:01Z"):
+                daily_response = self._run(
+                    Filter(
+                        team=self.team,
+                        data={
+                            **breakdown_filter,
+                            "interval": "week",
+                            "events": [
+                                {
+                                    "id": "sign up",
+                                    "math": "median",
+                                    "math_property": "$session_duration",
+                                }
+                            ],
+                        },
+                    ),
+                    self.team,
+                )
+
+            with freeze_time("2020-01-04T13:00:05Z"):
+                weekly_response = self._run(
+                    Filter(
+                        team=self.team,
+                        data={
+                            **breakdown_filter,
+                            "interval": "day",
+                            "events": [
+                                {
+                                    "id": "sign up",
+                                    "math": "median",
+                                    "math_property": "$session_duration",
+                                }
+                            ],
+                        },
+                    ),
+                    self.team,
+                )
+
+            # value1 has 0,5,10 seconds (in second interval)
+            # value2 has 5,10,15 seconds (in second interval)
+            if breakdown_type == "multiple":
+                self.assertEqual(
+                    [resp["breakdown_value"] for resp in daily_response], [["value2"], ["value1"]], breakdown_type
+                )
+            else:
+                self.assertEqual(
+                    [resp["breakdown_value"] for resp in daily_response], ["value2", "value1"], breakdown_type
+                )
+
+            self.assertCountEqual(daily_response[0]["labels"], ["22-Dec-2019", "29-Dec-2019"], breakdown_type)
+            self.assertCountEqual(daily_response[0]["data"], [0, 10], breakdown_type)
+            self.assertCountEqual(daily_response[1]["data"], [0, 5], breakdown_type)
+
+            if breakdown_type == "multiple":
+                self.assertEqual(
+                    [resp["breakdown_value"] for resp in weekly_response], [["value2"], ["value1"]], breakdown_type
+                )
+            else:
+                self.assertEqual(
+                    [resp["breakdown_value"] for resp in weekly_response], ["value2", "value1"], breakdown_type
+                )
+
+            self.assertCountEqual(
+                weekly_response[0]["labels"],
+                [
+                    "28-Dec-2019",
+                    "29-Dec-2019",
+                    "30-Dec-2019",
+                    "31-Dec-2019",
+                    "1-Jan-2020",
+                    "2-Jan-2020",
+                    "3-Jan-2020",
+                    "4-Jan-2020",
+                ],
+                breakdown_type,
             )
-
-        # value1 has 0,5,10 seconds (in second interval)
-        # value2 has 5,10,15 seconds (in second interval)
-        self.assertEqual([resp["breakdown_value"] for resp in daily_response], ["value2", "value1"])
-        self.assertCountEqual(daily_response[0]["labels"], ["22-Dec-2019", "29-Dec-2019"])
-        self.assertCountEqual(daily_response[0]["data"], [0, 10])
-        self.assertCountEqual(daily_response[1]["data"], [0, 5])
-
-        self.assertEqual([resp["breakdown_value"] for resp in weekly_response], ["value2", "value1"])
-        self.assertCountEqual(
-            weekly_response[0]["labels"],
-            [
-                "28-Dec-2019",
-                "29-Dec-2019",
-                "30-Dec-2019",
-                "31-Dec-2019",
-                "1-Jan-2020",
-                "2-Jan-2020",
-                "3-Jan-2020",
-                "4-Jan-2020",
-            ],
-        )
-        self.assertCountEqual(weekly_response[0]["data"], [0, 0, 0, 0, 7.5, 15, 0, 0])
-        self.assertCountEqual(weekly_response[1]["data"], [0, 0, 0, 0, 5, 5, 0, 0])
+            self.assertCountEqual(weekly_response[0]["data"], [0, 0, 0, 0, 7.5, 15, 0, 0], breakdown_type)
+            self.assertCountEqual(weekly_response[1]["data"], [0, 0, 0, 0, 5, 5, 0, 0], breakdown_type)
 
     def test_trends_with_session_property_total_volume_math_with_sessions_spanning_multiple_intervals(self):
         self._create_person(
@@ -4461,19 +4509,88 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         person1, person2, person3, person4 = self._create_multiple_people()
         action = _create_action(name="watched movie", team=self.team)
 
-        with freeze_time("2020-01-04T13:01:01Z"):
-            action_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "date_from": "-14d",
-                        "breakdown": "name",
-                        "breakdown_type": "person",
-                        "actions": [{"id": action.pk, "type": "actions", "order": 0}],
-                    },
-                ),
-                self.team,
+        for breakdown_type in ("single", "multiple"):
+            breakdown_filter = (
+                {
+                    "breakdowns": [
+                        {
+                            "type": "person",
+                            "property": "name",
+                        }
+                    ]
+                }
+                if breakdown_type == "multiple"
+                else {
+                    "breakdown": "name",
+                    "breakdown_type": "person",
+                }
             )
+
+            with freeze_time("2020-01-04T13:01:01Z"):
+                action_response = self._run(
+                    Filter(
+                        team=self.team,
+                        data={
+                            **breakdown_filter,
+                            "date_from": "-14d",
+                            "actions": [{"id": action.pk, "type": "actions", "order": 0}],
+                        },
+                    ),
+                    self.team,
+                )
+                event_response = self._run(
+                    Filter(
+                        team=self.team,
+                        data={
+                            **breakdown_filter,
+                            "date_from": "-14d",
+                            "events": [
+                                {
+                                    "id": "watched movie",
+                                    "name": "watched movie",
+                                    "type": "events",
+                                    "order": 0,
+                                }
+                            ],
+                        },
+                    ),
+                    self.team,
+                )
+
+            if breakdown_type == "multiple":
+                self.assertListEqual(
+                    sorted(res["breakdown_value"] for res in event_response),
+                    [["person1"], ["person2"], ["person3"]],
+                )
+            else:
+                self.assertListEqual(
+                    sorted(res["breakdown_value"] for res in event_response),
+                    ["person1", "person2", "person3"],
+                )
+
+            for response in event_response:
+                if breakdown_type == "multiple":
+                    if response["breakdown_value"] == ("person1"):
+                        self.assertEqual(response["count"], 1)
+                        self.assertEqual(response["label"], ["person1"])
+                else:
+                    if response["breakdown_value"] == "person1":
+                        self.assertEqual(response["count"], 1)
+                        self.assertEqual(response["label"], "person1")
+
+                if response["breakdown_value"] == "person2":
+                    self.assertEqual(response["count"], 3)
+                if response["breakdown_value"] == "person3":
+                    self.assertEqual(response["count"], 3)
+
+            self.assertEntityResponseEqual(event_response, action_response)
+
+    @also_test_with_materialized_columns(["name"], person_properties=["name"])
+    def test_breakdown_by_person_property_for_person_on_events(self):
+        person1, person2, person3, person4 = self._create_multiple_people()
+
+        # single breakdown
+        with freeze_time("2020-01-04T13:01:01Z"):
             event_response = self._run(
                 Filter(
                     team=self.team,
@@ -4508,20 +4625,19 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             if response["breakdown_value"] == "person3":
                 self.assertEqual(response["count"], 3)
 
-        self.assertEntityResponseEqual(event_response, action_response)
-
-    @also_test_with_materialized_columns(["name"], person_properties=["name"])
-    def test_breakdown_by_person_property_for_person_on_events(self):
-        person1, person2, person3, person4 = self._create_multiple_people()
-
+        # multiple breakdowns
         with freeze_time("2020-01-04T13:01:01Z"):
             event_response = self._run(
                 Filter(
                     team=self.team,
                     data={
                         "date_from": "-14d",
-                        "breakdown": "name",
-                        "breakdown_type": "person",
+                        "breakdowns": [
+                            {
+                                "property": "name",
+                                "type": "person",
+                            }
+                        ],
                         "events": [
                             {
                                 "id": "watched movie",
@@ -4537,13 +4653,13 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         self.assertListEqual(
             sorted(res["breakdown_value"] for res in event_response),
-            ["person1", "person2", "person3"],
+            [["person1"], ["person2"], ["person3"]],
         )
 
         for response in event_response:
-            if response["breakdown_value"] == "person1":
+            if response["breakdown_value"] == ["person1"]:
                 self.assertEqual(response["count"], 1)
-                self.assertEqual(response["label"], "person1")
+                self.assertEqual(response["label"], ["person1"])
             if response["breakdown_value"] == "person2":
                 self.assertEqual(response["count"], 3)
             if response["breakdown_value"] == "person3":
@@ -4611,6 +4727,45 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             if response["breakdown_value"] == "person1":
                 self.assertEqual(response["count"], 1)
                 self.assertEqual(response["label"], "person1")
+            if response["breakdown_value"] == "person2":
+                self.assertEqual(response["count"], 3)
+            if response["breakdown_value"] == "person3":
+                self.assertEqual(response["count"], 3)
+
+        with freeze_time("2020-01-04T13:01:01Z"):
+            event_response = self._run(
+                Filter(
+                    team=self.team,
+                    data={
+                        "date_from": "-14d",
+                        "breakdowns": [
+                            {
+                                "property": "name",
+                                "type": "person",
+                            }
+                        ],
+                        "events": [
+                            {
+                                "id": "watched movie",
+                                "name": "watched movie",
+                                "type": "events",
+                                "order": 0,
+                            }
+                        ],
+                    },
+                ),
+                self.team,
+            )
+
+        self.assertListEqual(
+            sorted(res["breakdown_value"] for res in event_response),
+            [["person1"], ["person2"], ["person3"]],
+        )
+
+        for response in event_response:
+            if response["breakdown_value"] == ["person1"]:
+                self.assertEqual(response["count"], 1)
+                self.assertEqual(response["label"], ["person1"])
             if response["breakdown_value"] == "person2":
                 self.assertEqual(response["count"], 3)
             if response["breakdown_value"] == "person3":
@@ -4734,17 +4889,13 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.assertDictContainsSubset({"breakdown_value": "person2", "aggregated_value": 1}, event_response[1])
             self.assertDictContainsSubset({"breakdown_value": "person3", "aggregated_value": 1}, event_response[2])
 
-    @also_test_with_materialized_columns(person_properties=["name"])
-    def test_breakdown_by_person_property_pie_with_event_dau_filter(self):
-        self._create_multiple_people()
-
         with freeze_time("2020-01-04T13:01:01Z"):
             event_response = self._run(
                 Filter(
+                    team=self.team,
                     data={
                         "date_from": "-14d",
-                        "breakdown": "name",
-                        "breakdown_type": "person",
+                        "breakdowns": [{"type": "person", "property": "name"}],
                         "display": "ActionsPie",
                         "events": [
                             {
@@ -4753,16 +4904,51 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                                 "type": "events",
                                 "order": 0,
                                 "math": "dau",
-                                "properties": [
-                                    {
-                                        "key": "name",
-                                        "operator": "not_icontains",
-                                        "value": "person3",
-                                        "type": "person",
-                                    }
-                                ],
                             }
                         ],
+                    },
+                ),
+                self.team,
+            )
+            event_response = sorted(event_response, key=lambda resp: resp["breakdown_value"])
+            self.assertDictContainsSubset({"breakdown_value": ["person1"], "aggregated_value": 1}, event_response[0])
+            self.assertDictContainsSubset({"breakdown_value": ["person2"], "aggregated_value": 1}, event_response[1])
+            self.assertDictContainsSubset({"breakdown_value": ["person3"], "aggregated_value": 1}, event_response[2])
+
+    @also_test_with_materialized_columns(person_properties=["name"])
+    def test_breakdown_by_person_property_pie_with_event_dau_filter(self):
+        self._create_multiple_people()
+
+        filter = {
+            "date_from": "-14d",
+            "display": "ActionsPie",
+            "events": [
+                {
+                    "id": "watched movie",
+                    "name": "watched movie",
+                    "type": "events",
+                    "order": 0,
+                    "math": "dau",
+                    "properties": [
+                        {
+                            "key": "name",
+                            "operator": "not_icontains",
+                            "value": "person3",
+                            "type": "person",
+                        }
+                    ],
+                }
+            ],
+        }
+
+        # single breakdown
+        with freeze_time("2020-01-04T13:01:01Z"):
+            event_response = self._run(
+                Filter(
+                    data={
+                        **filter,
+                        "breakdown": "name",
+                        "breakdown_type": "person",
                     }
                 ),
                 self.team,
@@ -4771,6 +4957,27 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(len(event_response), 2)
             self.assertDictContainsSubset({"breakdown_value": "person1", "aggregated_value": 1}, event_response[0])
             self.assertDictContainsSubset({"breakdown_value": "person2", "aggregated_value": 1}, event_response[1])
+
+        # multiple breakdowns
+        with freeze_time("2020-01-04T13:01:01Z"):
+            event_response = self._run(
+                Filter(
+                    data={
+                        **filter,
+                        "breakdowns": [
+                            {
+                                "type": "person",
+                                "property": "name",
+                            }
+                        ],
+                    }
+                ),
+                self.team,
+            )
+            event_response = sorted(event_response, key=lambda resp: resp["breakdown_value"])
+            self.assertEqual(len(event_response), 2)
+            self.assertDictContainsSubset({"breakdown_value": ["person1"], "aggregated_value": 1}, event_response[0])
+            self.assertDictContainsSubset({"breakdown_value": ["person2"], "aggregated_value": 1}, event_response[1])
 
     @also_test_with_materialized_columns(person_properties=["name"])
     def test_filter_test_accounts_cohorts(self):
@@ -4845,6 +5052,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
         cohort.calculate_people_ch(pending_version=0)
 
+        # single breakdown
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
             response = self._run(
                 Filter(
@@ -4859,6 +5067,30 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
+        self.assertEqual(response[0]["breakdown_value"], "Jane")
+        self.assertEqual(response[0]["count"], 2)
+        self.assertEqual(response[0]["data"][-1], 2)
+
+        # multiple breakdowns
+        with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
+            response = self._run(
+                Filter(
+                    team=self.team,
+                    data={
+                        "events": [{"id": "event_name"}],
+                        "properties": [{"type": "cohort", "key": "id", "value": cohort.pk}],
+                        "breakdowns": [
+                            {
+                                "type": "person",
+                                "property": "name",
+                            },
+                        ],
+                    },
+                ),
+                self.team,
+            )
+
+        self.assertEqual(response[0]["breakdown_value"], ["Jane"])
         self.assertEqual(response[0]["count"], 2)
         self.assertEqual(response[0]["data"][-1], 2)
 
@@ -4935,7 +5167,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 )
             self.assertEqual(daily_response[0]["data"][0], 2)
 
-            # breakdown person props
+            # single breakdown person props
             with freeze_time("2019-12-31T13:00:01Z"):
                 daily_response = self._run(
                     Filter(
@@ -4953,6 +5185,24 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(daily_response[0]["label"], "some_val")
             self.assertEqual(daily_response[1]["data"][0], 1)
             self.assertEqual(daily_response[1]["label"], "$$_posthog_breakdown_null_$$")
+
+            # multiple breakdown person props
+            with freeze_time("2019-12-31T13:00:01Z"):
+                daily_response = self._run(
+                    Filter(
+                        team=self.team,
+                        data={
+                            "interval": "day",
+                            "events": [{"id": "sign up", "math": "dau"}],
+                            "breakdowns": [{"type": "person", "property": "$some_prop"}],
+                        },
+                    ),
+                    self.team,
+                )
+            self.assertEqual(daily_response[0]["data"][0], 2)
+            self.assertEqual(daily_response[0]["label"], ["some_val"])
+            self.assertEqual(daily_response[1]["data"][0], 1)
+            self.assertEqual(daily_response[1]["label"], ["$$_posthog_breakdown_null_$$"])
 
             # MAU
             with freeze_time("2019-12-31T13:00:03Z"):
@@ -5024,21 +5274,63 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
             self.assertEqual(len(response), 25)
+            response = self._run(
+                Filter(
+                    team=self.team,
+                    data={
+                        "date_from": "-14d",
+                        "breakdowns": [{"property": "$some_property"}],
+                        "events": [
+                            {
+                                "id": "sign up",
+                                "name": "sign up",
+                                "type": "events",
+                                "order": 0,
+                            }
+                        ],
+                    },
+                ),
+                self.team,
+            )
+            self.assertEqual(len(response), 25)
 
     @also_test_with_materialized_columns(event_properties=["order"], person_properties=["name"])
     def test_breakdown_with_person_property_filter(self):
         self._create_multiple_people()
         action = _create_action(name="watched movie", team=self.team)
 
+        action_filter = {
+            "date_from": "-14d",
+            "actions": [{"id": action.pk, "type": "actions", "order": 0}],
+            "properties": [{"key": "name", "value": "person2", "type": "person"}],
+        }
+        event_filter = {
+            "date_from": "-14d",
+            "events": [
+                {
+                    "id": "watched movie",
+                    "name": "watched movie",
+                    "type": "events",
+                    "order": 0,
+                    "properties": [
+                        {
+                            "key": "name",
+                            "value": "person2",
+                            "type": "person",
+                        }
+                    ],
+                }
+            ],
+        }
+
+        # single breakdown
         with freeze_time("2020-01-04T13:01:01Z"):
             action_response = self._run(
                 Filter(
                     team=self.team,
                     data={
-                        "date_from": "-14d",
+                        **action_filter,
                         "breakdown": "order",
-                        "actions": [{"id": action.pk, "type": "actions", "order": 0}],
-                        "properties": [{"key": "name", "value": "person2", "type": "person"}],
                     },
                 ),
                 self.team,
@@ -5047,23 +5339,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 Filter(
                     team=self.team,
                     data={
-                        "date_from": "-14d",
+                        **event_filter,
                         "breakdown": "order",
-                        "events": [
-                            {
-                                "id": "watched movie",
-                                "name": "watched movie",
-                                "type": "events",
-                                "order": 0,
-                                "properties": [
-                                    {
-                                        "key": "name",
-                                        "value": "person2",
-                                        "type": "person",
-                                    }
-                                ],
-                            }
-                        ],
                     },
                 ),
                 self.team,
@@ -5073,26 +5350,57 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertDictContainsSubset({"count": 1, "breakdown_value": "1"}, event_response[1])
         self.assertEntityResponseEqual(event_response, action_response)
 
+        # multiple
+        with freeze_time("2020-01-04T13:01:01Z"):
+            action_response = self._run(
+                Filter(
+                    team=self.team,
+                    data={
+                        **action_filter,
+                        "breakdowns": [{"property": "order"}],
+                    },
+                ),
+                self.team,
+            )
+            event_response = self._run(
+                Filter(
+                    team=self.team,
+                    data={
+                        **event_filter,
+                        "breakdowns": [{"property": "order"}],
+                    },
+                ),
+                self.team,
+            )
+
+        self.assertDictContainsSubset({"count": 2, "breakdown_value": ["2"]}, event_response[0])
+        self.assertDictContainsSubset({"count": 1, "breakdown_value": ["1"]}, event_response[1])
+        self.assertEntityResponseEqual(event_response, action_response)
+
     @also_test_with_materialized_columns(["$some_property"])
     def test_breakdown_filtering(self):
         self._create_events()
+        filter = {
+            "date_from": "-14d",
+            "events": [
+                {
+                    "id": "sign up",
+                    "name": "sign up",
+                    "type": "events",
+                    "order": 0,
+                },
+                {"id": "no events"},
+            ],
+        }
         # test breakdown filtering
+        # single breakdown
         with freeze_time("2020-01-04T13:01:01Z"):
             response = self._run(
                 Filter(
                     team=self.team,
                     data={
-                        "date_from": "-14d",
+                        **filter,
                         "breakdown": "$some_property",
-                        "events": [
-                            {
-                                "id": "sign up",
-                                "name": "sign up",
-                                "type": "events",
-                                "order": 0,
-                            },
-                            {"id": "no events"},
-                        ],
                     },
                 ),
                 self.team,
@@ -5107,6 +5415,143 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(sum(response[1]["data"]), 1)
         self.assertEqual(sum(response[2]["data"]), 2)
         self.assertEqual(sum(response[3]["data"]), 1)
+
+        # test breakdown filtering
+        with freeze_time("2020-01-04T13:01:01Z"):
+            response = self._run(
+                Filter(
+                    team=self.team,
+                    data={
+                        **filter,
+                        "breakdowns": [{"property": "$some_property"}],
+                    },
+                ),
+                self.team,
+            )
+
+        self.assertEqual(response[0]["label"], "sign up - value")
+        self.assertEqual(response[1]["label"], "sign up - other_value")
+        self.assertEqual(response[2]["label"], "sign up - $$_posthog_breakdown_null_$$")
+        self.assertEqual(response[3]["label"], "no events - $$_posthog_breakdown_null_$$")
+
+        self.assertEqual(sum(response[0]["data"]), 2)
+        self.assertEqual(sum(response[1]["data"]), 1)
+        self.assertEqual(sum(response[2]["data"]), 2)
+        self.assertEqual(sum(response[3]["data"]), 1)
+
+    def test_multiple_breakdowns_label_formatting(self):
+        self._create_person(
+            team_id=self.team.pk,
+            distinct_ids=["blabla", "anonymous_id"],
+            properties={"$some_prop": "some_val"},
+        )
+        with freeze_time("2020-01-01 00:06:34"):
+            self._create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$some_property": "value", "$browser": "Chrome", "$variant": "1"},
+            )
+            self._create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$some_property": "value", "$browser": "Chrome", "$variant": "2"},
+            )
+            self._create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$some_property": "value", "$browser": "Safari", "$variant": "1"},
+            )
+            self._create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$some_property": "value", "$browser": "Safari", "$variant": "1"},
+            )
+            self._create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$some_property": "value", "$browser": "Safari", "$variant": "2"},
+            )
+            self._create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$some_property": "value", "$browser": "Safari", "$variant": ""},
+            )
+
+        with freeze_time("2020-01-02 00:06:34"):
+            self._create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$some_property": "value", "$browser": "Safari", "$variant": "2"},
+            )
+            self._create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$some_property": "value", "$browser": "Safari", "$variant": "2"},
+            )
+            self._create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$some_property": "value", "$browser": "Chrome", "$variant": ""},
+            )
+
+        filter = {
+            "date_from": "-14d",
+            "events": [
+                {
+                    "id": "sign up",
+                    "name": "sign up",
+                    "type": "events",
+                    "order": 0,
+                },
+                {"id": "no events"},
+            ],
+        }
+
+        with freeze_time("2020-01-04T13:00:01Z"):
+            response = self._run(
+                Filter(
+                    team=self.team,
+                    data={
+                        **filter,
+                        "breakdowns": [{"property": "$browser"}, {"property": "$variant"}],
+                    },
+                ),
+                self.team,
+            )
+
+        self.assertEqual(len(response), 6)
+        self.assertEqual(response[0]["label"], "sign up - Safari::2")
+        self.assertEqual(response[1]["label"], "sign up - Safari::1")
+        self.assertEqual(response[2]["label"], "sign up - Chrome::1")
+        self.assertEqual(response[3]["label"], "sign up - Chrome::2")
+        self.assertEqual(response[4]["label"], "sign up - Chrome::$$_posthog_breakdown_null_$$")
+        self.assertEqual(response[5]["label"], "sign up - Safari::$$_posthog_breakdown_null_$$")
+
+        # should group to "other" breakdowns
+        with freeze_time("2020-01-04T13:00:01Z"):
+            response = self._run(
+                Filter(
+                    team=self.team,
+                    data={
+                        **filter,
+                        "breakdowns": [{"property": "$browser"}, {"property": "$variant"}],
+                        "breakdown_limit": 1,
+                    },
+                ),
+                self.team,
+            )
+        self.assertEqual(len(response), 2)
+        self.assertEqual(response[0]["label"], "sign up - Safari::2")
+        self.assertEqual(response[1]["label"], "sign up - $$_posthog_breakdown_other_$$::$$_posthog_breakdown_other_$$")
 
     @also_test_with_materialized_columns(person_properties=["email"])
     def test_breakdown_filtering_persons(self):
@@ -5140,32 +5585,36 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             properties={"key": "val"},
         )
-        response = self._run(
-            Filter(
-                team=self.team,
-                data={
-                    "date_from": "-14d",
-                    "breakdown": "email",
-                    "breakdown_type": "person",
-                    "events": [
-                        {
-                            "id": "sign up",
-                            "name": "sign up",
-                            "type": "events",
-                            "order": 0,
-                        }
-                    ],
-                },
-            ),
-            self.team,
-        )
-        self.assertEqual(response[0]["label"], "test@gmail.com")
-        self.assertEqual(response[1]["label"], "test@posthog.com")
-        self.assertEqual(response[2]["label"], "$$_posthog_breakdown_null_$$")
 
-        self.assertEqual(response[0]["count"], 1)
-        self.assertEqual(response[1]["count"], 1)
-        self.assertEqual(response[2]["count"], 1)
+        for breakdown_filter in (
+            {"breakdown": "email", "breakdown_type": "person"},
+            {"breakdowns": [{"type": "person", "property": "email"}]},
+        ):
+            response = self._run(
+                Filter(
+                    team=self.team,
+                    data={
+                        **breakdown_filter,
+                        "date_from": "-14d",
+                        "events": [
+                            {
+                                "id": "sign up",
+                                "name": "sign up",
+                                "type": "events",
+                                "order": 0,
+                            }
+                        ],
+                    },
+                ),
+                self.team,
+            )
+            self.assertEqual(response[0]["label"], "test@gmail.com")
+            self.assertEqual(response[1]["label"], "test@posthog.com")
+            self.assertEqual(response[2]["label"], "$$_posthog_breakdown_null_$$")
+
+            self.assertEqual(response[0]["count"], 1)
+            self.assertEqual(response[1]["count"], 1)
+            self.assertEqual(response[2]["count"], 1)
 
     # ensure that column names are properly handled when subqueries and person subquery share properties column
     @also_test_with_materialized_columns(event_properties=["key"], person_properties=["email"])
