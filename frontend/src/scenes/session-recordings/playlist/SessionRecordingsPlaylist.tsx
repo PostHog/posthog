@@ -241,7 +241,7 @@ function RecordingsLists(): JSX.Element {
 
             <div className={clsx('overflow-y-auto')} onScroll={handleScroll} ref={contentRef}>
                 {!notebookNode && showFilters ? (
-                    <div className="bg-side border-b">
+                    <div className="bg-bg-3000 border-b">
                         <SessionRecordingsFilters
                             advancedFilters={advancedFilters}
                             simpleFilters={simpleFilters}
