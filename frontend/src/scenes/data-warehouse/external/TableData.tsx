@@ -1,17 +1,15 @@
 import { IconDatabase } from '@posthog/icons'
-import { LemonButton, LemonModal, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { capitalizeFirstLetter } from 'kea-forms'
-import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { Dispatch, SetStateAction, useEffect, useState } from 'react'
 import { DatabaseTable } from 'scenes/data-management/database/DatabaseTable'
-import { urls } from 'scenes/urls'
 
 import { HogQLQueryEditor } from '~/queries/nodes/HogQLQuery/HogQLQueryEditor'
 import { DatabaseSchemaTable, HogQLQuery, NodeKind } from '~/queries/schema'
 
-import { viewLinkLogic } from '../viewLinkLogic'
+import { ViewLinkModal } from '../ViewLinkModal'
 import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 
 export function TableData(): JSX.Element {
@@ -32,7 +30,6 @@ export function TableData(): JSX.Element {
         saveSchema,
         cancelEditSchema,
     } = useActions(dataWarehouseSceneLogic)
-    const { toggleJoinTableModal, selectSourceTable } = useActions(viewLinkLogic)
     const [localQuery, setLocalQuery] = useState<HogQLQuery>()
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
 
@@ -44,31 +41,6 @@ export function TableData(): JSX.Element {
             setLocalQuery(table.query)
         }
     }, [table])
-
-    const deleteButton = (selectedRow: DatabaseSchemaTable | null): JSX.Element => {
-        if (!selectedRow) {
-            return <></>
-        }
-
-        if (selectedRow.type === 'view' || selectedRow.type === 'data_warehouse') {
-            return (
-                <LemonButton
-                    type="secondary"
-                    onClick={() => {
-                        setIsDeleteModalOpen(true)
-                    }}
-                >
-                    Delete
-                </LemonButton>
-            )
-        }
-
-        if (selectedRow.type === 'posthog') {
-            return <></>
-        }
-
-        return <></>
-    }
 
     return (
         <div className="border rounded p-3 bg-bg-light">
@@ -109,16 +81,6 @@ export function TableData(): JSX.Element {
                         )}
                         {!inEditSchemaMode && !isEditingSavedQuery && (
                             <div className="flex flex-row gap-2 justify-between">
-                                {deleteButton(table)}
-                                <LemonButton
-                                    type="secondary"
-                                    onClick={() => {
-                                        selectSourceTable(table.name)
-                                        toggleJoinTableModal()
-                                    }}
-                                >
-                                    Add join
-                                </LemonButton>
                                 {isManuallyLinkedTable && (
                                     <LemonButton
                                         type="primary"
@@ -129,32 +91,6 @@ export function TableData(): JSX.Element {
                                         Edit schema
                                     </LemonButton>
                                 )}
-                                <Link
-                                    to={urls.insightNew(
-                                        undefined,
-                                        undefined,
-                                        JSON.stringify({
-                                            kind: NodeKind.DataTableNode,
-                                            full: true,
-                                            source: {
-                                                kind: NodeKind.HogQLQuery,
-                                                // TODO: Use `hogql` tag?
-                                                query: `SELECT ${Object.values(table.fields)
-                                                    .filter(
-                                                        ({ table, fields, chain, schema_valid }) =>
-                                                            !table && !fields && !chain && schema_valid
-                                                    )
-                                                    .map(({ hogql_value }) => hogql_value)} FROM ${
-                                                    table.name
-                                                } LIMIT 100`,
-                                            },
-                                        })
-                                    )}
-                                >
-                                    <LemonButton type="primary" status="alt">
-                                        Query
-                                    </LemonButton>
-                                </Link>
                                 {table.type === 'view' && (
                                     <LemonButton type="primary" onClick={() => setIsEditingSavedQuery(true)}>
                                         Edit
@@ -241,7 +177,7 @@ export function TableData(): JSX.Element {
                                         }
                                         data-attr="hogql-query-editor-save-as-view"
                                     >
-                                        Save as View
+                                        Save as view
                                     </LemonButton>
                                 )}
                             />
@@ -249,14 +185,7 @@ export function TableData(): JSX.Element {
                     )}
                 </>
             ) : (
-                <div className="px-4 py-3 h-100 col-span-2 flex justify-center items-center">
-                    <EmptyMessage
-                        title="No table selected"
-                        description="Please select a table from the list on the left"
-                        buttonText="Learn more about data warehouse tables"
-                        buttonTo="https://posthog.com/docs/data-warehouse"
-                    />
-                </div>
+                <div className="px-4 py-3 h-100 col-span-2 flex justify-center items-center" />
             )}
             {table && (
                 <DeleteTableModal
@@ -274,6 +203,7 @@ export function TableData(): JSX.Element {
                     }}
                 />
             )}
+            <ViewLinkModal />
         </div>
     )
 }

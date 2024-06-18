@@ -1,53 +1,48 @@
-import { afterMount, kea, path, props, selectors } from 'kea'
+import { afterMount, connect, kea, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { uuid } from 'lib/utils'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { HogQLQuery, NodeKind } from '~/queries/schema'
-import { hogql } from '~/queries/utils'
-import { Breadcrumb, ErrorTrackingGroup, EventType } from '~/types'
+import { Breadcrumb, EventType } from '~/types'
 
 import type { errorTrackingGroupSceneLogicType } from './errorTrackingGroupSceneLogicType'
+import { errorTrackingLogic } from './errorTrackingLogic'
+import { errorTrackingGroupQuery } from './queries'
 
 export interface ErrorTrackingGroupSceneLogicProps {
-    id: ErrorTrackingGroup['id']
+    id: string
 }
+
+export type ExceptionEventType = Pick<EventType, 'properties' | 'timestamp' | 'person'>
 
 export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType>([
     path((key) => ['scenes', 'error-tracking', 'errorTrackingGroupSceneLogic', key]),
     props({} as ErrorTrackingGroupSceneLogicProps),
 
-    loaders(({ props }) => ({
-        group: [
-            null as ErrorTrackingGroup | null,
+    connect({
+        values: [errorTrackingLogic, ['dateRange', 'filterTestAccounts', 'filterGroup']],
+    }),
+
+    loaders(({ props, values }) => ({
+        events: [
+            [] as ExceptionEventType[],
             {
-                loadGroup: async () => {
-                    // TODO: properly flesh out this page
-                    return {
-                        id: uuid(),
-                        title: 'Placeholder title',
-                        description: 'This is an error message',
-                        occurrences: 0,
-                        uniqueSessions: 0,
-                        uniqueUsers: 0,
-                    }
-                },
-            },
-        ],
-        eventProperties: [
-            [] as EventType['properties'][],
-            {
-                loadGroupEvents: async () => {
-                    const query: HogQLQuery = {
-                        kind: NodeKind.HogQLQuery,
-                        query: hogql`SELECT properties
-                                FROM events e
-                                WHERE event = '$exception' AND properties.$exception_type = ${props.id}`,
-                    }
-                    const res = await api.query(query)
-                    return res.results.map((r) => JSON.parse(r[0]))
+                loadEvents: async () => {
+                    const response = await api.query(
+                        errorTrackingGroupQuery({
+                            group: props.id,
+                            dateRange: values.dateRange,
+                            filterTestAccounts: values.filterTestAccounts,
+                            filterGroup: values.filterGroup,
+                        })
+                    )
+
+                    return response.results.map((r) => ({
+                        properties: JSON.parse(r[0]),
+                        timestamp: r[1],
+                        person: r[2],
+                    }))
                 },
             },
         ],
@@ -55,8 +50,8 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
 
     selectors({
         breadcrumbs: [
-            (s) => [s.group],
-            (group): Breadcrumb[] => {
+            (_, p) => [p.id],
+            (id): Breadcrumb[] => {
                 return [
                     {
                         key: Scene.ErrorTracking,
@@ -64,8 +59,8 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
                         path: urls.errorTracking(),
                     },
                     {
-                        key: [Scene.ErrorTrackingGroup, group?.id || 'unknown'],
-                        name: group?.title,
+                        key: [Scene.ErrorTrackingGroup, id],
+                        name: id,
                     },
                 ]
             },
@@ -73,7 +68,6 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
     }),
 
     afterMount(({ actions }) => {
-        actions.loadGroup()
-        actions.loadGroupEvents()
+        actions.loadEvents()
     }),
 ])

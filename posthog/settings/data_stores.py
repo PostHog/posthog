@@ -289,7 +289,7 @@ if not REDIS_URL:
 # Controls whether the TolerantZlibCompressor is used for Redis compression when writing to Redis.
 # The TolerantZlibCompressor is a drop-in replacement for the standard Django ZlibCompressor that
 # can cope with compressed and uncompressed reading at the same time
-USE_REDIS_COMPRESSION = get_from_env("USE_REDIS_COMPRESSION", False, type_cast=str_to_bool)
+USE_REDIS_COMPRESSION = get_from_env("USE_REDIS_COMPRESSION", True, type_cast=str_to_bool)
 
 # AWS ElastiCache supports "reader" endpoints.
 # See "Finding a Redis (Cluster Mode Disabled) Cluster's Endpoints (Console)"

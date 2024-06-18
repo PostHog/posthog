@@ -40,6 +40,7 @@ async-generator==1.10
     #   trio-websocket
 async-timeout==4.0.2
     # via
+    #   aiohttp
     #   aiokafka
     #   redis
 attrs==23.2.0
@@ -218,6 +219,8 @@ drf-spectacular==0.27.1
     # via -r requirements.in
 et-xmlfile==1.1.0
     # via openpyxl
+exceptiongroup==1.2.1
+    # via anyio
 filelock==3.12.0
     # via snowflake-connector-python
 frozenlist==1.4.1
@@ -461,6 +464,7 @@ python-dateutil==2.8.2
     #   pandas
     #   pendulum
     #   posthoganalytics
+    #   temporalio
 python-dotenv==0.21.0
     # via webdriver-manager
 python-statsd==2.1.0
@@ -634,6 +638,8 @@ types-setuptools==69.0.0.0
     # via requirements-parser
 typing-extensions==4.7.1
     # via
+    #   anyio
+    #   asgiref
     #   dlt
     #   openai
     #   psycopg
@@ -688,5 +694,7 @@ xmlsec==1.3.14
     #   python3-saml
 yarl==1.9.4
     # via aiohttp
+zstd==1.5.5.1
+    # via -r requirements.in
 zxcvbn==4.4.28
     # via -r requirements.in

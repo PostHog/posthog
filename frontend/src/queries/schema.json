@@ -2804,6 +2804,10 @@
             "enum": ["actions", "events", "data_warehouse", "new_entity"],
             "type": "string"
         },
+        "ErrorTrackingOrder": {
+            "enum": ["last_seen", "first_seen", "unique_occurrences", "unique_users", "unique_sessions"],
+            "type": "string"
+        },
         "EventDefinition": {
             "additionalProperties": false,
             "properties": {
