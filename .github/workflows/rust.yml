@@ -3,14 +3,8 @@ name: Rust test CI
 on:
     workflow_dispatch:
     push:
-        paths:
-            - 'rust/**'
-            - '.github/workflows/rust.yml'
         branches: [master, main]
     pull_request:
-        paths:
-            - 'rust/**'
-            - '.github/workflows/rust.yml'
 
 env:
     CARGO_TERM_COLOR: always
