@@ -300,14 +300,14 @@ class TestClickhouseSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBas
             assert len(session_recordings) == 1
             assert session_recordings[0]["session_id"] == session_id_one
 
-    def _add_replay_with_pageview(self, session_id: str, user_one):
+    def _add_replay_with_pageview(self, session_id: str, user: str) -> None:
         self.create_event(
-            user_one,
+            user,
             self.base_time,
             properties={"$session_id": session_id, "$window_id": str(uuid4())},
         )
         produce_replay_summary(
-            distinct_id=user_one,
+            distinct_id=user,
             session_id=session_id,
             first_timestamp=self.base_time,
             team_id=self.team.id,
