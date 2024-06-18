@@ -150,6 +150,12 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                 }, {})
             },
         ],
+        dataWarehouseTablesAndViews: [
+            (s) => [s.dataWarehouseTables, s.views],
+            (dataWarehouseTables, views): DatabaseSchemaTable[] => {
+                return [...dataWarehouseTables, ...views]
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
         deleteDataWarehouseSavedQuery: async (tableId) => {
