@@ -6,6 +6,9 @@ on:
             - master
         paths:
             - 'livestream/**'
+    pull_request:
+        branches:
+            - master
 
 jobs:
     build:
@@ -19,7 +22,12 @@ jobs:
             sha: ${{ steps.push.outputs.digest }}
 
         steps:
-            - uses: actions/checkout@v4
+            - name: Check out livestream code
+              uses: actions/checkout@v4
+              with:
+                  sparse-checkout: 'rust/'
+                  sparse-checkout-cone-mode: false
+
             - name: Log in to the Container registry
               uses: docker/login-action@v3
               with:
