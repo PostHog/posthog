@@ -26,10 +26,9 @@ from posthog.test.base import (
 )
 
 
+# The HogQL pair of TestClickhouseSessionRecordingsListFromSessionReplay can be renamed when delete the old one
 @freeze_time("2021-01-01T13:46:23")
-class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
-    __test__ = False
-
+class TestClickhouseSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def tearDown(self) -> None:
         sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
 
