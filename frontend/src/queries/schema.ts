@@ -732,12 +732,10 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     compareFilter?: CompareFilter
 }
 
-/** `FunnelsFilterType` minus everything inherited from `FilterType` and persons modal related params
- * and `hidden_legend_keys` replaced by `hidden_legend_breakdowns` */
+/** `FunnelsFilterType` minus everything inherited from `FilterType` and persons modal related params */
 export type FunnelsFilterLegacy = Omit<
-    FunnelsFilterType & { hidden_legend_breakdowns?: string[] },
+    FunnelsFilterType,
     | keyof FilterType
-    | 'hidden_legend_keys'
     | 'funnel_step_breakdown'
     | 'funnel_correlation_person_entity'
     | 'funnel_correlation_person_converted'
@@ -776,7 +774,7 @@ export type FunnelsFilter = {
     funnelWindowInterval?: integer
     /** @default day */
     funnelWindowIntervalUnit?: FunnelsFilterLegacy['funnel_window_interval_unit']
-    hidden_legend_breakdowns?: FunnelsFilterLegacy['hidden_legend_breakdowns']
+    hiddenLegendBreakdowns?: string[]
     /** @default total */
     funnelStepReference?: FunnelsFilterLegacy['funnel_step_reference']
 }

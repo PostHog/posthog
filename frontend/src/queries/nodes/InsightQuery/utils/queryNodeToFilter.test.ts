@@ -333,12 +333,12 @@ describe('hiddenLegendItemsToKeys', () => {
         expect(hiddenLegendItemsToKeys(undefined)).toEqual(undefined)
     })
 
-    it('converts hidden_legend_breakdowns', () => {
+    it('converts keys for funnel insights (breakdowns)', () => {
         expect(hiddenLegendItemsToKeys(['a'])).toEqual({ a: true })
         expect(hiddenLegendItemsToKeys(['a', 'b'])).toEqual({ a: true, b: true })
     })
 
-    it('converts hidden_legend_indexes', () => {
+    it('converts keys for trends/stickiness insights', () => {
         expect(hiddenLegendItemsToKeys([1])).toEqual({ '1': true })
         expect(hiddenLegendItemsToKeys([1, 2])).toEqual({ '1': true, '2': true })
     })

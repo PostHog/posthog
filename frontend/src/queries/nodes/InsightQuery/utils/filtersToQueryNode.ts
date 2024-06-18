@@ -397,7 +397,7 @@ export const funnelsFilterToQuery = (filters: Partial<FunnelsFilterType>): Funne
                 ? filters.exclusions.map((entity) => exlusionEntityToNode(entity))
                 : undefined,
         layout: filters.layout,
-        hidden_legend_breakdowns: hiddenLegendKeysToBreakdowns(filters.hidden_legend_keys),
+        hiddenLegendBreakdowns: hiddenLegendKeysToBreakdowns(filters.hidden_legend_keys),
         funnelAggregateByHogQL: filters.funnel_aggregate_by_hogql,
     })
 }

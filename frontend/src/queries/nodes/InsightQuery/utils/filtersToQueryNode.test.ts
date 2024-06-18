@@ -486,7 +486,7 @@ describe('filtersToQueryNode', () => {
                         },
                     ],
                     layout: FunnelLayout.horizontal,
-                    hidden_legend_breakdowns: ['Chrome', 'Safari'],
+                    hiddenLegendBreakdowns: ['Chrome', 'Safari'],
                 },
                 series: [],
             }

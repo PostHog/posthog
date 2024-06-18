@@ -3794,7 +3794,7 @@
                     "$ref": "#/definitions/FunnelConversionWindowTimeUnit",
                     "default": "day"
                 },
-                "hidden_legend_breakdowns": {
+                "hiddenLegendBreakdowns": {
                     "items": {
                         "type": "string"
                     },
@@ -3809,7 +3809,7 @@
         },
         "FunnelsFilterLegacy": {
             "additionalProperties": false,
-            "description": "`FunnelsFilterType` minus everything inherited from `FilterType` and persons modal related params and `hidden_legend_keys` replaced by `hidden_legend_breakdowns`",
+            "description": "`FunnelsFilterType` minus everything inherited from `FilterType` and persons modal related params",
             "properties": {
                 "bin_count": {
                     "$ref": "#/definitions/BinCountValue"
@@ -3850,11 +3850,18 @@
                 "funnel_window_interval_unit": {
                     "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
                 },
-                "hidden_legend_breakdowns": {
-                    "items": {
-                        "type": "string"
+                "hidden_legend_keys": {
+                    "additionalProperties": {
+                        "anyOf": [
+                            {
+                                "type": "boolean"
+                            },
+                            {
+                                "not": {}
+                            }
+                        ]
                     },
-                    "type": "array"
+                    "type": "object"
                 },
                 "layout": {
                     "$ref": "#/definitions/FunnelLayout"

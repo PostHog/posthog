@@ -92,6 +92,12 @@ export const seriesToActionsAndEvents = (
     return { actions, events, data_warehouse, new_entity }
 }
 
+/**
+ * Converts arrays of hidden items (`hiddenLegendIndexes` and `hiddenLegendBreakdowns`)
+ * to their respective object variant for usage in `hidden_legend_keys`.
+ *
+ * Example: `["Chrome"]` will become `{Chrome: true}`.
+ */
 export const hiddenLegendItemsToKeys = (
     hidden_items: number[] | string[] | undefined
 ): Record<string, boolean | undefined> | undefined =>
