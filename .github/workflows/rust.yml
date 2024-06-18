@@ -93,7 +93,7 @@ jobs:
 
             - name: Login to DockerHub
               if: needs.changes.outputs.rust == 'true'
-              uses: docker/login-action@v2
+              uses: docker/login-action@v3
               continue-on-error: true
               with:
                   username: posthog
