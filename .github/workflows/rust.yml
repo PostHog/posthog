@@ -91,13 +91,6 @@ jobs:
                   sparse-checkout: 'rust/'
                   sparse-checkout-cone-mode: false
 
-            - name: Login to DockerHub
-              if: needs.changes.outputs.rust == 'true'
-              uses: docker/login-action@v2
-              with:
-                  username: posthog
-                  password: ${{ secrets.DOCKERHUB_TOKEN }}
-
             - name: Setup dependencies
               if: needs.changes.outputs.rust == 'true'
               run: |
