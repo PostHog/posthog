@@ -1,6 +1,7 @@
 import copy
 from enum import Enum
 import json
+import re
 from typing import Any, Literal
 from posthog.hogql_queries.legacy_compatibility.clean_properties import clean_entity_properties, clean_global_properties
 from posthog.models.entity.entity import Entity as LegacyEntity
@@ -54,6 +55,13 @@ def clean_display(display: str):
         return None
     else:
         return display
+
+
+def clean_hidden_legend_indexes(hidden_legend_keys: dict | None) -> list[int] | None:
+    if hidden_legend_keys:
+        return [int(k) for k, v in hidden_legend_keys.items() if re.match(r"^\d+$", str(k)) and v is True]
+
+    return None
 
 
 def legacy_entity_to_node(
@@ -233,7 +241,7 @@ def _entities(filter: dict):
 def _sampling_factor(filter: dict):
     if isinstance(filter.get("sampling_factor"), str):
         try:
-            return float(filter.get("sampling_factor"))
+            return {"samplingFactor": float(filter.get("sampling_factor"))}
         except (ValueError, TypeError):
             return {}
     else:
@@ -319,7 +327,7 @@ def _insight_filter(filter: dict):
             "trendsFilter": TrendsFilter(
                 smoothingIntervals=filter.get("smoothing_intervals"),
                 showLegend=filter.get("show_legend"),
-                # hidden_legend_indexes=cleanHiddenLegendIndexes(filter.get('hidden_legend_keys')),
+                hiddenLegendIndexes=clean_hidden_legend_indexes(filter.get("hidden_legend_keys")),
                 aggregationAxisFormat=filter.get("aggregation_axis_format"),
                 aggregationAxisPrefix=filter.get("aggregation_axis_prefix"),
                 aggregationAxisPostfix=filter.get("aggregation_axis_postfix"),
@@ -406,7 +414,7 @@ def _insight_filter(filter: dict):
         insight_filter = {
             "stickinessFilter": StickinessFilter(
                 showLegend=filter.get("show_legend"),
-                # hidden_legend_indexes: cleanHiddenLegendIndexes(filter.get('hidden_legend_keys')),
+                hiddenLegendIndexes=clean_hidden_legend_indexes(filter.get("hidden_legend_keys")),
                 showValuesOnSeries=filter.get("show_values_on_series"),
             )
         }

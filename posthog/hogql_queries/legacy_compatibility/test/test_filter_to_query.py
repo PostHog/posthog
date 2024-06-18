@@ -1,5 +1,5 @@
 import pytest
-from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
+from posthog.hogql_queries.legacy_compatibility.filter_to_query import clean_hidden_legend_indexes, filter_to_query
 from posthog.schema import (
     ActionsNode,
     AggregationAxisFormat,
@@ -1617,3 +1617,30 @@ class TestFilterToQuery(BaseTest):
                 toggledLifecycles=[LifecycleToggle.NEW, LifecycleToggle.DORMANT],
             ),
         )
+
+
+class TestCleanHiddenLegendIndexes(BaseTest):
+    def test_converts_legend_keys(self):
+        hidden_legend_keys = {"1": True, "2": False, 3: None, 4: True}
+
+        indexes = clean_hidden_legend_indexes(hidden_legend_keys)
+
+        self.assertEqual(indexes, [1, 4])
+
+    def test_converts_missing_legend_keys(self):
+        hidden_legend_keys = None
+
+        indexes = clean_hidden_legend_indexes(hidden_legend_keys)
+
+        self.assertEqual(indexes, None)
+
+    def test_converts_invalid_keys(self):
+        hidden_legend_keys = {
+            "Opera": True,
+            "events/$pageview/0/Baseline": True,
+            1: True,
+        }
+
+        indexes = clean_hidden_legend_indexes(hidden_legend_keys)
+
+        self.assertEqual(indexes, [1])
