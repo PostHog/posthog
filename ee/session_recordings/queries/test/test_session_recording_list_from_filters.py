@@ -198,7 +198,16 @@ class TestClickhouseSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBas
 
             if poe_v1 or poe_v2:
                 # when poe is off we will join to events, so we can get person properties directly off them
-                assert and_comparisons[0].right.select_from.table.chain != ["person_distinct_ids"]
+                assert and_comparisons[0].right.select_from.table.chain == ["events"]
+                event_person_condition = [
+                    x
+                    for x in and_comparisons[0].right.where.exprs
+                    if isinstance(x, CompareOperation) and x.left.chain == ["person", "properties", "rgInternal"]
+                ]
+                assert len(event_person_condition) == 1
+
+                printed_query = self._print_query(hogql_parsed_select)
+                assert printed_query == ""
             else:
                 # when poe is off we join to person_distinct_ids, so we can get persons, so we can query their properties
                 assert and_comparisons[0].right.select_from.table.chain == ["person_distinct_ids"]
