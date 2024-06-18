@@ -322,6 +322,7 @@ function PersonalAPIKeysTable(): JSX.Element {
             loading={keysLoading}
             loadingSkeletonRows={3}
             className="mt-4"
+            nouns={['personal API key', 'personal API keys']}
             columns={[
                 {
                     title: 'Label',
