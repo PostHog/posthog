@@ -310,7 +310,7 @@ export function PipelineHogFunctionConfiguration({
                                                             </LemonButton>
                                                         </div>
                                                         <CodeEditorResizeable
-                                                            language="rust"
+                                                            language="hog"
                                                             value={value ?? ''}
                                                             onChange={(v) => onChange(v ?? '')}
                                                             options={{
