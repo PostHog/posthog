@@ -1,5 +1,5 @@
 import { objectClean } from 'lib/utils'
-import { isFunnelsFilter, isLifecycleFilter, isStickinessFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
+import { isFunnelsFilter, isLifecycleFilter } from 'scenes/insights/sharedUtils'
 
 import {
     ActionsNode,

@@ -389,7 +389,7 @@ describe('filtersToQueryNode', () => {
                 trendsFilter: {
                     smoothingIntervals: 1,
                     showLegend: true,
-                    hidden_legend_indexes: [0, 10],
+                    hiddenLegendIndexes: [0, 10],
                     aggregationAxisFormat: 'numeric',
                     aggregationAxisPrefix: '£',
                     aggregationAxisPostfix: '%',
