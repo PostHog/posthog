@@ -57,11 +57,8 @@ export function HogFunctionTestPlaceholder(): JSX.Element {
 }
 
 export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
-    const { testEvent, testInvocation, isTestInvocationSubmitting, matchingEventsQuery, testResult, expanded } =
-        useValues(hogFunctionTestLogic(props))
-    const { submitTestInvocation, setTestEvent, setTestResult, toggleExpanded } = useActions(
-        hogFunctionTestLogic(props)
-    )
+    const { isTestInvocationSubmitting, testResult, expanded } = useValues(hogFunctionTestLogic(props))
+    const { submitTestInvocation, setTestResult, toggleExpanded } = useActions(hogFunctionTestLogic(props))
 
     return (
         <Form logic={hogFunctionTestLogic} props={props} formKey="testInvocation" enableFormOnSubmit>
@@ -165,20 +162,6 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
                                     rowKey="timestamp"
                                     pagination={{ pageSize: 200, hideOnSinglePage: true }}
                                 />
-
-                                <LemonLabel>Test invocation context</LemonLabel>
-                                <HogFunctionTestEditor value={testInvocation.globals} />
-                            </div>
-                        ) : testEvent === null ? (
-                            <div>
-                                <LemonLabel>Select a matching event to test with</LemonLabel>
-                                <p>Select an event to test your function with. You can edit it after selecting</p>
-
-                                <div className="flex flex-col border rounded overflow-y-auto max-h-120">
-                                    {matchingEventsQuery ? <Query query={matchingEventsQuery} /> : null}
-                                </div>
-
-                                <LemonButton onClick={() => {}}>Test event</LemonButton>
                             </div>
                         ) : (
                             <div className="space-y-2">
@@ -191,9 +174,6 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
                                                     tested. It should contain all the data that your function will need
                                                     to run
                                                 </p>
-                                                <LemonButton type="secondary" onClick={() => setTestEvent(null)}>
-                                                    Choose different event
-                                                </LemonButton>
                                             </div>
 
                                             <HogFunctionTestEditor value={value} onChange={onChange} />

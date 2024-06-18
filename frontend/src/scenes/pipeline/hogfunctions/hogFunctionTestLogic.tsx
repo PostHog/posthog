@@ -1,10 +1,9 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { actions, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, path, props, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import api from 'lib/api'
 import { tryJsonParse } from 'lib/utils'
 
-import { DataTableNode, NodeKind } from '~/queries/schema'
 import { HogFunctionInvocationGlobals, LogEntry, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { hogFunctionTestLogicType } from './hogFunctionTestLogicType'
@@ -34,7 +33,6 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
         actions: [pipelineHogFunctionConfigurationLogic({ id: props.id }), ['touchConfigurationField']],
     })),
     actions({
-        setTestEvent: (event: string | null) => ({ event }),
         setTestResult: (result: HogFunctionTestInvocationResult | null) => ({ result }),
         toggleExpanded: (expanded?: boolean) => ({ expanded }),
     }),
@@ -43,12 +41,6 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
             false as boolean,
             {
                 toggleExpanded: (_, { expanded }) => (expanded === undefined ? !_ : expanded),
-            },
-        ],
-        testEvent: [
-            JSON.stringify(createExampleGlobals()) as string | null,
-            {
-                setTestEvent: (_, { event }) => event,
             },
         ],
 
@@ -96,41 +88,6 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
             },
         },
     })),
-    selectors(() => ({
-        matchingEventsQuery: [
-            (s) => [s.configuration],
-            ({ filters }): DataTableNode | null => {
-                if (!filters) {
-                    return null
-                }
-
-                return {
-                    kind: NodeKind.DataTableNode,
-                    source: {
-                        kind: NodeKind.EventsQuery,
-                        select: ['event'],
-                        properties: [
-                            {
-                                type: PropertyFilterType.Event,
-                                key: '$browser',
-                                operator: PropertyOperator.Exact,
-                                value: 'Chrome',
-                            },
-                        ],
-                    },
-                    full: false,
-                    showEventFilter: false,
-                    showPropertyFilter: false,
-                    showTimings: false,
-                    showOpenEditorButton: false,
-                    expandable: true,
-                    showColumnConfigurator: false,
-                    embedded: true,
-                }
-            },
-        ],
-    })),
-
     afterMount(({ actions }) => {
         actions.setTestInvocationValue('globals', JSON.stringify(createExampleGlobals(), null, 2))
     }),
