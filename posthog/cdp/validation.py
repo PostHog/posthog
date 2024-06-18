@@ -52,26 +52,26 @@ class InputsItemSerializer(serializers.Serializer):
         schema = self.context["schema"]
         value = attrs.get("value")
 
-        if schema.get("required") and not value:
-            raise serializers.ValidationError("This field is required.")
-
-        if not value:
-            return attrs
-
         name: str = schema["key"]
         item_type = schema["type"]
         value = attrs["value"]
 
+        if schema.get("required") and not value:
+            raise serializers.ValidationError({"inputs": {name: f"This field is required."}})
+
+        if not value:
+            return attrs
+
         # Validate each type
         if item_type == "string":
             if not isinstance(value, str):
-                raise serializers.ValidationError("Value must be a string.")
+                raise serializers.ValidationError({"inputs": {name: f"Value must be a string."}})
         elif item_type == "boolean":
             if not isinstance(value, bool):
-                raise serializers.ValidationError("Value must be a boolean.")
+                raise serializers.ValidationError({"inputs": {name: f"Value must be a boolean."}})
         elif item_type == "dictionary":
             if not isinstance(value, dict):
-                raise serializers.ValidationError("Value must be a dictionary.")
+                raise serializers.ValidationError({"inputs": {name: f"Value must be a dictionary."}})
 
         try:
             if value:
@@ -103,8 +103,7 @@ def validate_inputs(inputs_schema: list, inputs: dict) -> dict:
         serializer = InputsItemSerializer(data=value, context={"schema": schema})
 
         if not serializer.is_valid():
-            first_error = next(iter(serializer.errors.values()))[0]
-            raise serializers.ValidationError({"inputs": {schema["key"]: first_error}})
+            raise serializers.ValidationError(serializer.errors)
 
         validated_inputs[schema["key"]] = serializer.validated_data
 

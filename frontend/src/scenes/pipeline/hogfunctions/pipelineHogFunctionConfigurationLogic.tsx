@@ -67,6 +67,37 @@ function sanitizeFilters(filters?: FilterType): PluginConfigTypeNew['filters'] {
     return Object.keys(sanitized).length > 0 ? sanitized : undefined
 }
 
+export function sanitizeConfiguration(data: HogFunctionConfigurationType) {
+    const sanitizedInputs = {}
+
+    data.inputs_schema?.forEach((input) => {
+        const value = data.inputs?.[input.key]?.value
+
+        if (input.type === 'json' && typeof value === 'string') {
+            try {
+                sanitizedInputs[input.key] = {
+                    value: JSON.parse(value),
+                }
+            } catch (e) {
+                // Ignore
+            }
+        } else {
+            sanitizedInputs[input.key] = {
+                value: value,
+            }
+        }
+    })
+
+    const payload: HogFunctionConfigurationType = {
+        ...data,
+        filters: data.filters ? sanitizeFilters(data.filters) : null,
+        inputs: sanitizedInputs,
+        icon_url: data.icon_url?.replace('&temp=true', ''), // Remove temp=true so it doesn't try and suggest new options next time
+    }
+
+    return payload
+}
+
 export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConfigurationLogicType>([
     props({} as PipelineHogFunctionConfigurationLogicProps),
     key(({ id, templateId }: PipelineHogFunctionConfigurationLogicProps) => {
@@ -138,32 +169,7 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
             },
             submit: async (data) => {
                 try {
-                    const sanitizedInputs = {}
-
-                    data.inputs_schema?.forEach((input) => {
-                        const value = data.inputs?.[input.key]?.value
-
-                        if (input.type === 'json' && typeof value === 'string') {
-                            try {
-                                sanitizedInputs[input.key] = {
-                                    value: JSON.parse(value),
-                                }
-                            } catch (e) {
-                                // Ignore
-                            }
-                        } else {
-                            sanitizedInputs[input.key] = {
-                                value: value,
-                            }
-                        }
-                    })
-
-                    const payload: HogFunctionConfigurationType = {
-                        ...data,
-                        filters: data.filters ? sanitizeFilters(data.filters) : null,
-                        inputs: sanitizedInputs,
-                        icon_url: data.icon_url?.replace('&temp=true', ''), // Remove temp=true so it doesn't try and suggest new options next time
-                    }
+                    const payload = sanitizeConfiguration(data)
 
                     if (props.templateId) {
                         // Only sent on create

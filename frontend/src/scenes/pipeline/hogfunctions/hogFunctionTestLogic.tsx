@@ -7,7 +7,7 @@ import { tryJsonParse } from 'lib/utils'
 import { LogEntry } from '~/types'
 
 import type { hogFunctionTestLogicType } from './hogFunctionTestLogicType'
-import { pipelineHogFunctionConfigurationLogic } from './pipelineHogFunctionConfigurationLogic'
+import { pipelineHogFunctionConfigurationLogic, sanitizeConfiguration } from './pipelineHogFunctionConfigurationLogic'
 import { createExampleEvent } from './utils/event-conversion'
 
 export interface HogFunctionTestLogicProps {
@@ -73,12 +73,13 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                 }
 
                 const event = tryJsonParse(data.globals)
+                const configuration = sanitizeConfiguration(values.configuration)
 
                 try {
                     const res = await api.hogFunctions.createTestInvocation(props.id, {
                         event,
                         mock_async_functions: data.mock_async_functions,
-                        configuration: values.configuration,
+                        configuration,
                     })
 
                     actions.setTestResult(res)
