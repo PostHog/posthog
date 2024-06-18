@@ -4223,42 +4223,6 @@ export type HogFunctionIconResponse = {
     url: string
 }
 
-export type HogFunctionInvocationGlobals = {
-    project: {
-        id: number
-        name: string
-        url: string
-    }
-    source?: {
-        name: string
-        url: string
-    }
-    event: {
-        uuid: string
-        name: string
-        distinct_id: string
-        properties: Record<string, any>
-        timestamp: string
-        url: string
-    }
-    person?: {
-        uuid: string
-        name: string
-        url: string
-        properties: Record<string, any>
-    }
-    groups?: Record<
-        string,
-        {
-            id: string // the "key" of the group
-            type: string
-            index: number
-            url: string
-            properties: Record<string, any>
-        }
-    >
-}
-
 export interface AnomalyCondition {
     absoluteThreshold: {
         lower?: number
