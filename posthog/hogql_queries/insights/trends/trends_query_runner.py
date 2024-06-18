@@ -528,11 +528,13 @@ class TrendsQueryRunner(QueryRunner):
                             continue
                         remapped_label = "none"
 
+                    formatted_breakdown_value = self._format_breakdown_label(remapped_label)
+
                     # if count of series == 1, then we don't need to include the object label in the series label
                     if real_series_count > 1:
-                        series_object["label"] = "{} - {}".format(series_object["label"], remapped_label)
+                        series_object["label"] = "{} - {}".format(series_object["label"], formatted_breakdown_value)
                     else:
-                        series_object["label"] = remapped_label
+                        series_object["label"] = formatted_breakdown_value
                     series_object["breakdown_value"] = remapped_label
                 elif self.query.breakdownFilter.breakdown_type == "cohort":
                     cohort_id = get_value("breakdown_value", val)
@@ -551,11 +553,13 @@ class TrendsQueryRunner(QueryRunner):
                             continue
                         remapped_label = "none"
 
+                    formatted_breakdown_value = self._format_breakdown_label(remapped_label)
+
                     # If there's multiple series, include the object label in the series label
                     if real_series_count > 1:
-                        series_object["label"] = "{} - {}".format(series_object["label"], remapped_label)
+                        series_object["label"] = "{} - {}".format(series_object["label"], formatted_breakdown_value)
                     else:
-                        series_object["label"] = remapped_label
+                        series_object["label"] = formatted_breakdown_value
 
                     series_object["breakdown_value"] = remapped_label
 
@@ -943,6 +947,12 @@ class TrendsQueryRunner(QueryRunner):
             # TODO: Move this "All time" range handling out of `apply_dashboard_filters` – if the date range is "all",
             # we should disable `compare` _no matter how_ we arrived at the final executed query
             self.query.trendsFilter.compare = False
+
+    def _format_breakdown_label(self, breakdown_value: Any):
+        # Mirrors the frontend formatting
+        if isinstance(breakdown_value, list):
+            return "::".join(breakdown_value)
+        return breakdown_value
 
     @cached_property
     def breakdown_enabled(self):
