@@ -6,3 +6,13 @@
     width: 100%;
     text-align: right;
 }
+
+.CodeEditorResizeable {
+    .monaco-editor {
+        border-radius: var(--radius);
+
+        .overflow-guard {
+            border-radius: var(--radius);
+        }
+    }
+}

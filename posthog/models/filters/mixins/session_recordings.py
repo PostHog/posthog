@@ -1,7 +1,8 @@
 import json
-from typing import Optional, Literal
+from typing import Optional, Literal, Union
 
-from posthog.constants import PERSON_UUID_FILTER, SESSION_RECORDINGS_FILTER_IDS
+from posthog.hogql import ast
+from posthog.constants import PERSON_UUID_FILTER, SESSION_RECORDINGS_FILTER_IDS, PropertyOperatorType
 from posthog.models.filters.mixins.common import BaseParamMixin
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import Property
@@ -17,6 +18,25 @@ class SessionRecordingsMixin(BaseParamMixin):
     @cached_property
     def console_search_query(self) -> str | None:
         return self._data.get("console_search_query", None)
+
+    # Supports a legacy use case where events were ORed not ANDed
+    # Can be removed and replaced with ast_operand once the new universal replay filtering is out
+    @cached_property
+    def events_operand(self) -> type[Union[ast.And, ast.Or]]:
+        operand = self._data.get("operand", "OR")
+        return ast.And if operand == "AND" else ast.Or
+
+    @cached_property
+    def _operand(self) -> Literal["AND"] | Literal["OR"]:
+        return self._data.get("operand", "AND")
+
+    @cached_property
+    def property_operand(self) -> PropertyOperatorType:
+        return PropertyOperatorType.AND if self._operand == "AND" else PropertyOperatorType.OR
+
+    @cached_property
+    def ast_operand(self) -> type[Union[ast.And, ast.Or]]:
+        return ast.And if self._operand == "AND" else ast.Or
 
     @cached_property
     def console_logs_filter(self) -> list[Literal["error", "warn", "info"]]:
