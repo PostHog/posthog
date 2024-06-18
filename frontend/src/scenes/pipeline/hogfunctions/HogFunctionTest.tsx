@@ -1,6 +1,7 @@
 import { TZLabel } from '@posthog/apps-common'
 import { IconInfo, IconX } from '@posthog/icons'
 import { LemonButton, LemonLabel, LemonSwitch, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { CodeEditorResizeable } from 'lib/components/CodeEditors'
@@ -64,7 +65,7 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
 
     return (
         <Form logic={hogFunctionTestLogic} props={props} formKey="testInvocation" enableFormOnSubmit>
-            <div className="border bg-bg-light rounded p-3 space-y-2">
+            <div className={clsx('border bg-bg-light rounded p-3 space-y-2', expanded && 'min-h-120')}>
                 <div className="flex items-center gap-2 justify-end">
                     {!expanded ? (
                         <LemonButton className="flex-1" onClick={() => toggleExpanded()}>
