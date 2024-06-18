@@ -2,13 +2,7 @@ name: Plugin Server CI
 
 on:
     pull_request:
-        paths-ignore:
-            - rust/**
-            - livestream/**
     push:
-        paths-ignore:
-            - rust/**
-            - livestream/**
         branches:
             - master
 
