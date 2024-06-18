@@ -58,7 +58,7 @@
     (SELECT sum(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT count(e.uuid) AS total,
+       (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e SAMPLE 1
         INNER JOIN
@@ -155,7 +155,7 @@
     (SELECT sum(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT count(e.uuid) AS total,
+       (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e SAMPLE 1
         LEFT OUTER JOIN
@@ -198,7 +198,7 @@
                day_start AS day_start,
                breakdown_value AS breakdown_value
         FROM
-          (SELECT count(e.uuid) AS total,
+          (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(e__group_0.properties___industry), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events AS e SAMPLE 1
@@ -318,7 +318,7 @@
                day_start AS day_start,
                breakdown_value AS breakdown_value
         FROM
-          (SELECT count(e.uuid) AS total,
+          (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(e__group_0.properties___industry), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events AS e SAMPLE 1
@@ -406,7 +406,7 @@
                day_start AS day_start,
                breakdown_value AS breakdown_value
         FROM
-          (SELECT count(e.uuid) AS total,
+          (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events AS e SAMPLE 1
@@ -445,7 +445,7 @@
                day_start AS day_start,
                breakdown_value AS breakdown_value
         FROM
-          (SELECT count(e.uuid) AS total,
+          (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events AS e SAMPLE 1
@@ -868,7 +868,7 @@
                day_start AS day_start,
                breakdown_value AS breakdown_value
         FROM
-          (SELECT count(e.uuid) AS total,
+          (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events AS e SAMPLE 1
@@ -1249,7 +1249,7 @@
     (SELECT sum(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT count(e.uuid) AS total,
+       (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e SAMPLE 1
         INNER JOIN
@@ -1333,7 +1333,7 @@
     (SELECT sum(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT count(e.uuid) AS total,
+       (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e SAMPLE 1
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-26 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-02 23:59:59', 6, 'UTC'))), equals(e.event, 'event_name'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, 'name'), ''), 'null'), '^"|"$', ''), 'Jane'), 0))
@@ -1359,7 +1359,7 @@
     (SELECT sum(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT count(e.uuid) AS total,
+       (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e SAMPLE 1
         LEFT JOIN
@@ -1468,7 +1468,7 @@
     (SELECT sum(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT count(e.uuid) AS total,
+       (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e SAMPLE 1
         LEFT JOIN
@@ -1762,7 +1762,7 @@
     (SELECT sum(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT count(e.uuid) AS total,
+       (SELECT count() AS total,
                toStartOfWeek(toTimeZone(e.timestamp, 'US/Pacific'), 0) AS day_start
         FROM events AS e SAMPLE 1
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2022-10-31 00:00:00', 6, 'US/Pacific')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), assumeNotNull(parseDateTime64BestEffortOrNull('2022-11-30 23:59:59', 6, 'US/Pacific'))), equals(e.event, 'sign up'))
@@ -1815,7 +1815,7 @@
                day_start AS day_start,
                breakdown_value AS breakdown_value
         FROM
-          (SELECT count(e.uuid) AS total,
+          (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events AS e SAMPLE 1
@@ -1927,7 +1927,7 @@
                day_start AS day_start,
                breakdown_value AS breakdown_value
         FROM
-          (SELECT count(e.uuid) AS total,
+          (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events AS e SAMPLE 1
@@ -2012,7 +2012,7 @@
     (SELECT sum(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT count(e.uuid) AS total,
+       (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e SAMPLE 1
         INNER JOIN
@@ -2056,7 +2056,7 @@
     (SELECT sum(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT count(e.uuid) AS total,
+       (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e SAMPLE 1
         INNER JOIN
@@ -2100,7 +2100,7 @@
     (SELECT sum(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT count(e.uuid) AS total,
+       (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e SAMPLE 1
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'watched movie'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'name'), ''), 'null'), '^"|"$', ''), '1'), 0))
@@ -2126,7 +2126,7 @@
     (SELECT sum(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT count(e.uuid) AS total,
+       (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e SAMPLE 1
         INNER JOIN
@@ -2170,7 +2170,7 @@
     (SELECT sum(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT count(e.uuid) AS total,
+       (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e SAMPLE 1
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'watched movie'), ifNull(equals(nullIf(nullIf(e.mat_name, ''), 'null'), '1'), 0))
@@ -2196,7 +2196,7 @@
     (SELECT sum(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT count(e.uuid) AS total,
+       (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e SAMPLE 1
         INNER JOIN
@@ -2249,7 +2249,7 @@
     (SELECT sum(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT count(e.uuid) AS total,
+       (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e SAMPLE 1
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
@@ -2434,7 +2434,7 @@
     (SELECT sum(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT count(e.uuid) AS total,
+       (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e SAMPLE 1
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
@@ -2539,7 +2539,7 @@
     (SELECT sum(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT count(e.uuid) AS total,
+       (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e SAMPLE 1
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
@@ -2651,7 +2651,7 @@
     (SELECT sum(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT count(e.uuid) AS total,
+       (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'America/Phoenix')) AS day_start
         FROM events AS e SAMPLE 1
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'America/Phoenix')))), lessOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'America/Phoenix'))), equals(e.event, 'sign up'))
@@ -2756,7 +2756,7 @@
     (SELECT sum(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT count(e.uuid) AS total,
+       (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'America/Phoenix')) AS day_start
         FROM events AS e SAMPLE 1
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'America/Phoenix')))), lessOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'America/Phoenix'))), equals(e.event, 'sign up'))
@@ -2868,7 +2868,7 @@
     (SELECT sum(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT count(e.uuid) AS total,
+       (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'Asia/Tokyo')) AS day_start
         FROM events AS e SAMPLE 1
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'Asia/Tokyo')))), lessOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'Asia/Tokyo'))), equals(e.event, 'sign up'))
@@ -2973,7 +2973,7 @@
     (SELECT sum(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT count(e.uuid) AS total,
+       (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'Asia/Tokyo')) AS day_start
         FROM events AS e SAMPLE 1
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'Asia/Tokyo')))), lessOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'Asia/Tokyo'))), equals(e.event, 'sign up'))
@@ -3118,7 +3118,7 @@
     (SELECT sum(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT count(e.uuid) AS total,
+       (SELECT count() AS total,
                toStartOfHour(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e SAMPLE 1
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 00:00:00', 6, 'UTC'))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 10:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
@@ -3177,7 +3177,7 @@
     (SELECT sum(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT count(e.uuid) AS total,
+       (SELECT count() AS total,
                toStartOfHour(toTimeZone(e.timestamp, 'America/Phoenix')) AS day_start
         FROM events AS e SAMPLE 1
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 00:00:00', 6, 'America/Phoenix'))), lessOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 10:59:59', 6, 'America/Phoenix'))), equals(e.event, 'sign up'))
@@ -3236,7 +3236,7 @@
     (SELECT sum(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT count(e.uuid) AS total,
+       (SELECT count() AS total,
                toStartOfHour(toTimeZone(e.timestamp, 'Asia/Tokyo')) AS day_start
         FROM events AS e SAMPLE 1
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 00:00:00', 6, 'Asia/Tokyo'))), lessOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 10:59:59', 6, 'Asia/Tokyo'))), equals(e.event, 'sign up'))
@@ -3262,7 +3262,7 @@
     (SELECT sum(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT count(e.uuid) AS total,
+       (SELECT count() AS total,
                toStartOfWeek(toTimeZone(e.timestamp, 'UTC'), 0) AS day_start
         FROM events AS e SAMPLE 1
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-26 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
@@ -3288,7 +3288,7 @@
     (SELECT sum(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT count(e.uuid) AS total,
+       (SELECT count() AS total,
                toStartOfWeek(toTimeZone(e.timestamp, 'UTC'), 3) AS day_start
         FROM events AS e SAMPLE 1
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'UTC')), 3)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-26 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
@@ -3314,7 +3314,7 @@
     (SELECT sum(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT count(e.uuid) AS total,
+       (SELECT count() AS total,
                toStartOfWeek(toTimeZone(e.timestamp, 'America/Phoenix'), 0) AS day_start
         FROM events AS e SAMPLE 1
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'America/Phoenix')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-26 23:59:59', 6, 'America/Phoenix'))), equals(e.event, 'sign up'))
@@ -3340,7 +3340,7 @@
     (SELECT sum(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT count(e.uuid) AS total,
+       (SELECT count() AS total,
                toStartOfWeek(toTimeZone(e.timestamp, 'America/Phoenix'), 3) AS day_start
         FROM events AS e SAMPLE 1
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'America/Phoenix')), 3)), lessOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-26 23:59:59', 6, 'America/Phoenix'))), equals(e.event, 'sign up'))
@@ -3366,7 +3366,7 @@
     (SELECT sum(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT count(e.uuid) AS total,
+       (SELECT count() AS total,
                toStartOfWeek(toTimeZone(e.timestamp, 'Asia/Tokyo'), 0) AS day_start
         FROM events AS e SAMPLE 1
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'Asia/Tokyo')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-26 23:59:59', 6, 'Asia/Tokyo'))), equals(e.event, 'sign up'))
@@ -3392,7 +3392,7 @@
     (SELECT sum(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT count(e.uuid) AS total,
+       (SELECT count() AS total,
                toStartOfWeek(toTimeZone(e.timestamp, 'Asia/Tokyo'), 3) AS day_start
         FROM events AS e SAMPLE 1
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'Asia/Tokyo')), 3)), lessOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-26 23:59:59', 6, 'Asia/Tokyo'))), equals(e.event, 'sign up'))
@@ -3425,7 +3425,7 @@
                day_start AS day_start,
                breakdown_value AS breakdown_value
         FROM
-          (SELECT count(e.uuid) AS total,
+          (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(e__pdi__person.properties___email), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events AS e SAMPLE 1
@@ -3484,7 +3484,7 @@
                day_start AS day_start,
                breakdown_value AS breakdown_value
         FROM
-          (SELECT count(e.uuid) AS total,
+          (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(e__pdi__person.properties___email), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events AS e SAMPLE 1
@@ -3920,7 +3920,7 @@
     (SELECT sum(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT count(e.uuid) AS total,
+       (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e SAMPLE 1
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))
@@ -3946,7 +3946,7 @@
     (SELECT sum(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT count(e.uuid) AS total,
+       (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e SAMPLE 1
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
@@ -4380,7 +4380,7 @@
     (SELECT sum(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT count(e.uuid) AS total,
+       (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e SAMPLE 1
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
@@ -4406,7 +4406,7 @@
     (SELECT sum(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT count(e.uuid) AS total,
+       (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e SAMPLE 1
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-21 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
@@ -4432,7 +4432,7 @@
     (SELECT sum(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT count(e.uuid) AS total,
+       (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e SAMPLE 1
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
@@ -4455,7 +4455,7 @@
   FROM
     (SELECT avg(total) AS total
      FROM
-       (SELECT count(e.uuid) AS total
+       (SELECT count() AS total
         FROM events AS e SAMPLE 1
         INNER JOIN
           (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
@@ -4481,7 +4481,7 @@
   FROM
     (SELECT avg(total) AS total
      FROM
-       (SELECT count(e.uuid) AS total
+       (SELECT count() AS total
         FROM events AS e SAMPLE 1
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -4509,7 +4509,7 @@
     (SELECT avg(total) AS total,
             breakdown_value AS breakdown_value
      FROM
-       (SELECT count(e.uuid) AS total,
+       (SELECT count() AS total,
                ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'color'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
         FROM events AS e SAMPLE 1.0
         INNER JOIN
@@ -4578,7 +4578,7 @@
           (SELECT avg(total) AS total,
                   day_start AS day_start
            FROM
-             (SELECT count(e.uuid) AS total,
+             (SELECT count() AS total,
                      toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
               FROM events AS e SAMPLE 1
               INNER JOIN
@@ -4619,7 +4619,7 @@
           (SELECT avg(total) AS total,
                   day_start AS day_start
            FROM
-             (SELECT count(e.uuid) AS total,
+             (SELECT count() AS total,
                      toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
               FROM events AS e SAMPLE 1
               LEFT OUTER JOIN
@@ -4715,7 +4715,7 @@
        (SELECT sum(total) AS count,
                day_start AS day_start
         FROM
-          (SELECT count(e.uuid) AS total,
+          (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
            FROM events AS e SAMPLE 1
            WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
