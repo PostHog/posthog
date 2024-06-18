@@ -93,7 +93,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_action_filtering_with_cohort_poe_v2
@@ -179,13 +180,14 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_breakdown_by_group_props_person_on_events
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayMap(i -> arraySum(arrayMap(x -> arrayElement(x, i), groupArray(total))), arrayEnumerate(date)) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))))), 1))) AS date,
@@ -226,7 +228,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_breakdown_by_group_props_person_on_events.1
@@ -271,7 +274,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_breakdown_by_group_props_person_on_events.2
@@ -285,7 +289,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=1000000,
                      max_expanded_ast_elements=1000000,
-                     max_query_size=524288
+                     max_query_size=524288,
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_breakdown_by_group_props_person_on_events.3
@@ -305,7 +310,7 @@
 # name: TestTrends.test_breakdown_by_group_props_with_person_filter_person_on_events
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayMap(i -> arraySum(arrayMap(x -> arrayElement(x, i), groupArray(total))), arrayEnumerate(date)) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))))), 1))) AS date,
@@ -346,7 +351,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_breakdown_by_group_props_with_person_filter_person_on_events.1
@@ -393,7 +399,7 @@
 # name: TestTrends.test_breakdown_filtering_with_properties_in_new_format
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayMap(i -> arraySum(arrayMap(x -> arrayElement(x, i), groupArray(total))), arrayEnumerate(date)) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))))), 1))) AS date,
@@ -426,13 +432,14 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_breakdown_filtering_with_properties_in_new_format.1
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayMap(i -> arraySum(arrayMap(x -> arrayElement(x, i), groupArray(total))), arrayEnumerate(date)) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))))), 1))) AS date,
@@ -465,7 +472,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_breakdown_filtering_with_properties_in_new_format.2
@@ -557,7 +565,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_breakdown_weekly_active_users_aggregated.1
@@ -641,7 +650,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_breakdown_weekly_active_users_aggregated_materialized.1
@@ -709,7 +719,7 @@
 # name: TestTrends.test_breakdown_weekly_active_users_daily_based_on_action.2
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayMap(i -> arraySum(arrayMap(x -> arrayElement(x, i), groupArray(total))), arrayEnumerate(date)) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))))), 1))) AS date,
@@ -779,7 +789,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_breakdown_weekly_active_users_daily_based_on_action.3
@@ -855,7 +866,7 @@
 # name: TestTrends.test_breakdown_with_filter_groups_person_on_events
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayMap(i -> arraySum(arrayMap(x -> arrayElement(x, i), groupArray(total))), arrayEnumerate(date)) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))))), 1))) AS date,
@@ -896,7 +907,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_breakdown_with_filter_groups_person_on_events.1
@@ -952,7 +964,7 @@
 # name: TestTrends.test_breakdown_with_filter_groups_person_on_events_v2.1
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayMap(i -> arraySum(arrayMap(x -> arrayElement(x, i), groupArray(total))), arrayEnumerate(date)) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))))), 1))) AS date,
@@ -1000,7 +1012,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_breakdown_with_filter_groups_person_on_events_v2.2
@@ -1054,7 +1067,7 @@
 # name: TestTrends.test_dau_with_breakdown_filtering_with_sampling
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayMap(i -> arraySum(arrayMap(x -> arrayElement(x, i), groupArray(total))), arrayEnumerate(date)) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
@@ -1094,13 +1107,14 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.1
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayMap(i -> arraySum(arrayMap(x -> arrayElement(x, i), groupArray(total))), arrayEnumerate(date)) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
@@ -1140,7 +1154,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.2
@@ -1281,7 +1296,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort_poe_v2
@@ -1347,7 +1363,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_filtering_by_multiple_groups_person_on_events
@@ -1389,7 +1406,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_filtering_by_multiple_groups_person_on_events.1
@@ -1442,7 +1460,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_filtering_by_multiple_groups_person_on_events.2
@@ -1456,7 +1475,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=1000000,
                      max_expanded_ast_elements=1000000,
-                     max_query_size=524288
+                     max_query_size=524288,
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_filtering_with_group_props_person_on_events
@@ -1490,13 +1510,14 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_mau_with_breakdown_filtering_and_prop_filter
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayMap(i -> arraySum(arrayMap(x -> arrayElement(x, i), groupArray(total))), arrayEnumerate(date)) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
@@ -1564,7 +1585,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_mau_with_breakdown_filtering_and_prop_filter.1
@@ -1638,7 +1660,7 @@
 # name: TestTrends.test_mau_with_breakdown_filtering_and_prop_filter_poe_v2
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayMap(i -> arraySum(arrayMap(x -> arrayElement(x, i), groupArray(total))), arrayEnumerate(date)) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
@@ -1694,7 +1716,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_mau_with_breakdown_filtering_and_prop_filter_poe_v2.1
@@ -1776,7 +1799,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_person_filtering_in_cohort_in_action
@@ -1802,7 +1826,7 @@
 # name: TestTrends.test_person_filtering_in_cohort_in_action.2
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayMap(i -> arraySum(arrayMap(x -> arrayElement(x, i), groupArray(total))), arrayEnumerate(date)) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
@@ -1845,7 +1869,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_person_filtering_in_cohort_in_action.3
@@ -1914,7 +1939,7 @@
 # name: TestTrends.test_person_filtering_in_cohort_in_action_poe_v2.2
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayMap(i -> arraySum(arrayMap(x -> arrayElement(x, i), groupArray(total))), arrayEnumerate(date)) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
@@ -1957,7 +1982,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_person_filtering_in_cohort_in_action_poe_v2.3
@@ -2044,7 +2070,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_person_property_filtering_clashing_with_event_property
@@ -2088,7 +2115,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_person_property_filtering_clashing_with_event_property.1
@@ -2114,7 +2142,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_person_property_filtering_clashing_with_event_property_materialized
@@ -2158,7 +2187,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_person_property_filtering_clashing_with_event_property_materialized.1
@@ -2184,7 +2214,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_person_property_filtering_materialized
@@ -2228,7 +2259,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_same_day_with_person_on_events_v2
@@ -2263,7 +2295,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_same_day_with_person_on_events_v2.2
@@ -2296,7 +2329,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_same_day_with_person_on_events_v2_latest_override
@@ -2338,7 +2372,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_same_day_with_person_on_events_v2_latest_override.2
@@ -2380,7 +2415,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_same_day_with_person_on_events_v2_latest_override.4
@@ -2422,7 +2458,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily
@@ -2448,7 +2485,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily.1
@@ -2481,7 +2519,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily.2
@@ -2527,7 +2566,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily.3
@@ -2553,13 +2593,14 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily.4
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayMap(i -> arraySum(arrayMap(x -> arrayElement(x, i), groupArray(total))), arrayEnumerate(date)) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))))), 1))) AS date,
@@ -2599,7 +2640,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily.5
@@ -2665,7 +2707,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily_minus_utc.1
@@ -2698,7 +2741,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily_minus_utc.2
@@ -2744,7 +2788,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily_minus_utc.3
@@ -2770,13 +2815,14 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily_minus_utc.4
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayMap(i -> arraySum(arrayMap(x -> arrayElement(x, i), groupArray(total))), arrayEnumerate(date)) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'America/Phoenix'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'America/Phoenix'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'America/Phoenix'))))), 1))) AS date,
@@ -2816,7 +2862,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily_minus_utc.5
@@ -2882,7 +2929,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily_plus_utc.1
@@ -2915,7 +2963,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily_plus_utc.2
@@ -2961,7 +3010,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily_plus_utc.3
@@ -2987,13 +3037,14 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily_plus_utc.4
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayMap(i -> arraySum(arrayMap(x -> arrayElement(x, i), groupArray(total))), arrayEnumerate(date)) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'Asia/Tokyo'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'Asia/Tokyo'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'Asia/Tokyo'))))), 1))) AS date,
@@ -3033,7 +3084,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily_plus_utc.5
@@ -3106,7 +3158,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_hourly_relative_from.1
@@ -3132,7 +3185,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_hourly_relative_from_minus_utc
@@ -3165,7 +3219,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_hourly_relative_from_minus_utc.1
@@ -3191,7 +3246,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_hourly_relative_from_plus_utc
@@ -3224,7 +3280,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_hourly_relative_from_plus_utc.1
@@ -3250,7 +3307,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_weekly
@@ -3276,7 +3334,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_weekly.1
@@ -3302,7 +3361,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_weekly_minus_utc
@@ -3328,7 +3388,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_weekly_minus_utc.1
@@ -3354,7 +3415,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_weekly_plus_utc
@@ -3380,7 +3442,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_weekly_plus_utc.1
@@ -3406,13 +3469,14 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayMap(i -> arraySum(arrayMap(x -> arrayElement(x, i), groupArray(total))), arrayEnumerate(date)) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-07-01 23:59:59', 6, 'UTC'))))), 1))) AS date,
@@ -3465,13 +3529,14 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns.1
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayMap(i -> arraySum(arrayMap(x -> arrayElement(x, i), groupArray(total))), arrayEnumerate(date)) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-07-01 23:59:59', 6, 'UTC'))))), 1))) AS date,
@@ -3524,7 +3589,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns.2
@@ -3640,7 +3706,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.1
@@ -3684,13 +3751,14 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.2
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayMap(i -> arraySum(arrayMap(x -> arrayElement(x, i), groupArray(total))), arrayEnumerate(date)) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-31 23:59:59', 6, 'UTC'))))), 1))) AS date,
@@ -3741,7 +3809,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.3
@@ -3780,7 +3849,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.4
@@ -3819,13 +3889,14 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.5
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayMap(i -> arraySum(arrayMap(x -> arrayElement(x, i), groupArray(total))), arrayEnumerate(date)) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-31 23:59:59', 6, 'UTC'))))), 1))) AS date,
@@ -3858,7 +3929,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.6
@@ -3934,7 +4006,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_any_event_total_count.1
@@ -3960,13 +4033,14 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_breakdown_cumulative
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayMap(i -> arraySum(arrayMap(x -> arrayElement(x, i), groupArray(total))), arrayEnumerate(date)) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
@@ -4012,7 +4086,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_breakdown_cumulative.1
@@ -4064,7 +4139,7 @@
 # name: TestTrends.test_trends_breakdown_cumulative_poe_v2
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayMap(i -> arraySum(arrayMap(x -> arrayElement(x, i), groupArray(total))), arrayEnumerate(date)) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
@@ -4110,7 +4185,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_breakdown_cumulative_poe_v2.1
@@ -4162,7 +4238,7 @@
 # name: TestTrends.test_trends_breakdown_normalize_url
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayMap(i -> arraySum(arrayMap(x -> arrayElement(x, i), groupArray(total))), arrayEnumerate(date)) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
@@ -4210,7 +4286,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_breakdown_normalize_url.1
@@ -4287,7 +4364,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown.1
@@ -4316,7 +4394,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown.2
@@ -4394,7 +4473,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_compare_day_interval_relative_range.1
@@ -4420,7 +4500,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_compare_day_interval_relative_range.2
@@ -4446,7 +4527,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_count_per_user_average_aggregated
@@ -4472,7 +4554,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_count_per_user_average_aggregated_poe_v2
@@ -4498,7 +4581,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_count_per_user_average_aggregated_with_event_property_breakdown_with_sampling
@@ -4529,7 +4613,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_count_per_user_average_aggregated_with_event_property_breakdown_with_sampling.1
@@ -4601,7 +4686,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_count_per_user_average_daily_poe_v2
@@ -4642,7 +4728,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_groups_per_day
@@ -4668,7 +4755,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_groups_per_day_cumulative
@@ -4699,7 +4787,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_per_day_cumulative
@@ -4730,7 +4819,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_per_day_dau_cumulative
@@ -4768,7 +4858,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_person_breakdown_with_session_property_single_aggregate_math_and_breakdown
@@ -4815,7 +4906,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_person_breakdown_with_session_property_single_aggregate_math_and_breakdown.1
@@ -4887,7 +4979,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_with_session_property_single_aggregate_math
@@ -4912,7 +5005,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_with_session_property_single_aggregate_math.1
@@ -4937,7 +5031,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math
@@ -4976,7 +5071,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math.1
@@ -5015,13 +5111,14 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayMap(i -> arraySum(arrayMap(x -> arrayElement(x, i), groupArray(total))), arrayEnumerate(date)) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0), toIntervalWeek(number)), range(0, plus(coalesce(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC')), 0))), 1))) AS date,
@@ -5069,13 +5166,14 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns.1
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayMap(i -> arraySum(arrayMap(x -> arrayElement(x, i), groupArray(total))), arrayEnumerate(date)) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
@@ -5123,7 +5221,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns.2
@@ -5231,7 +5330,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_aggregated_range_wider_than_week
@@ -5267,7 +5367,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_aggregated_range_wider_than_week_with_sampling
@@ -5303,7 +5404,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_daily
@@ -5349,7 +5451,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_daily_minus_utc
@@ -5395,7 +5498,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_daily_plus_utc
@@ -5441,7 +5545,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_filtering
@@ -5498,7 +5603,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_filtering_materialized
@@ -5555,7 +5661,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_hourly
@@ -5601,7 +5708,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_weekly
@@ -5647,7 +5755,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_weekly_minus_utc
@@ -5693,7 +5802,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_weekly_plus_utc
@@ -5739,6 +5849,7 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---

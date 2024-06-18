@@ -702,6 +702,7 @@ posthog/api/plugin_log_entry.py:0: error: Module "django.utils.timezone" does no
 posthog/api/action.py:0: error: Argument 1 to <tuple> has incompatible type "*tuple[str, ...]"; expected "type[BaseRenderer]"  [arg-type]
 posthog/temporal/tests/batch_exports/test_redshift_batch_export_workflow.py:0: error: Incompatible types in assignment (expression has type "str | int", variable has type "int")  [assignment]
 posthog/api/test/batch_exports/conftest.py:0: error: Argument "activities" to "ThreadedWorker" has incompatible type "list[function]"; expected "Sequence[Callable[..., Any]]"  [arg-type]
+posthog/temporal/tests/data_imports/test_end_to_end.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 posthog/api/test/test_team.py:0: error: "HttpResponse" has no attribute "json"  [attr-defined]
 posthog/api/test/test_team.py:0: error: "HttpResponse" has no attribute "json"  [attr-defined]
 posthog/api/test/test_capture.py:0: error: Statement is unreachable  [unreachable]
