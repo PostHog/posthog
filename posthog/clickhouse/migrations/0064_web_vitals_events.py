@@ -1,5 +1,5 @@
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
-from posthog.web_vitals.sql import (
+from posthog.network_vitals.sql import (
     NETWORK_VITALS_TABLE_MV_SQL,
     KAFKA_NETWORK_VITALS_TABLE_SQL,
     DISTRIBUTED_NETWORK_VITALS_TABLE_SQL,
