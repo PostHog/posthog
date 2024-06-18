@@ -212,16 +212,17 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
                 const inputErrors = {}
 
                 configuration.inputs_schema?.forEach((input) => {
-                    const value = inputs[input.key].value
-                    if (input.required && !inputs[input.key]) {
-                        inputErrors[input.key] = 'This field is required'
+                    const key = input.key
+                    const value = inputs[key]?.value
+                    if (input.required && !value) {
+                        inputErrors[key] = 'This field is required'
                     }
 
                     if (input.type === 'json' && typeof value === 'string') {
                         try {
                             JSON.parse(value)
                         } catch (e) {
-                            inputErrors[input.key] = 'Invalid JSON'
+                            inputErrors[key] = 'Invalid JSON'
                         }
                     }
                 })
@@ -324,7 +325,6 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
 
     subscriptions(({ props, cache }) => ({
         configuration: (configuration) => {
-            console.log(configuration)
             if (props.templateId) {
                 // Sync state to the URL bar if new
                 cache.ignoreUrlChange = true
