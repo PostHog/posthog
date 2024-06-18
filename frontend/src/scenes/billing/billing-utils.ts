@@ -268,3 +268,7 @@ export const getProration = ({
         prorationAmount: prorationAmount.toFixed(2),
     }
 }
+
+export const getProrationMessage = (prorationAmount: string, unitAmountUsd: string | null): string => {
+    return `Pay ~$${prorationAmount} today (prorated) and $${parseInt(unitAmountUsd || '0')} every month thereafter.`
+}

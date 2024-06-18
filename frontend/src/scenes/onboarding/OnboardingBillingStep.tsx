@@ -8,6 +8,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useState } from 'react'
+import { AllProductsPlanComparison } from 'scenes/billing/AllProductsPlanComparison'
 import { getUpgradeProductLink } from 'scenes/billing/billing-utils'
 import { BillingHero } from 'scenes/billing/BillingHero'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -63,7 +64,7 @@ export const OnboardingBillingStep = ({
                         }}
                         data-attr="onboarding-subscribe-button"
                     >
-                        {action} to paid plan
+                        {action}
                     </BillingUpgradeCTA>
                 )
             }
@@ -106,7 +107,11 @@ export const OnboardingBillingStep = ({
                     {(!product.subscribed || showPlanComp) && (
                         <>
                             <BillingHero />
-                            <PlanComparison product={product} includeAddons />
+                            {featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' ? (
+                                <AllProductsPlanComparison product={product} />
+                            ) : (
+                                <PlanComparison product={product} />
+                            )}
                         </>
                     )}
                 </div>
