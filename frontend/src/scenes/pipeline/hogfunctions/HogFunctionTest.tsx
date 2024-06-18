@@ -7,8 +7,6 @@ import { Form } from 'kea-forms'
 import { CodeEditorResizeable } from 'lib/components/CodeEditors'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import { Query } from '~/queries/Query/Query'
-
 import { hogFunctionTestLogic, HogFunctionTestLogicProps } from './hogFunctionTestLogic'
 
 const HogFunctionTestEditor = ({

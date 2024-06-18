@@ -4,11 +4,11 @@ import { forms } from 'kea-forms'
 import api from 'lib/api'
 import { tryJsonParse } from 'lib/utils'
 
-import { HogFunctionInvocationGlobals, LogEntry, PropertyFilterType, PropertyOperator } from '~/types'
+import { LogEntry } from '~/types'
 
 import type { hogFunctionTestLogicType } from './hogFunctionTestLogicType'
 import { pipelineHogFunctionConfigurationLogic } from './pipelineHogFunctionConfigurationLogic'
-import { createExampleGlobals } from './utils/event-conversion'
+import { createExampleEvent } from './utils/event-conversion'
 
 export interface HogFunctionTestLogicProps {
     id: string
@@ -72,11 +72,11 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                     return
                 }
 
-                const globals: HogFunctionInvocationGlobals = tryJsonParse(data.globals)
+                const event = tryJsonParse(data.globals)
 
                 try {
                     const res = await api.hogFunctions.createTestInvocation(props.id, {
-                        globals,
+                        event,
                         mock_async_functions: data.mock_async_functions,
                         configuration: values.configuration,
                     })
@@ -89,6 +89,6 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
         },
     })),
     afterMount(({ actions }) => {
-        actions.setTestInvocationValue('globals', JSON.stringify(createExampleGlobals(), null, 2))
+        actions.setTestInvocationValue('globals', JSON.stringify(createExampleEvent(), null, 2))
     }),
 ])

@@ -29,7 +29,7 @@ import {
     HogFunctionInvocationResult,
     HogFunctionMessageToQueue,
 } from './types'
-import { convertToHogFunctionInvocationGlobals } from './utils'
+import { convertToHogFunctionInvocationGlobals, convertToParsedClickhouseEvent } from './utils'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
@@ -300,7 +300,7 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
                     }
                     events.push(
                         convertToHogFunctionInvocationGlobals(
-                            clickHouseEvent,
+                            convertToParsedClickhouseEvent(clickHouseEvent),
                             team,
                             this.config.SITE_URL ?? 'http://localhost:8000',
                             groupTypes
@@ -378,14 +378,40 @@ export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
         app.post('/api/projects/:team_id/hog_functions/:id/invocations', async (req, res): Promise<void> => {
             try {
                 const { id, team_id } = req.params
-                const { globals, mock_async_functions, configuration } = req.body
+                const { event, mock_async_functions, configuration } = req.body
 
-                // TODO: Some double checking of the configuration
+                const [hogFunction, team] = await Promise.all([
+                    this.hogFunctionManager.fetchHogFunction(req.params.id),
+                    this.teamManager.fetchTeam(parseInt(team_id)),
+                ])
+                if (!hogFunction || !team || hogFunction.team_id !== team.id) {
+                    res.status(404).json({ error: 'Hog function not found' })
+                    return
+                }
+
+                let groupTypes: GroupTypeToColumnIndex | undefined = undefined
+
+                if (await this.organizationManager.hasAvailableFeature(team.id, 'group_analytics')) {
+                    // If the organization has group analytics enabled then we enrich the event with group data
+                    groupTypes = await this.groupTypeManager.fetchGroupTypes(team.id)
+                }
+
+                const globals = convertToHogFunctionInvocationGlobals(
+                    event,
+                    team,
+                    this.config.SITE_URL ?? 'http://localhost:8000',
+                    groupTypes
+                )
+
+                globals.source = {
+                    name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
+                    url: `${globals.project.url}/pipeline/destinations/hog-${hogFunction.id}/configuration/`,
+                }
 
                 const invocation: HogFunctionInvocation = {
                     id,
-                    globals: globals as HogFunctionInvocationGlobals,
-                    teamId: parseInt(team_id),
+                    globals: globals,
+                    teamId: team.id,
                     hogFunctionId: id,
                     logs: [],
                     timings: [],
@@ -423,10 +449,11 @@ export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
 
                 res.json({
                     status: response.finished ? 'success' : 'error',
-                    error: response.error,
+                    error: String(response.error),
                     logs: response.logs,
                 })
             } catch (e) {
+                console.error(e)
                 res.status(500).json({ error: e.message })
             }
         })

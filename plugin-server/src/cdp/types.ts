@@ -35,6 +35,30 @@ export interface HogFunctionFilters {
     bytecode?: HogBytecode
 }
 
+// We have a "parsed" clickhous event type to make it easier to work with calls from kafka as well as those from the frontend
+export interface ParsedClickhouseEvent {
+    uuid: string
+    event: string
+    team_id: number
+    distinct_id: string
+    person_id?: string
+    timestamp: string
+    created_at: string
+    properties: Record<string, any>
+    person_created_at?: string
+    person_properties: Record<string, any>
+    group0_properties: Record<string, any>
+    group1_properties: Record<string, any>
+    group2_properties: Record<string, any>
+    group3_properties: Record<string, any>
+    group4_properties: Record<string, any>
+    group0_created_at?: string
+    group1_created_at?: string
+    group2_created_at?: string
+    group3_created_at?: string
+    group4_created_at?: string
+}
+
 export type HogFunctionInvocationGlobals = {
     project: {
         id: number
