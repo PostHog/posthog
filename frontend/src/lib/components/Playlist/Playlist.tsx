@@ -114,7 +114,7 @@ export function Playlist({
                     onDoubleClick={() => setListCollapsed(!listCollapsed)}
                 />
             </div>
-            <div className="Playlist__player">{content({ activeItem })}</div>
+            <div className="Playlist__main">{content({ activeItem })}</div>
         </div>
     )
 }
