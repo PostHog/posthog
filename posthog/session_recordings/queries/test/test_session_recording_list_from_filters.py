@@ -2842,30 +2842,34 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         user = "test_duration_filter-user"
         Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
 
-        session_id_one = "session one is 29 seconds long"
+        session_id_one = "session one id"
         produce_replay_summary(
             distinct_id=user,
             session_id=session_id_one,
-            # first_timestamp=self.an_hour_ago,
-            # last_timestamp=(self.an_hour_ago + relativedelta(seconds=29)),
             team_id=self.team.id,
             snapshot_source="web",
         )
 
-        session_id_two = "session two is 61 seconds long"
+        session_id_two = "session two id"
         produce_replay_summary(
             distinct_id=user,
             session_id=session_id_two,
-            # first_timestamp=self.an_hour_ago,
-            # last_timestamp=(self.an_hour_ago + relativedelta(seconds=61)),
             team_id=self.team.id,
             snapshot_source="mobile",
         )
 
-        (session_recordings, _, _) = self._filter_recordings_by({"snapshot_source": '["web"]'})
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {
+                "snapshot_source": '{"key": "snapshot_source", "value": ["web"], "operator": "exact", "type": "recording"}'
+            }
+        )
         assert [r["session_id"] for r in session_recordings] == [session_id_one]
 
-        (session_recordings, _, _) = self._filter_recordings_by({"snapshot_source": '["mobile"]'})
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {
+                "snapshot_source": '{"key": "snapshot_source", "value": ["mobile"], "operator": "exact", "type": "recording"}'
+            }
+        )
         assert [r["session_id"] for r in session_recordings] == [session_id_two]
 
     @also_test_with_materialized_columns(

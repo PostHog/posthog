@@ -24,7 +24,6 @@ import {
     PropertyOperator,
     RecordingDurationFilter,
     RecordingFilters,
-    RecordingPlatformType,
     RecordingUniversalFilters,
     ReplayTabs,
     SessionRecordingId,
@@ -91,6 +90,7 @@ export const DEFAULT_RECORDING_FILTERS: RecordingFilters = {
     date_from: '-3d',
     date_to: null,
     console_logs: [],
+    snapshot_source: null,
     console_search_query: '',
     operand: FilterLogicalOperator.And,
 }
@@ -132,7 +132,7 @@ function convertUniversalFiltersToLegacyFilters(universalFilters: RecordingUnive
     const events: FilterType['events'] = []
     const actions: FilterType['actions'] = []
     let console_logs: FilterableLogLevel[] = []
-    let snapshot_source: RecordingPlatformType[] = []
+    let snapshot_source: AnyPropertyFilter | null = null
     let console_search_query = ''
 
     filters.forEach((f) => {
@@ -147,7 +147,7 @@ function convertUniversalFiltersToLegacyFilters(universalFilters: RecordingUnive
                 } else if (f.key === 'console_log_query') {
                     console_search_query = (f.value || '') as string
                 } else if (f.key === 'snapshot_source') {
-                    snapshot_source = f.value as RecordingPlatformType[]
+                    snapshot_source = f
                 }
             } else {
                 properties.push(f)

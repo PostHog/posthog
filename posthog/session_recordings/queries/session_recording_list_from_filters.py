@@ -47,7 +47,6 @@ class SessionRecordingListFromFilters:
             min(s.min_first_timestamp) as start_time,
             max(s.max_last_timestamp) as end_time,
             dateDiff('SECOND', start_time, end_time) as duration,
-            argMinMerge(s.snapshot_source) as snapshot_source,
             argMinMerge(s.first_url) as first_url,
             sum(s.click_count),
             sum(s.keypress_count),
@@ -126,8 +125,6 @@ class SessionRecordingListFromFilters:
             query_type="SessionRecordingListQuery",
             modifiers=self._hogql_query_modifiers,
         )
-
-        print(paginated_response.hogql)
 
         return SessionRecordingQueryResult(
             results=(self._data_to_return(self._paginator.results)),
@@ -277,11 +274,16 @@ class SessionRecordingListFromFilters:
             )
 
         if self._filter.snapshot_source_filter:
+            op = (
+                ast.CompareOperationOp.In
+                if self._filter.snapshot_source_filter.operator == "exact"
+                else ast.CompareOperationOp.NotIn
+            )
             exprs.append(
                 ast.CompareOperation(
-                    op=ast.CompareOperationOp.In,
-                    left=ast.Field(chain=["snapshot_source"]),
-                    right=ast.Constant(value=self._filter.snapshot_source_filter),
+                    op=op,
+                    left=ast.Call(name="argMinMerge", args=[ast.Field(chain=["s", "snapshot_source"])]),
+                    right=ast.Constant(value=self._filter.snapshot_source_filter.value),
                 ),
             )
 

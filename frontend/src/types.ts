@@ -963,8 +963,6 @@ export type DurationType = 'duration' | 'active_seconds' | 'inactive_seconds'
 
 export type FilterableLogLevel = 'info' | 'warn' | 'error'
 
-export type RecordingPlatformType = 'web' | 'mobile'
-
 export interface RecordingFilters {
     /**
      * live mode is front end only, sets date_from and date_to to the last hour
@@ -978,7 +976,7 @@ export interface RecordingFilters {
     session_recording_duration?: RecordingDurationFilter
     duration_type_filter?: DurationType
     console_search_query?: string
-    snapshot_source?: RecordingPlatformType[]
+    snapshot_source?: AnyPropertyFilter | null
     console_logs?: FilterableLogLevel[]
     filter_test_accounts?: boolean
     operand?: FilterLogicalOperator
