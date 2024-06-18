@@ -325,7 +325,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
             actions.handleProductUpgrade(product, plan, redirectPath)
         },
         handleProductUpgrade: ({ plan, product, redirectPath }) => {
-            window.location.href = `/api/billing/activation?products=${product.type}:${plan?.plan_key}${
+            window.location.href = `/api/billing/activate?products=${product.type}:${plan?.plan_key}${
                 redirectPath && `&redirect_path=${redirectPath}`
             }`
         },

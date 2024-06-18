@@ -84,6 +84,17 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
             (productWithFeature) =>
                 productWithFeature?.plans.find((plan) => plan.features?.some((f) => f.key === props.featureKey)),
         ],
+        nextPlanWithFeature: [
+            (s) => [s.productWithFeature],
+            (productWithFeature) =>
+                productWithFeature?.plans.find(
+                    (plan) => plan.features?.some((f) => f.key === props.featureKey) && !plan.current_plan
+                ),
+        ],
+        featureInfoOnNextPlan: [
+            (s) => [s.nextPlanWithFeature],
+            (nextPlanWithFeature) => nextPlanWithFeature?.features.find((f) => f.key === props.featureKey),
+        ],
         gateVariant: [
             (s) => [
                 s.billingLoading,

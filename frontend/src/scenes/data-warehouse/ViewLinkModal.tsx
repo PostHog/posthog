@@ -184,7 +184,7 @@ export function ViewLinkForm(): JSX.Element {
                             </div>
                         </div>
                         <div className="mt-4 flex w-full">
-                            <CodeSnippet style={{ width: '100%' }} language={Language.SQL}>
+                            <CodeSnippet className="w-full" language={Language.SQL}>
                                 {sqlCodeSnippet}
                             </CodeSnippet>
                         </div>

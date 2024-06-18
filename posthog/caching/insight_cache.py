@@ -129,7 +129,7 @@ def update_cache(caching_state_id: UUID):
                 insight.team,
                 insight.query,
                 dashboard_filters_json=dashboard.filters if dashboard is not None else None,
-                execution_mode=ExecutionMode.CALCULATION_ALWAYS,
+                execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             )
             # TRICKY: `result` is null, because `process_query` already set the cache. `cache_type` also irrelevant
             cache_key, cache_type, result = getattr(response, "cache_key", None), None, None

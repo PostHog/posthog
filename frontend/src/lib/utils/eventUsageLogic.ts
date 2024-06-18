@@ -36,6 +36,7 @@ import {
     InsightShortId,
     InsightType,
     ItemMode,
+    MultipleSurveyQuestion,
     PersonType,
     PropertyFilterType,
     PropertyFilterValue,
@@ -323,7 +324,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             dashboardId,
             lastRefreshed,
         }),
-        reportDashboardItemRefreshed: (dashboardItem: InsightModel) => ({ dashboardItem }),
         reportDashboardDateRangeChanged: (dateFrom?: string | Dayjs | null, dateTo?: string | Dayjs | null) => ({
             dateFrom,
             dateTo,
@@ -348,6 +348,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportTestAccountFiltersUpdated: (filters: Record<string, any>[]) => ({ filters }),
         reportPoEModeUpdated: (mode: string) => ({ mode }),
         reportPersonsJoinModeUpdated: (mode: string) => ({ mode }),
+        reportBounceRatePageViewModeUpdated: (mode: string) => ({ mode }),
         reportPropertySelectOpened: true,
         reportCreatedDashboardFromModal: true,
         reportSavedInsightToDashboard: true,
@@ -828,6 +829,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportPersonJoinModeUpdated: async ({ mode }) => {
             posthog.capture('persons join mode updated', { mode })
         },
+        reportBounceRatePageViewModeUpdated: async ({ mode }) => {
+            posthog.capture('bounce rate page view mode updated', { mode })
+        },
         reportInsightFilterRemoved: async ({ index }) => {
             posthog.capture('local filter removed', { index })
         },
@@ -1207,6 +1211,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             })
         },
         reportSurveyCreated: ({ survey, isDuplicate }) => {
+            const questionsWithShuffledOptions = survey.questions.filter((question) => {
+                return question.hasOwnProperty('shuffleOptions') && (question as MultipleSurveyQuestion).shuffleOptions
+            })
+
             posthog.capture('survey created', {
                 name: survey.name,
                 id: survey.id,
@@ -1214,6 +1222,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 questions_length: survey.questions.length,
                 question_types: survey.questions.map((question) => question.type),
                 is_duplicate: isDuplicate ?? false,
+                events_count: survey.conditions?.events?.values.length,
+                recurring_survey_iteration_count: survey.iteration_count == undefined ? 0 : survey.iteration_count,
+                recurring_survey_iteration_interval:
+                    survey.iteration_frequency_days == undefined ? 0 : survey.iteration_frequency_days,
+                shuffle_questions_enabled: !!survey.appearance.shuffleQuestions,
+                shuffle_question_options_enabled_count: questionsWithShuffledOptions.length,
             })
         },
         reportSurveyLaunched: ({ survey }) => {
@@ -1262,11 +1276,21 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             })
         },
         reportSurveyEdited: ({ survey }) => {
+            const questionsWithShuffledOptions = survey.questions.filter((question) => {
+                return question.hasOwnProperty('shuffleOptions') && (question as MultipleSurveyQuestion).shuffleOptions
+            })
+
             posthog.capture('survey edited', {
                 name: survey.name,
                 id: survey.id,
                 created_at: survey.created_at,
                 start_date: survey.start_date,
+                events_count: survey.conditions?.events?.values.length,
+                recurring_survey_iteration_count: survey.iteration_count == undefined ? 0 : survey.iteration_count,
+                recurring_survey_iteration_interval:
+                    survey.iteration_frequency_days == undefined ? 0 : survey.iteration_frequency_days,
+                shuffle_questions_enabled: !!survey.appearance.shuffleQuestions,
+                shuffle_question_options_enabled_count: questionsWithShuffledOptions.length,
             })
         },
         reportSurveyTemplateClicked: ({ template }) => {

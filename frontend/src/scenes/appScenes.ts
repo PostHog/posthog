@@ -37,6 +37,8 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.FeatureFlag]: () => import('./feature-flags/FeatureFlag'),
     [Scene.EarlyAccessFeatures]: () => import('./early-access-features/EarlyAccessFeatures'),
     [Scene.EarlyAccessFeature]: () => import('./early-access-features/EarlyAccessFeature'),
+    [Scene.ErrorTracking]: () => import('./error-tracking/ErrorTrackingScene'),
+    [Scene.ErrorTrackingGroup]: () => import('./error-tracking/ErrorTrackingGroupScene'),
     [Scene.Surveys]: () => import('./surveys/Surveys'),
     [Scene.Survey]: () => import('./surveys/Survey'),
     [Scene.SurveyTemplates]: () => import('./surveys/SurveyTemplates'),

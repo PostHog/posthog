@@ -2,7 +2,7 @@ import { actions, kea, key, path, props, propsChanged, reducers, selectors } fro
 import { loaders } from 'kea-loaders'
 import React from 'react'
 
-import { query } from '~/queries/query'
+import { performQuery } from '~/queries/query'
 import { AnyDataNode, HogQLMetadata, HogQLMetadataResponse, NodeKind } from '~/queries/schema'
 
 import type { hogQLEditorLogicType } from './hogQLEditorLogicType'
@@ -31,7 +31,7 @@ export const hogQLEditorLogic = kea<hogQLEditorLogicType>([
                     if (!values.localValue) {
                         return null
                     }
-                    const response = await query<HogQLMetadata>({
+                    const response = await performQuery<HogQLMetadata>({
                         kind: NodeKind.HogQLMetadata,
                         expr: values.localValue,
                         exprSource: props.metadataSource || undefined,

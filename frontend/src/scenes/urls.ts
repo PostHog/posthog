@@ -11,6 +11,7 @@ import {
     AnyPartialFilterType,
     AppMetricsUrlParams,
     DashboardType,
+    DataWarehouseSettingsTab,
     FilterType,
     InsightShortId,
     PipelineNodeTab,
@@ -120,13 +121,13 @@ export const urls = {
         encode ? `/persons/${encodeURIComponent(uuid)}` : `/persons/${uuid}`,
     persons: (): string => '/persons',
     pipelineNodeDataWarehouseNew: (): string => `/pipeline/new/data-warehouse`,
-    pipelineNodeNew: (stage: PipelineStage | ':stage', pluginIdOrBatchExportDestination?: string | number): string => {
+    pipelineNodeNew: (stage: PipelineStage | ':stage', id?: string | number): string => {
         if (stage === PipelineStage.DataImport) {
             // should match 'pipelineNodeDataWarehouseNew'
             return `/pipeline/new/data-warehouse`
         }
 
-        return `/pipeline/new/${stage}${pluginIdOrBatchExportDestination ? `/${pluginIdOrBatchExportDestination}` : ''}`
+        return `/pipeline/new/${stage}${id ? `/${id}` : ''}`
     },
     pipeline: (tab?: PipelineTab | ':tab'): string => `/pipeline/${tab ? tab : PipelineTab.Overview}`,
     /** @param id 'new' for new, uuid for batch exports and numbers for plugins */
@@ -149,13 +150,18 @@ export const urls = {
     earlyAccessFeatures: (): string => '/early_access_features',
     /** @param id A UUID or 'new'. ':id' for routing. */
     earlyAccessFeature: (id: string): string => `/early_access_features/${id}`,
+    errorTracking: (): string => '/error_tracking',
+    errorTrackingGroup: (id: string): string => `/error_tracking/${id}`,
     surveys: (): string => '/surveys',
     /** @param id A UUID or 'new'. ':id' for routing. */
     survey: (id: string): string => `/surveys/${id}`,
     surveyTemplates: (): string => '/survey_templates',
-    dataWarehouse: (): string => '/data-warehouse',
+    dataWarehouse: (query?: string | Record<string, any>): string =>
+        combineUrl('/data-warehouse', {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {})
+            .url,
     dataWarehouseTable: (): string => `/data-warehouse/new`,
-    dataWarehouseSettings: (): string => '/data-warehouse/settings',
+    dataWarehouseSettings: (tab?: DataWarehouseSettingsTab | ':tab'): string =>
+        `/data-warehouse/settings/${tab ? tab : DataWarehouseSettingsTab.Managed}`,
     dataWarehouseRedirect: (kind: string): string => `/data-warehouse/${kind}/redirect`,
     annotations: (): string => '/data-management/annotations',
     annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,

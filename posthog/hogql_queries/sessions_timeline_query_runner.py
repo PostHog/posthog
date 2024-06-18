@@ -1,4 +1,3 @@
-from datetime import timedelta
 import json
 from typing import cast
 from posthog.api.element import ElementSerializer
@@ -181,9 +180,3 @@ class SessionsTimelineQueryRunner(QueryRunner):
             timings=self.timings.to_list(),
             hogql=query_result.hogql,
         )
-
-    def _is_stale(self, cached_result_package):
-        return True  # TODO: Make sure this is cached
-
-    def _refresh_frequency(self):
-        return timedelta(minutes=1)  # TODO: Make sure this is cached

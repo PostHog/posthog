@@ -12,7 +12,6 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.warehouse.data_load.service import (
     sync_external_data_job_workflow,
-    trigger_external_data_workflow,
     delete_external_data_schedule,
     cancel_external_data_workflow,
     delete_data_import_folder,
@@ -23,6 +22,7 @@ from posthog.warehouse.models import ExternalDataSource, ExternalDataSchema, Ext
 from posthog.warehouse.api.external_data_schema import ExternalDataSchemaSerializer
 from posthog.hogql.database.database import create_hogql_database
 from posthog.temporal.data_imports.pipelines.schemas import (
+    PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING,
     PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
 )
 from posthog.temporal.data_imports.pipelines.hubspot.auth import (
@@ -78,8 +78,18 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "prefix",
             "last_run_at",
             "schemas",
+            "sync_frequency",
         ]
-        read_only_fields = ["id", "created_by", "created_at", "status", "source_type", "last_run_at", "schemas"]
+        read_only_fields = [
+            "id",
+            "created_by",
+            "created_at",
+            "status",
+            "source_type",
+            "last_run_at",
+            "schemas",
+            "prefix",
+        ]
 
     def get_last_run_at(self, instance: ExternalDataSource) -> str:
         latest_completed_run = (
@@ -115,6 +125,12 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
     def get_schemas(self, instance: ExternalDataSource):
         schemas = instance.schemas.order_by("name").all()
         return ExternalDataSchemaSerializer(schemas, many=True, read_only=True, context=self.context).data
+
+    def update(self, instance: ExternalDataSource, validated_data: Any) -> Any:
+        updated_source: ExternalDataSource = super().update(instance, validated_data)
+        updated_source.update_schemas()
+
+        return updated_source
 
 
 class SimpleExternalDataSourceSerializers(serializers.ModelSerializer):
@@ -191,7 +207,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise NotImplementedError(f"Source type {source_type} not implemented")
 
         payload = request.data["payload"]
-        enabled_schemas = payload.get("schemas", None)
+        schemas = payload.get("schemas", None)
         if source_type == ExternalDataSource.Type.POSTGRES:
             default_schemas = postgres_schemas
         elif source_type == ExternalDataSource.Type.SNOWFLAKE:
@@ -199,22 +215,34 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         else:
             default_schemas = list(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[source_type])
 
-        # Fallback to defaults if schemas is missing
-        if enabled_schemas is None:
-            enabled_schemas = PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[source_type]
+        if not schemas or not isinstance(schemas, list):
+            new_source_model.delete()
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Schemas not given"},
+            )
 
-        disabled_schemas = [schema for schema in default_schemas if schema not in enabled_schemas]
+        # Return 400 if we get any schema names that don't exist in our source
+        if any(schema.get("name") not in default_schemas for schema in schemas):
+            new_source_model.delete()
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Schemas given do not exist in source"},
+            )
 
         active_schemas: list[ExternalDataSchema] = []
 
-        for schema in enabled_schemas:
-            active_schemas.append(
-                ExternalDataSchema.objects.create(
-                    name=schema, team=self.team, source=new_source_model, should_sync=True
-                )
+        for schema in schemas:
+            schema_model = ExternalDataSchema.objects.create(
+                name=schema.get("name"),
+                team=self.team,
+                source=new_source_model,
+                should_sync=schema.get("should_sync"),
+                sync_type=schema.get("sync_type"),
             )
-        for schema in disabled_schemas:
-            ExternalDataSchema.objects.create(name=schema, team=self.team, source=new_source_model, should_sync=False)
+
+            if schema.get("should_sync"):
+                active_schemas.append(schema_model)
 
         try:
             for active_schema in active_schemas:
@@ -448,7 +476,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["POST"], detail=True)
     def reload(self, request: Request, *args: Any, **kwargs: Any):
-        instance = self.get_object()
+        instance: ExternalDataSource = self.get_object()
 
         if is_any_external_data_job_paused(self.team_id):
             return Response(
@@ -461,17 +489,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         except temporalio.service.RPCError:
             # if the source schedule has been removed - trigger the schema schedules
-            for schema in ExternalDataSchema.objects.filter(
-                team_id=self.team_id, source_id=instance.id, should_sync=True
-            ).all():
-                try:
-                    trigger_external_data_workflow(schema)
-                except temporalio.service.RPCError as e:
-                    if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
-                        sync_external_data_job_workflow(schema, create=True)
-
-                except Exception as e:
-                    logger.exception(f"Could not trigger external data job for schema {schema.name}", exc_info=e)
+            instance.reload_schemas()
 
         except Exception as e:
             logger.exception("Could not trigger external data job", exc_info=e)
@@ -589,7 +607,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     data={"message": GenericPostgresError},
                 )
 
-            result_mapped_to_options = [{"table": row, "should_sync": True} for row in result]
+            result_mapped_to_options = [
+                {
+                    "table": row,
+                    "should_sync": True,
+                    "sync_types": {"full_refresh": True, "incremental": False},
+                    "sync_type": "full_refresh",
+                }
+                for row in result
+            ]
             return Response(status=status.HTTP_200_OK, data=result_mapped_to_options)
         elif source_type == ExternalDataSource.Type.SNOWFLAKE:
             account_id = request.data.get("account_id")
@@ -633,18 +659,36 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": GenericSnowflakeError},
                 )
-            result_mapped_to_options = [{"table": row, "should_sync": True} for row in result]
+            result_mapped_to_options = [
+                {
+                    "table": row,
+                    "should_sync": True,
+                    "sync_types": {"full_refresh": True, "incremental": False},
+                    "sync_type": "full_refresh",
+                }
+                for row in result
+            ]
             return Response(status=status.HTTP_200_OK, data=result_mapped_to_options)
 
         # Return the possible endpoints for all other source types
         schemas = PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING.get(source_type, None)
+        incremental_schemas = PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING.get(source_type, ())
+
         if schemas is None:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": "Invalid parameter: source_type"},
             )
 
-        options = [{"table": row, "should_sync": True} for row in schemas]
+        options = [
+            {
+                "table": row,
+                "should_sync": True,
+                "sync_types": {"full_refresh": True, "incremental": row in incremental_schemas},
+                "sync_type": "incremental" if row in incremental_schemas else "full_refresh",
+            }
+            for row in schemas
+        ]
         return Response(status=status.HTTP_200_OK, data=options)
 
     @action(methods=["POST"], detail=False)

@@ -89,7 +89,7 @@ describe('the activity log logic', () => {
             )
         })
 
-        it('can handle config_update ', async () => {
+        it('can handle config_update', async () => {
             const logic = await pluginTestSetup('the changed plugin', 'config_updated', [
                 {
                     type: ActivityScope.PLUGIN,

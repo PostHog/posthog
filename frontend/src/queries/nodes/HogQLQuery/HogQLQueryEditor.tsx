@@ -15,7 +15,7 @@ import { useEffect, useRef, useState } from 'react'
 import { DatabaseTableTreeWithItems } from 'scenes/data-warehouse/external/DataWarehouseTables'
 import useResizeObserver from 'use-resize-observer'
 
-import { query } from '~/queries/query'
+import { performQuery } from '~/queries/query'
 import { AutocompleteCompletionItem, HogQLAutocomplete, HogQLQuery, NodeKind } from '~/queries/schema'
 
 import { hogQLQueryEditorLogic } from './hogQLQueryEditorLogic'
@@ -223,13 +223,13 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                     <div ref={editorRef} className="resize-y overflow-hidden" style={{ height: EDITOR_HEIGHT }}>
                         <CodeEditor
                             className="border rounded overflow-hidden h-full"
-                            language="mysql"
+                            language="hogql"
                             value={queryInput}
                             onChange={(v) => setQueryInput(v ?? '')}
                             height="100%"
                             onMount={(editor, monaco) => {
                                 const completetionItemProviderDisposable =
-                                    monaco.languages.registerCompletionItemProvider('mysql', {
+                                    monaco.languages.registerCompletionItemProvider('hogql', {
                                         triggerCharacters: [' ', ',', '.'],
                                         provideCompletionItems: async (model, position) => {
                                             const word = model.getWordUntilPosition(position)
@@ -243,7 +243,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                                 column: word.endColumn,
                                             })
 
-                                            const response = await query<HogQLAutocomplete>({
+                                            const response = await performQuery<HogQLAutocomplete>({
                                                 kind: NodeKind.HogQLAutocomplete,
                                                 select: model.getValue(), // Use the text from the model instead of logic due to a race condition on the logic values updating quick enough
                                                 filters: props.query.filters,
@@ -294,7 +294,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                 monacoDisposables.current.push(completetionItemProviderDisposable)
 
                                 const codeActionProviderDisposable = monaco.languages.registerCodeActionProvider(
-                                    'mysql',
+                                    'hogql',
                                     {
                                         provideCodeActions: (model, _range, context) => {
                                             if (logic.isMounted()) {
@@ -416,7 +416,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                     }
                                     data-attr="hogql-query-editor-save-as-view"
                                 >
-                                    Save as View
+                                    Save as view
                                 </LemonButton>
                             ) : null}
                             {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] && (

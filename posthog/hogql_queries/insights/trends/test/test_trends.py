@@ -52,6 +52,7 @@ from posthog.schema import (
     PropertyGroupFilter,
     TrendsFilter,
     TrendsQuery,
+    CompareFilter,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -193,10 +194,10 @@ def convert_filter_to_trends_query(filter: Filter) -> TrendsQuery:
         trendsFilter=TrendsFilter(
             display=filter.display,
             breakdown_histogram_bin_count=filter.breakdown_histogram_bin_count,
-            compare=filter.compare,
             formula=filter.formula,
             smoothingIntervals=filter.smoothing_intervals,
         ),
+        compareFilter=CompareFilter(compare=filter.compare, compare_to=filter.compare_to),
     )
 
     return tq
@@ -1116,11 +1117,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
             self.assertEqual(
                 [(item["breakdown_value"], item["count"], item["data"]) for item in response],
-                [
-                    ("[4.95,10.05]", 2.0, [2, 0, 0, 0]),
-                    ("[0.0,4.95]", 1.0, [1, 0, 0, 0]),
-                    ("[10.05,15.01]", 1.0, [0, 1, 0, 0]),
-                ],
+                [("[10,15.01]", 2.0, [1, 1, 0, 0]), ("[0,5]", 1.0, [1, 0, 0, 0]), ("[5,10]", 1.0, [1, 0, 0, 0])],
             )
 
     @also_test_with_person_on_events_v2
@@ -1607,7 +1604,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # empty has: 1 seconds
         self.assertEqual(
             [resp["breakdown_value"] for resp in daily_response],
-            ["value1", "value2", "$$_posthog_breakdown_null_$$"],
+            ["value2", "value1", "$$_posthog_breakdown_null_$$"],
         )
         self.assertEqual(sorted([resp["aggregated_value"] for resp in daily_response]), sorted([12.5, 10, 1]))
 
@@ -7665,11 +7662,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert len(daily_response) == 3
-        assert daily_response[0]["breakdown_value"] == "blue"
-        assert daily_response[1]["breakdown_value"] == "red"
+        assert daily_response[0]["breakdown_value"] == "red"
+        assert daily_response[1]["breakdown_value"] == "blue"
         assert daily_response[2]["breakdown_value"] == "$$_posthog_breakdown_null_$$"
-        assert daily_response[0]["aggregated_value"] == 1.0  # blue
-        assert daily_response[1]["aggregated_value"] == 2.0  # red
+        assert daily_response[0]["aggregated_value"] == 2.0  # red
+        assert daily_response[1]["aggregated_value"] == 1.0  # blue
         assert daily_response[2]["aggregated_value"] == 1.0  # $$_posthog_breakdown_null_$$
 
     @snapshot_clickhouse_queries
@@ -7692,11 +7689,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert len(daily_response) == 3
-        assert daily_response[0]["breakdown_value"] == "blue"
-        assert daily_response[1]["breakdown_value"] == "red"
+        assert daily_response[0]["breakdown_value"] == "red"
+        assert daily_response[1]["breakdown_value"] == "blue"
         assert daily_response[2]["breakdown_value"] == "$$_posthog_breakdown_null_$$"
-        assert daily_response[0]["aggregated_value"] == 1.0  # blue
-        assert daily_response[1]["aggregated_value"] == 2.0  # red
+        assert daily_response[0]["aggregated_value"] == 2.0  # red
+        assert daily_response[1]["aggregated_value"] == 1.0  # blue
         assert daily_response[2]["aggregated_value"] == 1.0  # $$_posthog_breakdown_null_$$
 
     # TODO: Add support for avg_count by group indexes (see this Slack thread for more context: https://posthog.slack.com/archives/C0368RPHLQH/p1700484174374229)
