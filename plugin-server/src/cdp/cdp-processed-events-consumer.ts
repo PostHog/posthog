@@ -98,7 +98,6 @@ abstract class CdpConsumerBase {
                         result.logs = []
 
                         logs.forEach((x) => {
-                            // TODO: Maybe put this somewhere else
                             const sanitized = {
                                 ...x,
                                 timestamp: castTimestampOrNow(x.timestamp, TimestampFormat.ClickHouse),
