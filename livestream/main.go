@@ -23,10 +23,12 @@ func main() {
 	isProd := viper.GetBool("prod")
 
 	err := sentry.Init(sentry.ClientOptions{
-		Dsn: viper.GetString("sentry.dsn"),
-		Debug: isProd,
+		Dsn:              viper.GetString("sentry.dsn"),
+		Debug:            isProd,
+		AttachStacktrace: true,
 	})
 	if err != nil {
+		sentry.CaptureException(err)
 		log.Fatalf("sentry.Init: %s", err)
 	}
 	// Flush buffered events before the program terminates.
@@ -35,25 +37,30 @@ func main() {
 
 	mmdb := viper.GetString("mmdb.path")
 	if mmdb == "" {
+		sentry.CaptureException(errors.New("mmdb.path must be set"))
 		log.Fatal("mmdb.path must be set")
+	}
+	brokers := viper.GetString("kafka.brokers")
+	if brokers == "" {
+		sentry.CaptureException(errors.New("kafka.brokers must be set"))
+		log.Fatal("kafka.brokers must be set")
+	}
+	topic := viper.GetString("kafka.topic")
+	if topic == "" {
+		sentry.CaptureException(errors.New("kafka.topic must be set"))
+		log.Fatal("kafka.topic must be set")
+	}
+	groupID := viper.GetString("kafka.group_id")
+	if groupID == "" {
+		sentry.CaptureException(errors.New("kafka.group_id must be set"))
+		log.Fatal("kafka.group_id must be set")
 	}
 
 	geolocator, err := NewGeoLocator(mmdb)
 	if err != nil {
+		sentry.CaptureException(err)
 		log.Fatalf("Failed to open MMDB: %v", err)
 	}
-
-	brokers := viper.GetString("kafka.brokers")
-	if brokers == "" {
-		log.Fatal("kafka.brokers must be set")
-	}
-
-	topic := viper.GetString("kafka.topic")
-	if topic == "" {
-		log.Fatal("kafka.topic must be set")
-	}
-
-	groupID := viper.GetString("kafka.group_id")
 
 	teamStats := &TeamStats{
 		Store: make(map[string]*expirable.LRU[string, string]),
@@ -72,6 +79,7 @@ func main() {
 	}
 	consumer, err := NewKafkaConsumer(brokers, kafkaSecurityProtocol, groupID, topic, geolocator, phEventChan, statsChan)
 	if err != nil {
+		sentry.CaptureException(err)
 		log.Fatalf("Failed to create Kafka consumer: %v", err)
 	}
 	defer consumer.Close()
@@ -220,6 +228,7 @@ func main() {
 			case payload := <-subscription.EventChan:
 				jsonData, err := json.Marshal(payload)
 				if err != nil {
+					sentry.CaptureException(err)
 					log.Println("Error marshalling payload", err)
 					continue
 				}

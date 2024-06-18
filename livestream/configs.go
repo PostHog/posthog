@@ -2,8 +2,10 @@ package main
 
 import (
 	"fmt"
+	"log"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/getsentry/sentry-go"
 	"github.com/spf13/viper"
 )
 
@@ -16,7 +18,8 @@ func loadConfigs() {
 
 	err := viper.ReadInConfig()
 	if err != nil {
-		panic(fmt.Errorf("fatal error config file: %w", err))
+		sentry.CaptureException(err)
+		log.Fatalf("fatal error config file: %w", err)
 	}
 
 	viper.OnConfigChange(func(e fsnotify.Event) {
