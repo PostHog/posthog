@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.constants import HogQLGlobalSettings, MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY
 from math import ceil
 from typing import Any
 from typing import Optional
@@ -384,6 +385,7 @@ class RetentionQueryRunner(QueryRunner):
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
+            settings=HogQLGlobalSettings(max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY),
         )
 
         result_dict = {

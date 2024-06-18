@@ -194,3 +194,156 @@ async def test_stripe_subscription(team, stripe_subscription):
         job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
         mock_data_response=stripe_subscription["data"],
     )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_zendesk_brands(team, zendesk_brands):
+    await _run(
+        team=team,
+        schema_name="brands",
+        table_name="zendesk_brands",
+        source_type="Zendesk",
+        job_inputs={
+            "zendesk_subdomain": "test",
+            "zendesk_api_key": "test_api_key",
+            "zendesk_email_address": "test@posthog.com",
+        },
+        mock_data_response=zendesk_brands["brands"],
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_zendesk_organizations(team, zendesk_organizations):
+    await _run(
+        team=team,
+        schema_name="organizations",
+        table_name="zendesk_organizations",
+        source_type="Zendesk",
+        job_inputs={
+            "zendesk_subdomain": "test",
+            "zendesk_api_key": "test_api_key",
+            "zendesk_email_address": "test@posthog.com",
+        },
+        mock_data_response=zendesk_organizations["organizations"],
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_zendesk_groups(team, zendesk_groups):
+    await _run(
+        team=team,
+        schema_name="groups",
+        table_name="zendesk_groups",
+        source_type="Zendesk",
+        job_inputs={
+            "zendesk_subdomain": "test",
+            "zendesk_api_key": "test_api_key",
+            "zendesk_email_address": "test@posthog.com",
+        },
+        mock_data_response=zendesk_groups["groups"],
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_zendesk_sla_policies(team, zendesk_sla_policies):
+    await _run(
+        team=team,
+        schema_name="sla_policies",
+        table_name="zendesk_sla_policies",
+        source_type="Zendesk",
+        job_inputs={
+            "zendesk_subdomain": "test",
+            "zendesk_api_key": "test_api_key",
+            "zendesk_email_address": "test@posthog.com",
+        },
+        mock_data_response=zendesk_sla_policies["sla_policies"],
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_zendesk_users(team, zendesk_users):
+    await _run(
+        team=team,
+        schema_name="users",
+        table_name="zendesk_users",
+        source_type="Zendesk",
+        job_inputs={
+            "zendesk_subdomain": "test",
+            "zendesk_api_key": "test_api_key",
+            "zendesk_email_address": "test@posthog.com",
+        },
+        mock_data_response=zendesk_users["users"],
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_zendesk_ticket_fields(team, zendesk_ticket_fields):
+    await _run(
+        team=team,
+        schema_name="ticket_fields",
+        table_name="zendesk_ticket_fields",
+        source_type="Zendesk",
+        job_inputs={
+            "zendesk_subdomain": "test",
+            "zendesk_api_key": "test_api_key",
+            "zendesk_email_address": "test@posthog.com",
+        },
+        mock_data_response=zendesk_ticket_fields["ticket_fields"],
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_zendesk_ticket_events(team, zendesk_ticket_events):
+    await _run(
+        team=team,
+        schema_name="ticket_events",
+        table_name="zendesk_ticket_events",
+        source_type="Zendesk",
+        job_inputs={
+            "zendesk_subdomain": "test",
+            "zendesk_api_key": "test_api_key",
+            "zendesk_email_address": "test@posthog.com",
+        },
+        mock_data_response=zendesk_ticket_events["ticket_events"],
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_zendesk_tickets(team, zendesk_tickets):
+    await _run(
+        team=team,
+        schema_name="tickets",
+        table_name="zendesk_tickets",
+        source_type="Zendesk",
+        job_inputs={
+            "zendesk_subdomain": "test",
+            "zendesk_api_key": "test_api_key",
+            "zendesk_email_address": "test@posthog.com",
+        },
+        mock_data_response=zendesk_tickets["tickets"],
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_zendesk_ticket_metric_events(team, zendesk_ticket_metric_events):
+    await _run(
+        team=team,
+        schema_name="ticket_metric_events",
+        table_name="zendesk_ticket_metric_events",
+        source_type="Zendesk",
+        job_inputs={
+            "zendesk_subdomain": "test",
+            "zendesk_api_key": "test_api_key",
+            "zendesk_email_address": "test@posthog.com",
+        },
+        mock_data_response=zendesk_ticket_metric_events["ticket_metric_events"],
+    )

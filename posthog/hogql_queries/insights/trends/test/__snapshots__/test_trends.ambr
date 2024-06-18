@@ -93,7 +93,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_action_filtering_with_cohort_poe_v2
@@ -179,7 +180,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_breakdown_by_group_props_person_on_events
@@ -227,7 +229,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_breakdown_by_group_props_person_on_events.1
@@ -272,7 +275,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_breakdown_by_group_props_person_on_events.2
@@ -286,7 +290,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=1000000,
                      max_expanded_ast_elements=1000000,
-                     max_query_size=524288
+                     max_query_size=524288,
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_breakdown_by_group_props_with_person_filter_person_on_events
@@ -334,7 +339,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_breakdown_filtering_with_properties_in_new_format
@@ -374,7 +380,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_breakdown_filtering_with_properties_in_new_format.1
@@ -414,7 +421,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_breakdown_weekly_active_users_aggregated
@@ -468,7 +476,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_breakdown_weekly_active_users_aggregated_materialized
@@ -522,7 +531,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_breakdown_weekly_active_users_daily_based_on_action
@@ -619,7 +629,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_breakdown_with_filter_groups_person_on_events
@@ -667,7 +678,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_breakdown_with_filter_groups_person_on_events_v2
@@ -731,7 +743,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_dau_with_breakdown_filtering_with_sampling
@@ -778,7 +791,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.1
@@ -825,7 +839,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort
@@ -909,7 +924,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort_poe_v2
@@ -975,7 +991,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_filtering_by_multiple_groups_person_on_events
@@ -1017,7 +1034,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_filtering_by_multiple_groups_person_on_events.1
@@ -1070,7 +1088,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_filtering_by_multiple_groups_person_on_events.2
@@ -1084,7 +1103,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=1000000,
                      max_expanded_ast_elements=1000000,
-                     max_query_size=524288
+                     max_query_size=524288,
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_filtering_with_group_props_person_on_events
@@ -1118,7 +1138,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_mau_with_breakdown_filtering_and_prop_filter
@@ -1193,7 +1214,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_mau_with_breakdown_filtering_and_prop_filter_poe_v2
@@ -1256,7 +1278,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_non_deterministic_timezones
@@ -1282,7 +1305,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_person_filtering_in_cohort_in_action
@@ -1352,7 +1376,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_person_filtering_in_cohort_in_action_poe_v2
@@ -1422,7 +1447,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_person_property_filtering
@@ -1466,7 +1492,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_person_property_filtering_clashing_with_event_property
@@ -1510,7 +1537,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_person_property_filtering_clashing_with_event_property.1
@@ -1536,7 +1564,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_person_property_filtering_clashing_with_event_property_materialized
@@ -1580,7 +1609,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_person_property_filtering_clashing_with_event_property_materialized.1
@@ -1606,7 +1636,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_person_property_filtering_materialized
@@ -1650,7 +1681,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_same_day_with_person_on_events_v2
@@ -1685,7 +1717,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_same_day_with_person_on_events_v2.2
@@ -1718,7 +1751,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_same_day_with_person_on_events_v2_latest_override
@@ -1760,7 +1794,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_same_day_with_person_on_events_v2_latest_override.2
@@ -1802,7 +1837,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_same_day_with_person_on_events_v2_latest_override.4
@@ -1844,7 +1880,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily
@@ -1870,7 +1907,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily.1
@@ -1903,7 +1941,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily.2
@@ -1949,7 +1988,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily.3
@@ -1975,7 +2015,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily.4
@@ -2022,7 +2063,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily_minus_utc
@@ -2048,7 +2090,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily_minus_utc.1
@@ -2081,7 +2124,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily_minus_utc.2
@@ -2127,7 +2171,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily_minus_utc.3
@@ -2153,7 +2198,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily_minus_utc.4
@@ -2200,7 +2246,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily_plus_utc
@@ -2226,7 +2273,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily_plus_utc.1
@@ -2259,7 +2307,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily_plus_utc.2
@@ -2305,7 +2354,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily_plus_utc.3
@@ -2331,7 +2381,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily_plus_utc.4
@@ -2378,7 +2429,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_hourly_relative_from
@@ -2411,7 +2463,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_hourly_relative_from.1
@@ -2437,7 +2490,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_hourly_relative_from_minus_utc
@@ -2470,7 +2524,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_hourly_relative_from_minus_utc.1
@@ -2496,7 +2551,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_hourly_relative_from_plus_utc
@@ -2529,7 +2585,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_hourly_relative_from_plus_utc.1
@@ -2555,7 +2612,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_weekly
@@ -2581,7 +2639,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_weekly.1
@@ -2607,7 +2666,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_weekly_minus_utc
@@ -2633,7 +2693,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_weekly_minus_utc.1
@@ -2659,7 +2720,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_weekly_plus_utc
@@ -2685,7 +2747,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_timezones_weekly_plus_utc.1
@@ -2711,7 +2774,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns
@@ -2771,7 +2835,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns.1
@@ -2831,7 +2896,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id
@@ -2857,7 +2923,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.1
@@ -2901,7 +2968,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.2
@@ -2959,7 +3027,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.3
@@ -2998,7 +3067,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.4
@@ -3037,7 +3107,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.5
@@ -3077,7 +3148,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_any_event_total_count
@@ -3103,7 +3175,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_any_event_total_count.1
@@ -3129,7 +3202,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_breakdown_cumulative
@@ -3182,7 +3256,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_breakdown_cumulative_poe_v2
@@ -3235,7 +3310,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_breakdown_normalize_url
@@ -3290,7 +3366,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown
@@ -3331,7 +3408,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown.1
@@ -3372,7 +3450,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_compare_day_interval_relative_range
@@ -3398,7 +3477,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_compare_day_interval_relative_range.1
@@ -3424,7 +3504,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_compare_day_interval_relative_range.2
@@ -3450,7 +3531,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_count_per_user_average_aggregated
@@ -3476,7 +3558,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_count_per_user_average_aggregated_poe_v2
@@ -3502,7 +3585,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_count_per_user_average_aggregated_with_event_property_breakdown_with_sampling
@@ -3545,7 +3629,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_count_per_user_average_daily
@@ -3586,7 +3671,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_count_per_user_average_daily_poe_v2
@@ -3627,7 +3713,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_groups_per_day
@@ -3653,7 +3740,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_groups_per_day_cumulative
@@ -3684,7 +3772,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_per_day_cumulative
@@ -3715,7 +3804,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_per_day_dau_cumulative
@@ -3753,7 +3843,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_person_breakdown_with_session_property_single_aggregate_math_and_breakdown
@@ -3812,7 +3903,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_with_hogql_math
@@ -3838,7 +3930,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_with_session_property_single_aggregate_math
@@ -3863,7 +3956,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_with_session_property_single_aggregate_math.1
@@ -3888,7 +3982,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math
@@ -3927,7 +4022,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math.1
@@ -3966,7 +4062,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns
@@ -4021,7 +4118,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns.1
@@ -4076,7 +4174,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_aggregated_range_narrower_than_week
@@ -4112,7 +4211,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_aggregated_range_wider_than_week
@@ -4148,7 +4248,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_aggregated_range_wider_than_week_with_sampling
@@ -4184,7 +4285,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_daily
@@ -4230,7 +4332,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_daily_minus_utc
@@ -4276,7 +4379,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_daily_plus_utc
@@ -4322,7 +4426,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_filtering
@@ -4379,7 +4484,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_filtering_materialized
@@ -4436,7 +4542,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_hourly
@@ -4482,7 +4589,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_weekly
@@ -4528,7 +4636,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_weekly_minus_utc
@@ -4574,7 +4683,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_weekly_plus_utc
@@ -4620,6 +4730,7 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
