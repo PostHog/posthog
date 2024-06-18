@@ -303,7 +303,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             filter_test_accounts=filter_test_accounts,
             hogql_modifiers=hogql_modifiers,
             limit_context=limit_context,
-        ).calculate()
+        ).run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
 
     def test_trends_label(self):
         self._create_test_events()
@@ -362,6 +362,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "trends_filters": None,
             }
             runner = self._create_query_runner(**kwargs)
+            runner.load_cached_response()
             self.assertTrue(runner.query_can_compute_from_cache())
             self.assertFalse(runner.can_compute_from_cache())
 
@@ -1701,7 +1702,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query = query_runner.to_queries()[0]
         assert isinstance(query, ast.SelectQuery) and query.limit == ast.Constant(value=MAX_SELECT_RETURNED_ROWS)
 
-        response = query_runner.calculate()
+        response = query_runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         assert len(response.results) == 250
 
     def test_previous_period_with_number_display(self):
@@ -2344,7 +2345,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
         )
         runner.query.samplingFactor = 0.1
-        response = runner.calculate()
+        response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         assert len(response.results) == 1
         # 10% of 30 is 3, so check we're adjusting the results back up
         assert response.results[0]["count"] > 5 and response.results[0]["count"] < 30
@@ -2358,7 +2359,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             TrendsFilter(display=ChartDisplayType.BOLD_NUMBER),
         )
         runner.query.samplingFactor = 0.1
-        response = runner.calculate()
+        response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         assert len(response.results) == 1
         # 10% of 30 is 3, so check we're adjusting the results back up
         assert response.results[0]["aggregated_value"] > 5 and response.results[0]["aggregated_value"] < 30
