@@ -1,7 +1,8 @@
 import datetime as dt
 import uuid
 from typing import Any
-from django.db.models import Q, Count
+
+from django.db.models import Count, Q
 from django.db.models.functions import TruncDay
 from rest_framework import mixins, request, response, viewsets
 from rest_framework.decorators import action
@@ -23,7 +24,6 @@ from posthog.queries.app_metrics.serializers import (
     AppMetricsRequestSerializer,
 )
 from posthog.utils import relative_date_parse
-from posthog.batch_exports.models import fetch_batch_export_run_count
 
 
 class AppMetricsViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
