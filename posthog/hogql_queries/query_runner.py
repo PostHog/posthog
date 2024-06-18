@@ -389,7 +389,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             query = self.query_type.model_validate(query)
         assert isinstance(query, self.query_type)
         self.query = query
-        self.load_cached_response()
 
     @property
     def query_type(self) -> type[Q]:
@@ -506,6 +505,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         query_id: Optional[str] = None,
     ) -> CR | CacheMissResponse | QueryStatusResponse:
         self.query_id = query_id or self.query_id
+
+        self.load_cached_response()
 
         if execution_mode == ExecutionMode.CALCULATE_ASYNC_ALWAYS:
             # We should always kick off async calculation and disregard the cache
