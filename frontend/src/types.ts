@@ -2643,7 +2643,7 @@ export interface SurveyAppearance {
     autoDisappear?: boolean
     position?: string
     shuffleQuestions?: boolean
-    surveyPopupDelay?: number
+    surveyPopupDelaySeconds?: number
     // widget only
     widgetType?: 'button' | 'tab' | 'selector'
     widgetSelector?: string
