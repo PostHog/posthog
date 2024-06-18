@@ -3802,6 +3802,11 @@ export interface DataWarehouseViewLink {
     created_at?: string | null
 }
 
+export enum DataWarehouseSettingsTab {
+    Managed = 'managed',
+    SelfManaged = 'self_managed',
+}
+
 export const externalDataSources = ['Stripe', 'Hubspot', 'Postgres', 'Zendesk', 'Snowflake'] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
