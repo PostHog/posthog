@@ -1,5 +1,3 @@
-import './SessionRecordingsPlaylist.scss'
-
 import { IconFilter, IconGear } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'

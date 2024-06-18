@@ -70,17 +70,14 @@ export function Playlist({
         <div
             ref={playlistRef}
             data-attr="session-recordings-playlist"
-            className={clsx('SessionRecordingsPlaylist', {
-                'SessionRecordingsPlaylist--wide': size !== 'small',
-                'SessionRecordingsPlaylist--embedded': embedded,
+            className={clsx('Playlist', {
+                'Playlist--wide': size !== 'small',
+                'Playlist--embedded': embedded,
             })}
         >
             <div
                 ref={playlistRecordingsListRef}
-                className={clsx(
-                    'SessionRecordingsPlaylist__list',
-                    listCollapsed && 'SessionRecordingsPlaylist__list--collapsed'
-                )}
+                className={clsx('Playlist__list', listCollapsed && 'Playlist__list--collapsed')}
             >
                 {listCollapsed ? (
                     <CollapsedList onClickOpen={() => setListCollapsed(false)} />
@@ -107,7 +104,7 @@ export function Playlist({
                     onDoubleClick={() => setListCollapsed(!listCollapsed)}
                 />
             </div>
-            <div className="SessionRecordingsPlaylist__player">
+            <div className="Playlist__player">
                 {!activeItemId ? (
                     <div className="mt-20">
                         <EmptyMessage
