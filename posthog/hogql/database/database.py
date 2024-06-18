@@ -1,5 +1,6 @@
 import dataclasses
 from typing import TYPE_CHECKING, Any, ClassVar, Optional, TypeAlias, cast
+from collections.abc import Callable
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import ConfigDict, BaseModel
 from sentry_sdk import capture_exception
@@ -257,7 +258,7 @@ def create_hogql_database(
     for saved_query in DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True):
         views[saved_query.name] = saved_query.hogql_definition()
 
-    def define_mappings(warehouse: dict[str, Table], get_table: callable):
+    def define_mappings(warehouse: dict[str, Table], get_table: Callable):
         if "id" not in warehouse[warehouse_modifier.table_name].fields.keys():
             warehouse[warehouse_modifier.table_name].fields["id"] = ExpressionField(
                 name="id",
