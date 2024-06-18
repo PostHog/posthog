@@ -11,11 +11,17 @@ from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner, BREAKDOWN_OTHER_DISPLAY
 from posthog.models.cohort.cohort import Cohort
+from posthog.models import GroupTypeMapping
 from posthog.models.property_definition import PropertyDefinition
+from pydantic import ValidationError
+import pytest
+from posthog.models.group.util import create_group
+
 
 from posthog.schema import (
     ActionsNode,
     BaseMathType,
+    Breakdown,
     BreakdownFilter,
     BreakdownItem,
     BreakdownType,
@@ -53,10 +59,20 @@ class Series:
 
 
 @dataclass
+class GroupTestProperties:
+    group0_properties: Optional[dict[str, str | int]] = None
+    group1_properties: Optional[dict[str, str | int]] = None
+    group2_properties: Optional[dict[str, str | int]] = None
+    group3_properties: Optional[dict[str, str | int]] = None
+    group4_properties: Optional[dict[str, str | int]] = None
+
+
+@dataclass
 class SeriesTestData:
     distinct_id: str
     events: list[Series]
     properties: dict[str, str | int]
+    group_properties: Optional[GroupTestProperties] = None
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -165,6 +181,143 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         Series(event="$pageleave", timestamps=["2020-01-16T12:00:00Z"]),
                     ],
                     properties={"$browser": "Safari", "prop": 40, "bool_field": False},
+                ),
+            ]
+        )
+
+    def _create_group(self, **kwargs):
+        create_group(**kwargs)
+        props = kwargs.get("properties")
+        index = kwargs.get("group_type_index")
+
+        if props is not None:
+            for key, value in props.items():
+                prop_def_exists = PropertyDefinition.objects.filter(team=self.team, name=key).exists()
+                if prop_def_exists is False:
+                    if isinstance(value, str):
+                        type = "String"
+                    elif isinstance(value, bool):
+                        type = "Boolean"
+                    elif isinstance(value, int):
+                        type = "Numeric"
+                    else:
+                        type = "String"
+
+                    PropertyDefinition.objects.create(
+                        team=self.team,
+                        name=key,
+                        property_type=type,
+                        group_type_index=index,
+                        type=PropertyDefinition.Type.GROUP,
+                    )
+
+    def _create_test_groups(self):
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
+
+        self._create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:5",
+            properties={"name": "Hedgeflix", "industry": "finance"},
+        )
+        self._create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:6",
+            properties={"name": "Hedgebox", "industry": "technology"},
+        )
+        self._create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:7",
+            properties={"name": "Hedgebank", "industry": "finance"},
+        )
+        self._create_group(
+            team_id=self.team.pk,
+            group_type_index=1,
+            group_key="company:10",
+            properties={"name": "Hedgeheadquarters", "industry": "service", "employee_count": "50-249"},
+        )
+
+    def _create_test_events_for_groups(self):
+        self._create_events(
+            [
+                SeriesTestData(
+                    distinct_id="p1",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",
+                                "2020-01-12T12:00:00Z",
+                                "2020-01-13T12:00:00Z",
+                                "2020-01-15T12:00:00Z",
+                                "2020-01-17T12:00:00Z",
+                                "2020-01-19T12:00:00Z",
+                            ],
+                        ),
+                        Series(
+                            event="$pageleave",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",
+                                "2020-01-12T12:00:00Z",
+                                "2020-01-13T12:00:00Z",
+                            ],
+                        ),
+                    ],
+                    properties={"$browser": "Chrome", "prop": 10, "bool_field": True, "$group_0": "org:5"},
+                    group_properties=GroupTestProperties(
+                        group0_properties={"industry": "finance"},
+                    ),
+                ),
+                SeriesTestData(
+                    distinct_id="p2",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=["2020-01-09T12:00:00Z", "2020-01-12T12:00:00Z"],
+                        ),
+                        Series(
+                            event="$pageleave",
+                            timestamps=[
+                                "2020-01-13T12:00:00Z",
+                            ],
+                        ),
+                    ],
+                    properties={"$browser": "Firefox", "prop": 20, "bool_field": False, "$group_0": "org:6"},
+                    group_properties=GroupTestProperties(
+                        group0_properties={"industry": "technology"},
+                    ),
+                ),
+                SeriesTestData(
+                    distinct_id="p3",
+                    events=[
+                        Series(event="$pageview", timestamps=["2020-01-12T12:00:00Z"]),
+                        Series(event="$pageleave", timestamps=["2020-01-13T12:00:00Z"]),
+                    ],
+                    properties={
+                        "$browser": "Edge",
+                        "prop": 30,
+                        "bool_field": True,
+                        "$group_0": "org:7",
+                        "$group_1": "company:10",
+                    },
+                    group_properties=GroupTestProperties(
+                        group0_properties={"industry": "finance"},
+                        group1_properties={"industry": "service", "employee_count": "50-249"},
+                    ),
+                ),
+                SeriesTestData(
+                    distinct_id="p4",
+                    events=[
+                        Series(event="$pageview", timestamps=["2020-01-15T12:00:00Z"]),
+                        Series(event="$pageleave", timestamps=["2020-01-16T12:00:00Z"]),
+                    ],
+                    properties={"$browser": "Safari", "prop": 40, "bool_field": False, "$group_0": "company:10"},
+                    group_properties=GroupTestProperties(
+                        group0_properties={"industry": "service", "employee_count": "50-249"},
+                    ),
                 ),
             ]
         )
@@ -2218,3 +2371,428 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert len(response.results) == 1
         # 10% of 30 is 3, so check we're adjusting the results back up
         assert response.results[0]["aggregated_value"] > 5 and response.results[0]["aggregated_value"] < 30
+
+    def test_trends_multiple_event_breakdowns(self):
+        self._create_test_events()
+
+        # two breakdowns
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(
+                breakdowns=[Breakdown(type="event", property="$browser"), Breakdown(type="event", property="prop")]
+            ),
+        )
+
+        breakdown_labels = [result["breakdown_value"] for result in response.results]
+
+        assert len(response.results) == 4
+        assert len(breakdown_labels) == 4
+        assert breakdown_labels == [["Chrome", "10"], ["Firefox", "20"], ["Edge", "30"], ["Safari", "40"]]
+        assert response.results[0]["label"] == "Chrome::10"
+        assert response.results[1]["label"] == "Firefox::20"
+        assert response.results[2]["label"] == "Edge::30"
+        assert response.results[3]["label"] == "Safari::40"
+        assert response.results[0]["count"] == 6
+        assert response.results[1]["count"] == 2
+        assert response.results[2]["count"] == 1
+        assert response.results[3]["count"] == 1
+
+        # three breakdowns
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(
+                breakdowns=[
+                    Breakdown(type="event", property="$browser"),
+                    Breakdown(type="event", property="prop"),
+                    Breakdown(type="event", property="bool_field"),
+                ]
+            ),
+        )
+
+        breakdown_labels = [result["breakdown_value"] for result in response.results]
+
+        assert len(response.results) == 4
+        assert len(breakdown_labels) == 4
+        assert breakdown_labels == [
+            ["Chrome", "10", "true"],
+            ["Firefox", "20", "false"],
+            ["Edge", "30", "true"],
+            ["Safari", "40", "false"],
+        ]
+        assert response.results[0]["label"] == "Chrome::10::true"
+        assert response.results[1]["label"] == "Firefox::20::false"
+        assert response.results[2]["label"] == "Edge::30::true"
+        assert response.results[3]["label"] == "Safari::40::false"
+        assert response.results[0]["count"] == 6
+        assert response.results[1]["count"] == 2
+        assert response.results[2]["count"] == 1
+        assert response.results[3]["count"] == 1
+
+    def test_trends_multiple_breakdowns_have_max_limit(self):
+        # max three breakdowns are allowed
+        with pytest.raises(ValidationError, match=".*at most 3.*"):
+            BreakdownFilter(
+                breakdowns=[
+                    Breakdown(type="event", property="$browser"),
+                    Breakdown(type="event", property="prop"),
+                    Breakdown(type="event", property="bool_field"),
+                    Breakdown(type="event", property="bool_field"),
+                ]
+            )
+
+    def test_trends_event_and_person_breakdowns(self):
+        self._create_test_events()
+
+        # two breakdowns
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(
+                breakdowns=[Breakdown(type="event", property="$browser"), Breakdown(type="person", property="name")]
+            ),
+        )
+
+        breakdown_labels = [result["breakdown_value"] for result in response.results]
+
+        assert len(response.results) == 4
+        assert len(breakdown_labels) == 4
+        assert breakdown_labels == [["Chrome", "p1"], ["Firefox", "p2"], ["Edge", "p3"], ["Safari", "p4"]]
+        assert response.results[0]["label"] == "Chrome::p1"
+        assert response.results[1]["label"] == "Firefox::p2"
+        assert response.results[2]["label"] == "Edge::p3"
+        assert response.results[3]["label"] == "Safari::p4"
+        assert response.results[0]["count"] == 6
+        assert response.results[1]["count"] == 2
+        assert response.results[2]["count"] == 1
+        assert response.results[3]["count"] == 1
+
+    def test_trends_event_person_group_breakdowns(self):
+        self._create_test_groups()
+        self._create_test_events_for_groups()
+
+        # two breakdowns
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(
+                breakdowns=[
+                    Breakdown(type="event", property="$browser"),
+                    Breakdown(type="group", group_type_index=0, property="industry"),
+                ]
+            ),
+        )
+
+        breakdown_labels = [result["breakdown_value"] for result in response.results]
+
+        assert len(response.results) == 4
+        assert len(breakdown_labels) == 4
+        assert breakdown_labels == [
+            ["Chrome", "finance"],
+            ["Firefox", "technology"],
+            ["Edge", "finance"],
+            ["Safari", "$$_posthog_breakdown_null_$$"],
+        ]
+        assert response.results[0]["label"] == "Chrome::finance"
+        assert response.results[1]["label"] == "Firefox::technology"
+        assert response.results[2]["label"] == "Edge::finance"
+        assert response.results[3]["label"] == "Safari::$$_posthog_breakdown_null_$$"
+        assert response.results[0]["count"] == 6
+        assert response.results[1]["count"] == 2
+        assert response.results[2]["count"] == 1
+        assert response.results[3]["count"] == 1
+
+    def test_trends_event_with_two_group_breakdowns(self):
+        self._create_test_groups()
+        self._create_test_events_for_groups()
+
+        # two breakdowns
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(
+                breakdowns=[
+                    Breakdown(type="group", group_type_index=1, property="employee_count"),
+                    Breakdown(type="group", group_type_index=0, property="industry"),
+                ]
+            ),
+        )
+
+        breakdown_labels = [result["breakdown_value"] for result in response.results]
+
+        assert len(response.results) == 4
+        assert len(breakdown_labels) == 4
+        assert breakdown_labels == [
+            ["50-249", "finance"],
+            ["$$_posthog_breakdown_null_$$", "finance"],
+            ["$$_posthog_breakdown_null_$$", "technology"],
+            ["$$_posthog_breakdown_null_$$", "$$_posthog_breakdown_null_$$"],
+        ]
+        assert response.results[0]["label"] == "50-249::finance"
+        assert response.results[1]["label"] == "$$_posthog_breakdown_null_$$::finance"
+        assert response.results[2]["label"] == "$$_posthog_breakdown_null_$$::technology"
+        assert response.results[3]["label"] == "$$_posthog_breakdown_null_$$::$$_posthog_breakdown_null_$$"
+        assert response.results[0]["count"] == 1
+        assert response.results[1]["count"] == 6
+        assert response.results[2]["count"] == 2
+        assert response.results[3]["count"] == 1
+
+    def test_trends_event_with_three_group_breakdowns(self):
+        self._create_test_groups()
+        self._create_test_events_for_groups()
+
+        # two breakdowns
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(
+                breakdowns=[
+                    Breakdown(type="group", group_type_index=0, property="industry"),
+                    Breakdown(type="group", group_type_index=0, property="name"),
+                    Breakdown(type="group", group_type_index=1, property="employee_count"),
+                ]
+            ),
+        )
+
+        breakdown_labels = [result["breakdown_value"] for result in response.results]
+
+        assert len(response.results) == 4
+        assert len(breakdown_labels) == 4
+        assert breakdown_labels == [
+            ["finance", "Hedgebank", "50-249"],
+            ["finance", "Hedgeflix", "$$_posthog_breakdown_null_$$"],
+            ["technology", "Hedgebox", "$$_posthog_breakdown_null_$$"],
+            ["$$_posthog_breakdown_null_$$", "$$_posthog_breakdown_null_$$", "$$_posthog_breakdown_null_$$"],
+        ]
+        assert response.results[0]["label"] == "finance::Hedgebank::50-249"
+        assert response.results[1]["label"] == "finance::Hedgeflix::$$_posthog_breakdown_null_$$"
+        assert response.results[2]["label"] == "technology::Hedgebox::$$_posthog_breakdown_null_$$"
+        assert (
+            response.results[3]["label"]
+            == "$$_posthog_breakdown_null_$$::$$_posthog_breakdown_null_$$::$$_posthog_breakdown_null_$$"
+        )
+        assert response.results[0]["count"] == 1
+        assert response.results[1]["count"] == 6
+        assert response.results[2]["count"] == 2
+        assert response.results[3]["count"] == 1
+
+    def test_trends_event_multiple_breakdowns_normalizes_url(self):
+        self._create_events(
+            [
+                SeriesTestData(
+                    distinct_id="p1",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",
+                                "2020-01-12T12:00:00Z",
+                                "2020-01-13T12:00:00Z",
+                                "2020-01-15T12:00:00Z",
+                                "2020-01-17T12:00:00Z",
+                                "2020-01-19T12:00:00Z",
+                            ],
+                        ),
+                        Series(
+                            event="$pageleave",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",
+                                "2020-01-12T12:00:00Z",
+                                "2020-01-13T12:00:00Z",
+                            ],
+                        ),
+                    ],
+                    properties={"$url": "https://posthog.com/?"},
+                ),
+                SeriesTestData(
+                    distinct_id="p2",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=["2020-01-09T12:00:00Z", "2020-01-12T12:00:00Z"],
+                        ),
+                        Series(
+                            event="$pageleave",
+                            timestamps=[
+                                "2020-01-13T12:00:00Z",
+                            ],
+                        ),
+                    ],
+                    properties={"$url": "https://posthog.com"},
+                ),
+                SeriesTestData(
+                    distinct_id="p3",
+                    events=[
+                        Series(event="$pageview", timestamps=["2020-01-12T12:00:00Z"]),
+                        Series(event="$pageleave", timestamps=["2020-01-13T12:00:00Z"]),
+                    ],
+                    properties={"$url": "https://posthog.com/foo/bar/#"},
+                ),
+                SeriesTestData(
+                    distinct_id="p4",
+                    events=[
+                        Series(event="$pageview", timestamps=["2020-01-15T12:00:00Z"]),
+                        Series(event="$pageleave", timestamps=["2020-01-16T12:00:00Z"]),
+                    ],
+                    properties={"$url": "https://posthog.com/foo/bar/"},
+                ),
+            ]
+        )
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(
+                breakdowns=[
+                    Breakdown(property="$url", normalize_url=True),
+                ]
+            ),
+        )
+        breakdown_labels = [result["breakdown_value"] for result in response.results]
+
+        assert len(response.results) == 2
+        assert len(breakdown_labels) == 2
+        assert breakdown_labels == [
+            ["https://posthog.com"],
+            ["https://posthog.com/foo/bar"],
+        ]
+
+        for normalize_url in (False, None):
+            response = self._run_trends_query(
+                "2020-01-09",
+                "2020-01-20",
+                IntervalType.DAY,
+                [EventsNode(event="$pageview")],
+                None,
+                BreakdownFilter(
+                    breakdowns=[
+                        Breakdown(property="$url", normalize_url=normalize_url),
+                    ]
+                ),
+            )
+            breakdown_labels = [result["breakdown_value"] for result in response.results]
+            assert len(response.results) == 4
+            assert len(breakdown_labels) == 4
+
+    def test_trends_event_multiple_breakdowns_groups_into_bins(self):
+        self._create_events(
+            [
+                SeriesTestData(
+                    distinct_id="p1",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",
+                                "2020-01-12T12:00:00Z",
+                                "2020-01-13T12:00:00Z",
+                                "2020-01-15T12:00:00Z",
+                                "2020-01-17T12:00:00Z",
+                                "2020-01-19T12:00:00Z",
+                            ],
+                        ),
+                        Series(
+                            event="$pageleave",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",
+                                "2020-01-12T12:00:00Z",
+                                "2020-01-13T12:00:00Z",
+                            ],
+                        ),
+                    ],
+                    properties={"$bin": 4},
+                ),
+                SeriesTestData(
+                    distinct_id="p2",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=["2020-01-09T12:00:00Z", "2020-01-12T12:00:00Z"],
+                        ),
+                        Series(
+                            event="$pageleave",
+                            timestamps=[
+                                "2020-01-13T12:00:00Z",
+                            ],
+                        ),
+                    ],
+                    properties={"$bin": 8},
+                ),
+                SeriesTestData(
+                    distinct_id="p3",
+                    events=[
+                        Series(event="$pageview", timestamps=["2020-01-12T12:00:00Z"]),
+                        Series(event="$pageleave", timestamps=["2020-01-13T12:00:00Z"]),
+                    ],
+                    properties={"$bin": 16},
+                ),
+                SeriesTestData(
+                    distinct_id="p4",
+                    events=[
+                        Series(event="$pageview", timestamps=["2020-01-15T12:00:00Z"]),
+                        Series(event="$pageleave", timestamps=["2020-01-16T12:00:00Z"]),
+                    ],
+                    properties={"$bin": 32},
+                ),
+                SeriesTestData(
+                    distinct_id="p5",
+                    events=[
+                        Series(event="$pageview", timestamps=["2020-01-15T12:00:00Z"]),
+                        Series(event="$pageleave", timestamps=["2020-01-16T12:00:00Z"]),
+                    ],
+                    properties={"$bin": 64},
+                ),
+                SeriesTestData(
+                    distinct_id="p6",
+                    events=[
+                        Series(event="$pageview", timestamps=["2020-01-15T12:00:00Z"]),
+                        Series(event="$pageleave", timestamps=["2020-01-16T12:00:00Z"]),
+                    ],
+                    properties={"$bin": 128},
+                ),
+            ]
+        )
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(
+                breakdown_histogram_bin_count=4,
+                breakdowns=[
+                    Breakdown(property="$bin", histogram_bin_count=4),
+                ],
+            ),
+        )
+        breakdown_labels = [result["breakdown_value"] for result in response.results]
+
+        assert len(response.results) == 2
+        assert len(breakdown_labels) == 2
+        assert breakdown_labels == [
+            ["https://posthog.com"],
+            ["https://posthog.com/foo/bar"],
+        ]
