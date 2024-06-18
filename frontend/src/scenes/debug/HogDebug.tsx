@@ -1,9 +1,9 @@
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
-import { CodeEditor } from 'lib/components/CodeEditors'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { CodeEditor } from 'lib/monaco/CodeEditor'
 import type { IDisposable } from 'monaco-editor'
 import { useEffect, useRef, useState } from 'react'
 

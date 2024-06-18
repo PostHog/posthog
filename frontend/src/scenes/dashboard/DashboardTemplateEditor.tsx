@@ -1,7 +1,7 @@
 import { useMonaco } from '@monaco-editor/react'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { CodeEditor } from 'lib/components/CodeEditors'
+import { CodeEditor } from 'lib/monaco/CodeEditor'
 import { useEffect } from 'react'
 
 import { dashboardTemplateEditorLogic } from './dashboardTemplateEditorLogic'
