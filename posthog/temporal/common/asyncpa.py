@@ -100,7 +100,7 @@ class AsyncRecordBatchReader:
 
     def __init__(self, bytes_iter: typing.AsyncIterator[bytes]) -> None:
         self._reader = AsyncMessageReader(bytes_iter)
-        self._schema = None
+        self._schema: None | pa.Schema = None
 
     def __aiter__(self) -> "AsyncRecordBatchReader":
         return self

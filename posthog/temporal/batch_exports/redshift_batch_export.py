@@ -166,7 +166,7 @@ def get_redshift_fields_from_record_schema(
 
 
 async def insert_records_to_redshift(
-    records: collections.abc.AsyncGenerator[dict[str, typing.Any]],
+    records: collections.abc.AsyncGenerator[dict[str, typing.Any], None],
     redshift_connection: psycopg.AsyncConnection,
     schema: str | None,
     table: str,
@@ -382,7 +382,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
 
                 return record
 
-            async def record_generator() -> collections.abc.AsyncGenerator[dict[str, typing.Any]]:
+            async def record_generator() -> collections.abc.AsyncGenerator[dict[str, typing.Any], None]:
                 async for record_batch in record_iterator:
                     for record in record_batch.to_pylist():
                         yield map_to_record(record)
