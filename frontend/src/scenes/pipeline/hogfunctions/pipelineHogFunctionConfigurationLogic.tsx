@@ -67,7 +67,6 @@ function sanitizeFilters(filters?: FilterType): PluginConfigTypeNew['filters'] {
     return Object.keys(sanitized).length > 0 ? sanitized : undefined
 }
 
-// Should likely be somewhat similar to pipelineBatchExportConfigurationLogic
 export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConfigurationLogicType>([
     props({} as PipelineHogFunctionConfigurationLogicProps),
     key(({ id, templateId }: PipelineHogFunctionConfigurationLogicProps) => {
@@ -213,13 +212,14 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
                 const inputErrors = {}
 
                 configuration.inputs_schema?.forEach((input) => {
+                    const value = inputs[input.key].value
                     if (input.required && !inputs[input.key]) {
                         inputErrors[input.key] = 'This field is required'
                     }
 
-                    if (input.type === 'json' && typeof inputs[input.key] === 'string') {
+                    if (input.type === 'json' && typeof value === 'string') {
                         try {
-                            JSON.parse(inputs[input.key].value)
+                            JSON.parse(value)
                         } catch (e) {
                             inputErrors[input.key] = 'Invalid JSON'
                         }
@@ -324,6 +324,7 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
 
     subscriptions(({ props, cache }) => ({
         configuration: (configuration) => {
+            console.log(configuration)
             if (props.templateId) {
                 // Sync state to the URL bar if new
                 cache.ignoreUrlChange = true

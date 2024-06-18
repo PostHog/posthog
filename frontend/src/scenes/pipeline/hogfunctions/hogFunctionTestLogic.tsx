@@ -1,23 +1,18 @@
-import { actions, afterMount, kea, key, path, props, reducers, selectors } from 'kea'
+import { lemonToast } from '@posthog/lemon-ui'
+import { actions, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import api from 'lib/api'
 import { tryJsonParse } from 'lib/utils'
 
 import { DataTableNode, NodeKind } from '~/queries/schema'
-import {
-    HogFunctionConfigurationType,
-    HogFunctionInvocationGlobals,
-    LogEntry,
-    PropertyFilterType,
-    PropertyOperator,
-} from '~/types'
+import { HogFunctionInvocationGlobals, LogEntry, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { hogFunctionTestLogicType } from './hogFunctionTestLogicType'
+import { pipelineHogFunctionConfigurationLogic } from './pipelineHogFunctionConfigurationLogic'
 import { createExampleGlobals } from './utils/event-conversion'
 
 export interface HogFunctionTestLogicProps {
     id: string
-    configuration: HogFunctionConfigurationType
 }
 
 export type HogFunctionTestInvocationForm = {
@@ -30,11 +25,14 @@ export type HogFunctionTestInvocationResult = {
     logs: LogEntry[]
 }
 
-// Should likely be somewhat similar to pipelineBatchExportConfigurationLogic
 export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
     props({} as HogFunctionTestLogicProps),
     key((props) => props.id),
     path((id) => ['scenes', 'pipeline', 'hogfunctions', 'hogFunctionTestLogic', id]),
+    connect((props: HogFunctionTestLogicProps) => ({
+        values: [pipelineHogFunctionConfigurationLogic({ id: props.id }), ['configuration', 'configurationHasErrors']],
+        actions: [pipelineHogFunctionConfigurationLogic({ id: props.id }), ['touchConfigurationField']],
+    })),
     actions({
         setTestEvent: (event: string | null) => ({ event }),
         setTestResult: (result: HogFunctionTestInvocationResult | null) => ({ result }),
@@ -54,7 +52,7 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
             },
         ],
     }),
-    forms(({ props, actions }) => ({
+    forms(({ props, actions, values }) => ({
         testInvocation: {
             defaults: {
                 mock_async_functions: true,
@@ -69,13 +67,19 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                 // Submit the test invocation
                 // Set the response somewhere
 
+                if (values.configurationHasErrors) {
+                    lemonToast.error('Please fix the configuration errors before testing.')
+                    // TODO: How to get the form to show errors without submitting?
+                    return
+                }
+
                 const globals: HogFunctionInvocationGlobals = tryJsonParse(data.globals)
 
                 try {
                     const res = await api.hogFunctions.createTestInvocation(props.id, {
                         globals,
                         mock_async_functions: data.mock_async_functions,
-                        configuration: props.configuration,
+                        configuration: values.configuration,
                     })
 
                     actions.setTestResult(res)
@@ -87,7 +91,7 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
     })),
     selectors(() => ({
         matchingEventsQuery: [
-            (_, p) => [p.configuration],
+            (s) => [s.configuration],
             ({ filters }): DataTableNode | null => {
                 if (!filters) {
                     return null

@@ -345,7 +345,7 @@ export function PipelineHogFunctionConfiguration({
                                 </div>
                             </div>
 
-                            {id && <HogFunctionTest id={id} configuration={configuration} />}
+                            {id && <HogFunctionTest id={id} />}
                             <div className="flex gap-2 justify-end">{saveButtons}</div>
                         </div>
                     </div>
