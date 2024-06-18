@@ -3,7 +3,12 @@ import express from 'express'
 import { features, librdkafkaVersion, Message } from 'node-rdkafka'
 import { Histogram } from 'prom-client'
 
-import { KAFKA_CDP_FUNCTION_CALLBACKS, KAFKA_EVENTS_JSON, KAFKA_LOG_ENTRIES } from '../config/kafka-topics'
+import {
+    KAFKA_CDP_FUNCTION_CALLBACKS,
+    KAFKA_CDP_OVERFLOW,
+    KAFKA_EVENTS_JSON,
+    KAFKA_LOG_ENTRIES,
+} from '../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars, createRdProducerConfigFromEnvVars } from '../kafka/config'
 import { createKafkaProducer } from '../kafka/producer'
@@ -23,6 +28,7 @@ import { AsyncFunctionExecutor } from './async-function-executor'
 import { addLog, HogExecutor } from './hog-executor'
 import { HogFunctionManager } from './hog-function-manager'
 import {
+    CdpOverflowMessage,
     HogFunctionInvocation,
     HogFunctionInvocationAsyncResponse,
     HogFunctionInvocationGlobals,
@@ -88,7 +94,7 @@ abstract class CdpConsumerBase {
 
         // TODO: Follow up - process metrics from the invocationResults
         await runInstrumentedFunction({
-            statsKey: `cdpFunctionExecutor.handleEachBatch.produceResults`,
+            statsKey: `cdpConsumer.handleEachBatch.produceResults`,
             func: async () => {
                 const messagesToProduce: HogFunctionMessageToQueue[] = []
 
@@ -135,6 +141,28 @@ abstract class CdpConsumerBase {
                         })
                     )
                 )
+            },
+        })
+    }
+
+    protected async executeAsyncResponses(
+        asyncResponses: HogFunctionInvocationAsyncResponse[]
+    ): Promise<HogFunctionInvocationResult[]> {
+        return await runInstrumentedFunction({
+            statsKey: `cdpConsumer.handleEachBatch.executeAsyncResponses`,
+            func: async () => await Promise.all(asyncResponses.map((e) => this.hogExecutor.executeAsyncResponse(e))),
+        })
+    }
+
+    protected async executeMatchingFunctions(
+        invocationGlobals: HogFunctionInvocationGlobals[]
+    ): Promise<HogFunctionInvocationResult[]> {
+        return await runInstrumentedFunction({
+            statsKey: `cdpConsumer.handleEachBatch.executeMatchingFunctions`,
+            func: async () => {
+                return (
+                    await Promise.all(invocationGlobals.map((e) => this.hogExecutor.executeMatchingFunctions(e)))
+                ).flat()
             },
         })
     }
@@ -194,7 +222,13 @@ abstract class CdpConsumerBase {
                 histogramKafkaBatchSize.observe(messages.length)
                 histogramKafkaBatchSizeKb.observe(messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024)
 
-                return await this.handleEachBatch(messages, heartbeat)
+                return await runInstrumentedFunction({
+                    statsKey: `cdpConsumer.handleEachBatch`,
+                    sendTimeoutGuardToSentry: false,
+                    func: async () => {
+                        return await this.handleEachBatch(messages, heartbeat)
+                    },
+                })
             },
             callEachBatchWhenEmpty: false,
         })
@@ -227,151 +261,6 @@ abstract class CdpConsumerBase {
     public isHealthy() {
         // TODO: Maybe extend this to check if we are shutting down so we don't get killed early.
         return this.batchConsumer?.isHealthy()
-    }
-}
-
-export class CdpProcessedEventsConsumer extends CdpConsumerBase {
-    protected name = 'CdpProcessedEventsConsumer'
-    protected topic = KAFKA_EVENTS_JSON
-    protected consumerGroupId = 'cdp-processed-events-consumer'
-
-    public async handleEachBatch(messages: Message[], heartbeat: () => void): Promise<void> {
-        await runInstrumentedFunction({
-            statsKey: `cdpFunctionExecutor.handleEachBatch`,
-            sendTimeoutGuardToSentry: false,
-            func: async () => {
-                let events: HogFunctionInvocationGlobals[] = []
-
-                await runInstrumentedFunction({
-                    statsKey: `cdpFunctionExecutor.handleEachBatch.parseKafkaMessages`,
-                    func: async () => {
-                        events = await this.convertToHogFunctionInvocationGlobals(messages)
-                    },
-                })
-                heartbeat()
-
-                const invocationResults: HogFunctionInvocationResult[] = []
-
-                if (!events.length) {
-                    return
-                }
-
-                await runInstrumentedFunction({
-                    statsKey: `cdpFunctionExecutor.handleEachBatch.consumeBatch`,
-                    func: async () => {
-                        const results = await Promise.all(
-                            events.map((e) => this.hogExecutor.executeMatchingFunctions(e))
-                        )
-                        invocationResults.push(...results.flat())
-                    },
-                })
-
-                heartbeat()
-
-                await this.processInvocationResults(invocationResults)
-            },
-        })
-    }
-
-    private async convertToHogFunctionInvocationGlobals(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
-        const events: HogFunctionInvocationGlobals[] = []
-        await Promise.all(
-            messages.map(async (message) => {
-                try {
-                    const clickHouseEvent = JSON.parse(message.value!.toString()) as RawClickHouseEvent
-
-                    if (!this.hogFunctionManager.teamHasHogFunctions(clickHouseEvent.team_id)) {
-                        // No need to continue if the team doesn't have any functions
-                        return
-                    }
-
-                    let groupTypes: GroupTypeToColumnIndex | undefined = undefined
-
-                    if (
-                        await this.organizationManager.hasAvailableFeature(clickHouseEvent.team_id, 'group_analytics')
-                    ) {
-                        // If the organization has group analytics enabled then we enrich the event with group data
-                        groupTypes = await this.groupTypeManager.fetchGroupTypes(clickHouseEvent.team_id)
-                    }
-
-                    const team = await this.teamManager.fetchTeam(clickHouseEvent.team_id)
-                    if (!team) {
-                        return
-                    }
-                    events.push(
-                        convertToHogFunctionInvocationGlobals(
-                            convertToParsedClickhouseEvent(clickHouseEvent),
-                            team,
-                            this.config.SITE_URL ?? 'http://localhost:8000',
-                            groupTypes
-                        )
-                    )
-                } catch (e) {
-                    status.error('Error parsing message', e)
-                }
-            })
-        )
-
-        return events
-    }
-}
-
-export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
-    protected name = 'CdpFunctionCallbackConsumer'
-    protected topic = KAFKA_CDP_FUNCTION_CALLBACKS
-    protected consumerGroupId = 'cdp-function-callback-consumer'
-
-    public async handleEachBatch(messages: Message[], heartbeat: () => void): Promise<void> {
-        await runInstrumentedFunction({
-            statsKey: `cdpFunctionExecutor.handleEachBatch`,
-            sendTimeoutGuardToSentry: false,
-            func: async () => {
-                let events: HogFunctionInvocationAsyncResponse[] = []
-
-                await runInstrumentedFunction({
-                    statsKey: `cdpFunctionExecutor.handleEachBatch.parseKafkaMessages`,
-                    func: () => {
-                        events = this.parseMessages(messages)
-                        return Promise.resolve()
-                    },
-                })
-                heartbeat()
-
-                const invocationResults: HogFunctionInvocationResult[] = []
-
-                if (!events.length) {
-                    return
-                }
-
-                await runInstrumentedFunction({
-                    statsKey: `cdpFunctionExecutor.handleEachBatch.consumeBatch`,
-                    func: async () => {
-                        const results = await Promise.all(events.map((e) => this.hogExecutor.executeAsyncResponse(e)))
-                        invocationResults.push(...results.flat())
-                    },
-                })
-
-                heartbeat()
-
-                await this.processInvocationResults(invocationResults)
-            },
-        })
-    }
-
-    private parseMessages(messages: Message[]): HogFunctionInvocationAsyncResponse[] {
-        const events: HogFunctionInvocationAsyncResponse[] = []
-        messages.map((message) => {
-            try {
-                const event = JSON.parse(message.value!.toString()) as unknown
-
-                // TODO: Check the message really is a HogFunctionInvocationAsyncResponse
-                events.push(event as HogFunctionInvocationAsyncResponse)
-            } catch (e) {
-                status.error('Error parsing message', e)
-            }
-        })
-
-        return events
     }
 
     public addApiRoutes(app: express.Application) {
@@ -469,5 +358,165 @@ export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
                 res.status(500).json({ error: e.message })
             }
         })
+    }
+}
+
+/**
+ * This consumer handles incoming events from the main clickhouse topic
+ */
+
+export class CdpProcessedEventsConsumer extends CdpConsumerBase {
+    protected name = 'CdpProcessedEventsConsumer'
+    protected topic = KAFKA_EVENTS_JSON
+    protected consumerGroupId = 'cdp-processed-events-consumer'
+
+    public async handleEachBatch(messages: Message[], heartbeat: () => void): Promise<void> {
+        const invocationGlobals = await runInstrumentedFunction({
+            statsKey: `cdpConsumer.handleEachBatch.parseKafkaMessages`,
+            func: async () => await this.parseMessages(messages),
+        })
+        heartbeat()
+
+        if (!invocationGlobals.length) {
+            return
+        }
+
+        const invocationResults = await this.executeMatchingFunctions(invocationGlobals)
+        heartbeat()
+
+        await this.processInvocationResults(invocationResults)
+    }
+
+    private async parseMessages(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
+        const events: HogFunctionInvocationGlobals[] = []
+        await Promise.all(
+            messages.map(async (message) => {
+                try {
+                    const clickHouseEvent = JSON.parse(message.value!.toString()) as RawClickHouseEvent
+
+                    if (!this.hogFunctionManager.teamHasHogFunctions(clickHouseEvent.team_id)) {
+                        // No need to continue if the team doesn't have any functions
+                        return
+                    }
+
+                    let groupTypes: GroupTypeToColumnIndex | undefined = undefined
+
+                    if (
+                        await this.organizationManager.hasAvailableFeature(clickHouseEvent.team_id, 'group_analytics')
+                    ) {
+                        // If the organization has group analytics enabled then we enrich the event with group data
+                        groupTypes = await this.groupTypeManager.fetchGroupTypes(clickHouseEvent.team_id)
+                    }
+
+                    const team = await this.teamManager.fetchTeam(clickHouseEvent.team_id)
+                    if (!team) {
+                        return
+                    }
+                    events.push(
+                        convertToHogFunctionInvocationGlobals(
+                            convertToParsedClickhouseEvent(clickHouseEvent),
+                            team,
+                            this.config.SITE_URL ?? 'http://localhost:8000',
+                            groupTypes
+                        )
+                    )
+                } catch (e) {
+                    status.error('Error parsing message', e)
+                }
+            })
+        )
+
+        return events
+    }
+}
+
+/**
+ * This consumer handles callbacks from async functions.
+ */
+export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
+    protected name = 'CdpFunctionCallbackConsumer'
+    protected topic = KAFKA_CDP_FUNCTION_CALLBACKS
+    protected consumerGroupId = 'cdp-function-callback-consumer'
+
+    public async handleEachBatch(messages: Message[], heartbeat: () => void): Promise<void> {
+        const events = await runInstrumentedFunction({
+            statsKey: `cdpConsumer.handleEachBatch.parseKafkaMessages`,
+            func: () => Promise.resolve(this.parseMessages(messages)),
+        })
+        heartbeat()
+
+        if (!events.length) {
+            return
+        }
+
+        const invocationResults = await this.executeAsyncResponses(events)
+        heartbeat()
+
+        await this.processInvocationResults(invocationResults)
+    }
+
+    private parseMessages(messages: Message[]): HogFunctionInvocationAsyncResponse[] {
+        const events: HogFunctionInvocationAsyncResponse[] = []
+        messages.map((message) => {
+            try {
+                const event = JSON.parse(message.value!.toString()) as unknown
+
+                events.push(event as HogFunctionInvocationAsyncResponse)
+            } catch (e) {
+                status.error('Error parsing message', e)
+            }
+        })
+
+        return events
+    }
+}
+
+/**
+ * This consumer handles overflow for both incoming events as well as callbacks.
+ * In the future we might want multiple consumers but for now this is fine.
+ */
+
+export class CdpOverflowConsumer extends CdpConsumerBase {
+    protected name = 'CdpOverflowConsumer'
+    protected topic = KAFKA_CDP_OVERFLOW
+    protected consumerGroupId = 'cdp-overflow-consumer'
+
+    public async handleEachBatch(messages: Message[], heartbeat: () => void): Promise<void> {
+        // This consumer can receive both events and callbacks so needs to check the message being parsed
+        const [invocationGlobals, callbacks] = await runInstrumentedFunction({
+            statsKey: `cdpConsumer.handleEachBatch.parseKafkaMessages`,
+            func: () => Promise.resolve(this.parseMessages(messages)),
+        })
+
+        heartbeat()
+
+        const invocationResults = (
+            await Promise.all([this.executeAsyncResponses(callbacks), this.executeMatchingFunctions(invocationGlobals)])
+        ).flat()
+
+        heartbeat()
+
+        await this.processInvocationResults(invocationResults)
+    }
+
+    private parseMessages(messages: Message[]): [HogFunctionInvocationGlobals[], HogFunctionInvocationAsyncResponse[]] {
+        const invocationGlobals: HogFunctionInvocationGlobals[] = []
+        const callbacks: HogFunctionInvocationAsyncResponse[] = []
+        messages.map((message) => {
+            try {
+                const parsed = JSON.parse(message.value!.toString()) as CdpOverflowMessage
+
+                if (parsed.source === 'event_invocations') {
+                    invocationGlobals.push(parsed.payload)
+                } else if (parsed.source === 'hog_function_callback') {
+                    callbacks.push(parsed.payload)
+                }
+            } catch (e) {
+                // TODO: We probably want to crash here right as this means something went really wrong and needs investigating?
+                status.error('Error parsing message', e)
+            }
+        })
+
+        return [invocationGlobals, callbacks]
     }
 }

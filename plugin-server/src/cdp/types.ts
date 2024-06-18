@@ -1,7 +1,7 @@
 import { VMState } from '@posthog/hogvm'
 import { DateTime } from 'luxon'
 
-import { ElementPropertyFilter, EventPropertyFilter, PersonPropertyFilter } from '../types'
+import { ElementPropertyFilter, EventPropertyFilter, PersonPropertyFilter, RawClickHouseEvent } from '../types'
 
 export type HogBytecode = any[]
 
@@ -209,3 +209,15 @@ export type HogFunctionType = {
     >
     filters?: HogFunctionFilters | null
 }
+
+type CdpOverflowMessageInvocations = {
+    source: 'event_invocations'
+    payload: HogFunctionInvocationGlobals
+}
+
+type CdpOverflowMessageFunctionCallback = {
+    source: 'hog_function_callback'
+    payload: HogFunctionInvocationAsyncResponse
+}
+
+export type CdpOverflowMessage = CdpOverflowMessageInvocations | CdpOverflowMessageFunctionCallback
