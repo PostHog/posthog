@@ -136,41 +136,37 @@ export function Customization({ appearance, surveyQuestionItem, onAppearanceChan
                     />
                 </div>
                 <div className="mt-1">
-                    <LemonField name="survey_popup_delay" className="font-medium">
-                        {({ onChange }) => {
-                            return (
-                                <div className="flex flex-row gap-2 items-center">
-                                    <LemonCheckbox
-                                        checked={!!appearance?.surveyPopupDelay}
-                                        onChange={(checked) => {
-                                            const surveyPopupDelay = checked ? 5 : undefined
-                                            onChange(surveyPopupDelay)
-                                            onAppearanceChange({ ...appearance, surveyPopupDelay })
-                                        }}
-                                    />
-                                    Delay survey popup after page load by at least {' '}
-                                    <LemonInput
-                                        type="number"
-                                        data-attr="survey-popup-delay-input"
-                                        size="small"
-                                        min={1}
-                                        value={appearance?.surveyPopupDelay || NaN}
-                                        onChange={(newValue) => {
-                                            if (newValue && newValue > 0) {
-                                                onChange(newValue)
-                                                onAppearanceChange({ ...appearance, surveyPopupDelay: newValue })
-                                            } else {
-                                                onChange(null)
-                                                onAppearanceChange({ ...appearance, surveyPopupDelay: undefined })
-                                            }
-                                        }}
-                                        className="w-12"
-                                    />{' '}
-                                    seconds.
-                                </div>
-                            )
-                        }}
-                    </LemonField>
+                    <LemonField.Pure>
+                        <div className="flex flex-row gap-2 items-center font-medium">
+                            <LemonCheckbox
+                                checked={!!appearance?.surveyPopupDelaySeconds}
+                                onChange={(checked) => {
+                                    const surveyPopupDelaySeconds = checked ? 5 : undefined
+                                    onAppearanceChange({ ...appearance, surveyPopupDelaySeconds })
+                                }}
+                            />
+                            Delay survey popup after page load by at least{' '}
+                            <LemonInput
+                                type="number"
+                                data-attr="survey-popup-delay-input"
+                                size="small"
+                                min={1}
+                                value={appearance?.surveyPopupDelaySeconds || NaN}
+                                onChange={(newValue) => {
+                                    if (newValue && newValue > 0) {
+                                        onAppearanceChange({ ...appearance, surveyPopupDelaySeconds: newValue })
+                                    } else {
+                                        onAppearanceChange({
+                                            ...appearance,
+                                            surveyPopupDelaySeconds: undefined,
+                                        })
+                                    }
+                                }}
+                                className="w-12"
+                            />{' '}
+                            seconds.
+                        </div>
+                    </LemonField.Pure>
                 </div>
             </div>
         </>

@@ -9,7 +9,6 @@ from freezegun.api import freeze_time
 from posthog.api.survey import nh3_clean_with_allow_list
 from posthog.models.cohort.cohort import Cohort
 from nanoid import generate
-
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
@@ -1249,7 +1248,7 @@ class TestSurveyQuestionValidation(APIBaseTest):
                     "thankYouMessageHeader": "Thanks for your feedback!",
                     "thankYouMessageDescription": "<b>We'll use it to make notebooks better.<script>alert(0)</script>",
                     "shuffleQuestions": True,
-                    "surveyPopupDelay": 60,
+                    "surveyPopupDelaySeconds": 60,
                 },
             },
             format="json",
@@ -1272,7 +1271,7 @@ class TestSurveyQuestionValidation(APIBaseTest):
             "thankYouMessageHeader": "Thanks for your feedback!",
             "thankYouMessageDescription": "<b>We'll use it to make notebooks better.</b>",
             "shuffleQuestions": True,
-            "surveyPopupDelay": 60,
+            "surveyPopupDelaySeconds": 60,
         }
         assert response_data["created_by"]["id"] == self.user.id
 
@@ -1685,14 +1684,14 @@ class TestSurveyQuestionValidationWithEnterpriseFeatures(APIBaseTest):
                 "name": "Notebooks beta release survey",
                 "type": "popover",
                 "appearance": {
-                    "surveyPopupDelay": 6000,
+                    "surveyPopupDelaySeconds": 6000,
                 },
             },
             format="json",
         )
         response_data = response.json()
         assert response.status_code == status.HTTP_201_CREATED, response_data
-        assert response_data["appearance"]["surveyPopupDelay"] == 6000
+        assert response_data["appearance"]["surveyPopupDelaySeconds"] == 6000
 
     def test_validate_survey_popup_delay(self):
         response = self.client.post(
@@ -1701,14 +1700,14 @@ class TestSurveyQuestionValidationWithEnterpriseFeatures(APIBaseTest):
                 "name": "Notebooks beta release survey",
                 "type": "popover",
                 "appearance": {
-                    "surveyPopupDelay": -100,
+                    "surveyPopupDelaySeconds": -100,
                 },
             },
             format="json",
         )
         response_data = response.json()
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
-        assert response_data["detail"] == "Survey popup delay must be a positive integer"
+        assert response_data["detail"] == "Survey popup delay seconds must be a positive integer"
 
     def test_create_survey_with_valid_question_description_content_type_html(self):
         response = self.client.post(
