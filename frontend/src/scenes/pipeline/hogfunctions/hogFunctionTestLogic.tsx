@@ -84,7 +84,7 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
 
                     actions.setTestResult(res)
                 } catch (e) {
-                    console.error(e)
+                    lemonToast.error(`An unexpected serror occurred while trying to testing the function. ${e}`)
                 }
             },
         },
