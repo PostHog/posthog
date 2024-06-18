@@ -189,6 +189,7 @@ export const language: languages.IMonarchLanguage = {
             [/\/\*\*(?!\/)/, 'comment.doc', '@jsdoc'],
             [/\/\*/, 'comment', '@comment'],
             [/\/\/.*$/, 'comment'],
+            [/--.*$/, 'comment'],
         ],
 
         comment: [
