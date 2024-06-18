@@ -1,8 +1,9 @@
 import './CodeEditor.scss'
 
-import MonacoEditor, { type EditorProps } from '@monaco-editor/react'
+import MonacoEditor, { type EditorProps, Monaco } from '@monaco-editor/react'
 import { useValues } from 'kea'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { conf, language } from 'lib/monaco/hog'
 import { inStorybookTestRunner } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
 import AutoSizer from 'react-virtualized/dist/es/AutoSizer'
@@ -11,9 +12,17 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 export type CodeEditorProps = Omit<EditorProps, 'loading' | 'theme'>
 
-export function CodeEditor({ options, ...editorProps }: CodeEditorProps): JSX.Element {
-    const { isDarkModeOn } = useValues(themeLogic)
+function registerHog(monaco: Monaco): void {
+    if (monaco.languages.getLanguages().some(({ id }) => id === 'hog')) {
+        return
+    }
+    monaco.languages.register({ id: 'hog', extensions: ['.hog'], mimetypes: ['application/hog'] })
+    monaco.languages.setLanguageConfiguration('hog', conf)
+    monaco.languages.setMonarchTokensProvider('hog', language)
+}
 
+export function CodeEditor({ options, onMount, ...editorProps }: CodeEditorProps): JSX.Element {
+    const { isDarkModeOn } = useValues(themeLogic)
     const scrollbarRendering = !inStorybookTestRunner() ? 'auto' : 'hidden'
 
     return (
@@ -22,6 +31,12 @@ export function CodeEditor({ options, ...editorProps }: CodeEditorProps): JSX.El
             loading={<Spinner />}
             options={{
                 // :TRICKY: We need to declare all options here, as omitting something will carry its value from one <CodeEditor> to another.
+                minimap: {
+                    enabled: false,
+                },
+                scrollBeyondLastLine: false,
+                automaticLayout: true,
+                fixedOverflowWidgets: true,
                 wordWrap: 'off',
                 lineNumbers: 'on',
                 ...options,
@@ -33,6 +48,14 @@ export function CodeEditor({ options, ...editorProps }: CodeEditorProps): JSX.El
                 },
             }}
             {...editorProps}
+            onMount={(editor, monaco) => {
+                if (editorProps?.language === 'hog') {
+                    registerHog(monaco)
+                }
+                if (onMount) {
+                    onMount(editor, monaco)
+                }
+            }}
         />
     )
 }
