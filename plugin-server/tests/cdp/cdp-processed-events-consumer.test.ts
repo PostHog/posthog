@@ -229,7 +229,12 @@ describe('CDP Processed Events Consuner', () => {
                 value: {
                     id: expect.any(String),
                     globals: expect.objectContaining({
-                        project: { id: 2, name: 'TEST PROJECT', url: 'http://localhost:8000/project/2' },
+                        project: {
+                            id: 2,
+                            name: 'TEST PROJECT',
+                            token: 'THIS IS NOT A TOKEN FOR TEAM 2',
+                            url: 'http://localhost:8000/project/2',
+                        },
                         // We assume the rest is correct
                     }),
                     teamId: 2,

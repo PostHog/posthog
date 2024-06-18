@@ -80,6 +80,7 @@ export function convertToHogFunctionInvocationGlobals(
         project: {
             id: team.id,
             name: team.name,
+            token: team.api_token,
             url: projectUrl,
         },
         event: {

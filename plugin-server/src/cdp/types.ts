@@ -39,6 +39,7 @@ export type HogFunctionInvocationGlobals = {
     project: {
         id: number
         name: string
+        token: string
         url: string
     }
     source?: {

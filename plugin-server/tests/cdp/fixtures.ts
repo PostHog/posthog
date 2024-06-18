@@ -75,6 +75,7 @@ export const createHogExecutionGlobals = (
         project: {
             id: 1,
             name: 'test',
+            token: 'token',
             url: 'http://localhost:8000/projects/1',
             ...(data.project ?? {}),
         },

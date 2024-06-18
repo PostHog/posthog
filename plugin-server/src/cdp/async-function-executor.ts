@@ -53,13 +53,15 @@ export class AsyncFunctionExecutor {
         const headers = fetchOptions.headers || {
             'Content-Type': 'application/json',
         }
-        const body = fetchOptions.body || {}
+        const body = fetchOptions.body
 
         const webhook: Webhook = {
             url,
             method: method,
             headers: headers,
-            body: typeof body === 'string' ? body : JSON.stringify(body, undefined, 4),
+            // TODO: Fix the typing of this. Body shouldn't be required for GET requests
+            body:
+                body && method !== 'GET' ? (typeof body === 'string' ? body : JSON.stringify(body, undefined, 4)) : '',
         }
 
         const success = false
@@ -86,7 +88,7 @@ export class AsyncFunctionExecutor {
                 const start = performance.now()
                 const fetchResponse = await trackedFetch(url, {
                     method: webhook.method,
-                    body: webhook.body,
+                    body: webhook.body || undefined,
                     headers: webhook.headers,
                     timeout: this.serverConfig.EXTERNAL_REQUEST_TIMEOUT_MS,
                 })
