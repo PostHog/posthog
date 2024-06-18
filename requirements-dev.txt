@@ -45,7 +45,7 @@ certifi==2019.11.28
     # via
     #   -c requirements.txt
     #   requests
-cffi==1.14.5
+cffi==1.16.0
     # via
     #   -c requirements.txt
     #   cryptography
@@ -64,7 +64,7 @@ colorama==0.4.4
     # via pytest-watch
 coverage==5.5
     # via pytest-cov
-cryptography==37.0.2
+cryptography==39.0.2
     # via
     #   -c requirements.txt
     #   types-paramiko
@@ -341,7 +341,7 @@ types-toml==0.10.8.20240310
     # via inline-snapshot
 types-tzlocal==5.1.0.1
     # via -r requirements-dev.in
-typing-extensions==4.12.1
+typing-extensions==4.7.1
     # via
     #   -c requirements.txt
     #   boto3-stubs
