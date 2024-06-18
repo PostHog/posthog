@@ -8,13 +8,10 @@ import { capitalizeFirstLetter, isMultiSeriesFormula } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
 
-import { cohortsModel } from '~/models/cohortsModel'
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { ChartDisplayType, ChartParams, GraphType } from '~/types'
 
 import { InsightEmptyState } from '../../insights/EmptyStates'
 import { LineGraph } from '../../insights/views/LineGraph/LineGraph'
-import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
 import { openPersonsModal } from '../persons-modal/PersonsModal'
 import { trendsDataLogic } from '../trendsDataLogic'
 
@@ -24,14 +21,12 @@ export function ActionsLineGraph({
     context,
 }: ChartParams): JSX.Element | null {
     const { insightProps, hiddenLegendKeys } = useValues(insightLogic)
-    const { cohorts } = useValues(cohortsModel)
-    const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
     const {
         indexedResults,
         labelGroupType,
         incompletenessOffsetFromEnd,
         formula,
-        compare,
+        compareFilter,
         display,
         interval,
         showValuesOnSeries,
@@ -42,7 +37,6 @@ export function ActionsLineGraph({
         isStickiness,
         isDataWarehouseSeries,
         showLegend,
-        isHogQLInsight,
         querySource,
     } = useValues(trendsDataLogic(insightProps))
 
@@ -106,7 +100,7 @@ export function ActionsLineGraph({
                       }
                     : undefined
             }
-            compare={compare}
+            compare={!!compareFilter?.compare}
             isInProgress={!isStickiness && incompletenessOffsetFromEnd < 0}
             isArea={display === ChartDisplayType.ActionsAreaGraph}
             incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
@@ -115,7 +109,7 @@ export function ActionsLineGraph({
                 !showPersonsModal || isMultiSeriesFormula(formula) || isDataWarehouseSeries
                     ? undefined
                     : (payload) => {
-                          const { index, points, crossDataset } = payload
+                          const { index, points } = payload
 
                           const dataset = points.referencePoint.dataset
                           if (!dataset) {
@@ -138,35 +132,18 @@ export function ActionsLineGraph({
                               )
                           )
 
-                          if (isHogQLInsight) {
-                              openPersonsModal({
-                                  title,
-                                  query: datasetToActorsQuery({ dataset, query: querySource!, day }),
-                                  additionalSelect:
-                                      isLifecycle || isStickiness
-                                          ? {}
-                                          : {
-                                                value_at_data_point: 'event_count',
-                                                matched_recordings: 'matched_recordings',
-                                            },
-                                  orderBy:
-                                      isLifecycle || isStickiness ? undefined : ['event_count DESC, actor_id DESC'],
-                              })
-                          } else {
-                              const datasetUrls = urlsForDatasets(
-                                  crossDataset,
-                                  index,
-                                  cohorts,
-                                  formatPropertyValueForDisplay
-                              )
-                              if (datasetUrls?.length) {
-                                  openPersonsModal({
-                                      urls: datasetUrls,
-                                      urlsIndex: crossDataset?.findIndex((x) => x.id === dataset.id) || 0,
-                                      title,
-                                  })
-                              }
-                          }
+                          openPersonsModal({
+                              title,
+                              query: datasetToActorsQuery({ dataset, query: querySource!, day }),
+                              additionalSelect:
+                                  isLifecycle || isStickiness
+                                      ? {}
+                                      : {
+                                            value_at_data_point: 'event_count',
+                                            matched_recordings: 'matched_recordings',
+                                        },
+                              orderBy: isLifecycle || isStickiness ? undefined : ['event_count DESC, actor_id DESC'],
+                          })
                       }
             }
         />

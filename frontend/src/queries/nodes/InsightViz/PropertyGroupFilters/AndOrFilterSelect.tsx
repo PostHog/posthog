@@ -1,4 +1,4 @@
-import { LemonSelect } from '@posthog/lemon-ui'
+import { LemonButtonProps, LemonSelect } from '@posthog/lemon-ui'
 
 import { FilterLogicalOperator } from '~/types'
 
@@ -8,6 +8,7 @@ interface AndOrFilterSelectProps {
     topLevelFilter?: boolean
     prefix?: React.ReactNode
     suffix?: [singular: string, plural: string]
+    disabledReason?: LemonButtonProps['disabledReason']
 }
 
 export function AndOrFilterSelect({
@@ -16,6 +17,7 @@ export function AndOrFilterSelect({
     topLevelFilter,
     prefix = 'Match',
     suffix = ['filter in this group', 'filters in this group'],
+    disabledReason,
 }: AndOrFilterSelectProps): JSX.Element {
     return (
         <div className="flex items-center font-medium">
@@ -25,6 +27,7 @@ export function AndOrFilterSelect({
                 size="small"
                 value={value}
                 onChange={(type) => onChange(type as FilterLogicalOperator)}
+                disabledReason={disabledReason}
                 options={[
                     {
                         label: 'all',

@@ -43,3 +43,6 @@ export const KAFKA_CLICKHOUSE_WEB_VITALS_EVENTS = `${prefix}clickhouse_web_vital
 
 // log entries for ingestion into clickhouse
 export const KAFKA_LOG_ENTRIES = `${prefix}log_entries${suffix}`
+
+// CDP topics
+export const KAFKA_CDP_FUNCTION_CALLBACKS = `${prefix}cdp_function_callbacks${suffix}`

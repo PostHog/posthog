@@ -200,7 +200,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         for key, value in updates.items():
             try:
-                DatabaseSerializedFieldType[value]
+                DatabaseSerializedFieldType[value.upper()]
             except:
                 return response.Response(
                     status=status.HTTP_400_BAD_REQUEST,

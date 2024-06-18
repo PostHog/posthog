@@ -191,6 +191,7 @@ def export_image(exported_asset: ExportedAsset) -> None:
                     process_query_dict(
                         exported_asset.team,
                         exported_asset.insight.query,
+                        dashboard_filters_json=exported_asset.dashboard.filters if exported_asset.dashboard else None,
                         limit_context=LimitContext.QUERY_ASYNC,
                         execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
                     )

@@ -16,10 +16,13 @@ class TestBytecodeExecute:
         }
         return execute_bytecode(create_bytecode(parse_expr(expr)), globals).result
 
-    def _run_program(self, code: str, functions: Optional[dict[str, Callable[..., Any]]] = None) -> Any:
-        globals = {
-            "properties": {"foo": "bar", "nullValue": None},
-        }
+    def _run_program(
+        self, code: str, functions: Optional[dict[str, Callable[..., Any]]] = None, globals: Optional[dict] = None
+    ) -> Any:
+        if not globals:
+            globals = {
+                "properties": {"foo": "bar", "nullValue": None},
+            }
         program = parse_program(code)
         bytecode = create_bytecode(program, supported_functions=set(functions.keys()) if functions else None)
         response = execute_bytecode(bytecode, globals, functions)
@@ -314,6 +317,22 @@ class TestBytecodeExecute:
                 """
             )
             == 3
+        )
+
+    def test_bytecode_for(self):
+        assert (
+            self._run_program(
+                """
+                let j := 0
+                for (let i := 0; i < 3; i := i + 1) {
+                    print(i) -- prints 3 times
+                    j := j + 2
+                }
+                print(i) -- global does not print
+                return j
+                """
+            )
+            == 6
         )
 
     def test_bytecode_functions(self):
@@ -628,3 +647,17 @@ class TestBytecodeExecute:
                 return jsonParse(json);
                 """
         ) == {"event": "$pageview", "properties": {"$browser": "Chrome", "$os": "Windows"}}
+
+    def test_bytecode_modify_globals_after_copying(self):
+        globals = {"globalEvent": {"event": "$pageview", "properties": {"$browser": "Chrome"}}}
+        assert self._run_program(
+            """
+            let event := globalEvent;
+            event.event := '$autocapture';
+            event.properties.$browser := 'Firefox';
+            return event;
+        """,
+            globals=globals,
+        ) == {"event": "$autocapture", "properties": {"$browser": "Firefox"}}
+        assert globals["globalEvent"]["event"] == "$pageview"
+        assert globals["globalEvent"]["properties"]["$browser"] == "Chrome"

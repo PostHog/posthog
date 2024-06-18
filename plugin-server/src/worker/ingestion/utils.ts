@@ -94,7 +94,7 @@ export async function captureIngestionWarning(
                     },
                 ],
             },
-            waitForAck: true,
+            waitForAck: false,
         })
     } else {
         return Promise.resolve()

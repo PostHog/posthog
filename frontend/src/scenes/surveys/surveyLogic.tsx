@@ -16,10 +16,13 @@ import { hogql } from '~/queries/utils'
 import {
     Breadcrumb,
     FeatureFlagFilters,
+    MultipleSurveyQuestion,
     PropertyFilterType,
     PropertyOperator,
+    RatingSurveyQuestion,
     Survey,
     SurveyQuestionBase,
+    SurveyQuestionBranchingType,
     SurveyQuestionType,
     SurveyUrlMatchType,
 } from '~/types'
@@ -154,6 +157,18 @@ export const surveyLogic = kea<surveyLogicType>([
             isEditingDescription,
             isEditingThankYouMessage,
         }),
+        setQuestionBranchingType: (questionIndex, type, specificQuestionIndex) => ({
+            questionIndex,
+            type,
+            specificQuestionIndex,
+        }),
+        setResponseBasedBranchingForQuestion: (questionIndex, responseValue, nextStep, specificQuestionIndex) => ({
+            questionIndex,
+            responseValue,
+            nextStep,
+            specificQuestionIndex,
+        }),
+        resetBranchingForQuestion: (questionIndex) => ({ questionIndex }),
         archiveSurvey: true,
         setWritingHTMLDescription: (writingHTML: boolean) => ({ writingHTML }),
         setSurveyTemplateValues: (template: any) => ({ template }),
@@ -657,6 +672,93 @@ export const surveyLogic = kea<surveyLogicType>([
                     const newTemplateSurvey = { ...NEW_SURVEY, ...template }
                     return newTemplateSurvey
                 },
+                setQuestionBranchingType: (state, { questionIndex, type, specificQuestionIndex }) => {
+                    const newQuestions = [...state.questions]
+                    const question = newQuestions[questionIndex]
+
+                    if (type === SurveyQuestionBranchingType.NextQuestion) {
+                        delete question.branching
+                    } else if (type === SurveyQuestionBranchingType.ConfirmationMessage) {
+                        question.branching = {
+                            type: SurveyQuestionBranchingType.ConfirmationMessage,
+                        }
+                    } else if (type === SurveyQuestionBranchingType.ResponseBased) {
+                        if (
+                            question.type !== SurveyQuestionType.Rating &&
+                            question.type !== SurveyQuestionType.SingleChoice
+                        ) {
+                            throw new Error(
+                                `Survey question type must be ${SurveyQuestionType.Rating} or ${SurveyQuestionType.SingleChoice}`
+                            )
+                        }
+
+                        question.branching = {
+                            type: SurveyQuestionBranchingType.ResponseBased,
+                            responseValues: {},
+                        }
+                    } else if (type === SurveyQuestionBranchingType.SpecificQuestion) {
+                        question.branching = {
+                            type: SurveyQuestionBranchingType.SpecificQuestion,
+                            index: specificQuestionIndex,
+                        }
+                    }
+
+                    newQuestions[questionIndex] = question
+                    return {
+                        ...state,
+                        questions: newQuestions,
+                    }
+                },
+                setResponseBasedBranchingForQuestion: (
+                    state,
+                    { questionIndex, responseValue, nextStep, specificQuestionIndex }
+                ) => {
+                    const newQuestions = [...state.questions]
+                    const question = newQuestions[questionIndex]
+
+                    if (
+                        question.type !== SurveyQuestionType.Rating &&
+                        question.type !== SurveyQuestionType.SingleChoice
+                    ) {
+                        throw new Error(
+                            `Survey question type must be ${SurveyQuestionType.Rating} or ${SurveyQuestionType.SingleChoice}`
+                        )
+                    }
+
+                    if (question.branching?.type !== SurveyQuestionBranchingType.ResponseBased) {
+                        throw new Error(
+                            `Survey question branching type must be ${SurveyQuestionBranchingType.ResponseBased}`
+                        )
+                    }
+
+                    if ('responseValues' in question.branching) {
+                        if (nextStep === SurveyQuestionBranchingType.NextQuestion) {
+                            delete question.branching.responseValues[responseValue]
+                        } else if (nextStep === SurveyQuestionBranchingType.ConfirmationMessage) {
+                            question.branching.responseValues[responseValue] =
+                                SurveyQuestionBranchingType.ConfirmationMessage
+                        } else if (nextStep === SurveyQuestionBranchingType.SpecificQuestion) {
+                            question.branching.responseValues[responseValue] = specificQuestionIndex
+                        }
+                    }
+
+                    newQuestions[questionIndex] = question
+                    return {
+                        ...state,
+                        questions: newQuestions,
+                    }
+                },
+                resetBranchingForQuestion: (state, { questionIndex }) => {
+                    const newQuestions = [...state.questions]
+                    const question = newQuestions[questionIndex]
+                    delete question.branching
+
+                    newQuestions[questionIndex] = question
+                    return {
+                        ...state,
+                        questions: newQuestions,
+                    }
+                },
             },
         ],
         selectedPageIndex: [
@@ -750,6 +852,12 @@ export const surveyLogic = kea<surveyLogicType>([
             (s) => [s.survey],
             (survey: Survey): boolean => {
                 return !!(survey.start_date && !survey.end_date)
+            },
+        ],
+        surveyShufflingQuestionsAvailable: [
+            (s) => [s.survey],
+            (survey: Survey): boolean => {
+                return survey.questions.length > 1
             },
         ],
         showSurveyRepeatSchedule: [(s) => [s.schedule], (schedule: ScheduleType) => schedule == 'recurring'],
@@ -880,6 +988,54 @@ export const surveyLogic = kea<surveyLogicType>([
                         return npsScore.toFixed(1)
                     }
                 }
+            },
+        ],
+        getBranchingDropdownValue: [
+            (s) => [s.survey],
+            (survey) => (questionIndex: number, question: RatingSurveyQuestion | MultipleSurveyQuestion) => {
+                if (question.branching?.type) {
+                    const { type } = question.branching
+
+                    if (type === SurveyQuestionBranchingType.SpecificQuestion) {
+                        const nextQuestionIndex = question.branching.index
+                        return `${SurveyQuestionBranchingType.SpecificQuestion}:${nextQuestionIndex}`
+                    }
+
+                    return type
+                }
+
+                // No branching specified, default to Next question / Confirmation message
+                if (questionIndex < survey.questions.length - 1) {
+                    return SurveyQuestionBranchingType.NextQuestion
+                }
+
+                return SurveyQuestionBranchingType.ConfirmationMessage
+            },
+        ],
+        getResponseBasedBranchingDropdownValue: [
+            (s) => [s.survey],
+            (survey) => (questionIndex: number, question: RatingSurveyQuestion | MultipleSurveyQuestion, response) => {
+                if (!question.branching || !('responseValues' in question.branching)) {
+                    return SurveyQuestionBranchingType.NextQuestion
+                }
+
+                // If a value is mapped onto an integer, we're redirecting to a specific question
+                if (Number.isInteger(question.branching.responseValues[response])) {
+                    const nextQuestionIndex = question.branching.responseValues[response]
+                    return `${SurveyQuestionBranchingType.SpecificQuestion}:${nextQuestionIndex}`
+                }
+
+                // If any other value is present (practically only Confirmation message), return that value
+                if (question.branching?.responseValues?.[response]) {
+                    return question.branching.responseValues[response]
+                }
+
+                // No branching specified, default to Next question / Confirmation message
+                if (questionIndex < survey.questions.length - 1) {
+                    return SurveyQuestionBranchingType.NextQuestion
+                }
+
+                return SurveyQuestionBranchingType.ConfirmationMessage
             },
         ],
     }),

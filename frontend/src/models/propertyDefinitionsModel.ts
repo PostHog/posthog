@@ -55,6 +55,7 @@ export type Option = {
     label?: string
     name?: string
     status?: 'loading' | 'loaded'
+    allowCustomValues?: boolean
     values?: PropValue[]
 }
 
@@ -149,7 +150,11 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             eventNames?: string[]
         }) => payload,
         setOptionsLoading: (key: string) => ({ key }),
-        setOptions: (key: string, values: PropValue[]) => ({ key, values }),
+        setOptions: (key: string, values: PropValue[], allowCustomValues: boolean) => ({
+            key,
+            values,
+            allowCustomValues,
+        }),
         // internal
         fetchAllPendingDefinitions: true,
         abortAnyRunningQuery: true,
@@ -170,11 +175,12 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             {} as Record<string, Option>,
             {
                 setOptionsLoading: (state, { key }) => ({ ...state, [key]: { ...state[key], status: 'loading' } }),
-                setOptions: (state, { key, values }) => ({
+                setOptions: (state, { key, values, allowCustomValues }) => ({
                     ...state,
                     [key]: {
                         values: [...Array.from(new Set(values))],
                         status: 'loaded',
+                        allowCustomValues,
                     },
                 }),
             },
@@ -317,6 +323,19 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             if (!propertyKey || values.currentTeamId === null) {
                 return
             }
+            if (propertyKey === 'console_log_level') {
+                actions.setOptions(
+                    propertyKey,
+                    [
+                        // id is not used so can be arbitrarily chosen
+                        { id: 0, name: 'info' },
+                        { id: 1, name: 'warn' },
+                        { id: 2, name: 'error' },
+                    ],
+                    false
+                )
+                return
+            }
 
             const start = performance.now()
 
@@ -334,7 +353,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                 methodOptions
             )
             breakpoint()
-            actions.setOptions(propertyKey, propValues)
+            actions.setOptions(propertyKey, propValues, true)
             cache.abortController = null
 
             await captureTimeToSeeData(teamLogic.values.currentTeamId, {

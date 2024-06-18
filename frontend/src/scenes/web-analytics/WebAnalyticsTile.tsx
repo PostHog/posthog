@@ -330,7 +330,7 @@ export const WebStatsTrendTile = ({
     }, [onWorldMapClick, insightProps])
 
     return (
-        <div className="border rounded bg-bg-light flex-1">
+        <div className="border rounded bg-bg-light flex-1 flex flex-col">
             {showIntervalTile && (
                 <div className="flex flex-row items-center justify-end m-2 mr-4">
                     <div className="flex flex-row items-center">

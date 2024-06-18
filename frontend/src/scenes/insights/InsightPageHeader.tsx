@@ -28,6 +28,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { tagsModel } from '~/models/tagsModel'
+import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema'
 import { ExporterFormat, InsightLogicProps, InsightModel, InsightShortId, ItemMode, NotebookNodeType } from '~/types'
 
@@ -37,10 +38,16 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { setInsightMode } = useActions(insightSceneLogic)
 
     // insightLogic
-    const logic = insightLogic(insightLogicProps)
-    const { insightProps, canEditInsight, insight, insightChanged, insightSaving, hasDashboardItemId } =
-        useValues(logic)
-    const { setInsightMetadata } = useActions(logic)
+    const {
+        insightProps,
+        canEditInsight,
+        insight: legacyInsight,
+        insightChanged,
+        insightSaving,
+        hasDashboardItemId,
+    } = useValues(insightLogic(insightLogicProps))
+    const { setInsightMetadata } = useActions(insightLogic(insightLogicProps))
+    const insight = getQueryBasedInsightModel(legacyInsight)
 
     // savedInsightsLogic
     const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
@@ -78,7 +85,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                     <AddToDashboardModal
                         isOpen={addToDashboardModalOpen}
                         closeModal={() => setAddToDashboardModalOpenModal(false)}
-                        insight={insight}
+                        insight={legacyInsight}
                         canEditInsight={canEditInsight}
                     />
                     <AlertsModal
@@ -99,7 +106,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                     {hasDashboardItemId && (
                                         <>
                                             <LemonButton
-                                                onClick={() => duplicateInsight(insight as InsightModel, true)}
+                                                onClick={() => duplicateInsight(legacyInsight as InsightModel, true)}
                                                 fullWidth
                                                 data-attr="duplicate-insight-from-insight-view"
                                             >
@@ -211,7 +218,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                 status="danger"
                                                 onClick={() =>
                                                     void deleteWithUndo({
-                                                        object: insight,
+                                                        object: legacyInsight,
                                                         endpoint: `projects/${currentTeamId}/insights`,
                                                         callback: () => {
                                                             loadInsights()

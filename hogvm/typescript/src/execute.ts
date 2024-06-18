@@ -1,55 +1,9 @@
 import { Operation } from './operation'
 import { ASYNC_STL, STL } from './stl/stl'
+import { convertHogToJS, convertJSToHog, getNestedValue, like, setNestedValue } from './utils'
 
 const DEFAULT_MAX_ASYNC_STEPS = 100
 const DEFAULT_TIMEOUT = 5 // seconds
-
-function like(string: string, pattern: string, caseInsensitive = false): boolean {
-    pattern = String(pattern)
-        .replaceAll(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')
-        .replaceAll('%', '.*')
-    return new RegExp(pattern, caseInsensitive ? 'i' : undefined).test(string)
-}
-
-function getNestedValue(obj: any, chain: any[]): any {
-    if (typeof obj === 'object' && obj !== null) {
-        for (const key of chain) {
-            // if obj is a map
-            if (obj instanceof Map) {
-                obj = obj.get(key) ?? null
-            } else if (typeof key === 'number') {
-                obj = obj[key]
-            } else {
-                obj = obj[key] ?? null
-            }
-        }
-        return obj
-    }
-    return null
-}
-function setNestedValue(obj: any, chain: any[], value: any): void {
-    if (typeof obj !== 'object' || obj === null) {
-        throw new Error(`Can not set ${chain} on non-object: ${typeof obj}`)
-    }
-    for (let i = 0; i < chain.length - 1; i++) {
-        const key = chain[i]
-        if (obj instanceof Map) {
-            obj = obj.get(key) ?? null
-        } else if (Array.isArray(obj) && typeof key === 'number') {
-            obj = obj[key]
-        } else {
-            throw new Error(`Can not get ${chain} on element of type ${typeof obj}`)
-        }
-    }
-    const lastKey = chain[chain.length - 1]
-    if (obj instanceof Map) {
-        obj.set(lastKey, value)
-    } else if (Array.isArray(obj) && typeof lastKey === 'number') {
-        obj[lastKey] = value
-    } else {
-        throw new Error(`Can not set ${chain} on element of type ${typeof obj}`)
-    }
-}
 
 export interface VMState {
     /** Bytecode running in the VM */
@@ -71,7 +25,7 @@ export interface VMState {
 }
 
 export interface ExecOptions {
-    fields?: Record<string, any>
+    globals?: Record<string, any>
     functions?: Record<string, (...args: any[]) => any>
     asyncFunctions?: Record<string, (...args: any[]) => Promise<any>>
     timeout?: number
@@ -104,8 +58,10 @@ export async function execAsync(bytecode: any[], options?: ExecOptions): Promise
         if (response.state && response.asyncFunctionName && response.asyncFunctionArgs) {
             vmState = response.state
             if (options?.asyncFunctions && response.asyncFunctionName in options.asyncFunctions) {
-                const result = await options?.asyncFunctions[response.asyncFunctionName](...response.asyncFunctionArgs)
-                vmState.stack.push(result)
+                const result = await options?.asyncFunctions[response.asyncFunctionName](
+                    ...response.asyncFunctionArgs.map(convertHogToJS)
+                )
+                vmState.stack.push(convertJSToHog(result))
             } else if (response.asyncFunctionName in ASYNC_STL) {
                 const result = await ASYNC_STL[response.asyncFunctionName](
                     response.asyncFunctionArgs,
@@ -285,13 +241,13 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 temp = popStack()
                 stack.push(!new RegExp(popStack(), 'i').test(temp))
                 break
-            case Operation.FIELD: {
+            case Operation.GET_GLOBAL: {
                 const count = next()
                 const chain = []
                 for (let i = 0; i < count; i++) {
                     chain.push(popStack())
                 }
-                stack.push(options?.fields ? getNestedValue(options.fields, chain) : null)
+                stack.push(options?.globals ? convertJSToHog(getNestedValue(options.globals, chain)) : null)
                 break
             }
             case Operation.POP:
@@ -379,7 +335,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                         .fill(null)
                         .map(() => popStack())
                     if (options?.functions && options.functions[name] && name !== 'toString') {
-                        stack.push(options.functions[name](...args))
+                        stack.push(convertJSToHog(options.functions[name](...args.map(convertHogToJS))))
                     } else if (
                         name !== 'toString' &&
                         ((options?.asyncFunctions && options.asyncFunctions[name]) || name in ASYNC_STL)

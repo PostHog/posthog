@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, Optional, Union
 
 from pydantic import BaseModel
@@ -149,7 +150,7 @@ def calculate_for_query_based_insight(
 
     cache_key = response.get("cache_key")
     last_refresh = response.get("last_refresh")
-    if isinstance(cache_key, str) and isinstance(last_refresh, str):
+    if isinstance(cache_key, str) and isinstance(last_refresh, datetime):
         update_cached_state(  # Updating the relevant InsightCachingState
             insight.team_id,
             cache_key,

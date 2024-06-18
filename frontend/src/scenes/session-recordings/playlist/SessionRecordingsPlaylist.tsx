@@ -23,6 +23,7 @@ import { urls } from 'scenes/urls'
 
 import { ReplayTabs, SessionRecordingType } from '~/types'
 
+import { RecordingsUniversalFilters } from '../filters/RecordingsUniversalFilters'
 import { SessionRecordingsFilters } from '../filters/SessionRecordingsFilters'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { SessionRecordingPreview, SessionRecordingPreviewSkeleton } from './SessionRecordingPreview'
@@ -118,6 +119,7 @@ function RecordingsLists(): JSX.Element {
         recordingsCount,
         isRecordingsListCollapsed,
         sessionSummaryLoading,
+        useUniversalFiltering,
     } = useValues(sessionRecordingsPlaylistLogic)
     const {
         setSelectedRecordingId,
@@ -205,25 +207,27 @@ function RecordingsLists(): JSX.Element {
                             </span>
                         </Tooltip>
                     </span>
-                    <LemonButton
-                        tooltip="Filter recordings"
-                        size="small"
-                        active={showFilters}
-                        icon={
-                            <IconWithCount count={totalFiltersCount}>
-                                <IconFilter />
-                            </IconWithCount>
-                        }
-                        onClick={() => {
-                            if (notebookNode) {
-                                notebookNode.actions.toggleEditing()
-                            } else {
-                                setShowFilters(!showFilters)
+                    {(!useUniversalFiltering || notebookNode) && (
+                        <LemonButton
+                            tooltip="Filter recordings"
+                            size="small"
+                            active={showFilters}
+                            icon={
+                                <IconWithCount count={totalFiltersCount}>
+                                    <IconFilter />
+                                </IconWithCount>
                             }
-                        }}
-                    >
-                        Filter
-                    </LemonButton>
+                            onClick={() => {
+                                if (notebookNode) {
+                                    notebookNode.actions.toggleEditing()
+                                } else {
+                                    setShowFilters(!showFilters)
+                                }
+                            }}
+                        >
+                            Filter
+                        </LemonButton>
+                    )}
                     <LemonButton
                         tooltip="Playlist settings"
                         size="small"
@@ -352,6 +356,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
         matchingEventsMatchType,
         pinnedRecordings,
         isRecordingsListCollapsed,
+        useUniversalFiltering,
     } = useValues(logic)
     const { toggleRecordingsListCollapsed } = useActions(logic)
 
@@ -363,8 +368,10 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
     const notebookNode = useNotebookNode()
 
     return (
-        <>
-            <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
+        <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
+            <div className="h-full space-y-2">
+                {useUniversalFiltering && <RecordingsUniversalFilters />}
+
                 <div
                     ref={playlistRef}
                     data-attr="session-recordings-playlist"
@@ -422,7 +429,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
                         )}
                     </div>
                 </div>
-            </BindLogic>
-        </>
+            </div>
+        </BindLogic>
     )
 }

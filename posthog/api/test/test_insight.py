@@ -1145,10 +1145,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         [
             [  # Property group filter, which is what's actually used these days
                 PropertyGroupFilter(
-                    type=FilterLogicalOperator.AND,
+                    type=FilterLogicalOperator.AND_,
                     values=[
                         PropertyGroupFilterValue(
-                            type=FilterLogicalOperator.OR,
+                            type=FilterLogicalOperator.OR_,
                             values=[EventPropertyFilter(key="another", value="never_return_this", operator="is_not")],
                         )
                     ],
@@ -1377,10 +1377,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         [
             [  # Property group filter, which is what's actually used these days
                 PropertyGroupFilter(
-                    type=FilterLogicalOperator.AND,
+                    type=FilterLogicalOperator.AND_,
                     values=[
                         PropertyGroupFilterValue(
-                            type=FilterLogicalOperator.OR,
+                            type=FilterLogicalOperator.OR_,
                             values=[EventPropertyFilter(key="another", value="never_return_this", operator="is_not")],
                         )
                     ],
@@ -1461,10 +1461,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         [
             [  # Property group filter, which is what's actually used these days
                 PropertyGroupFilter(
-                    type=FilterLogicalOperator.AND,
+                    type=FilterLogicalOperator.AND_,
                     values=[
                         PropertyGroupFilterValue(
-                            type=FilterLogicalOperator.OR,
+                            type=FilterLogicalOperator.OR_,
                             values=[EventPropertyFilter(key="another", value="never_return_this", operator="is_not")],
                         )
                     ],

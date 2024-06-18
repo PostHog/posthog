@@ -68,7 +68,7 @@ export function ItemEvent({ item, expanded, setExpanded }: ItemEventProps): JSX.
 
                     {item.data.fullyLoaded ? (
                         item.data.event === '$exception' ? (
-                            <ErrorDisplay event={item.data} />
+                            <ErrorDisplay eventProperties={item.data.properties} />
                         ) : (
                             <SimpleKeyValueList item={item.data.properties} />
                         )

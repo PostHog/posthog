@@ -32,7 +32,7 @@ export function overlayForNewInsightMenu(dataAttr: string): ReactNode[] {
                     }}
                     fullWidth
                 >
-                    <div className="text-default flex flex-col text-sm py-1">
+                    <div className="text-text-3000 flex flex-col text-sm py-1">
                         <strong>{listedInsightTypeMetadata.name}</strong>
                         <span className="text-xs font-sans">{listedInsightTypeMetadata.description}</span>
                     </div>

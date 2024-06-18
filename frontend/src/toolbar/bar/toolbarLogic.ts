@@ -32,6 +32,9 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 'setHeatmapColorPalette',
                 'setCommonFilters',
                 'toggleClickmapsEnabled',
+                'loadHeatmap',
+                'loadHeatmapSuccess',
+                'loadHeatmapFailure',
             ],
         ],
     })),
@@ -280,6 +283,17 @@ export const toolbarLogic = kea<toolbarLogicType>([
         },
         createAction: () => {
             actions.setVisibleMenu('actions')
+        },
+        loadHeatmap: () => {
+            window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_HEATMAP_LOADING }, '*')
+        },
+        loadHeatmapSuccess: () => {
+            // if embedded we need to signal start and finish of heatmap loading to the parent
+            window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_HEATMAP_LOADED }, '*')
+        },
+        loadHeatmapFailure: () => {
+            // if embedded we need to signal start and finish of heatmap loading to the parent
+            window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_HEATMAP_FAILED }, '*')
         },
     })),
     afterMount(({ actions, values, cache }) => {
