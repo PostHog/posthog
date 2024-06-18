@@ -480,7 +480,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             cached_response_candidate["is_cached"] = True
             # This class is abstract, so mypy doesn't like this line
             self.cached_response = self.CachedResponseType(**cached_response_candidate)  # type: ignore[operator]
-            if cast(self.CachedResponseType, self.cached_response).last_refresh >= datetime.now(  # type: ignore[name-defined]
+            if cast(self.CachedResponseType, self.cached_response).last_refresh > datetime.now(  # type: ignore[name-defined]
                 self.team.timezone_info
             ):
                 # A cache hit in the future. Ignore. Record.

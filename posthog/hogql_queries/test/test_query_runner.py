@@ -35,6 +35,7 @@ class TestQueryRunner(BaseTest):
             query: TestQuery
             response: TestBasicQueryResponse
             CachedResponseType: TypeAlias = TestCachedBasicQueryResponse
+            cached_response: CachedResponseType | CacheMissResponse
 
             def calculate(self):
                 return TestBasicQueryResponse(

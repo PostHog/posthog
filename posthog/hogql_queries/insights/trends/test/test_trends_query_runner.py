@@ -1702,7 +1702,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query = query_runner.to_queries()[0]
         assert isinstance(query, ast.SelectQuery) and query.limit == ast.Constant(value=MAX_SELECT_RETURNED_ROWS)
 
-        response = query_runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        response = cast(CachedTrendsQueryResponse, query_runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS))
         assert len(response.results) == 250
 
     def test_previous_period_with_number_display(self):
@@ -2345,7 +2345,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
         )
         runner.query.samplingFactor = 0.1
-        response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        response = cast(CachedTrendsQueryResponse, runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS))
         assert len(response.results) == 1
         # 10% of 30 is 3, so check we're adjusting the results back up
         assert response.results[0]["count"] > 5 and response.results[0]["count"] < 30
@@ -2359,7 +2359,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             TrendsFilter(display=ChartDisplayType.BOLD_NUMBER),
         )
         runner.query.samplingFactor = 0.1
-        response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        response = cast(CachedTrendsQueryResponse, runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS))
         assert len(response.results) == 1
         # 10% of 30 is 3, so check we're adjusting the results back up
         assert response.results[0]["aggregated_value"] > 5 and response.results[0]["aggregated_value"] < 30
