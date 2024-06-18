@@ -1972,7 +1972,7 @@ class FunnelsFilterLegacy(BaseModel):
     funnel_viz_type: Optional[FunnelVizType] = None
     funnel_window_interval: Optional[float] = None
     funnel_window_interval_unit: Optional[FunnelConversionWindowTimeUnit] = None
-    hidden_legend_breakdowns: Optional[list[str]] = None
+    hidden_legend_keys: Optional[dict[str, Union[bool, Any]]] = None
     layout: Optional[FunnelLayout] = None
 
 
@@ -3512,7 +3512,7 @@ class FunnelsFilter(BaseModel):
     funnelVizType: Optional[FunnelVizType] = FunnelVizType.STEPS
     funnelWindowInterval: Optional[int] = 14
     funnelWindowIntervalUnit: Optional[FunnelConversionWindowTimeUnit] = FunnelConversionWindowTimeUnit.DAY
-    hidden_legend_breakdowns: Optional[list[str]] = None
+    hiddenLegendBreakdowns: Optional[list[str]] = None
     layout: Optional[FunnelLayout] = FunnelLayout.VERTICAL
 
 

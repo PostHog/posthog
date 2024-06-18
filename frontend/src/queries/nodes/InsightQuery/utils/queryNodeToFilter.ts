@@ -1,5 +1,4 @@
 import { objectClean } from 'lib/utils'
-import { isFunnelsFilter, isLifecycleFilter } from 'scenes/insights/sharedUtils'
 
 import {
     ActionsNode,
@@ -173,14 +172,6 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         filters.interval = query.interval
     }
 
-    if (isFunnelsQuery(query) && isFunnelsFilter(filters)) {
-        filters.hidden_legend_keys = hiddenLegendItemsToKeys(query.funnelsFilter?.hidden_legend_breakdowns)
-    }
-
-    if (isLifecycleQuery(query) && isLifecycleFilter(filters)) {
-        filters.toggledLifecycles = query.lifecycleFilter?.toggledLifecycles
-    }
-
     // we don't want to mutate the original query
     const queryCopy = JSON.parse(JSON.stringify(query))
 
@@ -231,7 +222,9 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         camelCasedFunnelsProps.funnel_viz_type = queryCopy.funnelsFilter?.funnelVizType
         camelCasedFunnelsProps.funnel_window_interval = queryCopy.funnelsFilter?.funnelWindowInterval
         camelCasedFunnelsProps.funnel_window_interval_unit = queryCopy.funnelsFilter?.funnelWindowIntervalUnit
-        // camelCasedFunnelsProps.hidden_legend_breakdowns = queryCopy.funnelsFilter?.hiddenLegendBreakdowns
+        camelCasedFunnelsProps.hidden_legend_keys = hiddenLegendItemsToKeys(
+            queryCopy.funnelsFilter?.hiddenLegendBreakdowns
+        )
         camelCasedFunnelsProps.funnel_step_reference = queryCopy.funnelsFilter?.funnelStepReference
         delete queryCopy.funnelsFilter?.exclusions
         delete queryCopy.funnelsFilter?.binCount
@@ -244,7 +237,7 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         delete queryCopy.funnelsFilter?.funnelVizType
         delete queryCopy.funnelsFilter?.funnelWindowInterval
         delete queryCopy.funnelsFilter?.funnelWindowIntervalUnit
-        // delete queryCopy.funnelsFilter?.hiddenLegendBreakdowns
+        delete queryCopy.funnelsFilter?.hiddenLegendBreakdowns
         delete queryCopy.funnelsFilter?.funnelStepReference
     } else if (isRetentionQuery(queryCopy)) {
         camelCasedRetentionProps.retention_reference = queryCopy.retentionFilter?.retentionReference
@@ -305,8 +298,10 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
     } else if (isLifecycleQuery(queryCopy)) {
         camelCasedLifecycleProps.show_values_on_series = queryCopy.lifecycleFilter?.showValuesOnSeries
         camelCasedLifecycleProps.show_legend = queryCopy.lifecycleFilter?.showLegend
+        camelCasedLifecycleProps.toggledLifecycles = queryCopy.lifecycleFilter?.toggledLifecycles
         delete queryCopy.lifecycleFilter?.showLegend
         delete queryCopy.lifecycleFilter?.showValuesOnSeries
+        delete queryCopy.lifecycleFilter?.toggledLifecycles
     }
     Object.assign(filters, camelCasedTrendsProps)
     Object.assign(filters, camelCasedFunnelsProps)
