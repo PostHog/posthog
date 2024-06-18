@@ -2,6 +2,9 @@ name: Frontend CI
 
 on:
     pull_request:
+        paths-ignore:
+            - rust/**
+            - livestream/**
     push:
         branches:
             - master

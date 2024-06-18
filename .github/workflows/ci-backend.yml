@@ -9,6 +9,9 @@ on:
         branches:
             - master
     pull_request:
+        paths-ignore:
+            - 'rust/**'
+            - 'livestream/**'
     workflow_dispatch:
         inputs:
             clickhouseServerVersion:
