@@ -171,7 +171,7 @@ export const filterNestedDataset = (
         return datasets
     }
     // If series are nested (for ActionsHorizontalBar and Pie), filter out the series by index
-    const filterFn = (_: any, i: number): boolean => !hiddenLegendIndexes?.includes[i]
+    const filterFn = (_: any, i: number): boolean => !hiddenLegendIndexes?.includes(i)
     return datasets.map((_data) => {
         // Performs a filter transformation on properties that contain arrayed data
         return Object.fromEntries(
