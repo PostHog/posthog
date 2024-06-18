@@ -109,14 +109,7 @@ class SessionRecordingListFromFilters:
         return ttl_days(self._team)
 
     def run(self) -> SessionRecordingQueryResult:
-        query = parse_select(
-            self.BASE_QUERY,
-            {
-                "order_by": self._order_by_clause(),
-                "where_predicates": self._where_predicates(),
-                "having_predicates": self._having_predicates(),
-            },
-        )
+        query = self.get_query()
 
         paginated_response = self._paginator.execute_hogql_query(
             # TODO I guess the paginator needs to know how to handle union queries or all callers are supposed to collapse them or .... 🤷
@@ -130,6 +123,16 @@ class SessionRecordingListFromFilters:
             results=(self._data_to_return(self._paginator.results)),
             has_more_recording=self._paginator.has_more(),
             timings=paginated_response.timings,
+        )
+
+    def get_query(self):
+        return parse_select(
+            self.BASE_QUERY,
+            {
+                "order_by": self._order_by_clause(),
+                "where_predicates": self._where_predicates(),
+                "having_predicates": self._having_predicates(),
+            },
         )
 
     def _order_by_clause(self) -> ast.Field:

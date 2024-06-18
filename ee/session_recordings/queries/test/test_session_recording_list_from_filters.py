@@ -1,3 +1,4 @@
+import ast
 from itertools import product
 from unittest import mock
 from uuid import uuid4
@@ -9,6 +10,7 @@ from parameterized import parameterized
 
 from ee.clickhouse.materialized_columns.columns import materialize
 from posthog.clickhouse.client import sync_execute
+from posthog.hogql.ast import CompareOperation, And, SelectQuery
 from posthog.models import Person
 from posthog.models.filters import SessionRecordingsFilter
 from posthog.schema import PersonsOnEventsMode
@@ -159,30 +161,36 @@ class TestClickhouseSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBas
             session_recording_list_instance = SessionRecordingListFromFilters(
                 filter=filter, team=self.team, hogql_query_modifiers=None
             )
-            [generated_query, query_params] = session_recording_list_instance.get_query()
-            assert query_params == {
-                "clamped_to_storage_ttl": mock.ANY,
-                "end_time": mock.ANY,
-                "limit": 51,
-                "offset": 0,
-                "start_time": mock.ANY,
-                "team_id": self.team.id,
-                **expected_query_params,
-            }
+            hogql_parsed_select = session_recording_list_instance.get_query()
 
-            json_extract_fragment = (
-                "has(%(vperson_filter_pre__0)s, replaceRegexpAll(JSONExtractRaw(properties, %(kperson_filter_pre__0)s)"
-            )
-            materialized_column_fragment = 'AND (  has(%(vglobal_0)s, "mat_pp_rgInternal"))'
+            where_conditions: list[ast.Expr] = hogql_parsed_select.where.exprs
+            ands = [x for x in where_conditions if isinstance(x, And)]
+            assert len(ands) == 1
+            and_comparisons = [x for x in ands[0].exprs if isinstance(x, CompareOperation)]
+            assert len(and_comparisons) == 1
+            assert isinstance(and_comparisons[0].right, SelectQuery)
 
-            # it will always have one of these fragments
-            assert (json_extract_fragment in generated_query) or (materialized_column_fragment in generated_query)
+            if poe_v1 or poe_v2:
+                # when poe is off we will join to events, so we can get person properties directly off them
+                assert and_comparisons[0].right.select_from.table.chain != ["person_distinct_ids"]
+            else:
+                # when poe is off we join to person_distinct_ids, so we can get persons, so we can query their properties
+                assert and_comparisons[0].right.select_from.table.chain == ["person_distinct_ids"]
 
-            # the unmaterialized person column
-            assert (json_extract_fragment in generated_query) is unmaterialized_person_column_used
-            # materialized event column
-            assert (materialized_column_fragment in generated_query) is materialized_event_column_used
-            self.assertQueryMatchesSnapshot(generated_query)
+            #
+            # json_extract_fragment = (
+            #     "has(%(vperson_filter_pre__0)s, replaceRegexpAll(JSONExtractRaw(properties, %(kperson_filter_pre__0)s)"
+            # )
+            # materialized_column_fragment = 'AND (  has(%(vglobal_0)s, "mat_pp_rgInternal"))'
+            #
+            # # it will always have one of these fragments
+            # assert (json_extract_fragment in generated_query) or (materialized_column_fragment in generated_query)
+            #
+            # # the unmaterialized person column
+            # assert (json_extract_fragment in generated_query) is unmaterialized_person_column_used
+            # # materialized event column
+            # assert (materialized_column_fragment in generated_query) is materialized_event_column_used
+            # self.assertQueryMatchesSnapshot(generated_query)
 
     settings_combinations = [
         ["poe v2 and materialized columns allowed", False, True, True],
@@ -261,7 +269,7 @@ class TestClickhouseSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBas
             session_recording_list_instance = SessionRecordingListFromFilters(
                 filter=match_everyone_filter, team=self.team, hogql_query_modifiers=None
             )
-            (session_recordings, _) = session_recording_list_instance.run()
+            (session_recordings, _, _) = session_recording_list_instance.run()
 
             assert sorted([x["session_id"] for x in session_recordings]) == sorted([session_id_one, session_id_two])
 
@@ -282,7 +290,7 @@ class TestClickhouseSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBas
             session_recording_list_instance = SessionRecordingListFromFilters(
                 filter=match_bla_filter, team=self.team, hogql_query_modifiers=None
             )
-            (session_recordings, _) = session_recording_list_instance.run()
+            (session_recordings, _, _) = session_recording_list_instance.run()
 
             assert len(session_recordings) == 1
             assert session_recordings[0]["session_id"] == session_id_one
@@ -348,5 +356,5 @@ class TestClickhouseSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBas
             session_recording_list_instance = SessionRecordingListFromFilters(
                 filter=filter, team=self.team, hogql_query_modifiers=None
             )
-            (session_recordings, _) = session_recording_list_instance.run()
+            (session_recordings, _, _) = session_recording_list_instance.run()
             assert sorted([r["session_id"] for r in session_recordings]) == sorted([session_id_two, session_id_one])
