@@ -25,6 +25,7 @@ asttokens==2.4.1
 async-timeout==4.0.2
     # via
     #   -c requirements.txt
+    #   aiohttp
     #   redis
 attrs==23.2.0
     # via
@@ -91,6 +92,10 @@ docopt==0.6.2
     # via pytest-watch
 email-validator==2.0.0.post2
     # via pydantic
+exceptiongroup==1.2.1
+    # via
+    #   -c requirements.txt
+    #   pytest
 execnet==2.1.1
     # via pytest-xdist
 executing==2.0.1
@@ -305,7 +310,14 @@ syrupy==4.6.0
 toml==0.10.2
     # via
     #   coverage
+    #   datamodel-code-generator
     #   inline-snapshot
+tomli==2.0.1
+    # via
+    #   black
+    #   django-stubs
+    #   mypy
+    #   pytest
 types-awscrt==0.20.9
     # via botocore-stubs
 types-freezegun==1.1.10
@@ -344,6 +356,8 @@ types-tzlocal==5.1.0.1
 typing-extensions==4.7.1
     # via
     #   -c requirements.txt
+    #   asgiref
+    #   black
     #   boto3-stubs
     #   django-stubs
     #   django-stubs-ext
