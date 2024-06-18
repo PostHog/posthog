@@ -62,7 +62,7 @@ export function InsightsTable({
         isSingleSeries,
         hiddenLegendIndexes,
     } = useValues(trendsDataLogic(insightProps))
-    const { toggleHiddenLegendIndex } = useActions(trendsDataLogic(insightProps))
+    const { toggleHiddenLegendIndex, updateHiddenLegendIndexes } = useActions(trendsDataLogic(insightProps))
     const { aggregation, allowAggregation } = useValues(insightsTableDataLogic(insightProps))
     const { setAggregationType } = useActions(insightsTableDataLogic(insightProps))
 
@@ -92,7 +92,7 @@ export function InsightsTable({
                         indexedResults={indexedResults}
                         canCheckUncheckSeries={canCheckUncheckSeries}
                         hiddenLegendIndexes={hiddenLegendIndexes}
-                        toggleHiddenLegendIndex={toggleHiddenLegendIndex}
+                        updateHiddenLegendIndexes={updateHiddenLegendIndexes}
                     />
                 )}
                 <span>Series</span>
