@@ -1604,7 +1604,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # empty has: 1 seconds
         self.assertEqual(
             [resp["breakdown_value"] for resp in daily_response],
-            ["value1", "value2", "$$_posthog_breakdown_null_$$"],
+            ["value2", "value1", "$$_posthog_breakdown_null_$$"],
         )
         self.assertEqual(sorted([resp["aggregated_value"] for resp in daily_response]), sorted([12.5, 10, 1]))
 
@@ -6499,9 +6499,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(response[0]["aggregated_value"], 2)
+        self.assertEqual(response[0]["aggregated_value"], 1)
         self.assertEqual(response[1]["aggregated_value"], 1)
-        self.assertEqual(response[2]["aggregated_value"], 1)  # the events without breakdown value
+        self.assertEqual(response[2]["aggregated_value"], 2)  # the events without breakdown value
         self.assertEqual(response[0]["days"], [])
 
     @also_test_with_materialized_columns(person_properties=["key", "key_2"], verify_no_jsonextract=False)
@@ -7662,11 +7662,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert len(daily_response) == 3
-        assert daily_response[0]["breakdown_value"] == "blue"
-        assert daily_response[1]["breakdown_value"] == "red"
+        assert daily_response[0]["breakdown_value"] == "red"
+        assert daily_response[1]["breakdown_value"] == "blue"
         assert daily_response[2]["breakdown_value"] == "$$_posthog_breakdown_null_$$"
-        assert daily_response[0]["aggregated_value"] == 1.0  # blue
-        assert daily_response[1]["aggregated_value"] == 2.0  # red
+        assert daily_response[0]["aggregated_value"] == 2.0  # red
+        assert daily_response[1]["aggregated_value"] == 1.0  # blue
         assert daily_response[2]["aggregated_value"] == 1.0  # $$_posthog_breakdown_null_$$
 
     @snapshot_clickhouse_queries
@@ -7689,11 +7689,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert len(daily_response) == 3
-        assert daily_response[0]["breakdown_value"] == "blue"
-        assert daily_response[1]["breakdown_value"] == "red"
+        assert daily_response[0]["breakdown_value"] == "red"
+        assert daily_response[1]["breakdown_value"] == "blue"
         assert daily_response[2]["breakdown_value"] == "$$_posthog_breakdown_null_$$"
-        assert daily_response[0]["aggregated_value"] == 1.0  # blue
-        assert daily_response[1]["aggregated_value"] == 2.0  # red
+        assert daily_response[0]["aggregated_value"] == 2.0  # red
+        assert daily_response[1]["aggregated_value"] == 1.0  # blue
         assert daily_response[2]["aggregated_value"] == 1.0  # $$_posthog_breakdown_null_$$
 
     # TODO: Add support for avg_count by group indexes (see this Slack thread for more context: https://posthog.slack.com/archives/C0368RPHLQH/p1700484174374229)
