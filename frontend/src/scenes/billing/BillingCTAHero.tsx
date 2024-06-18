@@ -16,7 +16,6 @@ export const BillingCTAHero = ({ product }: { product: BillingProductV2Type }): 
     const { isPlanComparisonModalOpen, billingProductLoading } = useValues(billingProductLogic({ product }))
     const { toggleIsPlanComparisonModalOpen, setBillingProductLoading } = useActions(billingProductLogic({ product }))
 
-    // TODO(@zach): add multiple variations of this copy
     return (
         <div className="flex relative justify-between items-center rounded-lg bg-mark" ref={billingHeroRef}>
             <div className="p-4">
