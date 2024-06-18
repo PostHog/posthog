@@ -222,6 +222,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         if trend_query.dateRange and trend_query.dateRange.date_to is None:
             # Test caching
             with freeze_time(datetime.now() + timedelta(hours=1)):
+                runner = TrendsQueryRunner(team=team, query=trend_query)
+                if not runner.query_can_compute_from_cache():
+                    return r
                 TrendsQueryRunner(team=team, query=trend_query).run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
             with freeze_time(datetime.now() + timedelta(days=1)):
                 TrendsQueryRunner(team=team, query=trend_query).run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
