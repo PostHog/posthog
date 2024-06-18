@@ -338,17 +338,25 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
             # TODO: What happens with cohorts and this limit?
             if not breakdown.is_histogram_breakdown:
+                # arrayFold is basically arrayReduce (but you can pass your own lambda function)
+                # it takes result array from the outer query which looks like this (if they're grouped under "other" values):
+                # [
+                #   [0, 0, 1],
+                #   [0, 1, 0]
+                # ]
+                # and turns it into
+                # [0, 1, 1]
                 return parse_select(
                     """
                     SELECT
                         groupArray(1)(date)[1] as date,
-                        arrayMap(
-                            i ->
-                                arraySum(arrayMap(
-                                    x -> arrayElement(x, i),
-                                    groupArray(total)
-                                )),
-                            arrayEnumerate(date)
+                        arrayFold(
+                            (acc, x) -> arrayMap(
+                                i -> acc[i] + x[i],
+                                range(1, length(date) + 1)
+                            ),
+                            groupArray(total),
+                            arrayWithConstant(length(date), reinterpretAsFloat64(0))
                         ) as total,
                         if(row_number >= {breakdown_limit}, {other}, breakdown_value) as breakdown_value
                     FROM {outer_query}

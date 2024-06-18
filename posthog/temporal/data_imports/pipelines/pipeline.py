@@ -42,17 +42,8 @@ class DataImportPipeline:
 
         self._incremental = incremental
 
-    @property
-    def _get_pipeline_name_base(self):
-        return f"{self.inputs.job_type}_pipeline_{self.inputs.team_id}_run"
-
     def _get_pipeline_name(self):
-        base = self._get_pipeline_name_base
-
-        if self._incremental:
-            return f"{base}_{self.inputs.source_id}"
-
-        return f"{base}_{self.inputs.run_id}"
+        return f"{self.inputs.job_type}_pipeline_{self.inputs.team_id}_run_{self.inputs.schema_id}"
 
     def _get_destination(self):
         if TEST:

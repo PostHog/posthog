@@ -223,7 +223,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                     <div ref={editorRef} className="resize-y overflow-hidden" style={{ height: EDITOR_HEIGHT }}>
                         <CodeEditor
                             className="border rounded overflow-hidden h-full"
-                            language="mysql"
+                            language="hogql"
                             value={queryInput}
                             onChange={(v) => setQueryInput(v ?? '')}
                             height="100%"
