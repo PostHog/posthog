@@ -11,6 +11,8 @@ from parameterized import parameterized
 from ee.clickhouse.materialized_columns.columns import materialize
 from posthog.clickhouse.client import sync_execute
 from posthog.hogql.ast import CompareOperation, And, SelectQuery
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.printer import print_ast
 from posthog.models import Person
 from posthog.models.filters import SessionRecordingsFilter
 from posthog.schema import PersonsOnEventsMode
@@ -31,6 +33,14 @@ from posthog.test.base import (
 # The HogQL pair of TestClickhouseSessionRecordingsListFromSessionReplay can be renamed when delete the old one
 @freeze_time("2021-01-01T13:46:23")
 class TestClickhouseSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
+    def _print_query(self, query: SelectQuery) -> str:
+        return print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            "clickhouse",
+            pretty=True,
+        )
+
     def tearDown(self) -> None:
         sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
 
@@ -90,6 +100,22 @@ class TestClickhouseSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBas
                     "vpersonquery_person_filter_fin__0": ["false"],
                 },
                 True,
+                False,
+            ],
+            [
+                "test_poe_being_unavailable_we_fall_back_to_person_subquery_but_still_use_mat_props",
+                False,
+                False,
+                False,
+                PersonsOnEventsMode.DISABLED,
+                {
+                    "kperson_filter_pre__0": "rgInternal",
+                    "kpersonquery_person_filter_fin__0": "rgInternal",
+                    "person_uuid": None,
+                    "vperson_filter_pre__0": ["false"],
+                    "vpersonquery_person_filter_fin__0": ["false"],
+                },
+                False,
                 False,
             ],
             [
@@ -176,6 +202,19 @@ class TestClickhouseSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBas
             else:
                 # when poe is off we join to person_distinct_ids, so we can get persons, so we can query their properties
                 assert and_comparisons[0].right.select_from.table.chain == ["person_distinct_ids"]
+                assert and_comparisons[0].right.where.left.chain == ["person", "properties", "rgInternal"]
+                printed_query = self._print_query(hogql_parsed_select)
+                if unmaterialized_person_column_used:
+                    assert (
+                        "argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_6)s), ''), 'null'), '^\"|\"$', ''), person.version) AS properties___rgInternal"
+                        in printed_query
+                    )
+                else:
+                    # we should use materialized column
+                    assert (
+                        "argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_6)s), ''), 'null'), '^\"|\"$', ''), person.version) AS properties___rgInternal"
+                        not in printed_query
+                    )
 
             #
             # json_extract_fragment = (
