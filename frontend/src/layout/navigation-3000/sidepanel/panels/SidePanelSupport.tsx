@@ -1,10 +1,14 @@
 import {
+    IconAI,
     IconChevronDown,
+    IconDatabase,
+    IconDecisionTree,
     IconFeatures,
     IconFlask,
     IconHelmet,
     IconMap,
     IconMessage,
+    IconPieChart,
     IconRewindPlay,
     IconStack,
     IconToggle,
@@ -40,6 +44,11 @@ const PRODUCTS = [
         icon: <IconTrends className="text-brand-blue h-5 w-5" />,
     },
     {
+        name: 'Web analytics',
+        slug: 'web-analytics',
+        icon: <IconPieChart className="text-[#36C46F] h-5 w-5" />,
+    },
+    {
         name: 'Session replay',
         slug: 'session-replay',
         icon: <IconRewindPlay className="text-warning h-5 w-5" />,
@@ -58,6 +67,21 @@ const PRODUCTS = [
         name: 'Surveys',
         slug: 'surveys',
         icon: <IconMessage className="text-danger h-5 w-5" />,
+    },
+    {
+        name: 'Data pipelines',
+        slug: 'cdp',
+        icon: <IconDecisionTree className="text-[#2EA2D3] h-5 w-5" />,
+    },
+    {
+        name: 'Data warehouse',
+        slug: 'data-warehouse',
+        icon: <IconDatabase className="text-[#8567FF] h-5 w-5" />,
+    },
+    {
+        name: 'AI engineering',
+        slug: 'ai-engineering',
+        icon: <IconAI className="text-[#681291] dark:text-[#C170E8] h-5 w-5" />,
     },
 ]
 
