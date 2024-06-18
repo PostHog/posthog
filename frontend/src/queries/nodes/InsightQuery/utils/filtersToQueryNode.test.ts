@@ -626,7 +626,7 @@ describe('filtersToQueryNode', () => {
                 kind: NodeKind.StickinessQuery,
                 stickinessFilter: {
                     showLegend: true,
-                    hidden_legend_indexes: [0, 10],
+                    hiddenLegendIndexes: [0, 10],
                     display: ChartDisplayType.ActionsLineGraph,
                 },
                 compareFilter: {
