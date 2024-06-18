@@ -77,64 +77,6 @@ def get_timestamp_field(is_backfill: bool) -> str:
     return timestamp_field
 
 
-async def get_rows_count(
-    client: ClickHouseClient,
-    team_id: int,
-    interval_start: str,
-    interval_end: str,
-    exclude_events: collections.abc.Iterable[str] | None = None,
-    include_events: collections.abc.Iterable[str] | None = None,
-    is_backfill: bool = False,
-) -> int:
-    """Return a count of rows to be batch exported."""
-    data_interval_start_ch = dt.datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
-    data_interval_end_ch = dt.datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
-
-    if exclude_events:
-        exclude_events_statement = "AND event NOT IN {exclude_events}"
-        events_to_exclude_tuple = tuple(exclude_events)
-    else:
-        exclude_events_statement = ""
-        events_to_exclude_tuple = ()
-
-    if include_events:
-        include_events_statement = "AND event IN {include_events}"
-        events_to_include_tuple = tuple(include_events)
-    else:
-        include_events_statement = ""
-        events_to_include_tuple = ()
-
-    timestamp_field = get_timestamp_field(is_backfill)
-    timestamp_predicates = get_timestamp_predicates_for_team(team_id, is_backfill)
-
-    query = SELECT_QUERY_TEMPLATE.substitute(
-        fields="count(DISTINCT event, cityHash64(distinct_id), cityHash64(uuid)) as count",
-        order_by="",
-        format="",
-        distinct="",
-        timestamp_field=timestamp_field,
-        timestamp=timestamp_predicates,
-        exclude_events=exclude_events_statement,
-        include_events=include_events_statement,
-    )
-
-    count = await client.read_query(
-        query,
-        query_parameters={
-            "team_id": team_id,
-            "data_interval_start": data_interval_start_ch,
-            "data_interval_end": data_interval_end_ch,
-            "exclude_events": events_to_exclude_tuple,
-            "include_events": events_to_include_tuple,
-        },
-    )
-
-    if count is None or len(count) == 0:
-        raise ValueError("Unexpected result from ClickHouse: `None` returned for count query")
-
-    return int(count)
-
-
 def default_fields() -> list[BatchExportField]:
     """Return list of default batch export Fields."""
     return [
