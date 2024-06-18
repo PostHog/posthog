@@ -1,4 +1,4 @@
-import { convertHogToJS, convertJSToHog, exec, VMState } from '@posthog/hogvm'
+import { convertHogToJS, convertJSToHog, exec, ExecResult, VMState } from '@posthog/hogvm'
 import { DateTime } from 'luxon'
 
 import { PluginsServerConfig } from '../types'
@@ -232,25 +232,38 @@ export class HogExecutor {
 
         try {
             const start = performance.now()
-            const globals = this.buildHogFunctionGlobals(hogFunction, invocation)
+            let globals: Record<string, any> | undefined = undefined
+            let execRes: ExecResult | undefined = undefined
 
-            const execRes = exec(state ?? hogFunction.bytecode, {
-                globals,
-                timeout: 100, // NOTE: This will likely be configurable in the future
-                maxAsyncSteps: MAX_ASYNC_STEPS, // NOTE: This will likely be configurable in the future
-                asyncFunctions: {
-                    // We need to pass these in but they don't actually do anything as it is a sync exec
-                    fetch: async () => Promise.resolve(),
-                },
-                functions: {
-                    print: (...args) => {
-                        const message = args
-                            .map((arg) => (typeof arg !== 'string' ? JSON.stringify(arg) : arg))
-                            .join(', ')
-                        addLog(result, 'info', message)
+            try {
+                globals = this.buildHogFunctionGlobals(hogFunction, invocation)
+            } catch (e) {
+                addLog(result, 'error', `Error building inputs: ${e}`)
+                throw e
+            }
+
+            try {
+                execRes = exec(state ?? hogFunction.bytecode, {
+                    globals,
+                    timeout: 100, // NOTE: This will likely be configurable in the future
+                    maxAsyncSteps: MAX_ASYNC_STEPS, // NOTE: This will likely be configurable in the future
+                    asyncFunctions: {
+                        // We need to pass these in but they don't actually do anything as it is a sync exec
+                        fetch: async () => Promise.resolve(),
                     },
-                },
-            })
+                    functions: {
+                        print: (...args) => {
+                            const message = args
+                                .map((arg) => (typeof arg !== 'string' ? JSON.stringify(arg) : arg))
+                                .join(', ')
+                            addLog(result, 'info', message)
+                        },
+                    },
+                })
+            } catch (e) {
+                addLog(result, 'error', `Error executing function: ${e}`)
+                throw e
+            }
 
             const duration = performance.now() - start
 
@@ -262,16 +275,12 @@ export class HogExecutor {
 
             if (!execRes.finished) {
                 addLog(result, 'debug', `Suspending function due to async function call '${execRes.asyncFunctionName}'`)
-                status.info('🦔', `[HogExecutor] Function returned not finished. Executing async function`, {
-                    ...loggingContext,
-                    asyncFunctionName: execRes.asyncFunctionName,
-                })
 
                 const args = (execRes.asyncFunctionArgs ?? []).map((arg) => convertHogToJS(arg))
 
                 if (!execRes.state) {
-                    // TODO: This shouldn't be possible
-                    throw new Error('State should not be returned from a sync function')
+                    // NOTE: This shouldn't be possible so is more of a type sanity check
+                    throw new Error('State should be provided for async function')
                 }
                 if (execRes.asyncFunctionName) {
                     result.asyncFunctionRequest = {
@@ -288,8 +297,7 @@ export class HogExecutor {
                 addLog(result, 'debug', `Function completed. Processing time ${totalDuration}ms`)
             }
         } catch (err) {
-            result.error = err
-            addLog(result, 'error', `Function encountered an error: ${err}`)
+            result.error = err.message
             status.error('🦔', `[HogExecutor] Error executing function ${hogFunction.id} - ${hogFunction.name}`, err)
         }
 
