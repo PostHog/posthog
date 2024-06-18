@@ -289,7 +289,7 @@ export function Billing(): JSX.Element {
                         <BillingProduct product={x} />
                     </div>
                 ))}
-            <div className="pt-60">
+            <div>
                 {featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' &&
                 billing?.subscription_level == 'paid' &&
                 !!platformAndSupportProduct ? (
