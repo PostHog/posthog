@@ -1,5 +1,9 @@
 import pytest
-from posthog.hogql_queries.legacy_compatibility.filter_to_query import hidden_legend_keys_to_indexes, filter_to_query
+from posthog.hogql_queries.legacy_compatibility.filter_to_query import (
+    hidden_legend_keys_to_breakdowns,
+    hidden_legend_keys_to_indexes,
+    filter_to_query,
+)
 from posthog.schema import (
     ActionsNode,
     AggregationAxisFormat,
@@ -1619,7 +1623,7 @@ class TestFilterToQuery(BaseTest):
         )
 
 
-class TestCleanHiddenLegendIndexes(BaseTest):
+class TestHiddenLegendKeysToIndexes(BaseTest):
     def test_converts_legend_keys(self):
         hidden_legend_keys = {"1": True, "2": False, 3: None, 4: True}
 
@@ -1644,3 +1648,40 @@ class TestCleanHiddenLegendIndexes(BaseTest):
         indexes = hidden_legend_keys_to_indexes(hidden_legend_keys)
 
         self.assertEqual(indexes, [1])
+
+
+class TestHiddenLegendKeysToBreakdowns(BaseTest):
+    def test_converts_legend_keys(self):
+        hidden_legend_keys = {"Chrome": True, "Chrome iOS": True, "Firefix": False, "Safari": None}
+
+        breakdowns = hidden_legend_keys_to_breakdowns(hidden_legend_keys)
+
+        self.assertEqual(breakdowns, ["Chrome", "Chrome iOS"])
+
+    def test_converts_missing_legend_keys(self):
+        hidden_legend_keys = None
+
+        breakdowns = hidden_legend_keys_to_breakdowns(hidden_legend_keys)
+
+        self.assertEqual(breakdowns, None)
+
+    def test_converts_legacy_format(self):
+        hidden_legend_keys = {
+            "Opera": True,
+            "events/$pageview/0/Baseline": True,
+            1: True,
+        }
+
+        indexes = hidden_legend_keys_to_breakdowns(hidden_legend_keys)
+
+        self.assertEqual(indexes, ["Opera", "Baseline"])
+
+    def test_ignores_digit_only_keys(self):
+        hidden_legend_keys = {
+            "Opera": True,
+            1: True,
+        }
+
+        indexes = hidden_legend_keys_to_breakdowns(hidden_legend_keys)
+
+        self.assertEqual(indexes, ["Opera"])

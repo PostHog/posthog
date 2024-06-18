@@ -57,11 +57,50 @@ def clean_display(display: str):
         return display
 
 
+# Converts `hidden_legend_keys` in trends and stickiness insights to an array of hidden indexes.
+# Example: `{1: true, 2: false}` will become `[1]`.
+#
+# Note: `hidden_legend_keys` in funnel insights follow a different format.
 def hidden_legend_keys_to_indexes(hidden_legend_keys: dict | None) -> list[int] | None:
     if hidden_legend_keys:
         return [int(k) for k, v in hidden_legend_keys.items() if re.match(r"^\d+$", str(k)) and v is True]
 
     return None
+
+
+# Converts `hidden_legend_keys` in funnel insights to an array of hidden breakdowns.
+# Example: `{Chrome: true, Firefox: false}` will become: `["Chrome"]`.
+#
+# Also handles pre-#12123 legacy format.
+# Example: {`events/$pageview/0/Baseline`: true} will become `['Baseline']`.
+#
+# Note: `hidden_legend_keys` in trends and stickiness insights follow a different format.
+def hidden_legend_keys_to_breakdowns(hidden_legend_keys: dict | None) -> list[str] | None:
+    if hidden_legend_keys:
+        transformed_keys = transform_legacy_hidden_legend_keys(hidden_legend_keys)
+        return [k for k, v in transformed_keys.items() if not re.match(r"^\d+$", str(k)) and v is True]
+    return None
+
+
+# Transform pre-#12113 funnel series keys to the current more reliable format.
+#
+# Old: `${step.type}/${step.action_id}/${step.order}/${breakdownValues.join('_')}`
+# New: `breakdownValues.join('::')`
+#
+# If you squint you'll notice this doesn't actually handle the .join() part, but that's fine,
+# because that's only relevant for funnels with multiple breakdowns, and that hasn't been
+# released to users at the point of the format change.
+def transform_legacy_hidden_legend_keys(hidden_legend_keys):
+    transformed_keys = {}
+    for key, value in hidden_legend_keys.items():
+        old_format_match = re.match(r"\w+\/.+\/\d+\/(.+)", str(key))
+        if old_format_match:
+            # Don't override values for series if already set from a previously-seen old-format key
+            if old_format_match[1] not in transformed_keys:
+                transformed_keys[old_format_match[1]] = value
+        else:
+            transformed_keys[key] = value
+    return transformed_keys
 
 
 def legacy_entity_to_node(
@@ -360,7 +399,7 @@ def _insight_filter(filter: dict):
                 binCount=filter.get("bin_count"),
                 exclusions=[exlusion_entity_to_node(entity) for entity in filter.get("exclusions", [])],
                 layout=filter.get("layout"),
-                # hidden_legend_breakdowns: hiddenLegendKeysToBreakdowns(filter.get('hidden_legend_keys')),
+                hiddenLegendBreakdowns=hidden_legend_keys_to_breakdowns(filter.get("hidden_legend_keys")),
                 funnelAggregateByHogQL=filter.get("funnel_aggregate_by_hogql"),
             ),
         }
