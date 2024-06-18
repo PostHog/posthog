@@ -83,7 +83,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
     const showUpgradeCard =
         (upgradePlan?.product_key !== 'platform_and_support' || product?.addons?.length === 0) &&
         upgradePlan &&
-        (!featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' || billing?.subscription_level == 'custom')
+        (featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] !== 'test' || billing?.subscription_level == 'custom')
 
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
@@ -136,24 +136,26 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                 >
                                                     Learn how to reduce your bill
                                                 </LemonButton>
-                                                {product.plans?.length > 0 ? (
-                                                    <LemonButton
-                                                        fullWidth
-                                                        onClick={() => {
-                                                            setSurveyResponse(product.type, '$survey_response_1')
-                                                            reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, product.type)
-                                                        }}
-                                                    >
-                                                        Unsubscribe
-                                                    </LemonButton>
-                                                ) : (
-                                                    <LemonButton
-                                                        fullWidth
-                                                        to="mailto:sales@posthog.com?subject=Custom%20plan%20unsubscribe%20request"
-                                                    >
-                                                        Contact support to unsubscribe
-                                                    </LemonButton>
-                                                )}
+                                                {featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' &&
+                                                    billing?.subscription_level === 'paid' &&
+                                                    (product.plans?.length > 0 ? (
+                                                        <LemonButton
+                                                            fullWidth
+                                                            onClick={() => {
+                                                                setSurveyResponse(product.type, '$survey_response_1')
+                                                                reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, product.type)
+                                                            }}
+                                                        >
+                                                            Unsubscribe
+                                                        </LemonButton>
+                                                    ) : (
+                                                        <LemonButton
+                                                            fullWidth
+                                                            to="mailto:sales@posthog.com?subject=Custom%20plan%20unsubscribe%20request"
+                                                        >
+                                                            Contact support to unsubscribe
+                                                        </LemonButton>
+                                                    ))}
                                             </>
                                         }
                                     />
