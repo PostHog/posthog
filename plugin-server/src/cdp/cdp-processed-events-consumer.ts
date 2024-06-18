@@ -28,6 +28,7 @@ import {
     HogFunctionInvocationGlobals,
     HogFunctionInvocationResult,
     HogFunctionMessageToQueue,
+    HogFunctionType,
 } from './types'
 import { convertToHogFunctionInvocationGlobals, convertToParsedClickhouseEvent } from './utils'
 
@@ -379,10 +380,19 @@ export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
                 const { id, team_id } = req.params
                 const { event, mock_async_functions, configuration } = req.body
 
+                status.info('⚡️', 'Received invocation', { id, team_id, body: req.body })
+
+                if (!event) {
+                    res.status(400).json({ error: 'Missing event' })
+                    return
+                }
+
                 const [hogFunction, team] = await Promise.all([
                     this.hogFunctionManager.fetchHogFunction(req.params.id),
                     this.teamManager.fetchTeam(parseInt(team_id)),
-                ])
+                ]).catch(() => {
+                    return [null, null]
+                })
                 if (!hogFunction || !team || hogFunction.team_id !== team.id) {
                     res.status(404).json({ error: 'Hog function not found' })
                     return
@@ -416,13 +426,16 @@ export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
                     timings: [],
                 }
 
-                let response = this.hogExecutor.execute(configuration, invocation)
+                // We use the provided config if given, otherwise the function's config
+                const functionConfiguration: HogFunctionType = configuration ?? hogFunction
+
+                let response = this.hogExecutor.execute(functionConfiguration, invocation)
 
                 while (response.asyncFunctionRequest) {
                     const asyncFunctionRequest = response.asyncFunctionRequest
 
                     if (mock_async_functions || asyncFunctionRequest.name !== 'fetch') {
-                        addLog(response, 'info', `Async function ${asyncFunctionRequest.name} was mocked`)
+                        addLog(response, 'info', `Async function '${asyncFunctionRequest.name}' was mocked`)
 
                         // Add the state, simulating what executeAsyncResponse would do
                         asyncFunctionRequest.vmState.stack.push(convertJSToHog({ status: 200, body: {} }))
@@ -443,7 +456,7 @@ export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
                     // Clear it so we can't ever end up in a loop
                     delete response.asyncFunctionRequest
 
-                    response = this.hogExecutor.execute(configuration, response, asyncFunctionRequest.vmState)
+                    response = this.hogExecutor.execute(functionConfiguration, response, asyncFunctionRequest.vmState)
                 }
 
                 res.json({
