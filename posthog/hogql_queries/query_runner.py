@@ -446,7 +446,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 return self.cached_response
             elif execution_mode == ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE:
                 # We're allowed to calculate if the cache is older than 24 hours, but we'll do it asynchronously
-                assert isinstance(self.cached_response, self.CachedResponseType)
+                assert isinstance(self.cached_response, self.CachedResponseType)  # type: ignore[arg-type]
                 if datetime.now(timezone.utc) - self.cached_response.last_refresh > EXTENDED_CACHE_AGE:
                     query_status_response = self.enqueue_async_calculation(cache_key=cache_key, user=user)
                     self.cached_response.query_status = query_status_response.query_status
@@ -478,8 +478,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         )
         if self.is_cached_response(cached_response_candidate):
             cached_response_candidate["is_cached"] = True
-            self.cached_response = self.CachedResponseType(**cached_response_candidate)
-            if cast(self.CachedResponseType, self.cached_response).last_refresh >= datetime.now(
+            # This class is abstract, so mypy doesn't like this line
+            self.cached_response = self.CachedResponseType(**cached_response_candidate)  # type: ignore[operator]
+            if cast(self.CachedResponseType, self.cached_response).last_refresh >= datetime.now(  # type: ignore[arg-type]
                 self.team.timezone_info
             ):
                 # A cache hit in the future. Ignore. Record.
@@ -506,6 +507,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     ) -> CR | CacheMissResponse | QueryStatusResponse:
         self.query_id = query_id or self.query_id
 
+        # This has to be called after the mutation apply_dashboard_filters is called
         self.load_cached_response()
 
         if execution_mode == ExecutionMode.CALCULATE_ASYNC_ALWAYS:
@@ -527,7 +529,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             "cache_key": self.cache_key,
             "timezone": self.team.timezone,
         }
-        fresh_response = self.CachedResponseType(**fresh_response_dict)
+        fresh_response = self.CachedResponseType(**fresh_response_dict)  # type: ignore[operator]
 
         # Don't cache debug queries with errors and export queries
         has_error: Optional[list] = fresh_response_dict.get("error", None)
