@@ -74,12 +74,16 @@ class FunnelTrends(FunnelBase):
             }
 
             if breakdown_clause:
-                if isinstance(period_row[-1], str) or (
-                    isinstance(period_row[-1], list) and all(isinstance(item, str) for item in period_row[-1])
+                last_row = period_row[-1]
+                if last_row == [None]:
+                    last_row = ""
+
+                if isinstance(last_row, str) or (
+                    isinstance(last_row, list) and all(isinstance(item, str) for item in last_row)
                 ):
-                    serialized_result.update({"breakdown_value": (period_row[-1])})
+                    serialized_result.update({"breakdown_value": (last_row)})
                 else:
-                    serialized_result.update({"breakdown_value": Cohort.objects.get(pk=period_row[-1]).name})
+                    serialized_result.update({"breakdown_value": Cohort.objects.get(pk=last_row).name})
 
             summary.append(serialized_result)
 
