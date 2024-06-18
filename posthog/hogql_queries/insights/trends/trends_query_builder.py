@@ -61,7 +61,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
         if self._trends_display.is_total_value():
             events_query = self._get_events_subquery(False, is_actors_query=False, breakdown=breakdown)
-            wrapper_query = self._get_wrapper_query(events_query)
+            wrapper_query = self._get_wrapper_query(events_query, breakdown=breakdown)
             return wrapper_query
         else:
             event_query = self._get_events_subquery(False, is_actors_query=False, breakdown=breakdown)
@@ -72,10 +72,16 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             return full_query
 
     def _get_breakdown_hide_others(self) -> bool:
-        return self.query.breakdownFilter and self.query.breakdownFilter.breakdown_hide_other_aggregation
+        return (
+            self.query.breakdownFilter.breakdown_hide_other_aggregation or False
+            if self.query.breakdownFilter
+            else False
+        )
 
-    def _get_wrapper_query(self, events_query: ast.SelectQuery | ast.SelectUnionQuery) -> ast.SelectQuery:
-        if not self.query.breakdownFilter:
+    def _get_wrapper_query(
+        self, events_query: ast.SelectQuery, breakdown: Breakdown
+    ) -> ast.SelectQuery | ast.SelectUnionQuery:
+        if not breakdown.enabled:
             return events_query
 
         return parse_select(
@@ -94,14 +100,16 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             WHERE breakdown_value IS NOT NULL
             GROUP BY breakdown_value
             ORDER BY
+                breakdown_value = {other_label} ? 2 : breakdown_value = {nil} ? 1 : 0,
                 total DESC,
-                breakdown_value DESC
+                breakdown_value ASC
         """,
             placeholders={
                 "events_query": events_query,
                 "other_label": ast.Constant(
                     value=None if self._get_breakdown_hide_others() else BREAKDOWN_OTHER_STRING_LABEL
                 ),
+                "nil": ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
                 "breakdown_limit": ast.Constant(value=self._get_breakdown_limit() + 1),
             },
         )
@@ -407,7 +415,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         return query
 
     def _get_breakdown_limit(self) -> int:
-        if self.query.trendsFilter.display == ChartDisplayType.WORLD_MAP:
+        if self._trends_display.display_type == ChartDisplayType.WORLD_MAP:
             return 250
 
         return (

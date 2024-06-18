@@ -2138,8 +2138,8 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.breakdown == [
             BreakdownItem(label="Chrome", value="Chrome"),
             BreakdownItem(label="Firefox", value="Firefox"),
-            BreakdownItem(label="Safari", value="Safari"),
             BreakdownItem(label="Edge", value="Edge"),
+            BreakdownItem(label="Safari", value="Safari"),
         ]
 
     @patch("posthog.hogql.query.sync_execute", wraps=sync_execute)
