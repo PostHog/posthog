@@ -46,10 +46,6 @@ from posthog.hogql.database.schema.person_distinct_ids import (
     RawPersonDistinctIdsTable,
 )
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable, join_with_persons_table
-from posthog.hogql.database.schema.person_overrides import (
-    PersonOverridesTable,
-    RawPersonOverridesTable,
-)
 from posthog.hogql.database.schema.session_replay_events import (
     RawSessionReplayEventsTable,
     SessionReplayEventsTable,
@@ -93,7 +89,6 @@ class Database(BaseModel):
     persons: PersonsTable = PersonsTable()
     person_distinct_ids: PersonDistinctIdsTable = PersonDistinctIdsTable()
     person_distinct_id_overrides: PersonDistinctIdOverridesTable = PersonDistinctIdOverridesTable()
-    person_overrides: PersonOverridesTable = PersonOverridesTable()
 
     session_replay_events: SessionReplayEventsTable = SessionReplayEventsTable()
     cohort_people: CohortPeople = CohortPeople()
@@ -110,7 +105,6 @@ class Database(BaseModel):
     raw_groups: RawGroupsTable = RawGroupsTable()
     raw_cohort_people: RawCohortPeople = RawCohortPeople()
     raw_person_distinct_id_overrides: RawPersonDistinctIdOverridesTable = RawPersonDistinctIdOverridesTable()
-    raw_person_overrides: RawPersonOverridesTable = RawPersonOverridesTable()
     raw_sessions: RawSessionsTable = RawSessionsTable()
 
     # system tables
@@ -122,7 +116,6 @@ class Database(BaseModel):
         "groups",
         "persons",
         "person_distinct_ids",
-        "person_overrides",
         "session_replay_events",
         "cohort_people",
         "static_cohort_people",
