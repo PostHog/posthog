@@ -1,18 +1,14 @@
 import express from 'express'
 import supertest from 'supertest'
 
-import {
-    Cdp,
-    CdpFunctionCallbackConsumer,
-    CdpFunctionCallbackConsumerFunctionCallbackConsumer,
-} from '../../src/cdp/cdp-processed-events-consumer'
+import { CdpFunctionCallbackConsumer } from '../../src/cdp/cdp-processed-events-consumer'
 import { HogFunctionType } from '../../src/cdp/types'
 import { defaultConfig } from '../../src/config/config'
 import { Hub, PluginsServerConfig, Team } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 import { getFirstTeam, resetTestDatabase } from '../helpers/sql'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './examples'
-import { createIncomingEvent, createMessage, insertHogFunction as _insertHogFunction } from './fixtures'
+import { insertHogFunction as _insertHogFunction } from './fixtures'
 
 const config: PluginsServerConfig = {
     ...defaultConfig,
@@ -70,18 +66,7 @@ jest.mock('../../src/utils/db/kafka-producer-wrapper', () => {
 
 const mockFetch: jest.Mock = require('../../src/utils/fetch').trackedFetch
 
-const mockProducer = require('../../src/utils/db/kafka-producer-wrapper').KafkaProducerWrapper()
-
 jest.setTimeout(1000)
-
-const noop = () => {}
-
-const decodeKafkaMessage = (message: any): any => {
-    return {
-        ...message,
-        value: JSON.parse(message.value.toString()),
-    }
-}
 
 describe('CDP Processed Events Consuner', () => {
     let processor: CdpFunctionCallbackConsumer
