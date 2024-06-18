@@ -157,13 +157,14 @@ export type HogFunctionInvocationResult = HogFunctionInvocation & {
     logs: HogFunctionLogEntry[]
     timings: HogFunctionTiming[]
     asyncFunctionRequest?: {
-        name: string // TODO: Type this all more strongly
+        name: string
         args: any[]
         vmState: VMState
     }
 }
 
 export type HogFunctionInvocationAsyncResponse = HogFunctionInvocationResult & {
+    // FOLLOWUP: do we want to type this more strictly?
     asyncFunctionResponse: {
         /** An error message to indicate something went wrong and the invocation should be stopped */
         error?: any
