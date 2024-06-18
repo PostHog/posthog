@@ -168,6 +168,13 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
                                 value: 'keypair',
                                 fields: [
                                     {
+                                        name: 'username',
+                                        label: 'Tunnel username',
+                                        type: 'text',
+                                        required: false,
+                                        placeholder: 'User1',
+                                    },
+                                    {
                                         name: 'private_key',
                                         label: 'Tunnel private key',
                                         type: 'textarea',
@@ -342,6 +349,13 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         onSubmit: true,
         setDatabaseSchemas: (schemas: ExternalDataSourceSyncSchema[]) => ({ schemas }),
         toggleSchemaShouldSync: (schema: ExternalDataSourceSyncSchema, shouldSync: boolean) => ({ schema, shouldSync }),
+        updateSchemaSyncType: (
+            schema: ExternalDataSourceSyncSchema,
+            sync_type: ExternalDataSourceSyncSchema['sync_type']
+        ) => ({
+            schema,
+            sync_type,
+        }),
         clearSource: true,
         updateSource: (source: Partial<ExternalDataSourceCreatePayload>) => ({ source }),
         createSource: true,
@@ -405,6 +419,13 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     const newSchema = state.map((s) => ({
                         ...s,
                         should_sync: s.table === schema.table ? shouldSync : s.should_sync,
+                    }))
+                    return newSchema
+                },
+                updateSchemaSyncType: (state, { schema, sync_type }) => {
+                    const newSchema = state.map((s) => ({
+                        ...s,
+                        sync_type: s.table === schema.table ? sync_type : s.sync_type,
                     }))
                     return newSchema
                 },
@@ -613,9 +634,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             if (values.currentStep === 3 && values.selectedConnector?.name) {
                 actions.updateSource({
                     payload: {
-                        schemas: values.databaseSchema
-                            .filter((schema) => schema.should_sync)
-                            .map((schema) => schema.table),
+                        schemas: values.databaseSchema.map((schema) => ({
+                            name: schema.table,
+                            should_sync: schema.should_sync,
+                            sync_type: schema.sync_type,
+                        })),
                     },
                 })
                 actions.setIsLoading(true)

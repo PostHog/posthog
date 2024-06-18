@@ -197,6 +197,14 @@ class CohortPropertyFilter(BaseModel):
     value: int
 
 
+class CompareFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    compare: Optional[bool] = None
+    compare_to: Optional[str] = None
+
+
 class CountPerActorMathType(str, Enum):
     AVG_COUNT_PER_ACTOR = "avg_count_per_actor"
     MIN_COUNT_PER_ACTOR = "min_count_per_actor"
@@ -332,6 +340,14 @@ class EntityType(str, Enum):
     EVENTS = "events"
     DATA_WAREHOUSE = "data_warehouse"
     NEW_ENTITY = "new_entity"
+
+
+class ErrorTrackingOrder(str, Enum):
+    LAST_SEEN = "last_seen"
+    FIRST_SEEN = "first_seen"
+    UNIQUE_OCCURRENCES = "unique_occurrences"
+    UNIQUE_USERS = "unique_users"
+    UNIQUE_SESSIONS = "unique_sessions"
 
 
 class EventDefinition(BaseModel):
@@ -965,6 +981,7 @@ class StickinessFilterLegacy(BaseModel):
         extra="forbid",
     )
     compare: Optional[bool] = None
+    compare_to: Optional[str] = None
     display: Optional[ChartDisplayType] = None
     hidden_legend_indexes: Optional[list[float]] = None
     show_legend: Optional[bool] = None
@@ -1082,7 +1099,6 @@ class TrendsFilter(BaseModel):
     aggregationAxisPostfix: Optional[str] = None
     aggregationAxisPrefix: Optional[str] = None
     breakdown_histogram_bin_count: Optional[float] = None
-    compare: Optional[bool] = False
     decimalPlaces: Optional[float] = None
     display: Optional[ChartDisplayType] = ChartDisplayType.ACTIONS_LINE_GRAPH
     formula: Optional[str] = None
@@ -1103,6 +1119,7 @@ class TrendsFilterLegacy(BaseModel):
     aggregation_axis_prefix: Optional[str] = None
     breakdown_histogram_bin_count: Optional[float] = None
     compare: Optional[bool] = None
+    compare_to: Optional[str] = None
     decimal_places: Optional[float] = None
     display: Optional[ChartDisplayType] = None
     formula: Optional[str] = None
@@ -3576,6 +3593,7 @@ class StickinessQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    compareFilter: Optional[CompareFilter] = Field(default=None, description="Compare to date range")
     dateRange: Optional[InsightDateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
@@ -3625,6 +3643,7 @@ class TrendsQuery(BaseModel):
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
     breakdownFilter: Optional[BreakdownFilter] = Field(default=None, description="Breakdown of the events and actions")
+    compareFilter: Optional[CompareFilter] = Field(default=None, description="Compare to date range")
     dateRange: Optional[InsightDateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"

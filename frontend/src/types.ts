@@ -89,6 +89,7 @@ export enum AvailableFeature {
     SURVEYS_SLACK_NOTIFICATIONS = 'surveys_slack_notifications',
     SURVEYS_WAIT_PERIODS = 'surveys_wait_periods',
     SURVEYS_RECURRING = 'surveys_recurring',
+    SURVEYS_EVENTS = 'survey_events',
     TRACKED_USERS = 'tracked_users',
     TEAM_MEMBERS = 'team_members',
     API_ACCESS = 'api_access',
@@ -976,6 +977,7 @@ export interface RecordingFilters {
     console_search_query?: string
     console_logs?: FilterableLogLevel[]
     filter_test_accounts?: boolean
+    operand?: FilterLogicalOperator
 }
 
 export interface RecordingUniversalFilters {
@@ -1005,15 +1007,6 @@ export type ErrorCluster = {
     viewed: number
 }
 export type ErrorClusterResponse = ErrorCluster[] | null
-
-export type ErrorTrackingGroup = {
-    id: string
-    title: string
-    description: string
-    occurrences: number
-    uniqueSessions: number
-    uniqueUsers: number
-}
 
 export type EntityType = 'actions' | 'events' | 'data_warehouse' | 'new_entity'
 
@@ -2141,8 +2134,9 @@ export interface TrendsFilterType extends FilterType {
     // number of intervals, e.g. for a day interval, we may want to smooth over
     // 7 days to remove weekly variation. Smoothing is performed as a moving average.
     smoothing_intervals?: number
-    compare?: boolean
     formula?: string
+    compare_to?: string
+    compare?: boolean
     /** @deprecated */
     shown_as?: ShownAsValue
     display?: ChartDisplayType
@@ -2161,6 +2155,7 @@ export interface TrendsFilterType extends FilterType {
 }
 
 export interface StickinessFilterType extends FilterType {
+    compare_to?: string
     compare?: boolean
     /** @deprecated */
     shown_as?: ShownAsValue
@@ -2613,9 +2608,12 @@ export interface Survey {
 }
 
 export enum SurveyUrlMatchType {
-    Exact = 'exact',
-    Contains = 'icontains',
-    Regex = 'regex',
+    Exact = PropertyOperator.Exact,
+    IsNot = PropertyOperator.IsNot,
+    Contains = PropertyOperator.IContains,
+    NotIContains = PropertyOperator.NotIContains,
+    Regex = PropertyOperator.Regex,
+    NotRegex = PropertyOperator.NotRegex,
 }
 
 export enum SurveyType {
@@ -2658,6 +2656,11 @@ export interface SurveyQuestionBase {
     descriptionContentType?: SurveyQuestionDescriptionContentType
     optional?: boolean
     buttonText?: string
+    branching?:
+        | NextQuestionBranching
+        | ConfirmationMessageBranching
+        | ResponseBasedBranching
+        | SpecificQuestionBranching
 }
 
 export interface BasicSurveyQuestion extends SurveyQuestionBase {
@@ -2721,7 +2724,7 @@ interface ConfirmationMessageBranching {
 
 interface ResponseBasedBranching {
     type: SurveyQuestionBranchingType.ResponseBased
-    responseValue: Record<string, any>
+    responseValues: Record<string, any>
 }
 
 interface SpecificQuestionBranching {
@@ -3684,6 +3687,7 @@ export enum ActivityScope {
     SURVEY = 'Survey',
     EARLY_ACCESS_FEATURE = 'EarlyAccessFeature',
     COMMENT = 'Comment',
+    COHORT = 'Cohort',
     TEAM = 'Team',
 }
 
@@ -3761,14 +3765,14 @@ export interface DataWarehouseTable {
     /** UUID */
     id: string
     name: string
-    format: string
+    format: DataWarehouseTableTypes
     url_pattern: string
     credential: DataWarehouseCredential
     external_data_source?: ExternalDataStripeSource
     external_schema?: SimpleExternalDataSourceSchema
 }
 
-export type DataWarehouseTableTypes = 'CSV' | 'Parquet'
+export type DataWarehouseTableTypes = 'CSV' | 'Parquet' | 'JSON' | 'CSVWithNames'
 
 export interface DataWarehouseSavedQuery {
     /** UUID */
@@ -3823,6 +3827,11 @@ export interface SimpleExternalDataSourceSchema {
 export interface ExternalDataSourceSyncSchema {
     table: string
     should_sync: boolean
+    sync_type: 'full_refresh' | 'incremental'
+    sync_types: {
+        full_refresh: boolean
+        incremental: boolean
+    }
 }
 
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {

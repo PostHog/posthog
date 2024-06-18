@@ -1,9 +1,12 @@
-from typing import Any
+import logging
+from typing import Any, Optional
 from rest_framework import serializers
 
 from posthog.hogql.bytecode import create_bytecode
 from posthog.hogql.parser import parse_program
 from posthog.models.hog_functions.utils import generate_template_bytecode
+
+logger = logging.getLogger(__name__)
 
 
 class InputsSchemaItemSerializer(serializers.Serializer):
@@ -94,10 +97,10 @@ def validate_inputs(inputs_schema: list, inputs: dict) -> dict:
     return validated_inputs
 
 
-def compile_hog(hog: str) -> list[Any]:
+def compile_hog(hog: str, supported_functions: Optional[set[str]] = None) -> list[Any]:
     # Attempt to compile the hog
     try:
         program = parse_program(hog)
-        return create_bytecode(program, supported_functions={"fetch"})
+        return create_bytecode(program, supported_functions=supported_functions or {"fetch"})
     except Exception:
         raise serializers.ValidationError({"hog": "Hog code has errors."})

@@ -24,6 +24,7 @@ from posthog.schema import (
     PropertyMathType,
     TrendsFilter,
     TrendsQuery,
+    CompareFilter,
     HogQLQueryModifiers,
 )
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
@@ -342,7 +343,6 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         )
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=20)
-
         self.assertEqual(len(result), 1)
         self.assertEqual(get_distinct_id(result[0]), "person1")
         self.assertEqual(get_event_count(result[0]), 1)
@@ -604,7 +604,8 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         source_query = TrendsQuery(
             series=[EventsNode(event="$pageview")],
             dateRange=InsightDateRange(date_from="-7d"),
-            trendsFilter=TrendsFilter(compare=True),
+            trendsFilter=TrendsFilter(),
+            compareFilter=CompareFilter(compare=True),
         )
 
         result = self._get_actors(trends_query=source_query, day="2023-05-06", compare=Compare.CURRENT)

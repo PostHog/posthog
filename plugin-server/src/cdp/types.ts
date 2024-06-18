@@ -117,9 +117,12 @@ export type HogFunctionInvocation = {
 }
 
 export type HogFunctionInvocationResult = HogFunctionInvocation & {
+    teamId: number
+    hogFunctionId: HogFunctionType['id']
     success: boolean
     error?: any
     logs: HogFunctionLogEntry[]
+    asyncFunction?: HogFunctionInvocationAsyncRequest
 }
 
 export type HogFunctionInvocationAsyncRequest = HogFunctionInvocation & {
@@ -135,6 +138,12 @@ export type HogFunctionInvocationAsyncResponse = HogFunctionInvocationAsyncReque
     error?: any
     /** The data to be passed to the Hog function from the response */
     vmResponse?: any
+}
+
+export type HogFunctionMessageToQueue = {
+    topic: string
+    value: object
+    key: string
 }
 
 // Mostly copied from frontend types
