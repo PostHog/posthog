@@ -3793,6 +3793,11 @@ export interface DataWarehouseViewLink {
     created_at?: string | null
 }
 
+export enum DataWarehouseSettingsTab {
+    Managed = 'managed',
+    SelfManaged = 'self_managed',
+}
+
 export const externalDataSources = ['Stripe', 'Hubspot', 'Postgres', 'Zendesk', 'Snowflake'] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -3968,6 +3973,7 @@ export type BatchExportConfiguration = {
     start_at: string | null
     end_at: string | null
     paused: boolean
+    model: string
     latest_runs?: BatchExportRun[]
 }
 
