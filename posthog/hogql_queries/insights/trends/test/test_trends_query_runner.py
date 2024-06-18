@@ -1502,6 +1502,16 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(len(response.results), 30)
 
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_TABLE),
+            BreakdownFilter(breakdown="breakdown_value", breakdown_type=BreakdownType.EVENT, breakdown_limit=10),
+        )
+        self.assertEqual(len(response.results), 11)
+
     def test_breakdown_values_unknown_property(self):
         # same as above test, just without creating the property definition
         for value in list(range(30)):
