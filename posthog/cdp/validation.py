@@ -54,7 +54,6 @@ class InputsItemSerializer(serializers.Serializer):
 
         name: str = schema["key"]
         item_type = schema["type"]
-        value = attrs["value"]
 
         if schema.get("required") and not value:
             raise serializers.ValidationError({"inputs": {name: f"This field is required."}})
