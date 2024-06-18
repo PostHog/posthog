@@ -308,7 +308,6 @@ export class HogExecutor {
         const builtInputs: Record<string, any> = {}
 
         Object.entries(hogFunction.inputs).forEach(([key, item]) => {
-            // TODO: Replace this with iterator
             builtInputs[key] = item.value
 
             if (item.bytecode) {
