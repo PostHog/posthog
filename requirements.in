@@ -95,3 +95,4 @@ tiktoken==0.6.0
 nh3==0.2.14
 hogql-parser==1.0.14
 zxcvbn==4.4.28
+zstd==1.5.5.1

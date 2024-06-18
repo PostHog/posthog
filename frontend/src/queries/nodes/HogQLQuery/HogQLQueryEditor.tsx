@@ -416,7 +416,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                     }
                                     data-attr="hogql-query-editor-save-as-view"
                                 >
-                                    Save as View
+                                    Save as view
                                 </LemonButton>
                             ) : null}
                             {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] && (

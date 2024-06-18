@@ -335,6 +335,8 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "arrayAUC": HogQLFunctionMeta("arrayAUC", 2, 2),
     "arrayMap": HogQLFunctionMeta("arrayMap", 2, None),
     "arrayFill": HogQLFunctionMeta("arrayFill", 2, None),
+    "arrayFold": HogQLFunctionMeta("arrayFold", 3, None),
+    "arrayWithConstant": HogQLFunctionMeta("arrayWithConstant", 2, 2),
     "arraySplit": HogQLFunctionMeta("arraySplit", 2, None),
     "arrayReverseFill": HogQLFunctionMeta("arrayReverseFill", 2, None),
     "arrayReverseSplit": HogQLFunctionMeta("arrayReverseSplit", 2, None),
