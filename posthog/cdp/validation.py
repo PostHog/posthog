@@ -89,7 +89,8 @@ def validate_inputs(inputs_schema: list, inputs: dict) -> dict:
         serializer = InputsItemSerializer(data=value, context={"schema": schema})
 
         if not serializer.is_valid():
-            raise serializers.ValidationError(serializer.errors)
+            first_error = next(iter(serializer.errors.values()))[0]
+            raise serializers.ValidationError({"inputs": {schema["key"]: first_error}})
 
         validated_inputs[schema["key"]] = serializer.validated_data
 
