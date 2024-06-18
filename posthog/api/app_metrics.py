@@ -24,7 +24,6 @@ from posthog.queries.app_metrics.serializers import (
     AppMetricsRequestSerializer,
 )
 from posthog.utils import relative_date_parse
-from posthog.batch_exports.models import fetch_batch_export_run_count
 
 
 class AppMetricsViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
