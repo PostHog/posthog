@@ -1491,6 +1491,22 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(len(response.results), 11)
 
+        # Now hide other aggregation
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+            BreakdownFilter(
+                breakdown="breakdown_value",
+                breakdown_type=BreakdownType.EVENT,
+                breakdown_limit=10,
+                breakdown_hide_other_aggregation=True,
+            ),
+        )
+        self.assertEqual(len(response.results), 10)
+
         response = self._run_trends_query(
             "2020-01-09",
             "2020-01-20",
@@ -1502,6 +1518,8 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(len(response.results), 30)
 
+        # Test actions table - it shows total values
+
         response = self._run_trends_query(
             "2020-01-09",
             "2020-01-20",
@@ -1511,6 +1529,22 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             BreakdownFilter(breakdown="breakdown_value", breakdown_type=BreakdownType.EVENT, breakdown_limit=10),
         )
         self.assertEqual(len(response.results), 11)
+
+        # Now hide other aggregation
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_TABLE),
+            BreakdownFilter(
+                breakdown="breakdown_value",
+                breakdown_type=BreakdownType.EVENT,
+                breakdown_limit=10,
+                breakdown_hide_other_aggregation=True,
+            ),
+        )
+        self.assertEqual(len(response.results), 10)
 
     def test_breakdown_values_unknown_property(self):
         # same as above test, just without creating the property definition
