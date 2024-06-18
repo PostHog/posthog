@@ -149,6 +149,28 @@ async def minio_client(bucket_name):
         await minio_client.delete_bucket(Bucket=bucket_name)
 
 
+async def assert_file_in_s3(s3_compatible_client, bucket_name, key_prefix, file_format, compression, json_columns):
+    """Assert a file is in S3 and return its contents."""
+    objects = await s3_compatible_client.list_objects_v2(Bucket=bucket_name, Prefix=key_prefix)
+
+    assert len(objects.get("Contents", [])) == 1
+
+    key = objects["Contents"][0].get("Key")
+    assert key
+
+    if file_format == "Parquet":
+        s3_data = await read_parquet_from_s3(bucket_name, key, json_columns)
+
+    elif file_format == "JSONLines":
+        s3_object = await s3_compatible_client.get_object(Bucket=bucket_name, Key=key)
+        data = await s3_object["Body"].read()
+        s3_data = read_s3_data_as_json(data, compression)
+    else:
+        raise ValueError(f"Unsupported file format: {file_format}")
+
+    return s3_data
+
+
 async def assert_clickhouse_records_in_s3(
     s3_compatible_client,
     clickhouse_client: ClickHouseClient,
@@ -178,27 +200,15 @@ async def assert_clickhouse_records_in_s3(
         batch_export_schema: Custom schema used in the batch export.
         compression: Optional compression used in upload.
     """
-    # List the objects in the bucket with the prefix.
-    objects = await s3_compatible_client.list_objects_v2(Bucket=bucket_name, Prefix=key_prefix)
-
-    # Check that there is only one object.
-    assert len(objects.get("Contents", [])) == 1
-
-    # Get the object.
-    key = objects["Contents"][0].get("Key")
-    assert key
-
     json_columns = ("properties", "person_properties", "set", "set_once")
-
-    if file_format == "Parquet":
-        s3_data = await read_parquet_from_s3(bucket_name, key, json_columns)
-
-    elif file_format == "JSONLines":
-        s3_object = await s3_compatible_client.get_object(Bucket=bucket_name, Key=key)
-        data = await s3_object["Body"].read()
-        s3_data = read_s3_data_as_json(data, compression)
-    else:
-        raise ValueError(f"Unsupported file format: {file_format}")
+    s3_data = await assert_file_in_s3(
+        s3_compatible_client=s3_compatible_client,
+        bucket_name=bucket_name,
+        key_prefix=key_prefix,
+        file_format=file_format,
+        compression=compression,
+        json_columns=json_columns,
+    )
 
     if batch_export_schema is not None:
         schema_column_names = [field["alias"] for field in batch_export_schema["fields"]]
@@ -1364,7 +1374,7 @@ async def test_insert_into_s3_activity_heartbeats(
             count_other_team=0,
             duplicate=False,
             # We need at least 5MB for a multi-part upload which is what we are testing.
-            properties={"$chonky": ("a" * 5 * 1024**2)},
+            properties={"$chonky": ("a" * 5 * 2048**2)},
             inserted_at=part_inserted_at,
         )
 

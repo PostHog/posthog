@@ -28,7 +28,7 @@ from posthog.temporal.batch_exports.batch_exports import (
     default_fields,
     execute_batch_export_insert_activity,
     get_data_interval,
-    iter_records,
+    iter_model_records,
     start_batch_export_run,
 )
 from posthog.temporal.batch_exports.metrics import (
@@ -43,7 +43,7 @@ from posthog.temporal.batch_exports.temporary_file import (
     ParquetBatchExportWriter,
     UnsupportedFileFormatError,
 )
-from posthog.temporal.batch_exports.utils import peek_first_and_rewind, try_set_batch_export_run_to_running
+from posthog.temporal.batch_exports.utils import apeek_first_and_rewind, try_set_batch_export_run_to_running
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import bind_temporal_worker_logger
@@ -407,8 +407,8 @@ def s3_default_fields() -> list[BatchExportField]:
     """
     batch_export_fields = default_fields()
     batch_export_fields.append({"expression": "elements_chain", "alias": "elements_chain"})
-    batch_export_fields.append({"expression": "nullIf(person_properties, '')", "alias": "person_properties"})
-    batch_export_fields.append({"expression": "toString(person_id)", "alias": "person_id"})
+    batch_export_fields.append({"expression": "person_properties", "alias": "person_properties"})
+    batch_export_fields.append({"expression": "person_id", "alias": "person_id"})
 
     # Again, in contrast to other destinations, and for historical reasons, we do not include these fields.
     not_exported_by_default = {"team_id", "set", "set_once"}
@@ -452,7 +452,8 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
                 fields = inputs.batch_export_schema["fields"]
                 query_parameters = inputs.batch_export_schema["values"]
 
-            record_iterator = iter_records(
+            record_iterator = iter_model_records(
+                model="events",
                 client=client,
                 team_id=inputs.team_id,
                 interval_start=interval_start,
@@ -464,10 +465,11 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
                 is_backfill=inputs.is_backfill,
             )
 
-            first_record_batch, record_iterator = peek_first_and_rewind(record_iterator)
+            first_record_batch, record_iterator = await apeek_first_and_rewind(record_iterator)
 
+            records_completed = 0
             if first_record_batch is None:
-                return 0
+                return records_completed
 
             async with s3_upload as s3_upload:
 
@@ -516,14 +518,15 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
                     rows_exported = get_rows_exported_metric()
                     bytes_exported = get_bytes_exported_metric()
 
-                    for record_batch in record_iterator:
+                    async for record_batch in record_iterator:
                         record_batch = cast_record_batch_json_columns(record_batch)
 
                         await writer.write_record_batch(record_batch)
 
+                records_completed = writer.records_total
                 await s3_upload.complete()
 
-            return writer.records_total
+            return records_completed
 
 
 def get_batch_export_writer(

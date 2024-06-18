@@ -1,7 +1,6 @@
 import collections.abc
 import contextlib
 import datetime as dt
-import itertools
 import json
 import typing
 from dataclasses import dataclass
@@ -22,7 +21,7 @@ from posthog.temporal.batch_exports.batch_exports import (
     default_fields,
     execute_batch_export_insert_activity,
     get_data_interval,
-    iter_records,
+    iter_model_records,
     start_batch_export_run,
 )
 from posthog.temporal.batch_exports.metrics import get_rows_exported_metric
@@ -31,7 +30,7 @@ from posthog.temporal.batch_exports.postgres_batch_export import (
     create_table_in_postgres,
     postgres_connection,
 )
-from posthog.temporal.batch_exports.utils import peek_first_and_rewind, try_set_batch_export_run_to_running
+from posthog.temporal.batch_exports.utils import apeek_first_and_rewind, try_set_batch_export_run_to_running
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import bind_temporal_worker_logger
@@ -167,7 +166,7 @@ def get_redshift_fields_from_record_schema(
 
 
 async def insert_records_to_redshift(
-    records: collections.abc.Iterator[dict[str, typing.Any]],
+    records: collections.abc.AsyncGenerator[dict[str, typing.Any]],
     redshift_connection: psycopg.AsyncConnection,
     schema: str | None,
     table: str,
@@ -192,8 +191,11 @@ async def insert_records_to_redshift(
             make us go OOM or exceed Redshift's SQL statement size limit (16MB). Setting this too low
             can significantly affect performance due to Redshift's poor handling of INSERTs.
     """
-    first_record = next(records)
-    columns = first_record.keys()
+    first_record_batch, records_iterator = await apeek_first_and_rewind(records)
+    if first_record_batch is None:
+        return 0
+
+    columns = first_record_batch.keys()
 
     if schema:
         table_identifier = sql.Identifier(schema, table)
@@ -225,7 +227,7 @@ async def insert_records_to_redshift(
             # the byte size of each batch the way things are currently written. We can revisit this
             # in the future if we decide it's useful enough.
 
-        for record in itertools.chain([first_record], records):
+        async for record in records_iterator:
             batch.append(cursor.mogrify(template, record).encode("utf-8"))
             if len(batch) < batch_size:
                 continue
@@ -313,8 +315,9 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
                 fields = inputs.batch_export_schema["fields"]
                 query_parameters = inputs.batch_export_schema["values"]
 
-            record_iterator = iter_records(
+            record_iterator = iter_model_records(
                 client=client,
+                model="events",
                 team_id=inputs.team_id,
                 interval_start=inputs.data_interval_start,
                 interval_end=inputs.data_interval_end,
@@ -324,7 +327,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
                 extra_query_parameters=query_parameters,
                 is_backfill=inputs.is_backfill,
             )
-            first_record_batch, record_iterator = peek_first_and_rewind(record_iterator)
+            first_record_batch, record_iterator = await apeek_first_and_rewind(record_iterator)
             if first_record_batch is None:
                 return 0
 
@@ -379,9 +382,14 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
 
                 return record
 
+            async def record_generator() -> collections.abc.AsyncGenerator[dict[str, typing.Any]]:
+                async for record_batch in record_iterator:
+                    for record in record_batch.to_pylist():
+                        yield map_to_record(record)
+
             async with postgres_connection(inputs) as connection:
                 records_completed = await insert_records_to_redshift(
-                    (map_to_record(record) for record_batch in record_iterator for record in record_batch.to_pylist()),
+                    record_generator(),
                     connection,
                     inputs.schema,
                     inputs.table_name,

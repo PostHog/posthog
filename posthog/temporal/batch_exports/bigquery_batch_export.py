@@ -25,7 +25,7 @@ from posthog.temporal.batch_exports.batch_exports import (
     default_fields,
     execute_batch_export_insert_activity,
     get_data_interval,
-    iter_records,
+    iter_model_records,
     start_batch_export_run,
 )
 from posthog.temporal.batch_exports.metrics import (
@@ -35,7 +35,7 @@ from posthog.temporal.batch_exports.metrics import (
 from posthog.temporal.batch_exports.temporary_file import (
     BatchExportTemporaryFile,
 )
-from posthog.temporal.batch_exports.utils import peek_first_and_rewind, try_set_batch_export_run_to_running
+from posthog.temporal.batch_exports.utils import apeek_first_and_rewind, try_set_batch_export_run_to_running
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import bind_temporal_worker_logger
@@ -238,8 +238,9 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                 fields = inputs.batch_export_schema["fields"]
                 query_parameters = inputs.batch_export_schema["values"]
 
-            records_iterator = iter_records(
+            records_iterator = iter_model_records(
                 client=client,
+                model="events",
                 team_id=inputs.team_id,
                 interval_start=data_interval_start,
                 interval_end=inputs.data_interval_end,
@@ -250,7 +251,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                 is_backfill=inputs.is_backfill,
             )
 
-            first_record_batch, records_iterator = peek_first_and_rewind(records_iterator)
+            first_record_batch, records_iterator = await apeek_first_and_rewind(records_iterator)
             if first_record_batch is None:
                 return 0
 
@@ -314,7 +315,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                     # Columns need to be sorted according to BigQuery schema.
                     record_columns = [field.name for field in schema] + ["_inserted_at"]
 
-                    for record_batch in records_iterator:
+                    async for record_batch in records_iterator:
                         for record in record_batch.select(record_columns).to_pylist():
                             inserted_at = record.pop("_inserted_at")
 

@@ -64,13 +64,13 @@ def raise_for_status(response: aiohttp.ClientResponse):
 def http_default_fields() -> list[BatchExportField]:
     """Return default fields used in HTTP batch export, currently supporting only migrations."""
     return [
-        BatchExportField(expression="toString(uuid)", alias="uuid"),
-        BatchExportField(expression="timestamp", alias="timestamp"),
-        BatchExportField(expression="COALESCE(inserted_at, _timestamp)", alias="_inserted_at"),
+        BatchExportField(expression="any(toString(uuid))", alias="uuid"),
+        BatchExportField(expression="any(timestamp)", alias="timestamp"),
+        BatchExportField(expression="any(COALESCE(inserted_at, _timestamp))", alias="_inserted_at"),
         BatchExportField(expression="event", alias="event"),
-        BatchExportField(expression="nullIf(properties, '')", alias="properties"),
-        BatchExportField(expression="toString(distinct_id)", alias="distinct_id"),
-        BatchExportField(expression="elements_chain", alias="elements_chain"),
+        BatchExportField(expression="any(nullIf(properties, ''))", alias="properties"),
+        BatchExportField(expression="any(toString(distinct_id))", alias="distinct_id"),
+        BatchExportField(expression="any(elements_chain)", alias="elements_chain"),
     ]
 
 

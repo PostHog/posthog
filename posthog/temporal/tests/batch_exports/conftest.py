@@ -3,6 +3,8 @@ import pytest
 import pytest_asyncio
 from psycopg import sql
 
+from posthog.batch_exports.service import BatchExportModel
+
 
 @pytest.fixture
 def interval(request) -> str:
@@ -57,9 +59,22 @@ def batch_export_schema(request) -> dict | None:
         return None
 
 
+@pytest.fixture
+def batch_export_model(request) -> BatchExportModel | None:
+    """A parametrizable fixture to configure a batch export schema.
+
+    By decorating a test function with @pytest.mark.parametrize("batch_export_model", ..., indirect=True)
+    it's possible to set the batch_export_schema that will be used to create a BatchExport.
+    """
+    try:
+        return request.param
+    except AttributeError:
+        return BatchExportModel(name="events")
+
+
 @pytest_asyncio.fixture
 async def setup_postgres_test_db(postgres_config):
-    """Fixture to manage a database for Redshift export testing.
+    """Fixture to manage a database for Redshift and Postgres export testing.
 
     Managing a test database involves the following steps:
     1. Creating a test database.
@@ -123,3 +138,20 @@ async def setup_postgres_test_db(postgres_config):
         await cursor.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(postgres_config["database"])))
 
     await connection.close()
+
+
+@pytest_asyncio.fixture(scope="module", autouse=True)
+async def create_batch_export_views(clickhouse_client, django_db_setup):
+    from posthog.batch_exports.sql import (
+        CREATE_EVENTS_BATCH_EXPORT_VIEW,
+        CREATE_EVENTS_BATCH_EXPORT_VIEW_BACKFILL,
+        CREATE_EVENTS_BATCH_EXPORT_VIEW_UNBOUNDED,
+        CREATE_PERSONS_BATCH_EXPORT_VIEW,
+    )
+
+    await clickhouse_client.execute_query(CREATE_EVENTS_BATCH_EXPORT_VIEW)
+    await clickhouse_client.execute_query(CREATE_EVENTS_BATCH_EXPORT_VIEW_BACKFILL)
+    await clickhouse_client.execute_query(CREATE_EVENTS_BATCH_EXPORT_VIEW_UNBOUNDED)
+    await clickhouse_client.execute_query(CREATE_PERSONS_BATCH_EXPORT_VIEW)
+
+    return
