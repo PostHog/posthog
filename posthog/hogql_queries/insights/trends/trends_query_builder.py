@@ -61,7 +61,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
         if self._trends_display.is_total_value():
             events_query = self._get_events_subquery(False, is_actors_query=False, breakdown=breakdown)
-            return events_query
+            wrapper_query = self._get_wrapper_query(events_query, breakdown=breakdown)
+            return wrapper_query
         else:
             event_query = self._get_events_subquery(False, is_actors_query=False, breakdown=breakdown)
 
@@ -69,6 +70,49 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             full_query = self._outer_select_query(inner_query=inner_select, breakdown=breakdown)
 
             return full_query
+
+    def _get_breakdown_hide_others(self) -> bool:
+        return (
+            self.query.breakdownFilter.breakdown_hide_other_aggregation or False
+            if self.query.breakdownFilter
+            else False
+        )
+
+    def _get_wrapper_query(
+        self, events_query: ast.SelectQuery, breakdown: Breakdown
+    ) -> ast.SelectQuery | ast.SelectUnionQuery:
+        if not breakdown.enabled:
+            return events_query
+
+        return parse_select(
+            """
+            SELECT
+                SUM(total) AS total,
+                if(ifNull(greaterOrEquals(row_number, {breakdown_limit}), 0), {other_label}, toString(breakdown_value)) AS breakdown_value
+            FROM
+                (
+                    SELECT
+                        total,
+                        breakdown_value,
+                        row_number() OVER (ORDER BY total DESC) as row_number
+                    FROM {events_query}
+                )
+            WHERE breakdown_value IS NOT NULL
+            GROUP BY breakdown_value
+            ORDER BY
+                breakdown_value = {other_label} ? 2 : breakdown_value = {nil} ? 1 : 0,
+                total DESC,
+                breakdown_value ASC
+        """,
+            placeholders={
+                "events_query": events_query,
+                "other_label": ast.Constant(
+                    value=None if self._get_breakdown_hide_others() else BREAKDOWN_OTHER_STRING_LABEL
+                ),
+                "nil": ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
+                "breakdown_limit": ast.Constant(value=self._get_breakdown_limit() + 1),
+            },
+        )
 
     def _get_date_subqueries(self) -> ast.Expr:
         return parse_expr(
@@ -338,36 +382,50 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
             # TODO: What happens with cohorts and this limit?
             if not breakdown.is_histogram_breakdown:
+                # arrayFold is basically arrayReduce (but you can pass your own lambda function)
+                # it takes result array from the outer query which looks like this (if they're grouped under "other" values):
+                # [
+                #   [0, 0, 1],
+                #   [0, 1, 0]
+                # ]
+                # and turns it into
+                # [0, 1, 1]
                 return parse_select(
                     """
                     SELECT
                         groupArray(1)(date)[1] as date,
-                        arrayMap(
-                            i ->
-                                arraySum(arrayMap(
-                                    x -> arrayElement(x, i),
-                                    groupArray(total)
-                                )),
-                            arrayEnumerate(date)
+                        arrayFold(
+                            (acc, x) -> arrayMap(
+                                i -> acc[i] + x[i],
+                                range(1, length(date) + 1)
+                            ),
+                            groupArray(total),
+                            arrayWithConstant(length(date), reinterpretAsFloat64(0))
                         ) as total,
-                        if(row_number >= {breakdown_limit}, {other}, breakdown_value) as breakdown_value
+                        if(row_number >= {breakdown_limit}, {other_label}, toString(breakdown_value)) as breakdown_value
                     FROM {outer_query}
+                    WHERE breakdown_value IS NOT NULL
                     GROUP BY breakdown_value
                     ORDER BY
-                        breakdown_value = {other} ? 2 : breakdown_value = {nil} ? 1 : 0,
+                        breakdown_value = {other_label} ? 2 : breakdown_value = {nil} ? 1 : 0,
                         arraySum(total) DESC,
                         breakdown_value ASC
                 """,
                     {
                         "outer_query": query,
                         "breakdown_limit": ast.Constant(value=self._get_breakdown_limit()),
-                        "other": ast.Constant(value=BREAKDOWN_OTHER_STRING_LABEL),
+                        "other_label": ast.Constant(
+                            value=None if self._get_breakdown_hide_others() else BREAKDOWN_OTHER_STRING_LABEL
+                        ),
                         "nil": ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
                     },
                 )
         return query
 
     def _get_breakdown_limit(self) -> int:
+        if self._trends_display.display_type == ChartDisplayType.WORLD_MAP:
+            return 250
+
         return (
             self.query.breakdownFilter and self.query.breakdownFilter.breakdown_limit
         ) or get_breakdown_limit_for_context(self.limit_context)

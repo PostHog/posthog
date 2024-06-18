@@ -223,13 +223,13 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                     <div ref={editorRef} className="resize-y overflow-hidden" style={{ height: EDITOR_HEIGHT }}>
                         <CodeEditor
                             className="border rounded overflow-hidden h-full"
-                            language="mysql"
+                            language="hogql"
                             value={queryInput}
                             onChange={(v) => setQueryInput(v ?? '')}
                             height="100%"
                             onMount={(editor, monaco) => {
                                 const completetionItemProviderDisposable =
-                                    monaco.languages.registerCompletionItemProvider('mysql', {
+                                    monaco.languages.registerCompletionItemProvider('hogql', {
                                         triggerCharacters: [' ', ',', '.'],
                                         provideCompletionItems: async (model, position) => {
                                             const word = model.getWordUntilPosition(position)
@@ -294,7 +294,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                 monacoDisposables.current.push(completetionItemProviderDisposable)
 
                                 const codeActionProviderDisposable = monaco.languages.registerCodeActionProvider(
-                                    'mysql',
+                                    'hogql',
                                     {
                                         provideCodeActions: (model, _range, context) => {
                                             if (logic.isMounted()) {
