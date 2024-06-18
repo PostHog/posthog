@@ -148,9 +148,9 @@ class SessionRecordingListFromFilters:
             )
         ]
 
-        person_id_comapre_operation = PersonsIdCompareOperation(self._team, self._filter, self.ttl_days).get_operation()
-        if person_id_comapre_operation:
-            exprs.append(person_id_comapre_operation)
+        person_id_compare_operation = PersonsIdCompareOperation(self._team, self._filter, self.ttl_days).get_operation()
+        if person_id_compare_operation:
+            exprs.append(person_id_compare_operation)
 
         if self._filter.session_ids:
             exprs.append(
