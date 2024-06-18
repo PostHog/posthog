@@ -1221,7 +1221,7 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             printed,
-            f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=1000000, max_expanded_ast_elements=1000000, max_query_size=524288",
+            f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=1000000, max_expanded_ast_elements=1000000, max_query_size=524288, max_bytes_before_external_group_by=0",
         )
 
     def test_print_query_level_settings(self):
@@ -1248,7 +1248,7 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             printed,
-            f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS optimize_aggregation_in_order=1, readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=1000000, max_expanded_ast_elements=1000000, max_query_size=524288",
+            f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS optimize_aggregation_in_order=1, readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=1000000, max_expanded_ast_elements=1000000, max_query_size=524288, max_bytes_before_external_group_by=0",
         )
 
     def test_pretty_print(self):
@@ -1351,7 +1351,7 @@ class TestPrinter(BaseTest):
             printed,
             f"SELECT timestamp AS timestamp FROM (SELECT toTimeZone(events.timestamp, %(hogql_val_0)s), "
             f"toTimeZone(events.timestamp, %(hogql_val_1)s) AS timestamp FROM events WHERE equals(events.team_id, {self.team.pk})) "
-            f"LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=1000000, max_expanded_ast_elements=1000000, max_query_size=524288",
+            f"LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=1000000, max_expanded_ast_elements=1000000, max_query_size=524288, max_bytes_before_external_group_by=0",
         )
 
     def test_print_hidden_aliases_column_override(self):
@@ -1366,7 +1366,7 @@ class TestPrinter(BaseTest):
             printed,
             f"SELECT event AS event FROM (SELECT toTimeZone(events.timestamp, %(hogql_val_0)s) AS event, "
             f"event FROM events WHERE equals(events.team_id, {self.team.pk})) "
-            f"LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=1000000, max_expanded_ast_elements=1000000, max_query_size=524288",
+            f"LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=1000000, max_expanded_ast_elements=1000000, max_query_size=524288, max_bytes_before_external_group_by=0",
         )
 
     def test_print_hidden_aliases_properties(self):
@@ -1389,7 +1389,7 @@ class TestPrinter(BaseTest):
             printed,
             f"SELECT `$browser` AS `$browser` FROM (SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS `$browser` "
             f"FROM events WHERE equals(events.team_id, {self.team.pk})) LIMIT {MAX_SELECT_RETURNED_ROWS} "
-            f"SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=1000000, max_expanded_ast_elements=1000000, max_query_size=524288",
+            f"SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=1000000, max_expanded_ast_elements=1000000, max_query_size=524288, max_bytes_before_external_group_by=0",
         )
 
     def test_print_hidden_aliases_double_property(self):
@@ -1413,7 +1413,7 @@ class TestPrinter(BaseTest):
             f"SELECT `$browser` AS `$browser` FROM (SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null'), "
             f"nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS `$browser` "  # only the second one gets the alias
             f"FROM events WHERE equals(events.team_id, {self.team.pk})) LIMIT {MAX_SELECT_RETURNED_ROWS} "
-            f"SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=1000000, max_expanded_ast_elements=1000000, max_query_size=524288",
+            f"SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=1000000, max_expanded_ast_elements=1000000, max_query_size=524288, max_bytes_before_external_group_by=0",
         )
 
     def test_lookup_domain_type(self):
@@ -1429,7 +1429,7 @@ class TestPrinter(BaseTest):
                 "SELECT dictGetOrNull('channel_definition_dict', 'domain_type', "
                 "(cutToFirstSignificantSubdomain(coalesce(%(hogql_val_0)s, '')), 'source')) "
                 f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS "
-                "readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=1000000, max_expanded_ast_elements=1000000, max_query_size=524288"
+                "readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=1000000, max_expanded_ast_elements=1000000, max_query_size=524288, max_bytes_before_external_group_by=0"
             ),
             printed,
         )
@@ -1447,7 +1447,7 @@ class TestPrinter(BaseTest):
                 "SELECT dictGetOrNull('channel_definition_dict', 'type_if_paid', "
                 "(cutToFirstSignificantSubdomain(coalesce(%(hogql_val_0)s, '')), 'source')) "
                 f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS "
-                "readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=1000000, max_expanded_ast_elements=1000000, max_query_size=524288"
+                "readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=1000000, max_expanded_ast_elements=1000000, max_query_size=524288, max_bytes_before_external_group_by=0"
             ),
             printed,
         )
@@ -1465,7 +1465,7 @@ class TestPrinter(BaseTest):
                 "SELECT dictGetOrNull('channel_definition_dict', 'type_if_paid', "
                 "(coalesce(%(hogql_val_0)s, ''), 'source')) "
                 f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS "
-                "readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=1000000, max_expanded_ast_elements=1000000, max_query_size=524288"
+                "readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=1000000, max_expanded_ast_elements=1000000, max_query_size=524288, max_bytes_before_external_group_by=0"
             ),
             printed,
         )
@@ -1483,7 +1483,7 @@ class TestPrinter(BaseTest):
                 "SELECT dictGetOrNull('channel_definition_dict', 'type_if_paid', "
                 "(coalesce(%(hogql_val_0)s, ''), 'medium')) "
                 f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS "
-                "readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=1000000, max_expanded_ast_elements=1000000, max_query_size=524288"
+                "readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=1000000, max_expanded_ast_elements=1000000, max_query_size=524288, max_bytes_before_external_group_by=0"
             ),
             printed,
         )
@@ -1501,7 +1501,7 @@ class TestPrinter(BaseTest):
                 "SELECT dictGetOrNull('channel_definition_dict', 'type_if_organic', "
                 "(cutToFirstSignificantSubdomain(coalesce(%(hogql_val_0)s, '')), 'source')) "
                 f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS "
-                "readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=1000000, max_expanded_ast_elements=1000000, max_query_size=524288"
+                "readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=1000000, max_expanded_ast_elements=1000000, max_query_size=524288, max_bytes_before_external_group_by=0"
             ),
             printed,
         )
@@ -1519,7 +1519,7 @@ class TestPrinter(BaseTest):
                 "SELECT dictGetOrNull('channel_definition_dict', 'type_if_organic', "
                 "(coalesce(%(hogql_val_0)s, ''), 'source')) "
                 f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS "
-                "readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=1000000, max_expanded_ast_elements=1000000, max_query_size=524288"
+                "readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=1000000, max_expanded_ast_elements=1000000, max_query_size=524288, max_bytes_before_external_group_by=0"
             ),
             printed,
         )
@@ -1537,7 +1537,7 @@ class TestPrinter(BaseTest):
                 "SELECT dictGetOrNull('channel_definition_dict', 'type_if_organic', "
                 "(coalesce(%(hogql_val_0)s, ''), 'medium')) "
                 f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS "
-                "readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=1000000, max_expanded_ast_elements=1000000, max_query_size=524288"
+                "readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=1000000, max_expanded_ast_elements=1000000, max_query_size=524288, max_bytes_before_external_group_by=0"
             ),
             printed,
         )
@@ -1588,7 +1588,7 @@ class TestPrinter(BaseTest):
         )
         assert printed == (
             f"SELECT trim(LEADING %(hogql_val_1)s FROM %(hogql_val_0)s), trim(TRAILING %(hogql_val_3)s FROM %(hogql_val_2)s), trim(BOTH %(hogql_val_5)s FROM %(hogql_val_4)s) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS "
-            "readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=1000000, max_expanded_ast_elements=1000000, max_query_size=524288"
+            "readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=1000000, max_expanded_ast_elements=1000000, max_query_size=524288, max_bytes_before_external_group_by=0"
         )
         query2 = parse_select("select trimLeft('media', 'xy'), trimRight('media', 'xy'), trim('media', 'xy')")
         printed2 = print_ast(

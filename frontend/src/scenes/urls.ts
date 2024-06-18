@@ -11,6 +11,7 @@ import {
     AnyPartialFilterType,
     AppMetricsUrlParams,
     DashboardType,
+    DataWarehouseSettingsTab,
     FilterType,
     InsightShortId,
     PipelineNodeTab,
@@ -159,7 +160,8 @@ export const urls = {
         combineUrl('/data-warehouse', {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {})
             .url,
     dataWarehouseTable: (): string => `/data-warehouse/new`,
-    dataWarehouseSettings: (): string => '/data-warehouse/settings',
+    dataWarehouseSettings: (tab?: DataWarehouseSettingsTab | ':tab'): string =>
+        `/data-warehouse/settings/${tab ? tab : DataWarehouseSettingsTab.Managed}`,
     dataWarehouseRedirect: (kind: string): string => `/data-warehouse/${kind}/redirect`,
     annotations: (): string => '/data-management/annotations',
     annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,
