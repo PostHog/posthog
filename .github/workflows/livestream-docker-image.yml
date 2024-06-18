@@ -7,8 +7,6 @@ on:
         paths:
             - 'livestream/**'
     pull_request:
-        branches:
-            - master
 
 jobs:
     build:
