@@ -34,7 +34,6 @@ import {
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
 import type { sessionRecordingsPlaylistLogicType } from './sessionRecordingsPlaylistLogicType'
-import { sessionRecordingsDataLogic } from '../sessionRecordingsDataLogic'
 
 export type PersonUUID = string
 export type SessionOrderingType = DurationType | 'start_time' | 'console_error_count'
@@ -200,8 +199,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             ['reportRecordingsListFetched', 'reportRecordingsListFilterAdded'],
             sessionRecordingsListPropertiesLogic,
             ['maybeLoadPropertiesForSessions'],
-            // sessionRecordingsDataLogic(props),
-            // [],
         ],
         values: [
             featureFlagLogic,

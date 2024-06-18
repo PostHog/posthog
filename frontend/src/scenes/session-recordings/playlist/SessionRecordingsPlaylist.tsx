@@ -1,6 +1,7 @@
 import { IconFilter, IconGear } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
+import { Playlist, PlaylistSection } from 'lib/components/Playlist/Playlist'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconWithCount } from 'lib/lemon-ui/icons'
@@ -12,6 +13,8 @@ import { urls } from 'scenes/urls'
 import { ReplayTabs, SessionRecordingType } from '~/types'
 
 import { RecordingsUniversalFilters } from '../filters/RecordingsUniversalFilters'
+import { SessionRecordingsFilters } from '../filters/SessionRecordingsFilters'
+import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { SessionRecordingPreview } from './SessionRecordingPreview'
 import {
     DEFAULT_RECORDING_FILTERS,
@@ -20,8 +23,6 @@ import {
 } from './sessionRecordingsPlaylistLogic'
 import { SessionRecordingsPlaylistSettings } from './SessionRecordingsPlaylistSettings'
 import { SessionRecordingsPlaylistTroubleshooting } from './SessionRecordingsPlaylistTroubleshooting'
-import { Playlist, PlaylistSection } from 'lib/components/Playlist/Playlist'
-import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 
 export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicProps): JSX.Element {
     const logicProps: SessionRecordingPlaylistLogicProps = {
@@ -38,8 +39,17 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
         sessionRecordingsResponseLoading,
         otherRecordings,
         sessionSummaryLoading,
+        advancedFilters,
+        simpleFilters,
     } = useValues(logic)
-    const { maybeLoadSessionRecordings, summarizeSession, setSelectedRecordingId } = useActions(logic)
+    const {
+        maybeLoadSessionRecordings,
+        summarizeSession,
+        setSelectedRecordingId,
+        setAdvancedFilters,
+        setSimpleFilters,
+        resetFilters,
+    } = useActions(logic)
 
     const { featureFlags } = useValues(featureFlagLogic)
     const isTestingSaved = featureFlags[FEATURE_FLAGS.SAVED_NOT_PINNED] === 'test'
@@ -59,20 +69,23 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
         headerActions.push({
             key: 'filters',
             tooltip: 'Filter recordings',
-            content: <SessionRecordingsPlaylistSettings />,
+            content: (
+                <SessionRecordingsFilters
+                    advancedFilters={advancedFilters}
+                    simpleFilters={simpleFilters}
+                    setAdvancedFilters={setAdvancedFilters}
+                    setSimpleFilters={setSimpleFilters}
+                    hideSimpleFilters={props.hideSimpleFilters}
+                    showPropertyFilters={!props.personUUID}
+                    onReset={resetFilters}
+                />
+            ),
             icon: (
                 <IconWithCount count={totalFiltersCount}>
                     <IconFilter />
                 </IconWithCount>
             ),
             children: 'Filter',
-            // onClick={() => {
-            //     if (notebookNode) {
-            //         notebookNode.actions.toggleEditing()
-            //     } else {
-            //         setShowFilters(!showFilters)
-            //     }
-            // }}
         })
     }
 
@@ -85,6 +98,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
 
     if (pinnedRecordings.length) {
         sections.push({
+            key: 'pinned',
             title: `${pinnedDescription} recordings`,
             items: pinnedRecordings,
             render: ({ item, isActive }) => (
@@ -99,13 +113,12 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
     }
 
     sections.push({
-        title: pinnedRecordings.length ? 'Other recordings' : undefined,
+        key: 'other',
+        title: 'Other recordings',
         items: otherRecordings,
-        collapsible: true,
         render: ({ item, isActive }) => (
             <SessionRecordingPreview
                 recording={item}
-                //   onClick={() => onRecordingClick(rec)}
                 isActive={isActive}
                 pinned={false}
                 summariseFn={onSummarizeClick}
@@ -160,7 +173,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
     )
 }
 
-const ListEmptyState = () => {
+const ListEmptyState = (): JSX.Element => {
     const { filters, sessionRecordingsAPIErrored, unusableEventsInFilter } = useValues(sessionRecordingsPlaylistLogic)
     const { setAdvancedFilters } = useActions(sessionRecordingsPlaylistLogic)
 

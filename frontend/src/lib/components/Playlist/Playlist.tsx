@@ -1,25 +1,28 @@
+import './Playlist.scss'
+
+import { IconCollapse } from '@posthog/icons'
+import { LemonButton, LemonButtonProps, LemonCollapse, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { useEffect, useRef, useState } from 'react'
-import { Resizer } from '../Resizer/Resizer'
-import { LemonButton, LemonButtonProps, LemonSkeleton, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
-import { IconCollapse } from '@posthog/icons'
-import { range } from 'lib/utils'
-import { EmptyMessage } from '../EmptyMessage/EmptyMessage'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
+import { range } from 'lib/utils'
+import { useEffect, useRef, useState } from 'react'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
+
+import { EmptyMessage } from '../EmptyMessage/EmptyMessage'
+import { Resizer } from '../Resizer/Resizer'
 
 const SCROLL_TRIGGER_OFFSET = 100
 
 export type PlaylistSection = {
+    key: string
     title?: string
     items: any[]
     render: ({ item, isActive }: { item: any; isActive: any }) => JSX.Element
-    collapsible?: boolean
 }
 
-type PlaylistHeaderAction = Pick<LemonButtonProps, 'icon' | 'tooltip'> & {
+type PlaylistHeaderAction = Pick<LemonButtonProps, 'icon' | 'tooltip' | 'children'> & {
     key: string
     content: React.ReactNode
 }
@@ -61,7 +64,7 @@ export function Playlist({
         750: 'medium',
     })
 
-    const onChangeActiveItem = (item: any) => {
+    const onChangeActiveItem = (item: any): void => {
         setActiveItemId(item.id)
         onSelect(item.id)
     }
@@ -122,7 +125,7 @@ export function Playlist({
     )
 }
 
-const CollapsedList = ({ onClickOpen }: { onClickOpen: () => void }) => (
+const CollapsedList = ({ onClickOpen }: { onClickOpen: () => void }): JSX.Element => (
     <div className="flex items-start h-full bg-bg-light border-r p-1">
         <LemonButton size="small" icon={<IconChevronRight />} onClick={onClickOpen} />
     </div>
@@ -151,7 +154,7 @@ const List = ({
     loading: PlaylistProps['loading']
     emptyState: PlaylistProps['listEmptyState']
 }): JSX.Element => {
-    const [activeHeaderAction, setActiveHeaderAction] = useState<string | null>(null)
+    const [activeHeaderActionKey, setActiveHeaderActionKey] = useState<string | null>(null)
     const lastScrollPositionRef = useRef(0)
     const contentRef = useRef<HTMLDivElement | null>(null)
 
@@ -159,7 +162,7 @@ const List = ({
         if (contentRef.current) {
             contentRef.current.scrollTop = 0
         }
-    }, [activeHeaderAction])
+    }, [activeHeaderActionKey])
 
     const handleScroll = (e: React.UIEvent<HTMLDivElement>): void => {
         // If we are scrolling down then check if we are at the bottom of the list
@@ -180,7 +183,7 @@ const List = ({
         lastScrollPositionRef.current = e.currentTarget.scrollTop
     }
 
-    const ActiveAction = headerActions?.find((a) => activeHeaderAction === a.key)?.content
+    const actionContent = headerActions?.find((a) => activeHeaderActionKey === a.key)?.content
 
     const itemsCount = sections.flatMap((s) => s.items).length
 
@@ -211,21 +214,44 @@ const List = ({
                             </span>
                         </Tooltip>
                     </span>
-                    {headerActions.map((action) => (
-                        <LemonButton size="small" {...action} onClick={() => setActiveHeaderAction(action.key)} />
+                    {headerActions.map(({ key, icon, tooltip, children }) => (
+                        <LemonButton
+                            key={key}
+                            icon={icon}
+                            tooltip={tooltip}
+                            size="small"
+                            active={activeHeaderActionKey === key}
+                            onClick={() => setActiveHeaderActionKey(activeHeaderActionKey === key ? null : key)}
+                        >
+                            {children}
+                        </LemonButton>
                     ))}
                     <LemonTableLoader loading={loading} />
                 </div>
             </DraggableToNotebook>
 
             <div className={clsx('overflow-y-auto')} onScroll={handleScroll} ref={contentRef}>
-                {/* {ActiveAction && <ActiveAction />} */}
+                {actionContent && <div className="bg-side">{actionContent}</div>}
 
                 {sections.flatMap((s) => s.items).length ? (
-                    <ul>
-                        {sections.map((s) => (
-                            <ListSection {...s} activeItemId={activeItemId} onClick={setActiveItemId} />
-                        ))}
+                    <>
+                        {sections.length > 1 ? (
+                            <LemonCollapse
+                                defaultActiveKeys={sections.map((s) => s.key)}
+                                panels={sections.map((s) => ({
+                                    key: s.key,
+                                    header: s.title,
+                                    content: (
+                                        <ListSection {...s} activeItemId={activeItemId} onClick={setActiveItemId} />
+                                    ),
+                                    className: 'p-0',
+                                }))}
+                                embedded
+                            />
+                        ) : (
+                            <ListSection {...sections[0]} activeItemId={activeItemId} onClick={setActiveItemId} />
+                        )}
+
                         <div className="m-4 h-10 flex items-center justify-center gap-2 text-muted-alt">
                             {/* {!showOtherRecordings && totalFiltersCount ? (
                                     <>Filters do not apply to pinned recordings</>
@@ -241,7 +267,7 @@ const List = ({
                                     'No more results'
                                 )} */}
                         </div>
-                    </ul>
+                    </>
                 ) : loading ? (
                     <LoadingState />
                 ) : (
@@ -253,41 +279,31 @@ const List = ({
 }
 
 const ListSection = ({
-    title,
     items,
     render,
     onClick,
-    collapsible,
     activeItemId,
 }: PlaylistSection & {
     onClick: (item: any) => void
     activeItemId: string | null
-}) => {
+}): JSX.Element => {
     return (
         <>
-            {title && (
-                <div className="flex justify-between items-center pl-3 pr-1 py-2 text-muted-alt border-b uppercase font-semibold text-xs">
-                    {title}
-                    {/* {collapsible && <LemonButton size="xsmall" onClick={() => toggleShowOtherRecordings()}>
-                        {showOtherRecordings ? 'Hide' : 'Show'}
-                    </LemonButton>} */}
-                </div>
-            )}
             {items.length &&
                 items.map((item) => (
-                    <li key={item.id} className="border-b" onClick={() => onClick(item)}>
+                    <div key={item.id} className="border-b" onClick={() => onClick(item)}>
                         {render({ item, isActive: item.id === activeItemId })}
-                    </li>
+                    </div>
                 ))}
         </>
     )
 }
 
-const LoadingState = () => {
+const LoadingState = (): JSX.Element => {
     return (
         <>
-            {range(20).map(() => (
-                <div className="p-4 space-y-2">
+            {range(20).map((i) => (
+                <div key={i} className="p-4 space-y-2">
                     <LemonSkeleton className="w-1/2 h-4" />
                     <LemonSkeleton className="w-1/3 h-4" />
                 </div>
