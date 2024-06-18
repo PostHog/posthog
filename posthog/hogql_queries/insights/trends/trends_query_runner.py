@@ -716,7 +716,7 @@ class TrendsQueryRunner(QueryRunner):
     def apply_formula(
         self, formula: str, results: list[list[dict[str, Any]]], in_breakdown_clause=False
     ) -> list[dict[str, Any]]:
-        has_compare = bool(self.query.trendsFilter and self.query.trendsFilter.compare)
+        has_compare = bool(self.query.compareFilter and self.query.compareFilter.compare)
         has_breakdown = self.breakdown_enabled
         is_total_value = self._trends_display.is_total_value()
 
@@ -946,7 +946,7 @@ class TrendsQueryRunner(QueryRunner):
         ):
             # TODO: Move this "All time" range handling out of `apply_dashboard_filters` – if the date range is "all",
             # we should disable `compare` _no matter how_ we arrived at the final executed query
-            self.query.trendsFilter.compare = False
+            self.query.compareFilter.compare = False
 
     def _format_breakdown_label(self, breakdown_value: Any):
         # Mirrors the frontend formatting
