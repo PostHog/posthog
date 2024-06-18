@@ -151,6 +151,7 @@ export function Customization({ appearance, surveyQuestionItem, onAppearanceChan
                                 data-attr="survey-popup-delay-input"
                                 size="small"
                                 min={1}
+                                max={3600}
                                 value={appearance?.surveyPopupDelaySeconds || NaN}
                                 onChange={(newValue) => {
                                     if (newValue && newValue > 0) {
