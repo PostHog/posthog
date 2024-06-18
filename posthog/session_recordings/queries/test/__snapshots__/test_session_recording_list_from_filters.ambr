@@ -3371,7 +3371,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_operand_or_event_filters
@@ -3408,7 +3409,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_operand_or_event_filters.1
@@ -3445,7 +3447,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_operand_or_filters
@@ -3483,7 +3486,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_operand_or_filters.1
@@ -3521,7 +3525,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_operand_or_mandatory_filters
@@ -3566,7 +3571,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_operand_or_mandatory_filters.1
@@ -3611,7 +3617,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_operand_or_mandatory_filters.2
@@ -3648,7 +3655,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_operand_or_mandatory_filters.3
@@ -3685,7 +3693,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_operand_or_person_filters
@@ -3734,7 +3743,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_operand_or_person_filters.1
