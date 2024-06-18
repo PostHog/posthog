@@ -170,10 +170,13 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
                         ;(payload as any).template_id = props.templateId
                     }
 
-                    if (!props.id) {
-                        return await api.hogFunctions.create(payload)
-                    }
-                    return await api.hogFunctions.update(props.id, payload)
+                    const res = props.id
+                        ? await api.hogFunctions.create(payload)
+                        : await api.hogFunctions.create(payload)
+
+                    lemonToast.success('Configuration saved')
+
+                    return res
                 } catch (e) {
                     const maybeValidationError = (e as any).data
                     if (maybeValidationError?.type === 'validation_error') {
