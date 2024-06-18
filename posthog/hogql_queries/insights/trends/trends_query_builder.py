@@ -88,7 +88,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             """
             SELECT
                 SUM(total) AS total,
-                if(ifNull(greaterOrEquals(row_number, {breakdown_limit}), 0), {other_label}, breakdown_value) AS breakdown_value
+                if(ifNull(greaterOrEquals(row_number, {breakdown_limit}), 0), {other_label}, toString(breakdown_value)) AS breakdown_value
             FROM
                 (
                     SELECT
@@ -394,7 +394,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                                 )),
                             arrayEnumerate(date)
                         ) as total,
-                        if(row_number >= {breakdown_limit}, {other_label}, breakdown_value) as breakdown_value
+                        if(row_number >= {breakdown_limit}, {other_label}, toString(breakdown_value)) as breakdown_value
                     FROM {outer_query}
                     WHERE breakdown_value IS NOT NULL
                     GROUP BY breakdown_value
