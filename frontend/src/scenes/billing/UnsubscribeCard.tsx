@@ -1,6 +1,5 @@
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
-import { WavingHog } from 'lib/components/hedgehogs'
 import { UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 
 import { BillingProductV2Type } from '~/types'
@@ -11,12 +10,26 @@ export const UnsubscribeCard = ({ product }: { product: BillingProductV2Type }):
     const { reportSurveyShown, setSurveyResponse } = useActions(billingProductLogic({ product }))
 
     return (
-        <div className="bg-bg-light p-5 border gap-4 rounded flex justify-start w-1/2">
+        <div className="p-5 gap-4 flex">
             <div className="">
-                <h3>You're subscribed to the paid plan</h3>
-                <p>
-                    You can downgrade to the free plan at any time. You will lose access to some features. Checkout more
-                    about our pricing on our{' '}
+                <h3>Need to take a break?</h3>
+                <p className="mb-2">
+                    Downgrade to the free plan at any time. You'll lose access to platform features and usage limits
+                    will apply immediately.
+                </p>
+                <p className="">
+                    Need to control your costs? Learn about ways to{' '}
+                    <Link
+                        to="https://posthog.com/docs/billing/estimating-usage-costs#how-to-reduce-your-posthog-costs?utm_source=app-unsubscribe"
+                        target="_blank"
+                    >
+                        reduce your bill
+                    </Link>{' '}
+                    or{' '}
+                    <Link to="mailto:sales@posthog.com?subject=Help%20reducing%20PostHog%20bill" target="_blank">
+                        chat with support.
+                    </Link>{' '}
+                    Check out more about our pricing on our{' '}
                     <Link to="https://posthog.com/pricing" target="_blank">
                         pricing page
                     </Link>
@@ -24,7 +37,8 @@ export const UnsubscribeCard = ({ product }: { product: BillingProductV2Type }):
                 </p>
                 <LemonButton
                     status="danger"
-                    type="primary"
+                    type="secondary"
+                    size="small"
                     onClick={() => {
                         setSurveyResponse(product.type, '$survey_response_1')
                         reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, product.type)
@@ -32,9 +46,6 @@ export const UnsubscribeCard = ({ product }: { product: BillingProductV2Type }):
                 >
                     Downgrade to free plan
                 </LemonButton>
-            </div>
-            <div className="flex justify-center items-center w-full">
-                <WavingHog className="h-32 w-32" />
             </div>
         </div>
     )

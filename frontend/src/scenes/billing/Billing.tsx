@@ -94,7 +94,7 @@ export function Billing(): JSX.Element {
     const products = billing?.products
     const platformAndSupportProduct = products?.find((product) => product.type === 'platform_and_support')
     return (
-        <div ref={ref} className="pb-60">
+        <div ref={ref}>
             {showLicenseDirectInput && (
                 <>
                     <Form logic={billingLogic} formKey="activateLicense" enableFormOnSubmit className="space-y-4">
@@ -289,11 +289,15 @@ export function Billing(): JSX.Element {
                         <BillingProduct product={x} />
                     </div>
                 ))}
-
-            <div>
+            <div className="pt-60">
                 {featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] &&
-                    billing?.subscription_level == 'paid' &&
-                    !!platformAndSupportProduct && <UnsubscribeCard product={platformAndSupportProduct} />}
+                billing?.subscription_level == 'paid' &&
+                !!platformAndSupportProduct ? (
+                    <>
+                        <LemonDivider />
+                        <UnsubscribeCard product={platformAndSupportProduct} />
+                    </>
+                ) : null}
             </div>
         </div>
     )
