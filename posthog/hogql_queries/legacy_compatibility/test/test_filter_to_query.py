@@ -1,5 +1,5 @@
 import pytest
-from posthog.hogql_queries.legacy_compatibility.filter_to_query import clean_hidden_legend_indexes, filter_to_query
+from posthog.hogql_queries.legacy_compatibility.filter_to_query import hidden_legend_keys_to_indexes, filter_to_query
 from posthog.schema import (
     ActionsNode,
     AggregationAxisFormat,
@@ -1623,14 +1623,14 @@ class TestCleanHiddenLegendIndexes(BaseTest):
     def test_converts_legend_keys(self):
         hidden_legend_keys = {"1": True, "2": False, 3: None, 4: True}
 
-        indexes = clean_hidden_legend_indexes(hidden_legend_keys)
+        indexes = hidden_legend_keys_to_indexes(hidden_legend_keys)
 
         self.assertEqual(indexes, [1, 4])
 
     def test_converts_missing_legend_keys(self):
         hidden_legend_keys = None
 
-        indexes = clean_hidden_legend_indexes(hidden_legend_keys)
+        indexes = hidden_legend_keys_to_indexes(hidden_legend_keys)
 
         self.assertEqual(indexes, None)
 
@@ -1641,6 +1641,6 @@ class TestCleanHiddenLegendIndexes(BaseTest):
             1: True,
         }
 
-        indexes = clean_hidden_legend_indexes(hidden_legend_keys)
+        indexes = hidden_legend_keys_to_indexes(hidden_legend_keys)
 
         self.assertEqual(indexes, [1])

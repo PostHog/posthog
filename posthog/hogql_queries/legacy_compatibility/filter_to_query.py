@@ -57,7 +57,7 @@ def clean_display(display: str):
         return display
 
 
-def clean_hidden_legend_indexes(hidden_legend_keys: dict | None) -> list[int] | None:
+def hidden_legend_keys_to_indexes(hidden_legend_keys: dict | None) -> list[int] | None:
     if hidden_legend_keys:
         return [int(k) for k, v in hidden_legend_keys.items() if re.match(r"^\d+$", str(k)) and v is True]
 
@@ -327,7 +327,7 @@ def _insight_filter(filter: dict):
             "trendsFilter": TrendsFilter(
                 smoothingIntervals=filter.get("smoothing_intervals"),
                 showLegend=filter.get("show_legend"),
-                hiddenLegendIndexes=clean_hidden_legend_indexes(filter.get("hidden_legend_keys")),
+                hiddenLegendIndexes=hidden_legend_keys_to_indexes(filter.get("hidden_legend_keys")),
                 aggregationAxisFormat=filter.get("aggregation_axis_format"),
                 aggregationAxisPrefix=filter.get("aggregation_axis_prefix"),
                 aggregationAxisPostfix=filter.get("aggregation_axis_postfix"),
@@ -360,7 +360,7 @@ def _insight_filter(filter: dict):
                 binCount=filter.get("bin_count"),
                 exclusions=[exlusion_entity_to_node(entity) for entity in filter.get("exclusions", [])],
                 layout=filter.get("layout"),
-                # hidden_legend_breakdowns: cleanHiddenLegendSeries(filter.get('hidden_legend_keys')),
+                # hidden_legend_breakdowns: hiddenLegendKeysToBreakdowns(filter.get('hidden_legend_keys')),
                 funnelAggregateByHogQL=filter.get("funnel_aggregate_by_hogql"),
             ),
         }
@@ -414,7 +414,7 @@ def _insight_filter(filter: dict):
         insight_filter = {
             "stickinessFilter": StickinessFilter(
                 showLegend=filter.get("show_legend"),
-                hiddenLegendIndexes=clean_hidden_legend_indexes(filter.get("hidden_legend_keys")),
+                hiddenLegendIndexes=hidden_legend_keys_to_indexes(filter.get("hidden_legend_keys")),
                 showValuesOnSeries=filter.get("show_values_on_series"),
             )
         }
