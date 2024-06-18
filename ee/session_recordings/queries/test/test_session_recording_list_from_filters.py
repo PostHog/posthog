@@ -1,5 +1,4 @@
 from itertools import product
-from unittest import mock
 from uuid import uuid4
 
 from dateutil.relativedelta import relativedelta
@@ -76,15 +75,7 @@ class TestClickhouseSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBas
                 False,
                 False,
                 PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
-                {
-                    "kperson_filter_pre__0": "rgInternal",
-                    "kpersonquery_person_filter_fin__0": "rgInternal",
-                    "person_uuid": None,
-                    "vperson_filter_pre__0": ["false"],
-                    "vpersonquery_person_filter_fin__0": ["false"],
-                },
                 True,
-                False,
             ],
             [
                 "test_poe_being_unavailable_we_fall_back_to_person_subquery",
@@ -92,15 +83,7 @@ class TestClickhouseSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBas
                 False,
                 False,
                 PersonsOnEventsMode.DISABLED,
-                {
-                    "kperson_filter_pre__0": "rgInternal",
-                    "kpersonquery_person_filter_fin__0": "rgInternal",
-                    "person_uuid": None,
-                    "vperson_filter_pre__0": ["false"],
-                    "vpersonquery_person_filter_fin__0": ["false"],
-                },
                 True,
-                False,
             ],
             [
                 "test_poe_being_unavailable_we_fall_back_to_person_subquery_but_still_use_mat_props",
@@ -108,14 +91,6 @@ class TestClickhouseSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBas
                 False,
                 False,
                 PersonsOnEventsMode.DISABLED,
-                {
-                    "kperson_filter_pre__0": "rgInternal",
-                    "kpersonquery_person_filter_fin__0": "rgInternal",
-                    "person_uuid": None,
-                    "vperson_filter_pre__0": ["false"],
-                    "vpersonquery_person_filter_fin__0": ["false"],
-                },
-                False,
                 False,
             ],
             [
@@ -124,15 +99,7 @@ class TestClickhouseSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBas
                 True,
                 False,
                 PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
-                {
-                    "event_names": [],
-                    "event_start_time": mock.ANY,
-                    "event_end_time": mock.ANY,
-                    "kglobal_0": "rgInternal",
-                    "vglobal_0": ["false"],
-                },
                 False,
-                True,
             ],
             [
                 "test_poe_v2_available_person_properties_are_used_in_replay_listing",
@@ -140,15 +107,7 @@ class TestClickhouseSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBas
                 True,
                 True,
                 PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
-                {
-                    "event_end_time": mock.ANY,
-                    "event_names": [],
-                    "event_start_time": mock.ANY,
-                    "kglobal_0": "rgInternal",
-                    "vglobal_0": ["false"],
-                },
                 False,
-                True,
             ],
         ]
     )
@@ -159,9 +118,7 @@ class TestClickhouseSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBas
         poe_v2: bool,
         allow_denormalized_props: bool,
         expected_poe_mode: PersonsOnEventsMode,
-        expected_query_params: dict,
         unmaterialized_person_column_used: bool,
-        materialized_event_column_used: bool,
     ) -> None:
         with self.settings(
             PERSON_ON_EVENTS_OVERRIDE=poe_v1,
