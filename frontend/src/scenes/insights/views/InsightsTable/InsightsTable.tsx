@@ -140,7 +140,7 @@ export function InsightsTable({
                     item={item}
                     canCheckUncheckSeries={canCheckUncheckSeries}
                     isMainInsightView={isMainInsightView}
-                    toggleVisibility={toggleVisibility}
+                    toggleHiddenLegendIndex={toggleHiddenLegendIndex}
                     formatItemBreakdownLabel={formatItemBreakdownLabel}
                 />
             ),
@@ -219,7 +219,9 @@ export function InsightsTable({
         <LemonTable
             id={isInDashboardContext ? insight.short_id : undefined}
             dataSource={
-                isLegend || isMainInsightView ? indexedResults : indexedResults.filter((r) => !hiddenLegendKeys?.[r.id])
+                isLegend || isMainInsightView
+                    ? indexedResults
+                    : indexedResults.filter((r) => !hiddenLegendIndexes?.includes(r.id))
             }
             embedded={embedded}
             columns={columns}
