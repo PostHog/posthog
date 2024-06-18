@@ -47,12 +47,13 @@ class SessionRecordingListFromFilters:
             min(s.min_first_timestamp) as start_time,
             max(s.max_last_timestamp) as end_time,
             dateDiff('SECOND', start_time, end_time) as duration,
+            argMinMerge(s.snapshot_source) as snapshot_source,
             argMinMerge(s.first_url) as first_url,
             sum(s.click_count),
             sum(s.keypress_count),
             sum(s.mouse_activity_count),
             sum(s.active_milliseconds)/1000 as active_seconds,
-            duration-active_seconds as inactive_seconds,
+            (duration - active_seconds) as inactive_seconds,
             sum(s.console_log_count) as console_log_count,
             sum(s.console_warn_count) as console_warn_count,
             sum(s.console_error_count) as console_error_count
@@ -272,6 +273,17 @@ class SessionRecordingListFromFilters:
                     right=ast.Constant(value=self._filter.recording_duration_filter.value),
                 ),
             )
+
+        # if self._filter.snapshot_source_filter:
+        #     print("Hello")
+        #     exprs.append(
+        #         ast.CompareOperation(
+        #             op=ast.CompareOperationOp.In,
+        #             left=ast.Constant(value="snapshot_source"),
+        #             # left=ast.Field(chain=["snapshot_source"]),
+        #             right=ast.Constant(value=self._filter.snapshot_source_filter),
+        #         ),
+        #     )
 
         return ast.And(exprs=exprs) if exprs else ast.Constant(value=True)
 

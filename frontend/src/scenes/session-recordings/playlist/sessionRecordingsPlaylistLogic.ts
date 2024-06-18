@@ -24,6 +24,7 @@ import {
     PropertyOperator,
     RecordingDurationFilter,
     RecordingFilters,
+    RecordingPlatformType,
     RecordingUniversalFilters,
     ReplayTabs,
     SessionRecordingId,
@@ -131,6 +132,7 @@ function convertUniversalFiltersToLegacyFilters(universalFilters: RecordingUnive
     const events: FilterType['events'] = []
     const actions: FilterType['actions'] = []
     let console_logs: FilterableLogLevel[] = []
+    let snapshot_source: RecordingPlatformType[] = []
     let console_search_query = ''
 
     filters.forEach((f) => {
@@ -144,6 +146,8 @@ function convertUniversalFiltersToLegacyFilters(universalFilters: RecordingUnive
                     console_logs = f.value as FilterableLogLevel[]
                 } else if (f.key === 'console_log_query') {
                     console_search_query = (f.value || '') as string
+                } else if (f.key === 'snapshot_source') {
+                    snapshot_source = f.value as RecordingPlatformType[]
                 }
             } else {
                 properties.push(f)
@@ -162,6 +166,7 @@ function convertUniversalFiltersToLegacyFilters(universalFilters: RecordingUnive
         duration_type_filter: durationFilter.key,
         console_search_query,
         console_logs,
+        snapshot_source,
         operand: nestedFilters.type,
     }
 }

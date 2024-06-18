@@ -83,7 +83,7 @@ export function OperatorValueSelect({
 
     const [operators, setOperators] = useState([] as Array<PropertyOperator>)
     useEffect(() => {
-        const limitedElementProperty = propkey === 'selector' || propkey === 'tag_name'
+        const limitedElementProperty = propkey === 'selector' || propkey === 'tag_name' || propkey === 'snapshot_source'
         const operatorMapping: Record<string, string> = chooseOperatorMap(
             limitedElementProperty ? PropertyType.Selector : propertyDefinition?.property_type
         )
@@ -110,9 +110,9 @@ export function OperatorValueSelect({
                         if (tentativeValidationError) {
                             setValidationError(tentativeValidationError)
                             return
-                        } else {
-                            setValidationError(null)
                         }
+                        setValidationError(null)
+
                         setCurrentOperator(newOperator)
                         if (isOperatorFlag(newOperator)) {
                             onChange(newOperator, newOperator)
@@ -151,9 +151,9 @@ export function OperatorValueSelect({
                             if (tentativeValidationError) {
                                 setValidationError(tentativeValidationError)
                                 return
-                            } else {
-                                setValidationError(null)
                             }
+                            setValidationError(null)
+
                             onChange(currentOperator || PropertyOperator.Exact, newValue)
                         }}
                         // open automatically only if new filter
