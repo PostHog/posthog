@@ -1,4 +1,4 @@
-name: Docker CI/CD
+name: Livestream Docker CI/CD
 
 on:
     push:
