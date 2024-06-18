@@ -25,7 +25,7 @@ jobs:
             - name: Check out livestream code
               uses: actions/checkout@v4
               with:
-                  sparse-checkout: 'rust/'
+                  sparse-checkout: 'livestream/'
                   sparse-checkout-cone-mode: false
 
             - name: Log in to the Container registry
