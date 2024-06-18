@@ -259,6 +259,7 @@ class Type(str, Enum):
     POSTHOG = "posthog"
     DATA_WAREHOUSE = "data_warehouse"
     VIEW = "view"
+    BATCH_EXPORT = "batch_export"
 
 
 class DatabaseSerializedFieldType(str, Enum):
@@ -2934,6 +2935,16 @@ class DataWarehouseNode(BaseModel):
     response: Optional[dict[str, Any]] = None
     table_name: str
     timestamp_field: str
+
+
+class DatabaseSchemaBatchExportTable(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    fields: dict[str, DatabaseSchemaField]
+    id: str
+    name: str
+    type: Literal["batch_export"] = "batch_export"
 
 
 class DatabaseSchemaDataWarehouseTable(BaseModel):
