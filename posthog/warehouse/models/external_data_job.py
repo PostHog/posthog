@@ -3,6 +3,7 @@ from django.db.models import Prefetch
 from django.conf import settings
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, UUIDModel, sane_repr
+from posthog.settings import TEST
 from posthog.warehouse.s3 import get_s3_client
 from uuid import UUID
 from posthog.warehouse.util import database_sync_to_async
@@ -35,6 +36,11 @@ class ExternalDataJob(CreatedMetaFields, UUIDModel):
         return f"team_{self.team_id}_{self.pipeline.source_type}_{str(self.schema_id)}".lower().replace("-", "_")
 
     def url_pattern_by_schema(self, schema: str) -> str:
+        if TEST:
+            return (
+                f"http://{settings.AIRBYTE_BUCKET_DOMAIN}/test-pipeline/{self.folder_path}/{schema.lower()}/*.parquet"
+            )
+
         return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/{self.folder_path}/{schema.lower()}/*.parquet"
 
     def delete_data_in_bucket(self) -> None:
