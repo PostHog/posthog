@@ -31,7 +31,11 @@ export enum OnboardingStepKey {
     PRODUCT_CONFIGURATION = 'configure',
     REVERSE_PROXY = 'proxy',
     INVITE_TEAMMATES = 'invite_teammates',
+    DASHBOARD_TEMPLATE = 'dashboard_template',
+    DASHBOARD_TEMPLATE_CONFIGURE = 'dashboard_template_configure',
 }
+
+export const breadcrumbExcludeSteps = [OnboardingStepKey.DASHBOARD_TEMPLATE_CONFIGURE]
 
 export const availableOnboardingProducts: AvailableOnboardingProducts = {
     [ProductKey.PRODUCT_ANALYTICS]: {

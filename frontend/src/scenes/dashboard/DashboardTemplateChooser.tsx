@@ -1,5 +1,6 @@
 import './DashboardTemplateChooser.scss'
 
+import { LemonTag } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { FallbackCoverImage } from 'lib/components/FallbackCoverImage/FallbackCoverImage'
@@ -14,7 +15,7 @@ import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
 import { DashboardTemplateType } from '~/types'
 
-export function DashboardTemplateChooser({ scope = 'default' }: DashboardTemplateProps): JSX.Element {
+export function DashboardTemplateChooser({ scope = 'default', onItemClick }: DashboardTemplateProps): JSX.Element {
     const templatesLogic = dashboardTemplatesLogic({ scope })
     const { allTemplates, allTemplatesLoading } = useValues(templatesLogic)
 
@@ -75,6 +76,7 @@ export function DashboardTemplateChooser({ scope = 'default' }: DashboardTemplat
                                         setActiveDashboardTemplate(template)
                                     }
                                 }
+                                onItemClick?.()
                             }}
                             index={index + 1}
                             data-attr="create-dashboard-from-template"
@@ -92,7 +94,7 @@ function TemplateItem({
     index,
     'data-attr': dataAttr,
 }: {
-    template: Pick<DashboardTemplateType, 'template_name' | 'dashboard_description' | 'image_url'>
+    template: Pick<DashboardTemplateType, 'template_name' | 'dashboard_description' | 'image_url' | 'tags'>
     onClick: () => void
     index: number
     'data-attr': string
@@ -114,6 +116,13 @@ function TemplateItem({
             </div>
 
             <h5 className="px-2 mb-1">{template?.template_name}</h5>
+            <div className="flex gap-x-1 px-2 mb-1">
+                {template.tags?.map((tag, index) => (
+                    <LemonTag key={index} type="option">
+                        {tag}
+                    </LemonTag>
+                ))}
+            </div>
             <div className="px-2 py-1 overflow-y-auto grow">
                 <p className={clsx('text-muted-alt text-xs', isHovering ? '' : 'line-clamp-2')}>
                     {template?.dashboard_description ?? ' '}

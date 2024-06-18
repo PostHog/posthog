@@ -17,6 +17,8 @@ import { OnboardingProductConfiguration } from './OnboardingProductConfiguration
 import { ProductConfigOption } from './onboardingProductConfigurationLogic'
 import { OnboardingProductIntroduction } from './OnboardingProductIntroduction'
 import { OnboardingReverseProxy } from './OnboardingReverseProxy'
+import { OnboardingDashboardTemplateConfigureStep } from './productAnalyticsSteps/DashboardTemplateConfigureStep'
+import { OnboardingDashboardTemplateSelectStep } from './productAnalyticsSteps/DashboardTemplateSelectStep'
 import { FeatureFlagsSDKInstructions } from './sdks/feature-flags/FeatureFlagsSDKInstructions'
 import { ProductAnalyticsSDKInstructions } from './sdks/product-analytics/ProductAnalyticsSDKInstructions'
 import { SDKs } from './sdks/SDKs'
@@ -81,7 +83,7 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
             steps = [...steps, BillingStep]
         }
         const inviteTeammatesStep = <OnboardingInviteTeammates stepKey={OnboardingStepKey.INVITE_TEAMMATES} />
-        steps = [...steps, inviteTeammatesStep]
+        steps = [...steps, inviteTeammatesStep].filter(Boolean)
         setAllSteps(steps)
     }
 
@@ -90,6 +92,7 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
 
 const ProductAnalyticsOnboarding = (): JSX.Element => {
     const { currentTeam } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const options: ProductConfigOption[] = [
         {
@@ -147,6 +150,12 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
                 stepKey={OnboardingStepKey.INSTALL}
             />
             <OnboardingProductConfiguration stepKey={OnboardingStepKey.PRODUCT_CONFIGURATION} options={options} />
+            {featureFlags[FEATURE_FLAGS.ONBOARDING_DASHBOARD_TEMPLATES] == 'test' ? (
+                <OnboardingDashboardTemplateSelectStep stepKey={OnboardingStepKey.DASHBOARD_TEMPLATE} />
+            ) : null}
+            {featureFlags[FEATURE_FLAGS.ONBOARDING_DASHBOARD_TEMPLATES] == 'test' ? (
+                <OnboardingDashboardTemplateConfigureStep stepKey={OnboardingStepKey.DASHBOARD_TEMPLATE_CONFIGURE} />
+            ) : null}
         </OnboardingWrapper>
     )
 }

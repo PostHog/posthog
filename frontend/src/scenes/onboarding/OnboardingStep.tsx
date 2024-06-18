@@ -5,7 +5,7 @@ import { supportLogic } from 'lib/components/Support/supportLogic'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
 import React from 'react'
 
-import { onboardingLogic, OnboardingStepKey, stepKeyToTitle } from './onboardingLogic'
+import { breadcrumbExcludeSteps, onboardingLogic, OnboardingStepKey, stepKeyToTitle } from './onboardingLogic'
 
 export const OnboardingStep = ({
     stepKey,
@@ -48,31 +48,33 @@ export const OnboardingStep = ({
                         className="flex items-center justify-start gap-x-3 px-2 shrink-0 w-full"
                         data-attr="onboarding-breadcrumbs"
                     >
-                        {onboardingStepKeys.map((stepName, idx) => {
-                            return (
-                                <React.Fragment key={`stepKey-${idx}`}>
-                                    <Link
-                                        className={`text-sm ${
-                                            currentOnboardingStep?.props.stepKey === stepName && 'font-bold'
-                                        } font-bold`}
-                                        data-text={stepKeyToTitle(stepName)}
-                                        key={stepName}
-                                        onClick={() => setStepKey(stepName)}
-                                    >
-                                        <span
+                        {onboardingStepKeys
+                            .filter((stepName) => !breadcrumbExcludeSteps.includes(stepName))
+                            .map((stepName, idx) => {
+                                return (
+                                    <React.Fragment key={`stepKey-${idx}`}>
+                                        <Link
                                             className={`text-sm ${
-                                                currentOnboardingStep?.props.stepKey !== stepName && 'text-muted'
-                                            }`}
+                                                currentOnboardingStep?.props.stepKey === stepName && 'font-bold'
+                                            } font-bold`}
+                                            data-text={stepKeyToTitle(stepName)}
+                                            key={stepName}
+                                            onClick={() => setStepKey(stepName)}
                                         >
-                                            {stepKeyToTitle(stepName)}
-                                        </span>
-                                    </Link>
-                                    {onboardingStepKeys.length > 1 && idx !== onboardingStepKeys.length - 1 && (
-                                        <IconChevronRight className="text-xl" />
-                                    )}
-                                </React.Fragment>
-                            )
-                        })}
+                                            <span
+                                                className={`text-sm ${
+                                                    currentOnboardingStep?.props.stepKey !== stepName && 'text-muted'
+                                                }`}
+                                            >
+                                                {stepKeyToTitle(stepName)}
+                                            </span>
+                                        </Link>
+                                        {onboardingStepKeys.length > 1 && idx !== onboardingStepKeys.length - 1 && (
+                                            <IconChevronRight className="text-xl" />
+                                        )}
+                                    </React.Fragment>
+                                )
+                            })}
                     </div>
                     <h1 className="font-bold m-0 mt-3 px-2">
                         {title || stepKeyToTitle(currentOnboardingStep?.props.stepKey)}

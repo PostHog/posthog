@@ -212,6 +212,7 @@ export const FEATURE_FLAGS = {
     ERROR_TRACKING: 'error-tracking', // owner: #team-replay
     SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE: 'settings-bounce-rate-page-view-mode', // owner: @robbie-c
     SURVEYS_BRANCHING_LOGIC: 'surveys-branching-logic', // owner: @jurajmajerik #team-feature-success
+    ONBOARDING_DASHBOARD_TEMPLATES: 'onboarding-dashboard-templates', // owner: @raquelmsmith
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

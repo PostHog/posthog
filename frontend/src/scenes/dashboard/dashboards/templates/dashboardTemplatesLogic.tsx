@@ -10,6 +10,7 @@ import type { dashboardTemplatesLogicType } from './dashboardTemplatesLogicType'
 export interface DashboardTemplateProps {
     // default is to present global templates _and_ those visible only in the current team
     scope?: 'default' | DashboardTemplateScope
+    onItemClick?: () => void
 }
 
 export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
