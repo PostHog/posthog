@@ -126,7 +126,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
         setIncludeIntro: (includeIntro: boolean) => ({ includeIntro }),
         setTeamPropertiesForProduct: (productKey: ProductKey) => ({ productKey }),
         setWaitForBilling: (waitForBilling: boolean) => ({ waitForBilling }),
-        goToNextStep: true,
+        goToNextStep: (numStepsToAdvance?: number) => ({ numStepsToAdvance }),
         goToPreviousStep: true,
         resetStepKey: true,
     }),
@@ -346,11 +346,11 @@ export const onboardingLogic = kea<onboardingLogicType>([
             }
             return [`/onboarding/${values.productKey}`, router.values.searchParams]
         },
-        goToNextStep: () => {
+        goToNextStep: ({ numStepsToAdvance }) => {
             const currentStepIndex = values.allOnboardingSteps.findIndex(
                 (step) => step.props.stepKey === values.stepKey
             )
-            const nextStep = values.allOnboardingSteps[currentStepIndex + 1]
+            const nextStep = values.allOnboardingSteps[currentStepIndex + (numStepsToAdvance || 1)]
             if (nextStep) {
                 return [
                     `/onboarding/${values.productKey}`,

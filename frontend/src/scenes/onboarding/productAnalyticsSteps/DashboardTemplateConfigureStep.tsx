@@ -9,7 +9,11 @@ export const OnboardingDashboardTemplateConfigureStep = ({
     stepKey?: OnboardingStepKey
 }): JSX.Element => {
     return (
-        <OnboardingStep title="Configure your template" stepKey={stepKey}>
+        <OnboardingStep
+            title="Configure your template"
+            stepKey={stepKey}
+            breadcrumbHighlightName={OnboardingStepKey.DASHBOARD_TEMPLATE}
+        >
             <p>Select the events or website elements that represent important parts of your funnel.</p>
             <DashboardTemplateVariables />
         </OnboardingStep>

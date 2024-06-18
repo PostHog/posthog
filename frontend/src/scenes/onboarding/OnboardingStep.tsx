@@ -19,6 +19,7 @@ export const OnboardingStep = ({
     continueText,
     continueOverride,
     hideHeader,
+    breadcrumbHighlightName,
 }: {
     stepKey: OnboardingStepKey
     title: string
@@ -31,6 +32,7 @@ export const OnboardingStep = ({
     continueText?: string
     continueOverride?: JSX.Element
     hideHeader?: boolean
+    breadcrumbHighlightName?: OnboardingStepKey
 }): JSX.Element => {
     const { hasNextStep, onboardingStepKeys, currentOnboardingStep } = useValues(onboardingLogic)
     const { completeOnboarding, goToNextStep, setStepKey } = useActions(onboardingLogic)
@@ -39,6 +41,7 @@ export const OnboardingStep = ({
     if (!stepKey) {
         throw new Error('stepKey is required in any OnboardingStep')
     }
+    const breadcrumbStepKeys = onboardingStepKeys.filter((stepKey) => !breadcrumbExcludeSteps.includes(stepKey))
 
     return (
         <>
@@ -48,33 +51,29 @@ export const OnboardingStep = ({
                         className="flex items-center justify-start gap-x-3 px-2 shrink-0 w-full"
                         data-attr="onboarding-breadcrumbs"
                     >
-                        {onboardingStepKeys
-                            .filter((stepName) => !breadcrumbExcludeSteps.includes(stepName))
-                            .map((stepName, idx) => {
-                                return (
-                                    <React.Fragment key={`stepKey-${idx}`}>
-                                        <Link
-                                            className={`text-sm ${
-                                                currentOnboardingStep?.props.stepKey === stepName && 'font-bold'
-                                            } font-bold`}
-                                            data-text={stepKeyToTitle(stepName)}
-                                            key={stepName}
-                                            onClick={() => setStepKey(stepName)}
-                                        >
-                                            <span
-                                                className={`text-sm ${
-                                                    currentOnboardingStep?.props.stepKey !== stepName && 'text-muted'
-                                                }`}
-                                            >
-                                                {stepKeyToTitle(stepName)}
-                                            </span>
-                                        </Link>
-                                        {onboardingStepKeys.length > 1 && idx !== onboardingStepKeys.length - 1 && (
-                                            <IconChevronRight className="text-xl" />
-                                        )}
-                                    </React.Fragment>
-                                )
-                            })}
+                        {breadcrumbStepKeys.map((stepName, idx) => {
+                            const highlightStep = [
+                                currentOnboardingStep?.props.stepKey,
+                                breadcrumbHighlightName,
+                            ].includes(stepName)
+                            return (
+                                <React.Fragment key={`stepKey-${idx}`}>
+                                    <Link
+                                        className={`text-sm ${highlightStep && 'font-bold'} font-bold`}
+                                        data-text={stepKeyToTitle(stepName)}
+                                        key={stepName}
+                                        onClick={() => setStepKey(stepName)}
+                                    >
+                                        <span className={`text-sm ${!highlightStep && 'text-muted'}`}>
+                                            {stepKeyToTitle(stepName)}
+                                        </span>
+                                    </Link>
+                                    {breadcrumbStepKeys.length > 1 && idx !== breadcrumbStepKeys.length - 1 && (
+                                        <IconChevronRight className="text-xl" />
+                                    )}
+                                </React.Fragment>
+                            )
+                        })}
                     </div>
                     <h1 className="font-bold m-0 mt-3 px-2">
                         {title || stepKeyToTitle(currentOnboardingStep?.props.stepKey)}
