@@ -188,7 +188,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', toString(breakdown_value)) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -220,6 +220,7 @@
         ORDER BY day_start ASC, breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY arraySum(total) DESC, breakdown_value ASC)
+  WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
@@ -293,25 +294,11 @@
                      max_bytes_before_external_group_by=0
   '''
 # ---
-# name: TestTrends.test_breakdown_by_group_props_person_on_events.3
-  '''
-  SELECT DISTINCT session_replay_events.session_id AS session_id
-  FROM session_replay_events
-  WHERE and(equals(session_replay_events.team_id, 2), ifNull(greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(21))), 0), in(session_replay_events.session_id, ['']))
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288
-  '''
-# ---
 # name: TestTrends.test_breakdown_by_group_props_with_person_filter_person_on_events
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', toString(breakdown_value)) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -343,6 +330,7 @@
         ORDER BY day_start ASC, breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY arraySum(total) DESC, breakdown_value ASC)
+  WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
@@ -355,52 +343,11 @@
                        max_bytes_before_external_group_by=0
   '''
 # ---
-# name: TestTrends.test_breakdown_by_group_props_with_person_filter_person_on_events.1
-  '''
-  SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
-         ifNull(toString(breakdown_value), '$$_posthog_breakdown_null_$$') AS breakdown_value
-  FROM
-    (SELECT sum(total) AS count,
-            day_start AS day_start,
-            breakdown_value AS breakdown_value
-     FROM
-       (SELECT count(e.uuid) AS total,
-               toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-               transform(ifNull(nullIf(toString(e__group_0.properties___industry), ''), '$$_posthog_breakdown_null_$$'), ['finance'], ['finance'], '$$_posthog_breakdown_other_$$') AS breakdown_value
-        FROM events AS e SAMPLE 1
-        LEFT JOIN
-          (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
-                  groups.group_type_index AS index,
-                  groups.group_key AS key
-           FROM groups
-           WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
-           GROUP BY groups.group_type_index,
-                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, 'key'), ''), 'null'), '^"|"$', ''), 'value'), 0), true)
-        GROUP BY day_start,
-                 breakdown_value)
-     GROUP BY day_start,
-              breakdown_value
-     ORDER BY day_start ASC, breakdown_value ASC)
-  GROUP BY breakdown_value
-  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
-           arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=1000000,
-                       max_expanded_ast_elements=1000000,
-                       max_query_size=524288
-  '''
-# ---
 # name: TestTrends.test_breakdown_filtering_with_properties_in_new_format
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', toString(breakdown_value)) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -424,6 +371,7 @@
         ORDER BY day_start ASC, breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY arraySum(total) DESC, breakdown_value ASC)
+  WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
@@ -440,7 +388,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', toString(breakdown_value)) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -464,6 +412,7 @@
         ORDER BY day_start ASC, breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY arraySum(total) DESC, breakdown_value ASC)
+  WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
@@ -476,89 +425,51 @@
                        max_bytes_before_external_group_by=0
   '''
 # ---
-# name: TestTrends.test_breakdown_filtering_with_properties_in_new_format.2
-  '''
-  SELECT toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', '')) AS value,
-         count(e.uuid) AS count
-  FROM events AS e
-  WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC')))), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Firefox'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Windows'), 0)), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Mac'), 0)))
-  GROUP BY value
-  ORDER BY count DESC, value DESC
-  LIMIT 26 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288
-  '''
-# ---
-# name: TestTrends.test_breakdown_filtering_with_properties_in_new_format.3
-  '''
-  SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
-         ifNull(toString(breakdown_value), '$$_posthog_breakdown_null_$$') AS breakdown_value
-  FROM
-    (SELECT sum(total) AS count,
-            day_start AS day_start,
-            breakdown_value AS breakdown_value
-     FROM
-       (SELECT count(e.uuid) AS total,
-               toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-               transform(ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$'), ['$$_posthog_breakdown_null_$$'], ['$$_posthog_breakdown_null_$$'], '$$_posthog_breakdown_other_$$') AS breakdown_value
-        FROM events AS e SAMPLE 1
-        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Firefox'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Windows'), 0)), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Mac'), 0), true)
-        GROUP BY day_start,
-                 breakdown_value)
-     GROUP BY day_start,
-              breakdown_value
-     ORDER BY day_start ASC, breakdown_value ASC)
-  GROUP BY breakdown_value
-  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
-           arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=1000000,
-                       max_expanded_ast_elements=1000000,
-                       max_query_size=524288
-  '''
-# ---
 # name: TestTrends.test_breakdown_weekly_active_users_aggregated
   '''
-  SELECT count(DISTINCT actor_id) AS total,
-         breakdown_value AS breakdown_value
+  SELECT sum(total) AS total,
+         if(ifNull(ifNull(greaterOrEquals(row_number, 26), 0), 0), '$$_posthog_breakdown_other_$$', toString(breakdown_value)) AS breakdown_value
   FROM
-    (SELECT d.timestamp AS timestamp,
-            e.actor_id AS actor_id,
-            e.breakdown_value AS breakdown_value
+    (SELECT total AS total,
+            breakdown_value AS breakdown_value,
+            row_number() OVER (
+                               ORDER BY total DESC) AS row_number
      FROM
-       (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS timestamp
-        FROM numbers(dateDiff('day', minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 00:00:00', 6, 'UTC'))), toIntervalDay(7)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC')))) AS numbers) AS d
-     CROSS JOIN
-       (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-               e__pdi.person_id AS actor_id,
-               ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
-        FROM events AS e SAMPLE 1
-        INNER JOIN
-          (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-                  person_distinct_id2.distinct_id AS distinct_id
-           FROM person_distinct_id2
-           WHERE equals(person_distinct_id2.team_id, 2)
-           GROUP BY person_distinct_id2.distinct_id
-           HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-        WHERE and(equals(e.team_id, 2), and(equals(e.event, '$pageview'), true), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC'))), 0))
-        GROUP BY timestamp, actor_id,
-                            breakdown_value) AS e
-     WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
-     GROUP BY d.timestamp,
-              e.actor_id,
-              e.breakdown_value
-     ORDER BY d.timestamp ASC)
-  WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC'))), 0))
+       (SELECT count(DISTINCT actor_id) AS total,
+               breakdown_value AS breakdown_value
+        FROM
+          (SELECT d.timestamp AS timestamp,
+                  e.actor_id AS actor_id,
+                  e.breakdown_value AS breakdown_value
+           FROM
+             (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS timestamp
+              FROM numbers(dateDiff('day', minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 00:00:00', 6, 'UTC'))), toIntervalDay(7)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC')))) AS numbers) AS d
+           CROSS JOIN
+             (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                     e__pdi.person_id AS actor_id,
+                     ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+              FROM events AS e SAMPLE 1
+              INNER JOIN
+                (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+                        person_distinct_id2.distinct_id AS distinct_id
+                 FROM person_distinct_id2
+                 WHERE equals(person_distinct_id2.team_id, 2)
+                 GROUP BY person_distinct_id2.distinct_id
+                 HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+              WHERE and(equals(e.team_id, 2), and(equals(e.event, '$pageview'), true), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC'))), 0))
+              GROUP BY timestamp, actor_id,
+                                  breakdown_value) AS e
+           WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
+           GROUP BY d.timestamp,
+                    e.actor_id,
+                    e.breakdown_value
+           ORDER BY d.timestamp ASC)
+        WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC'))), 0))
+        GROUP BY breakdown_value))
+  WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, total DESC,
+                                                                                                                                                                         breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -567,83 +478,53 @@
                        max_expanded_ast_elements=1000000,
                        max_query_size=524288,
                        max_bytes_before_external_group_by=0
-  '''
-# ---
-# name: TestTrends.test_breakdown_weekly_active_users_aggregated.1
-  '''
-  SELECT count(DISTINCT actor_id) AS total,
-         breakdown_value AS breakdown_value
-  FROM
-    (SELECT d.timestamp AS timestamp,
-            e.actor_id AS actor_id,
-            e.breakdown_value AS breakdown_value
-     FROM
-       (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS timestamp
-        FROM numbers(dateDiff('day', minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 00:00:00', 6, 'UTC'))), toIntervalDay(7)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC')))) AS numbers) AS d
-     CROSS JOIN
-       (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-               e__pdi.person_id AS actor_id,
-               transform(ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$'), ['val', 'bor'], ['val', 'bor'], '$$_posthog_breakdown_other_$$') AS breakdown_value
-        FROM events AS e SAMPLE 1
-        INNER JOIN
-          (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-                  person_distinct_id2.distinct_id AS distinct_id
-           FROM person_distinct_id2
-           WHERE equals(person_distinct_id2.team_id, 2)
-           GROUP BY person_distinct_id2.distinct_id
-           HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-        WHERE and(equals(e.team_id, 2), and(equals(e.event, '$pageview'), true), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC'))), 0))
-        GROUP BY timestamp, actor_id,
-                            breakdown_value) AS e
-     WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
-     GROUP BY d.timestamp,
-              e.actor_id,
-              e.breakdown_value
-     ORDER BY d.timestamp ASC)
-  WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC'))), 0))
-  GROUP BY breakdown_value
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=1000000,
-                       max_expanded_ast_elements=1000000,
-                       max_query_size=524288
   '''
 # ---
 # name: TestTrends.test_breakdown_weekly_active_users_aggregated_materialized
   '''
-  SELECT count(DISTINCT actor_id) AS total,
-         breakdown_value AS breakdown_value
+  SELECT sum(total) AS total,
+         if(ifNull(ifNull(greaterOrEquals(row_number, 26), 0), 0), '$$_posthog_breakdown_other_$$', toString(breakdown_value)) AS breakdown_value
   FROM
-    (SELECT d.timestamp AS timestamp,
-            e.actor_id AS actor_id,
-            e.breakdown_value AS breakdown_value
+    (SELECT total AS total,
+            breakdown_value AS breakdown_value,
+            row_number() OVER (
+                               ORDER BY total DESC) AS row_number
      FROM
-       (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS timestamp
-        FROM numbers(dateDiff('day', minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 00:00:00', 6, 'UTC'))), toIntervalDay(7)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC')))) AS numbers) AS d
-     CROSS JOIN
-       (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-               e__pdi.person_id AS actor_id,
-               ifNull(nullIf(toString(nullIf(nullIf(e.mat_key, ''), 'null')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
-        FROM events AS e SAMPLE 1
-        INNER JOIN
-          (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-                  person_distinct_id2.distinct_id AS distinct_id
-           FROM person_distinct_id2
-           WHERE equals(person_distinct_id2.team_id, 2)
-           GROUP BY person_distinct_id2.distinct_id
-           HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-        WHERE and(equals(e.team_id, 2), and(equals(e.event, '$pageview'), true), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC'))), 0))
-        GROUP BY timestamp, actor_id,
-                            breakdown_value) AS e
-     WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
-     GROUP BY d.timestamp,
-              e.actor_id,
-              e.breakdown_value
-     ORDER BY d.timestamp ASC)
-  WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC'))), 0))
+       (SELECT count(DISTINCT actor_id) AS total,
+               breakdown_value AS breakdown_value
+        FROM
+          (SELECT d.timestamp AS timestamp,
+                  e.actor_id AS actor_id,
+                  e.breakdown_value AS breakdown_value
+           FROM
+             (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS timestamp
+              FROM numbers(dateDiff('day', minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 00:00:00', 6, 'UTC'))), toIntervalDay(7)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC')))) AS numbers) AS d
+           CROSS JOIN
+             (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                     e__pdi.person_id AS actor_id,
+                     ifNull(nullIf(toString(nullIf(nullIf(e.mat_key, ''), 'null')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+              FROM events AS e SAMPLE 1
+              INNER JOIN
+                (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+                        person_distinct_id2.distinct_id AS distinct_id
+                 FROM person_distinct_id2
+                 WHERE equals(person_distinct_id2.team_id, 2)
+                 GROUP BY person_distinct_id2.distinct_id
+                 HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+              WHERE and(equals(e.team_id, 2), and(equals(e.event, '$pageview'), true), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC'))), 0))
+              GROUP BY timestamp, actor_id,
+                                  breakdown_value) AS e
+           WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
+           GROUP BY d.timestamp,
+                    e.actor_id,
+                    e.breakdown_value
+           ORDER BY d.timestamp ASC)
+        WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC'))), 0))
+        GROUP BY breakdown_value))
+  WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, total DESC,
+                                                                                                                                                                         breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -652,48 +533,6 @@
                        max_expanded_ast_elements=1000000,
                        max_query_size=524288,
                        max_bytes_before_external_group_by=0
-  '''
-# ---
-# name: TestTrends.test_breakdown_weekly_active_users_aggregated_materialized.1
-  '''
-  SELECT count(DISTINCT actor_id) AS total,
-         breakdown_value AS breakdown_value
-  FROM
-    (SELECT d.timestamp AS timestamp,
-            e.actor_id AS actor_id,
-            e.breakdown_value AS breakdown_value
-     FROM
-       (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS timestamp
-        FROM numbers(dateDiff('day', minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 00:00:00', 6, 'UTC'))), toIntervalDay(7)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC')))) AS numbers) AS d
-     CROSS JOIN
-       (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-               e__pdi.person_id AS actor_id,
-               transform(ifNull(nullIf(toString(nullIf(nullIf(e.mat_key, ''), 'null')), ''), '$$_posthog_breakdown_null_$$'), ['val', 'bor'], ['val', 'bor'], '$$_posthog_breakdown_other_$$') AS breakdown_value
-        FROM events AS e SAMPLE 1
-        INNER JOIN
-          (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-                  person_distinct_id2.distinct_id AS distinct_id
-           FROM person_distinct_id2
-           WHERE equals(person_distinct_id2.team_id, 2)
-           GROUP BY person_distinct_id2.distinct_id
-           HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-        WHERE and(equals(e.team_id, 2), and(equals(e.event, '$pageview'), true), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC'))), 0))
-        GROUP BY timestamp, actor_id,
-                            breakdown_value) AS e
-     WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
-     GROUP BY d.timestamp,
-              e.actor_id,
-              e.breakdown_value
-     ORDER BY d.timestamp ASC)
-  WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC'))), 0))
-  GROUP BY breakdown_value
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=1000000,
-                       max_expanded_ast_elements=1000000,
-                       max_query_size=524288
   '''
 # ---
 # name: TestTrends.test_breakdown_weekly_active_users_daily_based_on_action
@@ -720,7 +559,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', toString(breakdown_value)) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -781,6 +620,7 @@
         ORDER BY day_start ASC, breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY arraySum(total) DESC, breakdown_value ASC)
+  WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
@@ -793,81 +633,11 @@
                        max_bytes_before_external_group_by=0
   '''
 # ---
-# name: TestTrends.test_breakdown_weekly_active_users_daily_based_on_action.3
-  '''
-  SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
-         ifNull(toString(breakdown_value), '$$_posthog_breakdown_null_$$') AS breakdown_value
-  FROM
-    (SELECT sum(total) AS count,
-            day_start AS day_start,
-            breakdown_value AS breakdown_value
-     FROM
-       (SELECT counts AS total,
-               toStartOfDay(timestamp) AS day_start,
-               breakdown_value AS breakdown_value
-        FROM
-          (SELECT d.timestamp AS timestamp,
-                  count(DISTINCT e.actor_id) AS counts,
-                  e.breakdown_value AS breakdown_value
-           FROM
-             (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS timestamp
-              FROM numbers(dateDiff('day', minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(7)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC')))) AS numbers) AS d
-           CROSS JOIN
-             (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                     e__pdi.person_id AS actor_id,
-                     transform(ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$'), ['val'], ['val'], '$$_posthog_breakdown_other_$$') AS breakdown_value
-              FROM events AS e SAMPLE 1
-              INNER JOIN
-                (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-                        argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS e__pdi___person_id,
-                        person_distinct_id2.distinct_id AS distinct_id
-                 FROM person_distinct_id2
-                 WHERE equals(person_distinct_id2.team_id, 2)
-                 GROUP BY person_distinct_id2.distinct_id
-                 HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-              LEFT JOIN
-                (SELECT person.id AS id,
-                        replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name
-                 FROM person
-                 WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
-                                                                  (SELECT person.id AS id, max(person.version) AS version
-                                                                   FROM person
-                                                                   WHERE equals(person.team_id, 2)
-                                                                   GROUP BY person.id
-                                                                   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
-              WHERE and(equals(e.team_id, 2), and(and(equals(e.event, '$pageview'), and(or(ifNull(equals(e__pdi__person.properties___name, 'p1'), 0), ifNull(equals(e__pdi__person.properties___name, 'p2'), 0), ifNull(equals(e__pdi__person.properties___name, 'p3'), 0)), ifNull(in(e__pdi.person_id,
-                                                                                                                                                                                                                                                                                         (SELECT cohortpeople.person_id AS person_id
-                                                                                                                                                                                                                                                                                          FROM cohortpeople
-                                                                                                                                                                                                                                                                                          WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 2), equals(cohortpeople.version, 0)))), 0))), true), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), 0))
-              GROUP BY timestamp, actor_id,
-                                  breakdown_value) AS e
-           WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
-           GROUP BY d.timestamp,
-                    e.breakdown_value
-           ORDER BY d.timestamp ASC)
-        WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), 0)))
-     GROUP BY day_start,
-              breakdown_value
-     ORDER BY day_start ASC, breakdown_value ASC)
-  GROUP BY breakdown_value
-  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
-           arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=1000000,
-                       max_expanded_ast_elements=1000000,
-                       max_query_size=524288
-  '''
-# ---
 # name: TestTrends.test_breakdown_with_filter_groups_person_on_events
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', toString(breakdown_value)) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -899,6 +669,7 @@
         ORDER BY day_start ASC, breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY arraySum(total) DESC, breakdown_value ASC)
+  WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
@@ -909,47 +680,6 @@
                        max_expanded_ast_elements=1000000,
                        max_query_size=524288,
                        max_bytes_before_external_group_by=0
-  '''
-# ---
-# name: TestTrends.test_breakdown_with_filter_groups_person_on_events.1
-  '''
-  SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
-         ifNull(toString(breakdown_value), '$$_posthog_breakdown_null_$$') AS breakdown_value
-  FROM
-    (SELECT sum(total) AS count,
-            day_start AS day_start,
-            breakdown_value AS breakdown_value
-     FROM
-       (SELECT count(e.uuid) AS total,
-               toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-               transform(ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$'), ['uh', 'oh'], ['uh', 'oh'], '$$_posthog_breakdown_other_$$') AS breakdown_value
-        FROM events AS e SAMPLE 1
-        LEFT JOIN
-          (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
-                  groups.group_type_index AS index,
-                  groups.group_key AS key
-           FROM groups
-           WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
-           GROUP BY groups.group_type_index,
-                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), ifNull(equals(e__group_0.properties___industry, 'finance'), 0), true)
-        GROUP BY day_start,
-                 breakdown_value)
-     GROUP BY day_start,
-              breakdown_value
-     ORDER BY day_start ASC, breakdown_value ASC)
-  GROUP BY breakdown_value
-  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
-           arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=1000000,
-                       max_expanded_ast_elements=1000000,
-                       max_query_size=524288
   '''
 # ---
 # name: TestTrends.test_breakdown_with_filter_groups_person_on_events_v2
@@ -965,7 +695,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', toString(breakdown_value)) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -1004,6 +734,7 @@
         ORDER BY day_start ASC, breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY arraySum(total) DESC, breakdown_value ASC)
+  WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
@@ -1016,59 +747,11 @@
                        max_bytes_before_external_group_by=0
   '''
 # ---
-# name: TestTrends.test_breakdown_with_filter_groups_person_on_events_v2.2
-  '''
-  SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
-         ifNull(toString(breakdown_value), '$$_posthog_breakdown_null_$$') AS breakdown_value
-  FROM
-    (SELECT sum(total) AS count,
-            day_start AS day_start,
-            breakdown_value AS breakdown_value
-     FROM
-       (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
-               toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-               transform(ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$'), ['uh', 'oh'], ['uh', 'oh'], '$$_posthog_breakdown_other_$$') AS breakdown_value
-        FROM events AS e SAMPLE 1
-        LEFT OUTER JOIN
-          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                  person_distinct_id_overrides.distinct_id AS distinct_id
-           FROM person_distinct_id_overrides
-           WHERE equals(person_distinct_id_overrides.team_id, 2)
-           GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-        LEFT JOIN
-          (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
-                  groups.group_type_index AS index,
-                  groups.group_key AS key
-           FROM groups
-           WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
-           GROUP BY groups.group_type_index,
-                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), ifNull(equals(e__group_0.properties___industry, 'finance'), 0), true)
-        GROUP BY day_start,
-                 breakdown_value)
-     GROUP BY day_start,
-              breakdown_value
-     ORDER BY day_start ASC, breakdown_value ASC)
-  GROUP BY breakdown_value
-  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
-           arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=1000000,
-                       max_expanded_ast_elements=1000000,
-                       max_query_size=524288
-  '''
-# ---
 # name: TestTrends.test_dau_with_breakdown_filtering_with_sampling
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', toString(breakdown_value)) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -1099,6 +782,7 @@
         ORDER BY day_start ASC, breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY arraySum(total) DESC, breakdown_value ASC)
+  WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
@@ -1115,7 +799,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', toString(breakdown_value)) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -1146,6 +830,7 @@
         ORDER BY day_start ASC, breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY arraySum(total) DESC, breakdown_value ASC)
+  WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
@@ -1156,63 +841,6 @@
                        max_expanded_ast_elements=1000000,
                        max_query_size=524288,
                        max_bytes_before_external_group_by=0
-  '''
-# ---
-# name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.2
-  '''
-  SELECT toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')) AS value,
-         count(e.uuid) AS count
-  FROM events AS e
-  WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC')))), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up')))
-  GROUP BY value
-  ORDER BY count DESC, value DESC
-  LIMIT 26 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288
-  '''
-# ---
-# name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.3
-  '''
-  SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
-         ifNull(toString(breakdown_value), '$$_posthog_breakdown_null_$$') AS breakdown_value
-  FROM
-    (SELECT sum(total) AS count,
-            day_start AS day_start,
-            breakdown_value AS breakdown_value
-     FROM
-       (SELECT count(DISTINCT e__pdi.person_id) AS total,
-               toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-               transform(ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$'), ['other_value', '$$_posthog_breakdown_null_$$', 'value'], ['other_value', '$$_posthog_breakdown_null_$$', 'value'], '$$_posthog_breakdown_other_$$') AS breakdown_value
-        FROM events AS e SAMPLE 1.0
-        INNER JOIN
-          (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-                  person_distinct_id2.distinct_id AS distinct_id
-           FROM person_distinct_id2
-           WHERE equals(person_distinct_id2.team_id, 2)
-           GROUP BY person_distinct_id2.distinct_id
-           HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), true)
-        GROUP BY day_start,
-                 breakdown_value)
-     GROUP BY day_start,
-              breakdown_value
-     ORDER BY day_start ASC, breakdown_value ASC)
-  GROUP BY breakdown_value
-  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
-           arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=1000000,
-                       max_expanded_ast_elements=1000000,
-                       max_query_size=524288
   '''
 # ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort
@@ -1518,7 +1146,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', toString(breakdown_value)) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -1577,6 +1205,7 @@
         ORDER BY day_start ASC, breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY arraySum(total) DESC, breakdown_value ASC)
+  WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
@@ -1589,79 +1218,11 @@
                        max_bytes_before_external_group_by=0
   '''
 # ---
-# name: TestTrends.test_mau_with_breakdown_filtering_and_prop_filter.1
-  '''
-  SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
-         ifNull(toString(breakdown_value), '$$_posthog_breakdown_null_$$') AS breakdown_value
-  FROM
-    (SELECT sum(total) AS count,
-            day_start AS day_start,
-            breakdown_value AS breakdown_value
-     FROM
-       (SELECT counts AS total,
-               toStartOfDay(timestamp) AS day_start,
-               breakdown_value AS breakdown_value
-        FROM
-          (SELECT d.timestamp AS timestamp,
-                  count(DISTINCT e.actor_id) AS counts,
-                  e.breakdown_value AS breakdown_value
-           FROM
-             (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS timestamp
-              FROM numbers(dateDiff('day', minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(30)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC')))) AS numbers) AS d
-           CROSS JOIN
-             (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                     e__pdi.person_id AS actor_id,
-                     transform(ifNull(nullIf(toString(e__pdi__person.`properties___$some_prop`), ''), '$$_posthog_breakdown_null_$$'), ['some_val2', 'some_val'], ['some_val2', 'some_val'], '$$_posthog_breakdown_other_$$') AS breakdown_value
-              FROM events AS e SAMPLE 1
-              INNER JOIN
-                (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-                        argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS e__pdi___person_id,
-                        person_distinct_id2.distinct_id AS distinct_id
-                 FROM person_distinct_id2
-                 WHERE equals(person_distinct_id2.team_id, 2)
-                 GROUP BY person_distinct_id2.distinct_id
-                 HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-              LEFT JOIN
-                (SELECT person.id AS id,
-                        replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS `properties___$some_prop`,
-                        replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'filter_prop'), ''), 'null'), '^"|"$', '') AS properties___filter_prop
-                 FROM person
-                 WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
-                                                                  (SELECT person.id AS id, max(person.version) AS version
-                                                                   FROM person
-                                                                   WHERE equals(person.team_id, 2)
-                                                                   GROUP BY person.id
-                                                                   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
-              WHERE and(equals(e.team_id, 2), and(equals(e.event, 'sign up'), ifNull(equals(e__pdi__person.properties___filter_prop, 'filter_val'), 0), true), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), toIntervalDay(30))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
-              GROUP BY timestamp, actor_id,
-                                  breakdown_value) AS e
-           WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(29))), 0))
-           GROUP BY d.timestamp,
-                    e.breakdown_value
-           ORDER BY d.timestamp ASC)
-        WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0)))
-     GROUP BY day_start,
-              breakdown_value
-     ORDER BY day_start ASC, breakdown_value ASC)
-  GROUP BY breakdown_value
-  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
-           arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=1000000,
-                       max_expanded_ast_elements=1000000,
-                       max_query_size=524288
-  '''
-# ---
 # name: TestTrends.test_mau_with_breakdown_filtering_and_prop_filter_poe_v2
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', toString(breakdown_value)) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -1708,6 +1269,7 @@
         ORDER BY day_start ASC, breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY arraySum(total) DESC, breakdown_value ASC)
+  WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
@@ -1718,62 +1280,6 @@
                        max_expanded_ast_elements=1000000,
                        max_query_size=524288,
                        max_bytes_before_external_group_by=0
-  '''
-# ---
-# name: TestTrends.test_mau_with_breakdown_filtering_and_prop_filter_poe_v2.1
-  '''
-  SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
-         ifNull(toString(breakdown_value), '$$_posthog_breakdown_null_$$') AS breakdown_value
-  FROM
-    (SELECT sum(total) AS count,
-            day_start AS day_start,
-            breakdown_value AS breakdown_value
-     FROM
-       (SELECT counts AS total,
-               toStartOfDay(timestamp) AS day_start,
-               breakdown_value AS breakdown_value
-        FROM
-          (SELECT d.timestamp AS timestamp,
-                  count(DISTINCT e.actor_id) AS counts,
-                  e.breakdown_value AS breakdown_value
-           FROM
-             (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS timestamp
-              FROM numbers(dateDiff('day', minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(30)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC')))) AS numbers) AS d
-           CROSS JOIN
-             (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                     if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
-                     transform(ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, '$some_prop'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$'), ['some_val2', 'some_val'], ['some_val2', 'some_val'], '$$_posthog_breakdown_other_$$') AS breakdown_value
-              FROM events AS e SAMPLE 1
-              LEFT OUTER JOIN
-                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                        person_distinct_id_overrides.distinct_id AS distinct_id
-                 FROM person_distinct_id_overrides
-                 WHERE equals(person_distinct_id_overrides.team_id, 2)
-                 GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              WHERE and(equals(e.team_id, 2), and(equals(e.event, 'sign up'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, 'filter_prop'), ''), 'null'), '^"|"$', ''), 'filter_val'), 0), true), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), toIntervalDay(30))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
-              GROUP BY timestamp, actor_id,
-                                  breakdown_value) AS e
-           WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(29))), 0))
-           GROUP BY d.timestamp,
-                    e.breakdown_value
-           ORDER BY d.timestamp ASC)
-        WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0)))
-     GROUP BY day_start,
-              breakdown_value
-     ORDER BY day_start ASC, breakdown_value ASC)
-  GROUP BY breakdown_value
-  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
-           arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=1000000,
-                       max_expanded_ast_elements=1000000,
-                       max_query_size=524288
   '''
 # ---
 # name: TestTrends.test_non_deterministic_timezones
@@ -1827,7 +1333,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', toString(breakdown_value)) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -1861,6 +1367,7 @@
         ORDER BY day_start ASC, breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY arraySum(total) DESC, breakdown_value ASC)
+  WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
@@ -1871,49 +1378,6 @@
                        max_expanded_ast_elements=1000000,
                        max_query_size=524288,
                        max_bytes_before_external_group_by=0
-  '''
-# ---
-# name: TestTrends.test_person_filtering_in_cohort_in_action.3
-  '''
-  SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
-         ifNull(toString(breakdown_value), '$$_posthog_breakdown_null_$$') AS breakdown_value
-  FROM
-    (SELECT sum(total) AS count,
-            day_start AS day_start,
-            breakdown_value AS breakdown_value
-     FROM
-       (SELECT count(e.uuid) AS total,
-               toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-               transform(ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$'), ['$$_posthog_breakdown_null_$$', 'value', 'other_value'], ['$$_posthog_breakdown_null_$$', 'value', 'other_value'], '$$_posthog_breakdown_other_$$') AS breakdown_value
-        FROM events AS e SAMPLE 1
-        INNER JOIN
-          (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-                  person_distinct_id2.distinct_id AS distinct_id
-           FROM person_distinct_id2
-           WHERE equals(person_distinct_id2.team_id, 2)
-           GROUP BY person_distinct_id2.distinct_id
-           HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), and(equals(e.event, 'sign up'), ifNull(in(e__pdi.person_id,
-                                                                                                                                                                                                                                                                                                                                                                   (SELECT cohortpeople.person_id AS person_id
-                                                                                                                                                                                                                                                                                                                                                                    FROM cohortpeople
-                                                                                                                                                                                                                                                                                                                                                                    WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 2), equals(cohortpeople.version, 0)))), 0)), true)
-        GROUP BY day_start,
-                 breakdown_value)
-     GROUP BY day_start,
-              breakdown_value
-     ORDER BY day_start ASC, breakdown_value ASC)
-  GROUP BY breakdown_value
-  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
-           arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=1000000,
-                       max_expanded_ast_elements=1000000,
-                       max_query_size=524288
   '''
 # ---
 # name: TestTrends.test_person_filtering_in_cohort_in_action_poe_v2
@@ -1940,7 +1404,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', toString(breakdown_value)) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -1974,6 +1438,7 @@
         ORDER BY day_start ASC, breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY arraySum(total) DESC, breakdown_value ASC)
+  WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
@@ -1984,49 +1449,6 @@
                        max_expanded_ast_elements=1000000,
                        max_query_size=524288,
                        max_bytes_before_external_group_by=0
-  '''
-# ---
-# name: TestTrends.test_person_filtering_in_cohort_in_action_poe_v2.3
-  '''
-  SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
-         ifNull(toString(breakdown_value), '$$_posthog_breakdown_null_$$') AS breakdown_value
-  FROM
-    (SELECT sum(total) AS count,
-            day_start AS day_start,
-            breakdown_value AS breakdown_value
-     FROM
-       (SELECT count(e.uuid) AS total,
-               toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-               transform(ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$'), ['$$_posthog_breakdown_null_$$', 'value', 'other_value'], ['$$_posthog_breakdown_null_$$', 'value', 'other_value'], '$$_posthog_breakdown_other_$$') AS breakdown_value
-        FROM events AS e SAMPLE 1
-        LEFT OUTER JOIN
-          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                  person_distinct_id_overrides.distinct_id AS distinct_id
-           FROM person_distinct_id_overrides
-           WHERE equals(person_distinct_id_overrides.team_id, 2)
-           GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), and(equals(e.event, 'sign up'), ifNull(in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
-                                                                                                                                                                                                                                                                                                                                                                   (SELECT cohortpeople.person_id AS person_id
-                                                                                                                                                                                                                                                                                                                                                                    FROM cohortpeople
-                                                                                                                                                                                                                                                                                                                                                                    WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 2), equals(cohortpeople.version, 0)))), 0)), true)
-        GROUP BY day_start,
-                 breakdown_value)
-     GROUP BY day_start,
-              breakdown_value
-     ORDER BY day_start ASC, breakdown_value ASC)
-  GROUP BY breakdown_value
-  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
-           arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=1000000,
-                       max_expanded_ast_elements=1000000,
-                       max_query_size=524288
   '''
 # ---
 # name: TestTrends.test_person_property_filtering
@@ -2601,7 +2023,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', toString(breakdown_value)) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -2632,6 +2054,7 @@
         ORDER BY day_start ASC, breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY arraySum(total) DESC, breakdown_value ASC)
+  WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
@@ -2642,46 +2065,6 @@
                        max_expanded_ast_elements=1000000,
                        max_query_size=524288,
                        max_bytes_before_external_group_by=0
-  '''
-# ---
-# name: TestTrends.test_timezones_daily.5
-  '''
-  SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
-         ifNull(toString(breakdown_value), '$$_posthog_breakdown_null_$$') AS breakdown_value
-  FROM
-    (SELECT sum(total) AS count,
-            day_start AS day_start,
-            breakdown_value AS breakdown_value
-     FROM
-       (SELECT count(DISTINCT e__pdi.person_id) AS total,
-               toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-               transform(ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$'), ['Mac'], ['Mac'], '$$_posthog_breakdown_other_$$') AS breakdown_value
-        FROM events AS e SAMPLE 1
-        INNER JOIN
-          (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-                  person_distinct_id2.distinct_id AS distinct_id
-           FROM person_distinct_id2
-           WHERE equals(person_distinct_id2.team_id, 2)
-           GROUP BY person_distinct_id2.distinct_id
-           HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), true)
-        GROUP BY day_start,
-                 breakdown_value)
-     GROUP BY day_start,
-              breakdown_value
-     ORDER BY day_start ASC, breakdown_value ASC)
-  GROUP BY breakdown_value
-  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
-           arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=1000000,
-                       max_expanded_ast_elements=1000000,
-                       max_query_size=524288
   '''
 # ---
 # name: TestTrends.test_timezones_daily_minus_utc
@@ -2823,7 +2206,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', toString(breakdown_value)) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'America/Phoenix'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'America/Phoenix'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'America/Phoenix'))))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -2854,6 +2237,7 @@
         ORDER BY day_start ASC, breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY arraySum(total) DESC, breakdown_value ASC)
+  WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
@@ -2864,46 +2248,6 @@
                        max_expanded_ast_elements=1000000,
                        max_query_size=524288,
                        max_bytes_before_external_group_by=0
-  '''
-# ---
-# name: TestTrends.test_timezones_daily_minus_utc.5
-  '''
-  SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'America/Phoenix'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'America/Phoenix'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'America/Phoenix'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
-         ifNull(toString(breakdown_value), '$$_posthog_breakdown_null_$$') AS breakdown_value
-  FROM
-    (SELECT sum(total) AS count,
-            day_start AS day_start,
-            breakdown_value AS breakdown_value
-     FROM
-       (SELECT count(DISTINCT e__pdi.person_id) AS total,
-               toStartOfDay(toTimeZone(e.timestamp, 'America/Phoenix')) AS day_start,
-               transform(ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$'), ['Mac'], ['Mac'], '$$_posthog_breakdown_other_$$') AS breakdown_value
-        FROM events AS e SAMPLE 1
-        INNER JOIN
-          (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-                  person_distinct_id2.distinct_id AS distinct_id
-           FROM person_distinct_id2
-           WHERE equals(person_distinct_id2.team_id, 2)
-           GROUP BY person_distinct_id2.distinct_id
-           HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'America/Phoenix')))), lessOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'America/Phoenix'))), equals(e.event, 'sign up'), true)
-        GROUP BY day_start,
-                 breakdown_value)
-     GROUP BY day_start,
-              breakdown_value
-     ORDER BY day_start ASC, breakdown_value ASC)
-  GROUP BY breakdown_value
-  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
-           arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=1000000,
-                       max_expanded_ast_elements=1000000,
-                       max_query_size=524288
   '''
 # ---
 # name: TestTrends.test_timezones_daily_plus_utc
@@ -3045,7 +2389,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', toString(breakdown_value)) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'Asia/Tokyo'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'Asia/Tokyo'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'Asia/Tokyo'))))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -3076,6 +2420,7 @@
         ORDER BY day_start ASC, breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY arraySum(total) DESC, breakdown_value ASC)
+  WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
@@ -3086,46 +2431,6 @@
                        max_expanded_ast_elements=1000000,
                        max_query_size=524288,
                        max_bytes_before_external_group_by=0
-  '''
-# ---
-# name: TestTrends.test_timezones_daily_plus_utc.5
-  '''
-  SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'Asia/Tokyo'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'Asia/Tokyo'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'Asia/Tokyo'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
-         ifNull(toString(breakdown_value), '$$_posthog_breakdown_null_$$') AS breakdown_value
-  FROM
-    (SELECT sum(total) AS count,
-            day_start AS day_start,
-            breakdown_value AS breakdown_value
-     FROM
-       (SELECT count(DISTINCT e__pdi.person_id) AS total,
-               toStartOfDay(toTimeZone(e.timestamp, 'Asia/Tokyo')) AS day_start,
-               transform(ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$'), ['Mac'], ['Mac'], '$$_posthog_breakdown_other_$$') AS breakdown_value
-        FROM events AS e SAMPLE 1
-        INNER JOIN
-          (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-                  person_distinct_id2.distinct_id AS distinct_id
-           FROM person_distinct_id2
-           WHERE equals(person_distinct_id2.team_id, 2)
-           GROUP BY person_distinct_id2.distinct_id
-           HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'Asia/Tokyo')))), lessOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'Asia/Tokyo'))), equals(e.event, 'sign up'), true)
-        GROUP BY day_start,
-                 breakdown_value)
-     GROUP BY day_start,
-              breakdown_value
-     ORDER BY day_start ASC, breakdown_value ASC)
-  GROUP BY breakdown_value
-  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
-           arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=1000000,
-                       max_expanded_ast_elements=1000000,
-                       max_query_size=524288
   '''
 # ---
 # name: TestTrends.test_timezones_hourly_relative_from
@@ -3477,7 +2782,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', toString(breakdown_value)) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-07-01 23:59:59', 6, 'UTC'))))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -3521,6 +2826,7 @@
         ORDER BY day_start ASC, breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY arraySum(total) DESC, breakdown_value ASC)
+  WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
@@ -3537,7 +2843,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', toString(breakdown_value)) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-07-01 23:59:59', 6, 'UTC'))))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -3581,6 +2887,7 @@
         ORDER BY day_start ASC, breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY arraySum(total) DESC, breakdown_value ASC)
+  WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
@@ -3591,96 +2898,6 @@
                        max_expanded_ast_elements=1000000,
                        max_query_size=524288,
                        max_bytes_before_external_group_by=0
-  '''
-# ---
-# name: TestTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns.2
-  '''
-  SELECT toString(e__pdi__person.properties___email) AS value,
-         count(e.uuid) AS count
-  FROM events AS e
-  INNER JOIN
-    (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS e__pdi___person_id,
-            argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-            person_distinct_id2.distinct_id AS distinct_id
-     FROM person_distinct_id2
-     WHERE equals(person_distinct_id2.team_id, 2)
-     GROUP BY person_distinct_id2.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-  LEFT JOIN
-    (SELECT person.id AS id,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$os'), ''), 'null'), '^"|"$', '') AS `properties___$os`,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
-     FROM person
-     WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
-                                                      (SELECT person.id AS id, max(person.version) AS version
-                                                       FROM person
-                                                       WHERE equals(person.team_id, 2)
-                                                       GROUP BY person.id
-                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
-  WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-07-01 23:59:59', 6, 'UTC')))), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-07-01 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), and(ifNull(equals(e__pdi__person.`properties___$os`, 'android'), 0), ifNull(equals(e__pdi__person.`properties___$browser`, 'chrome'), 0)), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', ''), 'val'), 0), ifNull(ilike(e__pdi__person.properties___email, '%@posthog.com%'), 0))))
-  GROUP BY value
-  ORDER BY count DESC, value DESC
-  LIMIT 26 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288
-  '''
-# ---
-# name: TestTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns.3
-  '''
-  SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-07-01 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
-         ifNull(toString(breakdown_value), '$$_posthog_breakdown_null_$$') AS breakdown_value
-  FROM
-    (SELECT sum(total) AS count,
-            day_start AS day_start,
-            breakdown_value AS breakdown_value
-     FROM
-       (SELECT count(e.uuid) AS total,
-               toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-               transform(ifNull(nullIf(toString(e__pdi__person.properties___email), ''), '$$_posthog_breakdown_null_$$'), ['test2@posthog.com'], ['test2@posthog.com'], '$$_posthog_breakdown_other_$$') AS breakdown_value
-        FROM events AS e SAMPLE 1
-        INNER JOIN
-          (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS e__pdi___person_id,
-                  argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-                  person_distinct_id2.distinct_id AS distinct_id
-           FROM person_distinct_id2
-           WHERE equals(person_distinct_id2.team_id, 2)
-           GROUP BY person_distinct_id2.distinct_id
-           HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-        LEFT JOIN
-          (SELECT person.id AS id,
-                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
-                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$os'), ''), 'null'), '^"|"$', '') AS `properties___$os`,
-                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
-           FROM person
-           WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
-                                                            (SELECT person.id AS id, max(person.version) AS version
-                                                             FROM person
-                                                             WHERE equals(person.team_id, 2)
-                                                             GROUP BY person.id
-                                                             HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
-        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-07-01 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), and(ifNull(equals(e__pdi__person.`properties___$os`, 'android'), 0), ifNull(equals(e__pdi__person.`properties___$browser`, 'chrome'), 0)), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', ''), 'val'), 0), ifNull(ilike(e__pdi__person.properties___email, '%@posthog.com%'), 0)), true)
-        GROUP BY day_start,
-                 breakdown_value)
-     GROUP BY day_start,
-              breakdown_value
-     ORDER BY day_start ASC, breakdown_value ASC)
-  GROUP BY breakdown_value
-  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
-           arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=1000000,
-                       max_expanded_ast_elements=1000000,
-                       max_query_size=524288
   '''
 # ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id
@@ -3759,7 +2976,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', toString(breakdown_value)) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-31 23:59:59', 6, 'UTC'))))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -3801,6 +3018,7 @@
         ORDER BY day_start ASC, breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY arraySum(total) DESC, breakdown_value ASC)
+  WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
@@ -3897,7 +3115,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', toString(breakdown_value)) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-31 23:59:59', 6, 'UTC'))))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -3921,6 +3139,7 @@
         ORDER BY day_start ASC, breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY arraySum(total) DESC, breakdown_value ASC)
+  WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
@@ -3931,56 +3150,6 @@
                        max_expanded_ast_elements=1000000,
                        max_query_size=524288,
                        max_bytes_before_external_group_by=0
-  '''
-# ---
-# name: TestTrends.test_trends_aggregate_by_distinct_id.6
-  '''
-  SELECT toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_prop'), ''), 'null'), '^"|"$', '')) AS value,
-         count(e.uuid) AS count
-  FROM events AS e
-  WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-31 23:59:59', 6, 'UTC')))), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-31 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up')))
-  GROUP BY value
-  ORDER BY count DESC, value DESC
-  LIMIT 26 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288
-  '''
-# ---
-# name: TestTrends.test_trends_aggregate_by_distinct_id.7
-  '''
-  SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-31 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
-         ifNull(toString(breakdown_value), '$$_posthog_breakdown_null_$$') AS breakdown_value
-  FROM
-    (SELECT sum(total) AS count,
-            day_start AS day_start,
-            breakdown_value AS breakdown_value
-     FROM
-       (SELECT count(DISTINCT e.distinct_id) AS total,
-               toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-               transform(ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_prop'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$'), ['$$_posthog_breakdown_null_$$'], ['$$_posthog_breakdown_null_$$'], '$$_posthog_breakdown_other_$$') AS breakdown_value
-        FROM events AS e SAMPLE 1
-        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-31 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), true)
-        GROUP BY day_start,
-                 breakdown_value)
-     GROUP BY day_start,
-              breakdown_value
-     ORDER BY day_start ASC, breakdown_value ASC)
-  GROUP BY breakdown_value
-  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
-           arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=1000000,
-                       max_expanded_ast_elements=1000000,
-                       max_query_size=524288
   '''
 # ---
 # name: TestTrends.test_trends_any_event_total_count
@@ -4041,7 +3210,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', toString(breakdown_value)) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
             arrayFill(x -> ifNull(greater(x, 0), 0), arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -4078,6 +3247,7 @@
         ORDER BY day_start ASC)
      GROUP BY breakdown_value
      ORDER BY arraySum(total) DESC, breakdown_value ASC)
+  WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
@@ -4090,57 +3260,11 @@
                        max_bytes_before_external_group_by=0
   '''
 # ---
-# name: TestTrends.test_trends_breakdown_cumulative.1
-  '''
-  SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayFill(x -> ifNull(greater(x, 0), 0), arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                                                                 and isNull(_match_date)), _days_for_count), _index), 1))), date)) AS total,
-         ifNull(toString(breakdown_value), '$$_posthog_breakdown_null_$$') AS breakdown_value
-  FROM
-    (SELECT day_start AS day_start,
-            sum(count) OVER (PARTITION BY breakdown_value
-                             ORDER BY day_start ASC) AS count,
-                            breakdown_value AS breakdown_value
-     FROM
-       (SELECT sum(total) AS count,
-               day_start AS day_start,
-               breakdown_value AS breakdown_value
-        FROM
-          (SELECT count(DISTINCT e__pdi.person_id) AS total,
-                  min(toStartOfDay(toTimeZone(e.timestamp, 'UTC'))) AS day_start,
-                  transform(ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$'), ['$$_posthog_breakdown_null_$$', 'value', 'other_value'], ['$$_posthog_breakdown_null_$$', 'value', 'other_value'], '$$_posthog_breakdown_other_$$') AS breakdown_value
-           FROM events AS e SAMPLE 1
-           INNER JOIN
-             (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-                     person_distinct_id2.distinct_id AS distinct_id
-              FROM person_distinct_id2
-              WHERE equals(person_distinct_id2.team_id, 2)
-              GROUP BY person_distinct_id2.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-           WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), true)
-           GROUP BY e__pdi.person_id,
-                    breakdown_value)
-        GROUP BY day_start,
-                 breakdown_value
-        ORDER BY day_start ASC, breakdown_value ASC)
-     ORDER BY day_start ASC)
-  GROUP BY breakdown_value
-  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
-           arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=1000000,
-                       max_expanded_ast_elements=1000000,
-                       max_query_size=524288
-  '''
-# ---
 # name: TestTrends.test_trends_breakdown_cumulative_poe_v2
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', toString(breakdown_value)) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
             arrayFill(x -> ifNull(greater(x, 0), 0), arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -4177,6 +3301,7 @@
         ORDER BY day_start ASC)
      GROUP BY breakdown_value
      ORDER BY arraySum(total) DESC, breakdown_value ASC)
+  WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
@@ -4189,57 +3314,11 @@
                        max_bytes_before_external_group_by=0
   '''
 # ---
-# name: TestTrends.test_trends_breakdown_cumulative_poe_v2.1
-  '''
-  SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayFill(x -> ifNull(greater(x, 0), 0), arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                                                                 and isNull(_match_date)), _days_for_count), _index), 1))), date)) AS total,
-         ifNull(toString(breakdown_value), '$$_posthog_breakdown_null_$$') AS breakdown_value
-  FROM
-    (SELECT day_start AS day_start,
-            sum(count) OVER (PARTITION BY breakdown_value
-                             ORDER BY day_start ASC) AS count,
-                            breakdown_value AS breakdown_value
-     FROM
-       (SELECT sum(total) AS count,
-               day_start AS day_start,
-               breakdown_value AS breakdown_value
-        FROM
-          (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
-                  min(toStartOfDay(toTimeZone(e.timestamp, 'UTC'))) AS day_start,
-                  transform(ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$'), ['$$_posthog_breakdown_null_$$', 'value', 'other_value'], ['$$_posthog_breakdown_null_$$', 'value', 'other_value'], '$$_posthog_breakdown_other_$$') AS breakdown_value
-           FROM events AS e SAMPLE 1
-           LEFT OUTER JOIN
-             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                     person_distinct_id_overrides.distinct_id AS distinct_id
-              FROM person_distinct_id_overrides
-              WHERE equals(person_distinct_id_overrides.team_id, 2)
-              GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-           WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), true)
-           GROUP BY if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
-                    breakdown_value)
-        GROUP BY day_start,
-                 breakdown_value
-        ORDER BY day_start ASC, breakdown_value ASC)
-     ORDER BY day_start ASC)
-  GROUP BY breakdown_value
-  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
-           arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=1000000,
-                       max_expanded_ast_elements=1000000,
-                       max_query_size=524288
-  '''
-# ---
 # name: TestTrends.test_trends_breakdown_normalize_url
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', toString(breakdown_value)) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
             arrayFill(x -> ifNull(greater(x, 0), 0), arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -4278,6 +3357,7 @@
         ORDER BY day_start ASC)
      GROUP BY breakdown_value
      ORDER BY arraySum(total) DESC, breakdown_value ASC)
+  WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
@@ -4290,74 +3370,38 @@
                        max_bytes_before_external_group_by=0
   '''
 # ---
-# name: TestTrends.test_trends_breakdown_normalize_url.1
-  '''
-  SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayFill(x -> ifNull(greater(x, 0), 0), arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                                                                 and isNull(_match_date)), _days_for_count), _index), 1))), date)) AS total,
-         ifNull(toString(breakdown_value), '$$_posthog_breakdown_null_$$') AS breakdown_value
-  FROM
-    (SELECT day_start AS day_start,
-            sum(count) OVER (PARTITION BY breakdown_value
-                             ORDER BY day_start ASC) AS count,
-                            breakdown_value AS breakdown_value
-     FROM
-       (SELECT sum(total) AS count,
-               day_start AS day_start,
-               breakdown_value AS breakdown_value
-        FROM
-          (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
-                  min(toStartOfDay(toTimeZone(e.timestamp, 'UTC'))) AS day_start,
-                  transform(ifNull(nullIf(toString(if(empty(trim(TRAILING '/?#'
-                                                                 FROM replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''))), '/', trim(TRAILING '/?#'
-                                                                                                                                                                                           FROM replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', '')))), ''), '$$_posthog_breakdown_null_$$'), ['http://hogflix/first', 'http://hogflix/second'], ['http://hogflix/first', 'http://hogflix/second'], '$$_posthog_breakdown_other_$$') AS breakdown_value
-           FROM events AS e SAMPLE 1
-           LEFT OUTER JOIN
-             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                     person_distinct_id_overrides.distinct_id AS distinct_id
-              FROM person_distinct_id_overrides
-              WHERE equals(person_distinct_id_overrides.team_id, 2)
-              GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-           WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), true)
-           GROUP BY if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
-                    breakdown_value)
-        GROUP BY day_start,
-                 breakdown_value
-        ORDER BY day_start ASC, breakdown_value ASC)
-     ORDER BY day_start ASC)
-  GROUP BY breakdown_value
-  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
-           arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=1000000,
-                       max_expanded_ast_elements=1000000,
-                       max_query_size=524288
-  '''
-# ---
 # name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown
   '''
-  SELECT quantile(0.5)(session_duration) AS total,
-         breakdown_value AS breakdown_value
+  SELECT sum(total) AS total,
+         if(ifNull(ifNull(greaterOrEquals(row_number, 26), 0), 0), '$$_posthog_breakdown_other_$$', toString(breakdown_value)) AS breakdown_value
   FROM
-    (SELECT any(e__session.`$session_duration`) AS session_duration,
-            ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
-     FROM events AS e SAMPLE 1
-     LEFT JOIN
-       (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
-               sessions.session_id AS session_id
-        FROM sessions
-        WHERE and(equals(sessions.team_id, 2), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
-        GROUP BY sessions.session_id,
-                 sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
-     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), true)
-     GROUP BY e.`$session_id`,
-              breakdown_value
-     ORDER BY 1 DESC, breakdown_value DESC)
+    (SELECT total AS total,
+            breakdown_value AS breakdown_value,
+            row_number() OVER (
+                               ORDER BY total DESC) AS row_number
+     FROM
+       (SELECT quantile(0.5)(session_duration) AS total,
+               breakdown_value AS breakdown_value
+        FROM
+          (SELECT any(e__session.`$session_duration`) AS session_duration,
+                  ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+           FROM events AS e SAMPLE 1
+           LEFT JOIN
+             (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
+                     sessions.session_id AS session_id
+              FROM sessions
+              WHERE and(equals(sessions.team_id, 2), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
+              GROUP BY sessions.session_id,
+                       sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
+           WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), true)
+           GROUP BY e.`$session_id`,
+                    breakdown_value
+           ORDER BY 1 DESC, breakdown_value DESC)
+        GROUP BY breakdown_value))
+  WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, total DESC,
+                                                                                                                                                                         breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -4370,24 +3414,36 @@
 # ---
 # name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown.1
   '''
-  SELECT quantile(0.5)(session_duration) AS total,
-         breakdown_value AS breakdown_value
+  SELECT sum(total) AS total,
+         if(ifNull(ifNull(greaterOrEquals(row_number, 26), 0), 0), '$$_posthog_breakdown_other_$$', toString(breakdown_value)) AS breakdown_value
   FROM
-    (SELECT any(e__session.`$session_duration`) AS session_duration,
-            ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
-     FROM events AS e SAMPLE 1
-     LEFT JOIN
-       (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
-               sessions.session_id AS session_id
-        FROM sessions
-        WHERE and(equals(sessions.team_id, 2), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
-        GROUP BY sessions.session_id,
-                 sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
-     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), true)
-     GROUP BY e.`$session_id`,
-              breakdown_value
-     ORDER BY 1 DESC, breakdown_value DESC)
+    (SELECT total AS total,
+            breakdown_value AS breakdown_value,
+            row_number() OVER (
+                               ORDER BY total DESC) AS row_number
+     FROM
+       (SELECT quantile(0.5)(session_duration) AS total,
+               breakdown_value AS breakdown_value
+        FROM
+          (SELECT any(e__session.`$session_duration`) AS session_duration,
+                  ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+           FROM events AS e SAMPLE 1
+           LEFT JOIN
+             (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
+                     sessions.session_id AS session_id
+              FROM sessions
+              WHERE and(equals(sessions.team_id, 2), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
+              GROUP BY sessions.session_id,
+                       sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
+           WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), true)
+           GROUP BY e.`$session_id`,
+                    breakdown_value
+           ORDER BY 1 DESC, breakdown_value DESC)
+        GROUP BY breakdown_value))
+  WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, total DESC,
+                                                                                                                                                                         breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -4396,58 +3452,6 @@
                        max_expanded_ast_elements=1000000,
                        max_query_size=524288,
                        max_bytes_before_external_group_by=0
-  '''
-# ---
-# name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown.2
-  '''
-  SELECT toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')) AS value,
-         max(e__session.`$session_duration`) AS count
-  FROM events AS e
-  LEFT JOIN
-    (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
-            sessions.session_id AS session_id
-     FROM sessions
-     WHERE and(equals(sessions.team_id, 2), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
-     GROUP BY sessions.session_id,
-              sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
-  WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC')))), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up')))
-  GROUP BY value
-  ORDER BY count DESC, value DESC
-  LIMIT 26 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288
-  '''
-# ---
-# name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown.3
-  '''
-  SELECT quantile(0.5)(session_duration) AS total,
-         breakdown_value AS breakdown_value
-  FROM
-    (SELECT any(e__session.`$session_duration`) AS session_duration,
-            transform(ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$'), ['value2', 'value1', '$$_posthog_breakdown_null_$$'], ['value2', 'value1', '$$_posthog_breakdown_null_$$'], '$$_posthog_breakdown_other_$$') AS breakdown_value
-     FROM events AS e SAMPLE 1
-     LEFT JOIN
-       (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
-               sessions.session_id AS session_id
-        FROM sessions
-        WHERE and(equals(sessions.team_id, 2), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
-        GROUP BY sessions.session_id,
-                 sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
-     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), true)
-     GROUP BY e.`$session_id`,
-              breakdown_value)
-  GROUP BY breakdown_value
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=1000000,
-                       max_expanded_ast_elements=1000000,
-                       max_query_size=524288
   '''
 # ---
 # name: TestTrends.test_trends_compare_day_interval_relative_range
@@ -4587,26 +3591,38 @@
 # ---
 # name: TestTrends.test_trends_count_per_user_average_aggregated_with_event_property_breakdown_with_sampling
   '''
-  SELECT total AS total,
-         breakdown_value AS breakdown_value
+  SELECT sum(total) AS total,
+         if(ifNull(ifNull(greaterOrEquals(row_number, 26), 0), 0), '$$_posthog_breakdown_other_$$', toString(breakdown_value)) AS breakdown_value
   FROM
-    (SELECT avg(total) AS total,
-            breakdown_value AS breakdown_value
+    (SELECT total AS total,
+            breakdown_value AS breakdown_value,
+            row_number() OVER (
+                               ORDER BY total DESC) AS row_number
      FROM
-       (SELECT count(e.uuid) AS total,
-               ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'color'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
-        FROM events AS e SAMPLE 1.0
-        INNER JOIN
-          (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-                  person_distinct_id2.distinct_id AS distinct_id
-           FROM person_distinct_id2
-           WHERE equals(person_distinct_id2.team_id, 2)
-           GROUP BY person_distinct_id2.distinct_id
-           HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-        WHERE and(equals(e.team_id, 2), and(equals(e.event, 'viewed video'), true), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')), toIntervalDay(0))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-07 23:59:59', 6, 'UTC'))))
-        GROUP BY e__pdi.person_id,
-                 breakdown_value)
-     GROUP BY breakdown_value)
+       (SELECT total AS total,
+               breakdown_value AS breakdown_value
+        FROM
+          (SELECT avg(total) AS total,
+                  breakdown_value AS breakdown_value
+           FROM
+             (SELECT count(e.uuid) AS total,
+                     ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'color'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+              FROM events AS e SAMPLE 1.0
+              INNER JOIN
+                (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+                        person_distinct_id2.distinct_id AS distinct_id
+                 FROM person_distinct_id2
+                 WHERE equals(person_distinct_id2.team_id, 2)
+                 GROUP BY person_distinct_id2.distinct_id
+                 HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+              WHERE and(equals(e.team_id, 2), and(equals(e.event, 'viewed video'), true), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')), toIntervalDay(0))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-07 23:59:59', 6, 'UTC'))))
+              GROUP BY e__pdi.person_id,
+                       breakdown_value)
+           GROUP BY breakdown_value)))
+  WHERE isNotNull(breakdown_value)
+  GROUP BY breakdown_value
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, total DESC,
+                                                                                                                                                                         breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -4615,37 +3631,6 @@
                        max_expanded_ast_elements=1000000,
                        max_query_size=524288,
                        max_bytes_before_external_group_by=0
-  '''
-# ---
-# name: TestTrends.test_trends_count_per_user_average_aggregated_with_event_property_breakdown_with_sampling.1
-  '''
-  SELECT total AS total,
-         breakdown_value AS breakdown_value
-  FROM
-    (SELECT avg(total) AS total,
-            breakdown_value AS breakdown_value
-     FROM
-       (SELECT count(e.uuid) AS total,
-               transform(ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'color'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$'), ['red', 'blue', '$$_posthog_breakdown_null_$$'], ['red', 'blue', '$$_posthog_breakdown_null_$$'], '$$_posthog_breakdown_other_$$') AS breakdown_value
-        FROM events AS e SAMPLE 1.0
-        INNER JOIN
-          (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-                  person_distinct_id2.distinct_id AS distinct_id
-           FROM person_distinct_id2
-           WHERE equals(person_distinct_id2.team_id, 2)
-           GROUP BY person_distinct_id2.distinct_id
-           HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-        WHERE and(equals(e.team_id, 2), and(equals(e.event, 'viewed video'), true), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')), toIntervalDay(0))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-07 23:59:59', 6, 'UTC'))))
-        GROUP BY e__pdi.person_id,
-                 breakdown_value)
-     GROUP BY breakdown_value)
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=1000000,
-                       max_expanded_ast_elements=1000000,
-                       max_query_size=524288
   '''
 # ---
 # name: TestTrends.test_trends_count_per_user_average_daily
@@ -4864,42 +3849,54 @@
 # ---
 # name: TestTrends.test_trends_person_breakdown_with_session_property_single_aggregate_math_and_breakdown
   '''
-  SELECT quantile(0.5)(session_duration) AS total,
-         breakdown_value AS breakdown_value
+  SELECT sum(total) AS total,
+         if(ifNull(ifNull(greaterOrEquals(row_number, 26), 0), 0), '$$_posthog_breakdown_other_$$', toString(breakdown_value)) AS breakdown_value
   FROM
-    (SELECT any(e__session.`$session_duration`) AS session_duration,
-            ifNull(nullIf(toString(e__pdi__person.`properties___$some_prop`), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
-     FROM events AS e SAMPLE 1
-     LEFT JOIN
-       (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
-               sessions.session_id AS session_id
-        FROM sessions
-        WHERE and(equals(sessions.team_id, 2), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
-        GROUP BY sessions.session_id,
-                 sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
-     INNER JOIN
-       (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS e__pdi___person_id,
-               argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-               person_distinct_id2.distinct_id AS distinct_id
-        FROM person_distinct_id2
-        WHERE equals(person_distinct_id2.team_id, 2)
-        GROUP BY person_distinct_id2.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-     LEFT JOIN
-       (SELECT person.id AS id,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS `properties___$some_prop`
-        FROM person
-        WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
-                                                         (SELECT person.id AS id, max(person.version) AS version
-                                                          FROM person
-                                                          WHERE equals(person.team_id, 2)
-                                                          GROUP BY person.id
-                                                          HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
-     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), true)
-     GROUP BY e.`$session_id`,
-              breakdown_value
-     ORDER BY 1 DESC, breakdown_value DESC)
+    (SELECT total AS total,
+            breakdown_value AS breakdown_value,
+            row_number() OVER (
+                               ORDER BY total DESC) AS row_number
+     FROM
+       (SELECT quantile(0.5)(session_duration) AS total,
+               breakdown_value AS breakdown_value
+        FROM
+          (SELECT any(e__session.`$session_duration`) AS session_duration,
+                  ifNull(nullIf(toString(e__pdi__person.`properties___$some_prop`), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+           FROM events AS e SAMPLE 1
+           LEFT JOIN
+             (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
+                     sessions.session_id AS session_id
+              FROM sessions
+              WHERE and(equals(sessions.team_id, 2), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
+              GROUP BY sessions.session_id,
+                       sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
+           INNER JOIN
+             (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS e__pdi___person_id,
+                     argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+                     person_distinct_id2.distinct_id AS distinct_id
+              FROM person_distinct_id2
+              WHERE equals(person_distinct_id2.team_id, 2)
+              GROUP BY person_distinct_id2.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+           LEFT JOIN
+             (SELECT person.id AS id,
+                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS `properties___$some_prop`
+              FROM person
+              WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
+                                                               (SELECT person.id AS id, max(person.version) AS version
+                                                                FROM person
+                                                                WHERE equals(person.team_id, 2)
+                                                                GROUP BY person.id
+                                                                HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
+           WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), true)
+           GROUP BY e.`$session_id`,
+                    breakdown_value
+           ORDER BY 1 DESC, breakdown_value DESC)
+        GROUP BY breakdown_value))
+  WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, total DESC,
+                                                                                                                                                                         breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -4908,52 +3905,6 @@
                        max_expanded_ast_elements=1000000,
                        max_query_size=524288,
                        max_bytes_before_external_group_by=0
-  '''
-# ---
-# name: TestTrends.test_trends_person_breakdown_with_session_property_single_aggregate_math_and_breakdown.1
-  '''
-  SELECT quantile(0.5)(session_duration) AS total,
-         breakdown_value AS breakdown_value
-  FROM
-    (SELECT any(e__session.`$session_duration`) AS session_duration,
-            transform(ifNull(nullIf(toString(e__pdi__person.`properties___$some_prop`), ''), '$$_posthog_breakdown_null_$$'), ['some_val', 'another_val'], ['some_val', 'another_val'], '$$_posthog_breakdown_other_$$') AS breakdown_value
-     FROM events AS e SAMPLE 1
-     LEFT JOIN
-       (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
-               sessions.session_id AS session_id
-        FROM sessions
-        WHERE and(equals(sessions.team_id, 2), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
-        GROUP BY sessions.session_id,
-                 sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
-     INNER JOIN
-       (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS e__pdi___person_id,
-               argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-               person_distinct_id2.distinct_id AS distinct_id
-        FROM person_distinct_id2
-        WHERE equals(person_distinct_id2.team_id, 2)
-        GROUP BY person_distinct_id2.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-     LEFT JOIN
-       (SELECT person.id AS id,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS `properties___$some_prop`
-        FROM person
-        WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
-                                                         (SELECT person.id AS id, max(person.version) AS version
-                                                          FROM person
-                                                          WHERE equals(person.team_id, 2)
-                                                          GROUP BY person.id
-                                                          HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
-     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), true)
-     GROUP BY e.`$session_id`,
-              breakdown_value)
-  GROUP BY breakdown_value
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=1000000,
-                       max_expanded_ast_elements=1000000,
-                       max_query_size=524288
   '''
 # ---
 # name: TestTrends.test_trends_with_hogql_math
@@ -5119,7 +4070,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', toString(breakdown_value)) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0), toIntervalWeek(number)), range(0, plus(coalesce(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC')), 0))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -5158,6 +4109,7 @@
         ORDER BY day_start ASC, breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY arraySum(total) DESC, breakdown_value ASC)
+  WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
@@ -5174,7 +4126,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', toString(breakdown_value)) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -5213,6 +4165,7 @@
         ORDER BY day_start ASC, breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY arraySum(total) DESC, breakdown_value ASC)
+  WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
@@ -5223,78 +4176,6 @@
                        max_expanded_ast_elements=1000000,
                        max_query_size=524288,
                        max_bytes_before_external_group_by=0
-  '''
-# ---
-# name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns.2
-  '''
-  SELECT toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')) AS value,
-         max(e__session.`$session_duration`) AS count
-  FROM events AS e
-  LEFT JOIN
-    (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
-            sessions.session_id AS session_id
-     FROM sessions
-     WHERE and(equals(sessions.team_id, 2), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
-     GROUP BY sessions.session_id,
-              sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
-  WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC')))), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up')))
-  GROUP BY value
-  ORDER BY count DESC, value DESC
-  LIMIT 26 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288
-  '''
-# ---
-# name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns.3
-  '''
-  SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
-         ifNull(toString(breakdown_value), '$$_posthog_breakdown_null_$$') AS breakdown_value
-  FROM
-    (SELECT sum(total) AS count,
-            day_start AS day_start,
-            breakdown_value AS breakdown_value
-     FROM
-       (SELECT quantile(0.5)(session_duration) AS total,
-               day_start AS day_start,
-               breakdown_value AS breakdown_value
-        FROM
-          (SELECT any(e__session.`$session_duration`) AS session_duration,
-                  transform(ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$'), ['value2', 'value1'], ['value2', 'value1'], '$$_posthog_breakdown_other_$$') AS breakdown_value,
-                  toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
-           FROM events AS e SAMPLE 1
-           LEFT JOIN
-             (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
-                     sessions.session_id AS session_id
-              FROM sessions
-              WHERE and(equals(sessions.team_id, 2), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
-              GROUP BY sessions.session_id,
-                       sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
-           WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), true)
-           GROUP BY day_start,
-                    e.`$session_id`,
-                    breakdown_value,
-                    day_start)
-        GROUP BY day_start,
-                 breakdown_value)
-     GROUP BY day_start,
-              breakdown_value
-     ORDER BY day_start ASC, breakdown_value ASC)
-  GROUP BY breakdown_value
-  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
-           arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=1000000,
-                       max_expanded_ast_elements=1000000,
-                       max_query_size=524288
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_aggregated_range_narrower_than_week
