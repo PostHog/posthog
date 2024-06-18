@@ -157,7 +157,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                     {/* eslint-disable-next-line react/forbid-dom-props */}
                     <div ref={editorRef} className="resize-y overflow-hidden" style={{ height: EDITOR_HEIGHT }}>
                         <CodeEditor
-                            logicKey={codeEditorKey}
+                            queryKey={codeEditorKey}
                             className="border rounded overflow-hidden h-full"
                             language="hogql"
                             value={queryInput}

@@ -1,9 +1,11 @@
 from django.conf import settings
+
+from posthog.hogql.bytecode import create_bytecode
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.hogql import translate_hogql
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_select, parse_program
 from posthog.hogql.printer import print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
 from posthog.hogql_queries.query_runner import get_query_runner
@@ -54,6 +56,9 @@ def get_hogql_metadata(
                 context=context,
                 dialect="clickhouse",
             )
+        elif isinstance(query.program, str):
+            program = parse_program(query.program)
+            create_bytecode(program, supported_functions={"fetch"}, args=[])
         else:
             raise ValueError("Either expr or select must be provided")
         response.warnings = context.warnings

@@ -4167,6 +4167,10 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "program": {
+                    "description": "Full Hog program",
+                    "type": "string"
+                },
                 "response": {
                     "$ref": "#/definitions/HogQLMetadataResponse"
                 },

@@ -345,6 +345,8 @@ export interface HogQLAutocompleteResponse {
 
 export interface HogQLMetadata extends DataNode<HogQLMetadataResponse> {
     kind: NodeKind.HogQLMetadata
+    /** Full Hog program */
+    program?: string
     /** Full select query to validate (use `select` or `expr`, but not both) */
     select?: string
     /** HogQL expression to validate (use `select` or `expr`, but not both) */

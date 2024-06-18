@@ -1,7 +1,7 @@
 import './CodeEditor.scss'
 
 import MonacoEditor, { type EditorProps, Monaco } from '@monaco-editor/react'
-import { useValues } from 'kea'
+import { useMountedLogic, useValues } from 'kea'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { hogQLAutocompleteProvider } from 'lib/monaco/hogQLAutocompleteProvider'
@@ -15,25 +15,27 @@ import { useEffect, useRef, useState } from 'react'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> {
-    logicKey?: string
+    queryKey?: string
 }
 let codeEditorIndex = 0
 
-export function CodeEditor({ logicKey, options, onMount, value, ...editorProps }: CodeEditorProps): JSX.Element {
+export function CodeEditor({ queryKey, options, onMount, value, ...editorProps }: CodeEditorProps): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
     const scrollbarRendering = !inStorybookTestRunner() ? 'auto' : 'hidden'
-    const [realKey] = useState(() => codeEditorIndex++)
     const [monacoAndEditor, setMonacoAndEditor] = useState(
         null as [Monaco, importedEditor.IStandaloneCodeEditor] | null
     )
     const [monaco, editor] = monacoAndEditor ?? []
+
+    const [realKey] = useState(() => codeEditorIndex++)
     const builtCodeEditorLogic = codeEditorLogic({
-        key: logicKey ?? `new/${realKey}`,
+        key: queryKey ?? `new/${realKey}`,
         query: value ?? '',
         language: editorProps.language,
         monaco: monaco,
         editor: editor,
     })
+    useMountedLogic(builtCodeEditorLogic)
 
     // Using useRef, not useState, as we don't want to reload the component when this changes.
     const monacoDisposables = useRef([] as IDisposable[])
@@ -75,6 +77,9 @@ export function CodeEditor({ logicKey, options, onMount, value, ...editorProps }
                         monaco.languages.setLanguageConfiguration('hog', hog.conf)
                         monaco.languages.setMonarchTokensProvider('hog', hog.language)
                     }
+                    monacoDisposables.current.push(
+                        monaco.languages.registerCodeActionProvider('hog', hogQLMetadataProvider(builtCodeEditorLogic))
+                    )
                 }
                 if (editorProps?.language === 'hogql') {
                     if (!monaco.languages.getLanguages().some(({ id }) => id === 'hogql')) {

@@ -1,5 +1,5 @@
 import type { Monaco } from '@monaco-editor/react'
-import { actions, kea, key, path, props, propsChanged, reducers, selectors } from 'kea'
+import { actions, kea, key, path, props, propsChanged, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 // Note: we can oly import types and not values from monaco-editor, because otherwise some Monaco code breaks
 // auto reload in development. Specifically, on this line:
@@ -34,36 +34,25 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
     path(['lib', 'monaco', 'hogQLMetadataProvider']),
     props({} as CodeEditorLogicProps),
     key((props) => props.key),
-    propsChanged(({ actions, props }, oldProps) => {
-        if (props.query !== oldProps.query || props.editor !== oldProps.editor) {
-            actions.setQuery(props.query)
-        }
-    }),
     actions({
-        setQuery: (query: string) => ({ query }),
+        reloadMetadata: true,
     }),
-    reducers(({ props }) => ({
-        query: [props.query, { setQuery: (_, { query }) => query }],
-    })),
-    loaders(({ props, values }) => ({
+    loaders(({ props }) => ({
         metadata: [
             null as null | [string, HogQLMetadataResponse],
             {
-                setQuery: async (_, breakpoint) => {
-                    if (!props.editor || !props.monaco) {
-                        return null
-                    }
+                reloadMetadata: async (_, breakpoint) => {
                     const model = props.editor?.getModel()
-                    if (!model) {
+                    if (!model || !props.monaco || (props.language !== 'hogql' && props.language !== 'hog')) {
                         return null
                     }
                     await breakpoint(300)
-                    const { query } = values
-                    const response = await performQuery<HogQLMetadata>({
-                        kind: NodeKind.HogQLMetadata,
-                        select: query,
-                        filters: props.metadataFilters,
-                    })
+                    const query = props.query
+                    const response = await performQuery<HogQLMetadata>(
+                        props.language === 'hogql'
+                            ? { kind: NodeKind.HogQLMetadata, select: query, filters: props.metadataFilters }
+                            : { kind: NodeKind.HogQLMetadata, program: query, filters: props.metadataFilters }
+                    )
                     breakpoint()
                     return [query, response]
                 },
@@ -72,7 +61,7 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
         modelMarkers: [
             [] as ModelMarker[],
             {
-                setQuerySuccess: ({ metadata }) => {
+                reloadMetadataSuccess: ({ metadata }) => {
                     const model = props.editor?.getModel()
                     if (!model || !metadata) {
                         return []
@@ -127,5 +116,14 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                     : null
             },
         ],
+    }),
+    propsChanged(({ actions, props }, oldProps) => {
+        if (
+            props.query !== oldProps.query ||
+            props.language !== oldProps.language ||
+            props.editor !== oldProps.editor
+        ) {
+            actions.reloadMetadata()
+        }
     }),
 ])

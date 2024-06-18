@@ -4446,6 +4446,7 @@ class HogQLMetadata(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    program: Optional[str] = Field(default=None, description="Full Hog program")
     response: Optional[HogQLMetadataResponse] = None
     select: Optional[str] = Field(
         default=None, description="Full select query to validate (use `select` or `expr`, but not both)"
