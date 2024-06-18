@@ -7,7 +7,6 @@ on:
         paths:
             - 'livestream/**'
             - '.github/workflows/livestream-docker-image.yml'
-    pull_request:
 
 jobs:
     build:
