@@ -329,7 +329,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
             actions.setBillingProductLoading(product.type)
             let products = `${product.type}:${plan?.plan_key}`
             if (
-                values.featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] &&
+                values.featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' &&
                 values.billing?.subscription_level == 'free'
             ) {
                 products += ',all_products:'

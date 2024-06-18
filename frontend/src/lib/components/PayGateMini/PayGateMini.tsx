@@ -240,7 +240,7 @@ const renderUsageLimitMessage = (
                             .
                         </p>
                     </>
-                ) : featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] &&
+                ) : featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' &&
                   billing?.subscription_level === 'free' &&
                   !isAddonProduct ? (
                     <p>Upgrade to our paid plan to create more {featureInfo.name}</p>
@@ -275,7 +275,10 @@ const renderGateVariantMessage = (
                 Subscribe to the <b>{productWithFeature?.name}</b> addon to use this feature.
             </>
         )
-    } else if (featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] && billing?.subscription_level === 'free') {
+    } else if (
+        featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' &&
+        billing?.subscription_level === 'free'
+    ) {
         return <>Upgrade to our paid plan to use this feature.</>
     }
 

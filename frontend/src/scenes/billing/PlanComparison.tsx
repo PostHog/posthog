@@ -127,7 +127,7 @@ export const PlanComparison = ({
     const { reportSurveyShown, setSurveyResponse } = useActions(billingProductLogic({ product }))
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const ctaAction = featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] ? 'Upgrade' : 'Subscribe'
+    const ctaAction = featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' ? 'Upgrade' : 'Subscribe'
     const upgradeButtons = plans?.map((plan, i) => {
         return (
             <td key={`${plan.plan_key}-cta`} className="PlanTable__td__upgradeButton">
@@ -192,7 +192,7 @@ export const PlanComparison = ({
                     <p className="text-center ml-0 mt-2 mb-0">
                         <Link
                             to={
-                                featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] &&
+                                featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' &&
                                 billing?.subscription_level === 'free'
                                     ? `/api/billing/activate?products=all_products:&redirect_path=${redirectPath}`
                                     : `/api/billing/activate?products=${product.type}:${plan.plan_key}&redirect_path=${redirectPath}`
@@ -239,7 +239,7 @@ export const PlanComparison = ({
                                     : plan.contact_support
                                     ? 'Custom'
                                     : plan.included_if == 'has_subscription'
-                                    ? featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS]
+                                    ? featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test'
                                         ? 'Usage-based - starting at $0'
                                         : 'Free, included with any product subscription'
                                     : '$0 per month'}

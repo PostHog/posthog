@@ -126,7 +126,7 @@ export function Billing(): JSX.Element {
             ) : null}
             {!billing?.has_active_subscription && (
                 <div className="mb-6">
-                    {featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] ? (
+                    {featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' ? (
                         platformAndSupportProduct ? (
                             <BillingCTAHero product={platformAndSupportProduct} />
                         ) : null
@@ -290,7 +290,7 @@ export function Billing(): JSX.Element {
                     </div>
                 ))}
             <div className="pt-60">
-                {featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] &&
+                {featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' &&
                 billing?.subscription_level == 'paid' &&
                 !!platformAndSupportProduct ? (
                     <>

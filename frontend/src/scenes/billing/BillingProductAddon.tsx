@@ -176,7 +176,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                                             )
                                         }
                                     >
-                                        {featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] &&
+                                        {featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' &&
                                         billing?.subscription_level === 'free'
                                             ? 'Upgrade and add'
                                             : 'Add'}

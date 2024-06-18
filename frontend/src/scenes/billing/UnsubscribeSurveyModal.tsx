@@ -32,7 +32,7 @@ export const UnsubscribeSurveyModal = ({
         billing?.subscription_level === 'paid'
 
     const subscribeToAllProductsAndPaid =
-        featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] && billing?.subscription_level === 'paid'
+        featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' && billing?.subscription_level === 'paid'
     let action = 'Unsubscribe'
     let actionVerb = 'unsubscribing'
     if (subscribeToAllProductsAndPaid) {
@@ -67,7 +67,7 @@ export const UnsubscribeSurveyModal = ({
                         disabledReason={includesPipelinesAddon && unsubscribeDisabledReason}
                         onClick={() => {
                             deactivateProduct(
-                                featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] &&
+                                featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' &&
                                     billing?.subscription_level === 'paid' &&
                                     !isAddonProduct
                                     ? 'all_products'

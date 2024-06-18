@@ -180,7 +180,7 @@ export const getUpgradeProductLink = ({
         url += `redirect_path=${redirectPath}&`
     }
 
-    if (featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] && subscriptionLevel == 'free') {
+    if (featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' && subscriptionLevel == 'free') {
         url += 'products=all_products:'
         return url
     }

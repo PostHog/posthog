@@ -36,7 +36,7 @@ export const OnboardingBillingStep = ({
 
     const [showPlanComp, setShowPlanComp] = useState(false)
 
-    const action = featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] ? 'Upgrade' : 'Subscribe'
+    const action = featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' ? 'Upgrade' : 'Subscribe'
     return (
         <OnboardingStep
             title="Plans"

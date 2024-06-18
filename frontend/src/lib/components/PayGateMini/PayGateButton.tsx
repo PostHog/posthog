@@ -58,7 +58,7 @@ const getCtaLink = (
     if (
         gateVariant === 'add-card' &&
         !isAddonProduct &&
-        featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] &&
+        featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' &&
         subscriptionLevel === 'free'
     ) {
         return `/api/billing/activate?products=all_products:&redirect_path=/`
@@ -79,7 +79,7 @@ const getCtaLabel = (
 ): string => {
     if (
         gateVariant === 'add-card' &&
-        featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] &&
+        featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' &&
         billing?.subscription_level === 'free'
     ) {
         return 'Upgrade now'

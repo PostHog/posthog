@@ -83,7 +83,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
     const showUpgradeCard =
         (upgradePlan?.product_key !== 'platform_and_support' || product?.addons?.length === 0) &&
         upgradePlan &&
-        (!featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] || billing?.subscription_level == 'custom')
+        (!featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' || billing?.subscription_level == 'custom')
 
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
