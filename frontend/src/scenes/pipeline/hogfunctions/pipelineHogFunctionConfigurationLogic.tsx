@@ -313,6 +313,10 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
                 })
             }
         },
+        setConfigurationValue: () => {
+            // Clear the manually set errors otherwise the submission won't work
+            actions.setConfigurationManualErrors({})
+        },
     })),
     afterMount(({ props, actions, cache }) => {
         if (props.templateId) {
