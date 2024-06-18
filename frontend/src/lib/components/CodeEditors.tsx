@@ -3,7 +3,8 @@ import './CodeEditor.scss'
 import MonacoEditor, { type EditorProps, Monaco } from '@monaco-editor/react'
 import { useValues } from 'kea'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { conf, language } from 'lib/monaco/hog'
+import * as hog from 'lib/monaco/hog'
+import * as hogQL from 'lib/monaco/hogql'
 import { inStorybookTestRunner } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
 import AutoSizer from 'react-virtualized/dist/es/AutoSizer'
@@ -17,8 +18,17 @@ function registerHog(monaco: Monaco): void {
         return
     }
     monaco.languages.register({ id: 'hog', extensions: ['.hog'], mimetypes: ['application/hog'] })
-    monaco.languages.setLanguageConfiguration('hog', conf)
-    monaco.languages.setMonarchTokensProvider('hog', language)
+    monaco.languages.setLanguageConfiguration('hog', hog.conf)
+    monaco.languages.setMonarchTokensProvider('hog', hog.language)
+}
+
+function registerHogQL(monaco: Monaco): void {
+    if (monaco.languages.getLanguages().some(({ id }) => id === 'hogql')) {
+        return
+    }
+    monaco.languages.register({ id: 'hogql', extensions: ['.sql', '.hogql'], mimetypes: ['application/hog+ql'] })
+    monaco.languages.setLanguageConfiguration('hogql', hogQL.conf)
+    monaco.languages.setMonarchTokensProvider('hogql', hogQL.language)
 }
 
 export function CodeEditor({ options, onMount, ...editorProps }: CodeEditorProps): JSX.Element {
@@ -51,6 +61,9 @@ export function CodeEditor({ options, onMount, ...editorProps }: CodeEditorProps
             onMount={(editor, monaco) => {
                 if (editorProps?.language === 'hog') {
                     registerHog(monaco)
+                }
+                if (editorProps?.language === 'hogql') {
+                    registerHogQL(monaco)
                 }
                 if (onMount) {
                     onMount(editor, monaco)

@@ -1,5 +1,8 @@
 // eslint-disable-next-line eslint-comments/disable-enable-pair
 /* eslint-disable no-useless-escape */
+
+// Adapted from: https://raw.githubusercontent.com/microsoft/monaco-editor/main/src/basic-languages/typescript/typescript.ts
+
 import { languages } from 'monaco-editor'
 export const conf: languages.LanguageConfiguration = {
     wordPattern: /(-?\d*\.\d\w*)|([^\`\~\!\@\#\%\^\&\*\(\)\-\=\+\[\{\]\}\\\|\;\:\'\"\,\.\<\>\/\?\s]+)/g,
