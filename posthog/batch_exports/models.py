@@ -199,7 +199,7 @@ class BatchExport(UUIDModel):
         raise ValueError(f"Invalid interval: '{self.interval}'")
 
 
-class BatchExportLogEntryLevel(str, enum.Enum):
+class BatchExportLogEntryLevel(enum.StrEnum):
     """Enumeration of batch export log levels."""
 
     DEBUG = "DEBUG"

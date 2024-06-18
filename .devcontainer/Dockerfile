@@ -1,3 +1,7 @@
+# hadolint global ignore=DL3004
+
+# hadolint doesn't like changes to this file, but it is only used for local dev
+
 # Defines the environment you're dropped into with codespaces
 # I've take
 # https://github.com/microsoft/vscode-dev-containers/blob/main/containers/python-3/.devcontainer/Dockerfile
