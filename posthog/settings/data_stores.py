@@ -305,6 +305,14 @@ REDIS_READER_URL = os.getenv("REDIS_READER_URL", None)
 # We should move away to a different communication channel and remove this.
 PLUGINS_RELOAD_REDIS_URL = os.getenv("PLUGINS_RELOAD_REDIS_URL", REDIS_URL)
 
+
+CDP_FUNCTION_EXECUTOR_API_URL = get_from_env("CDP_FUNCTION_EXECUTOR_API_URL", "")
+
+if not CDP_FUNCTION_EXECUTOR_API_URL:
+    CDP_FUNCTION_EXECUTOR_API_URL = (
+        "http://localhost:6738" if DEBUG else "http://ingestion-cdp-function-callbacks.posthog.svc.cluster.local"
+    )
+
 CACHES = {
     "default": {
         "BACKEND": "django_redis.cache.RedisCache",
