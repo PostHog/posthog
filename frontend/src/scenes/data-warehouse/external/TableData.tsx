@@ -229,7 +229,7 @@ export function DeleteTableModal({
 
     return (
         <LemonModal
-            title={`Delete ${capitalizeFirstLetter(subject)}?`}
+            title={`Delete ${subject}?`}
             onClose={() => setIsOpen(false)}
             footer={
                 <>
