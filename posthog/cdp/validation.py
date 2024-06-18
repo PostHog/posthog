@@ -101,5 +101,6 @@ def compile_hog(hog: str, supported_functions: Optional[set[str]] = None) -> lis
     try:
         program = parse_program(hog)
         return create_bytecode(program, supported_functions=supported_functions or {"fetch"})
-    except Exception:
+    except Exception as e:
+        logger.error(f"Failed to compile hog {e}", exc_info=True)
         raise serializers.ValidationError({"hog": "Hog code has errors."})
