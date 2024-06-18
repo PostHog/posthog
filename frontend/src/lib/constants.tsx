@@ -165,7 +165,6 @@ export const FEATURE_FLAGS = {
     PRODUCT_SPECIFIC_ONBOARDING: 'product-specific-onboarding', // owner: @raquelmsmith
     REDIRECT_SIGNUPS_TO_INSTANCE: 'redirect-signups-to-instance', // owner: @raquelmsmith
     APPS_AND_EXPORTS_UI: 'apps-and-exports-ui', // owner: @benjackwhite
-    HOGQL_INSIGHT_LIVE_COMPARE: 'hogql-insight-live-compare', // owner: @mariusandra
     HOGQL_DASHBOARD_CARDS: 'hogql-dashboard-cards', // owner: @thmsobrmlr
     HOGQL_DASHBOARD_ASYNC: 'hogql-dashboard-async', // owner: @webjunkie
     WEBHOOKS_DENYLIST: 'webhooks-denylist', // owner: #team-pipeline
@@ -200,7 +199,6 @@ export const FEATURE_FLAGS = {
     PLUGINS_FILTERING: 'plugins-filtering', // owner: @benjackwhite
     SESSION_REPLAY_HOG_QL_FILTERING: 'session-replay-hogql-filtering', // owner: #team-replay
     INSIGHT_LOADING_BAR: 'insight-loading-bar', // owner: @aspicer
-    SESSION_REPLAY_ARTIFICIAL_LAG: 'artificial-lag-query-performance', // owner: #team-replay
     PROXY_AS_A_SERVICE: 'proxy-as-a-service', // owner: #team-infrastructure
     LIVE_EVENTS: 'live-events', // owner: @zach or @jams
     SESSION_REPLAY_NETWORK_VIEW: 'session-replay-network-view', // owner: #team-replay

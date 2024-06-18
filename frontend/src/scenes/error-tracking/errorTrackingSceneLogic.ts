@@ -1,47 +1,22 @@
-import { afterMount, kea, path } from 'kea'
-import { loaders } from 'kea-loaders'
-import api from 'lib/api'
+import { actions, kea, path, reducers } from 'kea'
 
-import { HogQLQuery, NodeKind } from '~/queries/schema'
-import { hogql } from '~/queries/utils'
-import { ErrorTrackingGroup } from '~/types'
+import { ErrorTrackingOrder } from '~/queries/schema'
 
 import type { errorTrackingSceneLogicType } from './errorTrackingSceneLogicType'
 
 export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
     path(['scenes', 'error-tracking', 'errorTrackingSceneLogic']),
 
-    loaders(() => ({
-        errorGroups: [
-            [] as ErrorTrackingGroup[],
+    actions({
+        setOrder: (order: ErrorTrackingOrder) => ({ order }),
+    }),
+    reducers({
+        order: [
+            'last_seen' as ErrorTrackingOrder,
+            { persist: true },
             {
-                loadErrorGroups: async () => {
-                    const query: HogQLQuery = {
-                        kind: NodeKind.HogQLQuery,
-                        query: hogql`SELECT first_value(properties), count(), count(distinct properties.$session_id)
-                                FROM events e
-                                WHERE event = '$exception'
-                                -- grouping by message for now, will eventually be predefined $exception_group_id
-                                GROUP BY properties.$exception_message`,
-                    }
-
-                    const res = await api.query(query)
-
-                    return res.results.map((r) => {
-                        const eventProperties = JSON.parse(r[0])
-                        return {
-                            title: eventProperties['$exception_message'] || 'No message',
-                            sampleEventProperties: eventProperties,
-                            occurrences: r[2],
-                            uniqueSessions: r[3],
-                        }
-                    })
-                },
+                setOrder: (_, { order }) => order,
             },
         ],
-    })),
-
-    afterMount(({ actions }) => {
-        actions.loadErrorGroups()
     }),
 ])

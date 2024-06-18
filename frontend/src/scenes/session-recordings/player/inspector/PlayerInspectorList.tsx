@@ -3,7 +3,7 @@ import './PlayerInspectorList.scss'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import { range } from 'd3'
 import { useActions, useValues } from 'kea'
-import { PayGatePage } from 'lib/components/PayGatePage/PayGatePage'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { useEffect, useMemo, useRef } from 'react'
 import AutoSizer from 'react-virtualized/dist/es/AutoSizer'
@@ -40,15 +40,9 @@ function EmptyNetworkTab({
     const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
     return !captureNetworkFeatureAvailable ? (
         <div className="p-4">
-            <PayGatePage
-                featureKey={AvailableFeature.RECORDINGS_PERFORMANCE}
-                featureName="Network Performance"
-                header={
-                    <>
-                        Go deeper with <span className="highlight">Network Performance</span>!
-                    </>
-                }
-                caption="Understand what is happening with network requests during your recordings to identify slow pages, API errors and more."
+            <PayGateMini
+                feature={AvailableFeature.RECORDINGS_PERFORMANCE}
+                className="py-8"
                 docsLink="https://posthog.com/docs/user-guides/recordings"
             />
         </div>

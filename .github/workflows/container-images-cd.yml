@@ -83,17 +83,22 @@ jobs:
                   token: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Trigger PostHog Cloud deployment from Charts
-              uses: mvasigh/dispatch-action@main
+              uses: peter-evans/repository-dispatch@v3
               with:
                   token: ${{ steps.deployer.outputs.token }}
-                  repo: charts
-                  owner: PostHog
-                  event_type: posthog_deploy
-                  message: |
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
                       {
-                        "image_tag": "${{ steps.build.outputs.digest }}",
-                        "context": ${{ toJson(github) }},
-                        "github_labels": ${{ toJson(steps.labels.outputs.labels) }}
+                        "values": {
+                          "image": {
+                            "sha": "${{ steps.build.outputs.digest }}"
+                          }
+                        },
+                        "release": "posthog",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": ${{ toJson(github.repository) }},
+                        "labels": ${{ steps.labels.outputs.labels }}
                       }
 
             - name: Check for changes in plugins directory
@@ -103,16 +108,22 @@ jobs:
 
             - name: Trigger Ingestion Cloud deployment
               if: steps.check_changes_plugins.outputs.changed == 'true'
-              uses: mvasigh/dispatch-action@main
+              uses: peter-evans/repository-dispatch@v3
               with:
                   token: ${{ steps.deployer.outputs.token }}
-                  repo: charts
-                  owner: PostHog
-                  event_type: ingestion_deploy
-                  message: |
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
                       {
-                        "image_tag": "${{ steps.build.outputs.digest }}",
-                        "context": ${{ toJson(github) }}
+                        "values": {
+                          "image": {
+                            "sha": "${{ steps.build.outputs.digest }}"
+                          }
+                        },
+                        "release": "ingestion",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": ${{ toJson(github.repository) }},
+                        "labels": ${{ steps.labels.outputs.labels }}
                       }
 
             - name: Check for changes that affect batch exports temporal worker

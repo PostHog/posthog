@@ -632,6 +632,7 @@ HOGQL_FIELD_DLT_TYPE_MAP = {
 def get_dlt_mapping_for_external_table(table):
     return {
         field.name: {
+            "name": field.name,
             "data_type": HOGQL_FIELD_DLT_TYPE_MAP[type(field)],
             "nullable": True,
         }

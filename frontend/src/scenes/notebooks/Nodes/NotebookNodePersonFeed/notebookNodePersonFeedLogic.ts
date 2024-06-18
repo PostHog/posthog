@@ -1,7 +1,7 @@
 import { afterMount, kea, key, path, props } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { query } from '~/queries/query'
+import { performQuery } from '~/queries/query'
 import { NodeKind, SessionsTimelineQuery, SessionsTimelineQueryResponse } from '~/queries/schema'
 
 import type { notebookNodePersonFeedLogicType } from './notebookNodePersonFeedLogicType'
@@ -20,7 +20,7 @@ export const notebookNodePersonFeedLogic = kea<notebookNodePersonFeedLogicType>(
             null as SessionsTimelineQueryResponse['results'] | null,
             {
                 loadSessionsTimeline: async () => {
-                    const result = await query<SessionsTimelineQuery>({
+                    const result = await performQuery<SessionsTimelineQuery>({
                         kind: NodeKind.SessionsTimelineQuery,
                         personId: props.personId,
                     })

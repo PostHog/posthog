@@ -10,7 +10,6 @@ import {
     PostIngestionEvent,
     RawClickHouseEvent,
 } from '../types'
-import { status } from '../utils/status'
 import { chainToElements } from './db/elements-chain'
 import { personInitialAndUTMProperties, sanitizeString } from './db/utils'
 import {
@@ -214,7 +213,7 @@ export function normalizeProcessPerson(event: PluginEvent, processPerson: boolea
     return event
 }
 
-export function normalizeEvent(event: PluginEvent): PluginEvent {
+export function normalizeEvent<T extends PipelineEvent | PluginEvent>(event: T): T {
     event.distinct_id = sanitizeString(String(event.distinct_id))
 
     let properties = event.properties ?? {}
@@ -245,7 +244,7 @@ export function normalizeEvent(event: PluginEvent): PluginEvent {
 export function formPipelineEvent(message: Message): PipelineEvent {
     // TODO: inefficient to do this twice?
     const { data: dataStr, ...rawEvent } = JSON.parse(message.value!.toString())
-    const combinedEvent = { ...JSON.parse(dataStr), ...rawEvent }
+    const combinedEvent: PipelineEvent = { ...JSON.parse(dataStr), ...rawEvent }
 
     // Track $set usage in events that aren't known to use it, before ingestion adds anything there
     if (
@@ -257,17 +256,10 @@ export function formPipelineEvent(message: Message): PipelineEvent {
             '$unset' in combinedEvent.properties)
     ) {
         setUsageInNonPersonEventsCounter.inc()
-        if (Math.random() < 0.001) {
-            status.info('👀', 'Found $set usage in non-person event', {
-                event: combinedEvent.event,
-                team_id: combinedEvent.team_id,
-            })
-        }
     }
 
     const event: PipelineEvent = normalizeEvent({
         ...combinedEvent,
-        site_url: combinedEvent.site_url || null,
     })
     return event
 }

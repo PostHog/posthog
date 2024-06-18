@@ -18,15 +18,15 @@ const dateOptionsMap = {
 export type DateOption = (typeof dateOptionsMap)[keyof typeof dateOptionsMap]
 
 export type RollingDateFilterLogicPropsType = {
-    selected?: boolean
+    inUse?: boolean
     onChange?: (fromDate: string) => void
     dateFrom?: Dayjs | string | null
     max?: number | null
     pageKey?: string
 }
 
-const counterDefault = (selected: boolean | undefined, dateFrom: Dayjs | string | null | undefined): number => {
-    if (selected && dateFrom && typeof dateFrom === 'string') {
+const counterDefault = (dateFrom: Dayjs | string | null | undefined): number => {
+    if (dateFrom && typeof dateFrom === 'string') {
         const counter = parseInt(dateFrom.slice(1, -1))
         if (counter) {
             return counter
@@ -35,8 +35,8 @@ const counterDefault = (selected: boolean | undefined, dateFrom: Dayjs | string 
     return 3
 }
 
-const dateOptionDefault = (selected: boolean | undefined, dateFrom: Dayjs | string | null | undefined): DateOption => {
-    if (selected && dateFrom && typeof dateFrom === 'string') {
+const dateOptionDefault = (dateFrom: Dayjs | string | null | undefined): DateOption => {
+    if (dateFrom && typeof dateFrom === 'string') {
         const dateOption = dateOptionsMap[dateFrom.slice(-1)]
         if (dateOption) {
             return dateOption
@@ -59,7 +59,7 @@ export const rollingDateRangeFilterLogic = kea<rollingDateRangeFilterLogicType>(
     }),
     reducers(({ props }) => ({
         counter: [
-            counterDefault(props.selected, props.dateFrom) as number | null,
+            counterDefault(props.dateFrom) as number | null,
             {
                 increaseCounter: (state) => (state ? (!props.max || state < props.max ? state + 1 : state) : 1),
                 decreaseCounter: (state) => {
@@ -73,7 +73,7 @@ export const rollingDateRangeFilterLogic = kea<rollingDateRangeFilterLogicType>(
             },
         ],
         dateOption: [
-            dateOptionDefault(props.selected, props.dateFrom),
+            dateOptionDefault(props.dateFrom),
             {
                 setDateOption: (_, { option }) => option,
             },

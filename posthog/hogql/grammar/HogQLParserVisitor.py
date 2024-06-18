@@ -54,6 +54,11 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by HogQLParser#forStmt.
+    def visitForStmt(self, ctx:HogQLParser.ForStmtContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by HogQLParser#funcStmt.
     def visitFuncStmt(self, ctx:HogQLParser.FuncStmtContext):
         return self.visitChildren(ctx)
