@@ -273,16 +273,17 @@ async def test_run_stripe_job(activity_environment, team, minio_client, **kwargs
             job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
         )
 
+        customer_schema = await _create_schema("Customer", new_source, team)
+
         new_job: ExternalDataJob = await sync_to_async(ExternalDataJob.objects.create)(
             team_id=team.id,
             pipeline_id=new_source.pk,
             status=ExternalDataJob.Status.RUNNING,
             rows_synced=0,
+            schema=customer_schema,
         )
 
         new_job = await sync_to_async(ExternalDataJob.objects.filter(id=new_job.id).prefetch_related("pipeline").get)()
-
-        customer_schema = await _create_schema("Customer", new_source, team)
 
         inputs = ImportDataActivityInputs(
             team_id=team.id,
@@ -425,6 +426,8 @@ async def test_run_stripe_job_cancelled(activity_environment, team, minio_client
             job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
         )
 
+        customer_schema = await _create_schema("Customer", new_source, team)
+
         # Already canceled so it should only run once
         # This imitates if the job was canceled mid run
         new_job: ExternalDataJob = await sync_to_async(ExternalDataJob.objects.create)(
@@ -432,11 +435,10 @@ async def test_run_stripe_job_cancelled(activity_environment, team, minio_client
             pipeline_id=new_source.pk,
             status=ExternalDataJob.Status.CANCELLED,
             rows_synced=0,
+            schema=customer_schema,
         )
 
         new_job = await sync_to_async(ExternalDataJob.objects.filter(id=new_job.id).prefetch_related("pipeline").get)()
-
-        customer_schema = await _create_schema("Customer", new_source, team)
 
         inputs = ImportDataActivityInputs(
             team_id=team.id,
@@ -510,16 +512,17 @@ async def test_run_stripe_job_row_count_update(activity_environment, team, minio
             job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
         )
 
+        customer_schema = await _create_schema("Customer", new_source, team)
+
         new_job: ExternalDataJob = await sync_to_async(ExternalDataJob.objects.create)(
             team_id=team.id,
             pipeline_id=new_source.pk,
             status=ExternalDataJob.Status.RUNNING,
             rows_synced=0,
+            schema=customer_schema,
         )
 
         new_job = await sync_to_async(ExternalDataJob.objects.filter(id=new_job.id).prefetch_related("pipeline").get)()
-
-        customer_schema = await _create_schema("Customer", new_source, team)
 
         inputs = ImportDataActivityInputs(
             team_id=team.id,
@@ -675,16 +678,17 @@ async def test_run_postgres_job(
             },
         )
 
+        posthog_test_schema = await _create_schema("posthog_test", new_source, team)
+
         new_job: ExternalDataJob = await sync_to_async(ExternalDataJob.objects.create)(
             team_id=team.id,
             pipeline_id=new_source.pk,
             status=ExternalDataJob.Status.RUNNING,
             rows_synced=0,
+            schema=posthog_test_schema,
         )
 
         new_job = await sync_to_async(ExternalDataJob.objects.filter(id=new_job.id).prefetch_related("pipeline").get)()
-
-        posthog_test_schema = await _create_schema("posthog_test", new_source, team)
 
         inputs = ImportDataActivityInputs(
             team_id=team.id, run_id=str(new_job.pk), source_id=new_source.pk, schema_id=posthog_test_schema.id
@@ -698,6 +702,7 @@ async def test_run_postgres_job(
         BUCKET_URL=f"s3://{BUCKET_NAME}",
         AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
         AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
     ):
         await asyncio.gather(
             activity_environment.run(import_data_activity, job_1_inputs),

@@ -44,7 +44,7 @@ export function HogQueryEditor(props: HogQueryEditorProps): JSX.Element {
                     <div className="resize-y overflow-hidden" style={{ height: 222 }}>
                         <CodeEditor
                             className="border rounded overflow-hidden h-full"
-                            language="rust"
+                            language="hog"
                             value={queryInput}
                             onChange={(v) => setQueryInput(v ?? '')}
                             height="100%"

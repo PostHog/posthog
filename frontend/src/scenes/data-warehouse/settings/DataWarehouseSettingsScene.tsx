@@ -1,11 +1,16 @@
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
+import { useValues } from 'kea'
+import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { DataWarehouseSettingsTab } from '~/types'
+
 import { DataWarehouseBetaNotice } from '../DataWarehouseBetaNotice'
-import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
-import { DataWarehouseSourcesTable } from './DataWarehouseSourcesTable'
+import { DataWarehouseManagedSourcesTable } from './DataWarehouseManagedSourcesTable'
+import { DataWarehouseSelfManagedSourcesTable } from './DataWarehouseSelfManagedSourcesTable'
+import { dataWarehouseSettingsLogic, humanFriendlyDataWarehouseSettingsTabName } from './dataWarehouseSettingsLogic'
 
 export const scene: SceneExport = {
     component: DataWarehouseSettingsScene,
@@ -13,6 +18,13 @@ export const scene: SceneExport = {
 }
 
 export function DataWarehouseSettingsScene(): JSX.Element {
+    const { currentTab } = useValues(dataWarehouseSettingsLogic)
+
+    const tabToContent: Partial<Record<DataWarehouseSettingsTab, JSX.Element>> = {
+        [DataWarehouseSettingsTab.Managed]: <DataWarehouseManagedSourcesTable />,
+        [DataWarehouseSettingsTab.SelfManaged]: <DataWarehouseSelfManagedSourcesTable />,
+    }
+
     return (
         <div>
             <PageHeader
@@ -34,7 +46,19 @@ export function DataWarehouseSettingsScene(): JSX.Element {
                 }
             />
             <DataWarehouseBetaNotice />
-            <DataWarehouseSourcesTable />
+            <LemonTabs
+                activeKey={currentTab}
+                onChange={(tab) => router.actions.push(urls.dataWarehouseSettings(tab as DataWarehouseSettingsTab))}
+                tabs={Object.entries(tabToContent).map(([tab, content]) => ({
+                    label: (
+                        <span className="flex justify-center items-center justify-between gap-1">
+                            {humanFriendlyDataWarehouseSettingsTabName(tab as DataWarehouseSettingsTab)}{' '}
+                        </span>
+                    ),
+                    key: tab,
+                    content: content,
+                }))}
+            />
         </div>
     )
 }
