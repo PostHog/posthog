@@ -1,5 +1,5 @@
-import { uuid } from 'lib/utils'
 import { dayjs } from 'lib/dayjs'
+import { uuid } from 'lib/utils'
 
 // NOTE: This is just for testing - it technically returns ParsedClickhouseEvent but not worth it to import that type
 export const createExampleEvent = (): any => ({
