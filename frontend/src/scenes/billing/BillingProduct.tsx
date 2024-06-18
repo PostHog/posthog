@@ -290,7 +290,26 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     {showTierBreakdown && <BillingProductPricingTable product={product} />}
                     {product.addons?.length > 0 && (
                         <div className="pb-8">
-                            <h4 className="my-4">Addons</h4>
+                            <h4 className="my-4">Add-ons</h4>
+                            {featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] == 'test' &&
+                                billing?.subscription_level == 'free' && (
+                                    <div className="mb-4 flex justify-between items-center bg-mark rounded px-6 py-4">
+                                        <div>
+                                            Add-ons are only available on paid plans. Upgrade to access these features.
+                                        </div>
+                                        <LemonButton
+                                            className="shrink-0"
+                                            to={`/api/billing/activate?products=all_products:&redirect_path=${redirectPath}`}
+                                            type="primary"
+                                            status="alt"
+                                            disableClientSideRouting
+                                            loading={!!billingProductLoading}
+                                            onClick={() => setBillingProductLoading(product.type)}
+                                        >
+                                            Upgrade now
+                                        </LemonButton>
+                                    </div>
+                                )}
                             <div className="gap-y-4 flex flex-col">
                                 {product.addons
                                     // TODO: enhanced_persons: remove this filter
