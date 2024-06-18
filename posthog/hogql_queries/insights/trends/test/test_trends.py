@@ -4659,7 +4659,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         for response in event_response:
             if response["breakdown_value"] == ["person1"]:
                 self.assertEqual(response["count"], 1)
-                self.assertEqual(response["label"], ["person1"])
+                self.assertEqual(response["label"], "person1")
             if response["breakdown_value"] == "person2":
                 self.assertEqual(response["count"], 3)
             if response["breakdown_value"] == "person3":
@@ -5200,9 +5200,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     self.team,
                 )
             self.assertEqual(daily_response[0]["data"][0], 2)
-            self.assertEqual(daily_response[0]["label"], ["some_val"])
+            self.assertEqual(daily_response[0]["label"], "some_val")
             self.assertEqual(daily_response[1]["data"][0], 1)
-            self.assertEqual(daily_response[1]["label"], ["$$_posthog_breakdown_null_$$"])
+            self.assertEqual(daily_response[1]["label"], "$$_posthog_breakdown_null_$$")
 
             # MAU
             with freeze_time("2019-12-31T13:00:03Z"):
@@ -5654,25 +5654,29 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             properties=[{"key": "key", "type": "event", "value": ["val"], "operator": "exact"}],
         )
-        response = self._run(
-            Filter(
-                team=self.team,
-                data={
-                    "date_from": "-14d",
-                    "breakdown": "email",
-                    "breakdown_type": "person",
-                    "actions": [{"id": action.pk, "type": "actions", "order": 0}],
-                },
-            ),
-            self.team,
-        )
-        self.assertEqual(response[0]["label"], "test@gmail.com")
-        self.assertEqual(response[1]["label"], "test@posthog.com")
-        self.assertEqual(response[2]["label"], "$$_posthog_breakdown_null_$$")
 
-        self.assertEqual(response[0]["count"], 1)
-        self.assertEqual(response[1]["count"], 1)
-        self.assertEqual(response[2]["count"], 1)
+        for breakdown_filter in (
+            {"breakdown": "email", "breakdown_type": "person"},
+            {"breakdowns": [{"property": "email", "type": "person"}]},
+        ):
+            response = self._run(
+                Filter(
+                    team=self.team,
+                    data={
+                        **breakdown_filter,
+                        "date_from": "-14d",
+                        "actions": [{"id": action.pk, "type": "actions", "order": 0}],
+                    },
+                ),
+                self.team,
+            )
+            self.assertEqual(response[0]["label"], "test@gmail.com")
+            self.assertEqual(response[1]["label"], "test@posthog.com")
+            self.assertEqual(response[2]["label"], "$$_posthog_breakdown_null_$$")
+
+            self.assertEqual(response[0]["count"], 1)
+            self.assertEqual(response[1]["count"], 1)
+            self.assertEqual(response[2]["count"], 1)
 
     @also_test_with_materialized_columns(["$current_url", "$os", "$browser"])
     def test_breakdown_filtering_with_properties(self):
@@ -5719,37 +5723,47 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 },
             )
 
-        with freeze_time("2020-01-05T13:01:01Z"):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "date_from": "-7d",
-                        "breakdown": "$current_url",
-                        "events": [
-                            {
-                                "id": "sign up",
-                                "name": "sign up",
-                                "type": "events",
-                                "order": 0,
-                                "properties": [{"key": "$os", "value": "Mac"}],
-                            }
-                        ],
-                        "properties": [{"key": "$browser", "value": "Firefox"}],
-                    },
-                ),
-                self.team,
-            )
+        for breakdown_filter in (
+            {"breakdown": "$current_url"},
+            {"breakdowns": [{"property": "$current_url"}]},
+        ):
+            with freeze_time("2020-01-05T13:01:01Z"):
+                response = self._run(
+                    Filter(
+                        team=self.team,
+                        data={
+                            **breakdown_filter,
+                            "date_from": "-7d",
+                            "events": [
+                                {
+                                    "id": "sign up",
+                                    "name": "sign up",
+                                    "type": "events",
+                                    "order": 0,
+                                    "properties": [{"key": "$os", "value": "Mac"}],
+                                }
+                            ],
+                            "properties": [{"key": "$browser", "value": "Firefox"}],
+                        },
+                    ),
+                    self.team,
+                )
 
-        response = sorted(response, key=lambda x: x["label"])
-        self.assertEqual(response[0]["label"], "first url")
-        self.assertEqual(response[1]["label"], "second url")
+            response = sorted(response, key=lambda x: x["label"])
+            self.assertEqual(response[0]["label"], "first url")
+            self.assertEqual(response[1]["label"], "second url")
 
-        self.assertEqual(sum(response[0]["data"]), 1)
-        self.assertEqual(response[0]["breakdown_value"], "first url")
+            self.assertEqual(sum(response[0]["data"]), 1)
+            if "breakdown" in breakdown_filter:
+                self.assertEqual(response[0]["breakdown_value"], "first url")
+            else:
+                self.assertEqual(response[0]["breakdown_value"], ["first url"])
 
-        self.assertEqual(sum(response[1]["data"]), 1)
-        self.assertEqual(response[1]["breakdown_value"], "second url")
+            self.assertEqual(sum(response[1]["data"]), 1)
+            if "breakdown" in breakdown_filter:
+                self.assertEqual(response[1]["breakdown_value"], "second url")
+            else:
+                self.assertEqual(response[1]["breakdown_value"], ["second url"])
 
     @snapshot_clickhouse_queries
     def test_breakdown_filtering_with_properties_in_new_format(self):
@@ -5796,71 +5810,78 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 },
             )
 
-        with freeze_time("2020-01-05T13:01:01Z"):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "date_from": "-14d",
-                        "breakdown": "$current_url",
-                        "events": [
-                            {
-                                "id": "sign up",
-                                "name": "sign up",
-                                "type": "events",
-                                "order": 0,
-                                "properties": [{"key": "$os", "value": "Mac"}],
-                            }
-                        ],
-                        "properties": {
-                            "type": "OR",
-                            "values": [
-                                {"key": "$browser", "value": "Firefox"},
-                                {"key": "$os", "value": "Windows"},
+        for breakdown_filter in (
+            {"breakdown": "$current_url"},
+            {"breakdowns": [{"property": "$current_url"}]},
+        ):
+            with freeze_time("2020-01-05T13:01:01Z"):
+                response = self._run(
+                    Filter(
+                        team=self.team,
+                        data={
+                            **breakdown_filter,
+                            "date_from": "-14d",
+                            "events": [
+                                {
+                                    "id": "sign up",
+                                    "name": "sign up",
+                                    "type": "events",
+                                    "order": 0,
+                                    "properties": [{"key": "$os", "value": "Mac"}],
+                                }
                             ],
+                            "properties": {
+                                "type": "OR",
+                                "values": [
+                                    {"key": "$browser", "value": "Firefox"},
+                                    {"key": "$os", "value": "Windows"},
+                                ],
+                            },
                         },
-                    },
-                ),
-                self.team,
-            )
+                    ),
+                    self.team,
+                )
 
-        response = sorted(response, key=lambda x: x["label"])
-        self.assertEqual(response[0]["label"], "second url")
+            response = sorted(response, key=lambda x: x["label"])
+            self.assertEqual(response[0]["label"], "second url")
 
-        self.assertEqual(sum(response[0]["data"]), 1)
-        self.assertEqual(response[0]["breakdown_value"], "second url")
+            self.assertEqual(sum(response[0]["data"]), 1)
+            if "breakdown" in breakdown_filter:
+                self.assertEqual(response[0]["breakdown_value"], "second url")
+            else:
+                self.assertEqual(response[0]["breakdown_value"], ["second url"])
 
-        # AND filter properties with disjoint set means results should be empty
-        with freeze_time("2020-01-05T13:01:01Z"):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "date_from": "-14d",
-                        "breakdown": "$current_url",
-                        "events": [
-                            {
-                                "id": "sign up",
-                                "name": "sign up",
-                                "type": "events",
-                                "order": 0,
-                                "properties": [{"key": "$os", "value": "Mac"}],
-                            }
-                        ],
-                        "properties": {
-                            "type": "AND",
-                            "values": [
-                                {"key": "$browser", "value": "Firefox"},
-                                {"key": "$os", "value": "Windows"},
+            # AND filter properties with disjoint set means results should be empty
+            with freeze_time("2020-01-05T13:01:01Z"):
+                response = self._run(
+                    Filter(
+                        team=self.team,
+                        data={
+                            **breakdown_filter,
+                            "date_from": "-14d",
+                            "events": [
+                                {
+                                    "id": "sign up",
+                                    "name": "sign up",
+                                    "type": "events",
+                                    "order": 0,
+                                    "properties": [{"key": "$os", "value": "Mac"}],
+                                }
                             ],
+                            "properties": {
+                                "type": "AND",
+                                "values": [
+                                    {"key": "$browser", "value": "Firefox"},
+                                    {"key": "$os", "value": "Windows"},
+                                ],
+                            },
                         },
-                    },
-                ),
-                self.team,
-            )
+                    ),
+                    self.team,
+                )
 
-        response = sorted(response, key=lambda x: x["label"])
-        self.assertEqual(len(response), 0)
+            response = sorted(response, key=lambda x: x["label"])
+            self.assertEqual(len(response), 0)
 
     @also_test_with_person_on_events_v2
     @snapshot_clickhouse_queries
@@ -5888,35 +5909,39 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self._create_event(team=self.team, event="sign up", distinct_id="blabla")
             self._create_event(team=self.team, event="sign up", distinct_id="blabla2")
             self._create_event(team=self.team, event="sign up", distinct_id="blabla3")
-        with freeze_time("2020-01-04T13:01:01Z"):
-            event_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "breakdown": "$some_prop",
-                        "breakdown_type": "person",
-                        "events": [{"id": "sign up", "math": "monthly_active"}],
-                        "properties": [
-                            {
-                                "key": "filter_prop",
-                                "value": "filter_val",
-                                "type": "person",
-                            }
-                        ],
-                        "display": "ActionsLineGraph",
-                    },
-                ),
-                self.team,
-            )
 
-        self.assertEqual(event_response[0]["label"], "some_val")
-        self.assertEqual(event_response[1]["label"], "some_val2")
+        for breakdown_filter in (
+            {"breakdown": "$some_prop", "breakdown_type": "person"},
+            {"breakdowns": [{"property": "$some_prop", "type": "person"}]},
+        ):
+            with freeze_time("2020-01-04T13:01:01Z"):
+                event_response = self._run(
+                    Filter(
+                        team=self.team,
+                        data={
+                            **breakdown_filter,
+                            "events": [{"id": "sign up", "math": "monthly_active"}],
+                            "properties": [
+                                {
+                                    "key": "filter_prop",
+                                    "value": "filter_val",
+                                    "type": "person",
+                                }
+                            ],
+                            "display": "ActionsLineGraph",
+                        },
+                    ),
+                    self.team,
+                )
 
-        self.assertEqual(sum(event_response[0]["data"]), 3)
-        self.assertEqual(event_response[0]["data"][5], 1)
+            self.assertEqual(event_response[0]["label"], "some_val")
+            self.assertEqual(event_response[1]["label"], "some_val2")
 
-        self.assertEqual(sum(event_response[1]["data"]), 3)
-        self.assertEqual(event_response[1]["data"][5], 1)
+            self.assertEqual(sum(event_response[0]["data"]), 3)
+            self.assertEqual(event_response[0]["data"][5], 1)
+
+            self.assertEqual(sum(event_response[1]["data"]), 3)
+            self.assertEqual(event_response[1]["data"][5], 1)
 
     @also_test_with_materialized_columns(["$some_property"])
     def test_dau_with_breakdown_filtering(self):
@@ -5928,39 +5953,44 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 distinct_id="blabla",
                 properties={"$some_property": "other_value"},
             )
-        with freeze_time("2020-01-04T13:01:01Z"):
-            action_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "breakdown": "$some_property",
-                        "actions": [{"id": sign_up_action.id, "math": "dau"}],
-                    },
-                ),
-                self.team,
-            )
-            event_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "breakdown": "$some_property",
-                        "events": [{"id": "sign up", "math": "dau"}],
-                    },
-                ),
-                self.team,
-            )
 
-        self.assertEqual(event_response[0]["label"], "other_value")
-        self.assertEqual(event_response[1]["label"], "value")
-        self.assertEqual(event_response[2]["label"], "$$_posthog_breakdown_null_$$")
+        for breakdown_filter in (
+            {"breakdown": "$some_property"},
+            {"breakdowns": [{"property": "$some_property"}]},
+        ):
+            with freeze_time("2020-01-04T13:01:01Z"):
+                action_response = self._run(
+                    Filter(
+                        team=self.team,
+                        data={
+                            **breakdown_filter,
+                            "actions": [{"id": sign_up_action.id, "math": "dau"}],
+                        },
+                    ),
+                    self.team,
+                )
+                event_response = self._run(
+                    Filter(
+                        team=self.team,
+                        data={
+                            **breakdown_filter,
+                            "events": [{"id": "sign up", "math": "dau"}],
+                        },
+                    ),
+                    self.team,
+                )
 
-        self.assertEqual(sum(event_response[0]["data"]), 1)
-        self.assertEqual(event_response[0]["data"][5], 1)
+            self.assertEqual(event_response[0]["label"], "other_value", breakdown_filter)
+            self.assertEqual(event_response[1]["label"], "value", breakdown_filter)
+            self.assertEqual(event_response[2]["label"], "$$_posthog_breakdown_null_$$", breakdown_filter)
 
-        self.assertEqual(sum(event_response[1]["data"]), 1)
-        self.assertEqual(event_response[1]["data"][4], 1)  # property not defined
+            self.assertEqual(sum(event_response[0]["data"]), 1, breakdown_filter)
+            self.assertEqual(event_response[0]["data"][5], 1, breakdown_filter)
 
-        self.assertEntityResponseEqual(action_response, event_response)
+            self.assertEqual(sum(event_response[1]["data"]), 1, breakdown_filter)
+            self.assertEqual(event_response[1]["data"][4], 1, breakdown_filter)  # property not defined
+
+            self.assertEntityResponseEqual(action_response, event_response, breakdown_filter)
 
     @snapshot_clickhouse_queries
     def test_dau_with_breakdown_filtering_with_sampling(self):
@@ -5972,41 +6002,46 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 distinct_id="blabla",
                 properties={"$some_property": "other_value"},
             )
-        with freeze_time("2020-01-04T13:01:01Z"):
-            action_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "sampling_factor": 1,
-                        "breakdown": "$some_property",
-                        "actions": [{"id": sign_up_action.id, "math": "dau"}],
-                    },
-                ),
-                self.team,
-            )
-            event_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "sampling_factor": 1,
-                        "breakdown": "$some_property",
-                        "events": [{"id": "sign up", "math": "dau"}],
-                    },
-                ),
-                self.team,
-            )
 
-        self.assertEqual(event_response[0]["label"], "other_value")
-        self.assertEqual(event_response[1]["label"], "value")
-        self.assertEqual(event_response[2]["label"], "$$_posthog_breakdown_null_$$")
+        for breakdown_filter in (
+            {"breakdown": "$some_property"},
+            {"breakdowns": [{"property": "$some_property"}]},
+        ):
+            with freeze_time("2020-01-04T13:01:01Z"):
+                action_response = self._run(
+                    Filter(
+                        team=self.team,
+                        data={
+                            **breakdown_filter,
+                            "sampling_factor": 1,
+                            "actions": [{"id": sign_up_action.id, "math": "dau"}],
+                        },
+                    ),
+                    self.team,
+                )
+                event_response = self._run(
+                    Filter(
+                        team=self.team,
+                        data={
+                            **breakdown_filter,
+                            "sampling_factor": 1,
+                            "events": [{"id": "sign up", "math": "dau"}],
+                        },
+                    ),
+                    self.team,
+                )
 
-        self.assertEqual(sum(event_response[0]["data"]), 1)
-        self.assertEqual(event_response[0]["data"][5], 1)
+            self.assertEqual(event_response[0]["label"], "other_value")
+            self.assertEqual(event_response[1]["label"], "value")
+            self.assertEqual(event_response[2]["label"], "$$_posthog_breakdown_null_$$")
 
-        self.assertEqual(sum(event_response[1]["data"]), 1)
-        self.assertEqual(event_response[1]["data"][4], 1)  # property not defined
+            self.assertEqual(sum(event_response[0]["data"]), 1)
+            self.assertEqual(event_response[0]["data"][5], 1)
 
-        self.assertEntityResponseEqual(action_response, event_response)
+            self.assertEqual(sum(event_response[1]["data"]), 1)
+            self.assertEqual(event_response[1]["data"][4], 1)  # property not defined
+
+            self.assertEntityResponseEqual(action_response, event_response)
 
     @also_test_with_materialized_columns(["$os", "$some_property"])
     def test_dau_with_breakdown_filtering_with_prop_filter(self):
@@ -6018,36 +6053,41 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 distinct_id="blabla",
                 properties={"$some_property": "other_value", "$os": "Windows"},
             )
-        with freeze_time("2020-01-04T13:01:01Z"):
-            action_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "breakdown": "$some_property",
-                        "actions": [{"id": sign_up_action.id, "math": "dau"}],
-                        "properties": [{"key": "$os", "value": "Windows"}],
-                    },
-                ),
-                self.team,
-            )
-            event_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "breakdown": "$some_property",
-                        "events": [{"id": "sign up", "math": "dau"}],
-                        "properties": [{"key": "$os", "value": "Windows"}],
-                    },
-                ),
-                self.team,
-            )
 
-        self.assertEqual(event_response[0]["label"], "other_value")
+        for breakdown_filter in (
+            {"breakdown": "$some_property"},
+            {"breakdowns": [{"property": "$some_property"}]},
+        ):
+            with freeze_time("2020-01-04T13:01:01Z"):
+                action_response = self._run(
+                    Filter(
+                        team=self.team,
+                        data={
+                            **breakdown_filter,
+                            "actions": [{"id": sign_up_action.id, "math": "dau"}],
+                            "properties": [{"key": "$os", "value": "Windows"}],
+                        },
+                    ),
+                    self.team,
+                )
+                event_response = self._run(
+                    Filter(
+                        team=self.team,
+                        data={
+                            **breakdown_filter,
+                            "events": [{"id": "sign up", "math": "dau"}],
+                            "properties": [{"key": "$os", "value": "Windows"}],
+                        },
+                    ),
+                    self.team,
+                )
 
-        self.assertEqual(sum(event_response[0]["data"]), 1)
-        self.assertEqual(event_response[0]["data"][5], 1)  # property not defined
+            self.assertEqual(event_response[0]["label"], "other_value")
 
-        self.assertEntityResponseEqual(action_response, event_response)
+            self.assertEqual(sum(event_response[0]["data"]), 1)
+            self.assertEqual(event_response[0]["data"][5], 1)  # property not defined
+
+            self.assertEntityResponseEqual(action_response, event_response)
 
     @also_test_with_materialized_columns(event_properties=["$host"], person_properties=["$some_prop"])
     def test_against_clashing_entity_and_property_filter_naming(self):
@@ -6065,37 +6105,40 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-03T12:00:00Z",
         )
 
-        with freeze_time("2020-01-04T13:01:01Z"):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "events": [
-                            {
-                                "id": "$pageview",
-                                "properties": [
-                                    {
-                                        "key": "$host",
-                                        "operator": "icontains",
-                                        "value": ".com",
-                                    }
-                                ],
-                            }
-                        ],
-                        "properties": [
-                            {
-                                "key": "$host",
-                                "value": ["app.example.com", "another.com"],
-                            }
-                        ],
-                        "breakdown": "$some_prop",
-                        "breakdown_type": "person",
-                    },
-                ),
-                self.team,
-            )
+        for breakdown_filter in (
+            {"breakdown": "$some_prop", "breakdown_type": "person"},
+            {"breakdowns": [{"property": "$some_prop", "type": "person"}]},
+        ):
+            with freeze_time("2020-01-04T13:01:01Z"):
+                response = self._run(
+                    Filter(
+                        team=self.team,
+                        data={
+                            **breakdown_filter,
+                            "events": [
+                                {
+                                    "id": "$pageview",
+                                    "properties": [
+                                        {
+                                            "key": "$host",
+                                            "operator": "icontains",
+                                            "value": ".com",
+                                        }
+                                    ],
+                                }
+                            ],
+                            "properties": [
+                                {
+                                    "key": "$host",
+                                    "value": ["app.example.com", "another.com"],
+                                }
+                            ],
+                        },
+                    ),
+                    self.team,
+                )
 
-        self.assertEqual(response[0]["count"], 1)
+            self.assertEqual(response[0]["count"], 1)
 
     # this ensures that the properties don't conflict when formatting params
     @also_test_with_materialized_columns(["$current_url"])
