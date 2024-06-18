@@ -24,7 +24,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=23622320128
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating.1
@@ -69,7 +70,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating.2
@@ -97,7 +99,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=23622320128
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating_person_on_events
@@ -125,7 +128,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=23622320128
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating_person_on_events.1
@@ -170,7 +174,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_query_size=524288,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating_person_on_events.2
@@ -198,7 +203,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=23622320128
   '''
 # ---
 # name: TestRetention.test_day_interval_sampled
@@ -233,7 +239,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=23622320128
   '''
 # ---
 # name: TestRetention.test_month_interval_with_person_on_events_v2
@@ -277,7 +284,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=23622320128
   '''
 # ---
 # name: TestRetention.test_retention_event_action
@@ -312,7 +320,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=23622320128
   '''
 # ---
 # name: TestRetention.test_retention_with_user_properties_via_action
@@ -358,7 +367,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=23622320128
   '''
 # ---
 # name: TestRetention.test_timezones
@@ -393,7 +403,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=23622320128
   '''
 # ---
 # name: TestRetention.test_timezones.1
@@ -428,7 +439,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=23622320128
   '''
 # ---
 # name: TestRetention.test_week_interval
@@ -463,7 +475,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=23622320128
   '''
 # ---
 # name: TestRetention.test_week_interval.1
@@ -498,6 +511,7 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=1000000,
                        max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_query_size=524288,
+                       max_bytes_before_external_group_by=23622320128
   '''
 # ---

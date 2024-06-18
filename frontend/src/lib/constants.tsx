@@ -155,6 +155,7 @@ export const FEATURE_FLAGS = {
     WEB_ANALYTICS: 'web-analytics', // owner @robbie-c #team-web-analytics
     WEB_ANALYTICS_SAMPLING: 'web-analytics-sampling', // owner @robbie-c #team-web-analytics
     HIGH_FREQUENCY_BATCH_EXPORTS: 'high-frequency-batch-exports', // owner: @tomasfarias
+    PERSON_BATCH_EXPORTS: 'person-batch-exports', // owner: @tomasfarias
     // owner: #team-replay, only to be enabled for PostHog team testing
     EXCEPTION_AUTOCAPTURE: 'exception-autocapture',
     DATA_WAREHOUSE: 'data-warehouse', // owner: @EDsCODE
@@ -199,7 +200,6 @@ export const FEATURE_FLAGS = {
     PLUGINS_FILTERING: 'plugins-filtering', // owner: @benjackwhite
     SESSION_REPLAY_HOG_QL_FILTERING: 'session-replay-hogql-filtering', // owner: #team-replay
     INSIGHT_LOADING_BAR: 'insight-loading-bar', // owner: @aspicer
-    SESSION_REPLAY_ARTIFICIAL_LAG: 'artificial-lag-query-performance', // owner: #team-replay
     PROXY_AS_A_SERVICE: 'proxy-as-a-service', // owner: #team-infrastructure
     LIVE_EVENTS: 'live-events', // owner: @zach or @jams
     SESSION_REPLAY_NETWORK_VIEW: 'session-replay-network-view', // owner: #team-replay

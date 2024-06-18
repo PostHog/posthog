@@ -1,5 +1,6 @@
 import dataclasses
 from typing import TYPE_CHECKING, Any, ClassVar, Optional, TypeAlias, cast
+from collections.abc import Callable
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import ConfigDict, BaseModel
 from sentry_sdk import capture_exception
@@ -45,10 +46,6 @@ from posthog.hogql.database.schema.person_distinct_ids import (
     RawPersonDistinctIdsTable,
 )
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable, join_with_persons_table
-from posthog.hogql.database.schema.person_overrides import (
-    PersonOverridesTable,
-    RawPersonOverridesTable,
-)
 from posthog.hogql.database.schema.session_replay_events import (
     RawSessionReplayEventsTable,
     SessionReplayEventsTable,
@@ -92,7 +89,6 @@ class Database(BaseModel):
     persons: PersonsTable = PersonsTable()
     person_distinct_ids: PersonDistinctIdsTable = PersonDistinctIdsTable()
     person_distinct_id_overrides: PersonDistinctIdOverridesTable = PersonDistinctIdOverridesTable()
-    person_overrides: PersonOverridesTable = PersonOverridesTable()
 
     session_replay_events: SessionReplayEventsTable = SessionReplayEventsTable()
     cohort_people: CohortPeople = CohortPeople()
@@ -109,7 +105,6 @@ class Database(BaseModel):
     raw_groups: RawGroupsTable = RawGroupsTable()
     raw_cohort_people: RawCohortPeople = RawCohortPeople()
     raw_person_distinct_id_overrides: RawPersonDistinctIdOverridesTable = RawPersonDistinctIdOverridesTable()
-    raw_person_overrides: RawPersonOverridesTable = RawPersonOverridesTable()
     raw_sessions: RawSessionsTable = RawSessionsTable()
 
     # system tables
@@ -121,7 +116,6 @@ class Database(BaseModel):
         "groups",
         "persons",
         "person_distinct_ids",
-        "person_overrides",
         "session_replay_events",
         "cohort_people",
         "static_cohort_people",
@@ -254,51 +248,69 @@ def create_hogql_database(
     for table in DataWarehouseTable.objects.filter(team_id=team.pk).exclude(deleted=True):
         warehouse_tables[table.name] = table.hogql_definition(modifiers)
 
-    if modifiers.dataWarehouseEventsModifiers:
-        for warehouse_modifier in modifiers.dataWarehouseEventsModifiers:
-            # TODO: add all field mappings
-            if "id" not in warehouse_tables[warehouse_modifier.table_name].fields.keys():
-                warehouse_tables[warehouse_modifier.table_name].fields["id"] = ExpressionField(
-                    name="id",
-                    expr=parse_expr(warehouse_modifier.id_field),
-                )
-
-            if "timestamp" not in warehouse_tables[warehouse_modifier.table_name].fields.keys():
-                table_model = DataWarehouseTable.objects.filter(
-                    team_id=team.pk, name=warehouse_modifier.table_name
-                ).latest("created_at")
-                timestamp_field_type = table_model.get_clickhouse_column_type(warehouse_modifier.timestamp_field)
-
-                # If field type is none or datetime, we can use the field directly
-                if timestamp_field_type is None or timestamp_field_type.startswith("DateTime"):
-                    warehouse_tables[warehouse_modifier.table_name].fields["timestamp"] = ExpressionField(
-                        name="timestamp",
-                        expr=ast.Field(chain=[warehouse_modifier.timestamp_field]),
-                    )
-                else:
-                    warehouse_tables[warehouse_modifier.table_name].fields["timestamp"] = ExpressionField(
-                        name="timestamp",
-                        expr=ast.Call(name="toDateTime", args=[ast.Field(chain=[warehouse_modifier.timestamp_field])]),
-                    )
-
-            # TODO: Need to decide how the distinct_id and person_id fields are going to be handled
-            if "distinct_id" not in warehouse_tables[warehouse_modifier.table_name].fields.keys():
-                warehouse_tables[warehouse_modifier.table_name].fields["distinct_id"] = ExpressionField(
-                    name="distinct_id",
-                    expr=parse_expr(warehouse_modifier.distinct_id_field),
-                )
-
-            if "person_id" not in warehouse_tables[warehouse_modifier.table_name].fields.keys():
-                warehouse_tables[warehouse_modifier.table_name].fields["person_id"] = ExpressionField(
-                    name="person_id",
-                    expr=parse_expr(warehouse_modifier.distinct_id_field),
-                )
-
-    database.add_warehouse_tables(**warehouse_tables)
-
     for saved_query in DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True):
         views[saved_query.name] = saved_query.hogql_definition()
 
+    def define_mappings(warehouse: dict[str, Table], get_table: Callable):
+        if "id" not in warehouse[warehouse_modifier.table_name].fields.keys():
+            warehouse[warehouse_modifier.table_name].fields["id"] = ExpressionField(
+                name="id",
+                expr=parse_expr(warehouse_modifier.id_field),
+            )
+
+        if "timestamp" not in warehouse[warehouse_modifier.table_name].fields.keys():
+            table_model = get_table(team=team, warehouse_modifier=warehouse_modifier)
+            timestamp_field_type = table_model.get_clickhouse_column_type(warehouse_modifier.timestamp_field)
+
+            # If field type is none or datetime, we can use the field directly
+            if timestamp_field_type is None or timestamp_field_type.startswith("DateTime"):
+                warehouse[warehouse_modifier.table_name].fields["timestamp"] = ExpressionField(
+                    name="timestamp",
+                    expr=ast.Field(chain=[warehouse_modifier.timestamp_field]),
+                )
+            else:
+                warehouse[warehouse_modifier.table_name].fields["timestamp"] = ExpressionField(
+                    name="timestamp",
+                    expr=ast.Call(name="toDateTime", args=[ast.Field(chain=[warehouse_modifier.timestamp_field])]),
+                )
+
+        # TODO: Need to decide how the distinct_id and person_id fields are going to be handled
+        if "distinct_id" not in warehouse[warehouse_modifier.table_name].fields.keys():
+            warehouse[warehouse_modifier.table_name].fields["distinct_id"] = ExpressionField(
+                name="distinct_id",
+                expr=parse_expr(warehouse_modifier.distinct_id_field),
+            )
+
+        if "person_id" not in warehouse[warehouse_modifier.table_name].fields.keys():
+            warehouse[warehouse_modifier.table_name].fields["person_id"] = ExpressionField(
+                name="person_id",
+                expr=parse_expr(warehouse_modifier.distinct_id_field),
+            )
+
+        return warehouse
+
+    if modifiers.dataWarehouseEventsModifiers:
+        for warehouse_modifier in modifiers.dataWarehouseEventsModifiers:
+            # TODO: add all field mappings
+
+            is_view = warehouse_modifier.table_name in views.keys()
+
+            if is_view:
+                views = define_mappings(
+                    views,
+                    lambda team, warehouse_modifier: DataWarehouseSavedQuery.objects.filter(
+                        team_id=team.pk, name=warehouse_modifier.table_name
+                    ).latest("created_at"),
+                )
+            else:
+                warehouse_tables = define_mappings(
+                    warehouse_tables,
+                    lambda team, warehouse_modifier: DataWarehouseTable.objects.filter(
+                        team_id=team.pk, name=warehouse_modifier.table_name
+                    ).latest("created_at"),
+                )
+
+    database.add_warehouse_tables(**warehouse_tables)
     database.add_views(**views)
 
     for join in DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True):

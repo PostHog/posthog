@@ -11,7 +11,7 @@ from posthog.models import Team, Property
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import PropertyGroup
-from posthog.schema import QueryTiming, HogQLQueryModifiers
+from posthog.schema import QueryTiming, HogQLQueryModifiers, PersonsOnEventsMode
 from posthog.session_recordings.queries.session_replay_events import ttl_days
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 
@@ -109,14 +109,7 @@ class SessionRecordingListFromFilters:
         return ttl_days(self._team)
 
     def run(self) -> SessionRecordingQueryResult:
-        query = parse_select(
-            self.BASE_QUERY,
-            {
-                "order_by": self._order_by_clause(),
-                "where_predicates": self._where_predicates(),
-                "having_predicates": self._having_predicates(),
-            },
-        )
+        query = self.get_query()
 
         paginated_response = self._paginator.execute_hogql_query(
             # TODO I guess the paginator needs to know how to handle union queries or all callers are supposed to collapse them or .... 🤷
@@ -130,6 +123,16 @@ class SessionRecordingListFromFilters:
             results=(self._data_to_return(self._paginator.results)),
             has_more_recording=self._paginator.has_more(),
             timings=paginated_response.timings,
+        )
+
+    def get_query(self):
+        return parse_select(
+            self.BASE_QUERY,
+            {
+                "order_by": self._order_by_clause(),
+                "where_predicates": self._where_predicates(),
+                "having_predicates": self._having_predicates(),
+            },
         )
 
     def _order_by_clause(self) -> ast.Field:
@@ -183,6 +186,7 @@ class SessionRecordingListFromFilters:
 
         optional_exprs: list[ast.Expr] = []
 
+        # if in PoE mode then we should be pushing person property queries into here
         events_sub_query = EventsSubQuery(self._team, self._filter, self.ttl_days).get_query()
         if events_sub_query:
             optional_exprs.append(
@@ -193,7 +197,9 @@ class SessionRecordingListFromFilters:
                 )
             )
 
-        # we want to avoid a join to persons since we don't ever need to select from them
+        # we want to avoid a join to persons since we don't ever need to select from them,
+        # so we create our own persons sub query here
+        # if PoE mode is on then this will be handled in the events subquery and we don't need to do anything here
         person_subquery = PersonsPropertiesSubQuery(self._team, self._filter, self.ttl_days).get_query()
         if person_subquery:
             optional_exprs.append(
@@ -257,12 +263,7 @@ class SessionRecordingListFromFilters:
         return ast.And(exprs=exprs)
 
     def _having_predicates(self) -> ast.And | Constant:
-        exprs: list[ast.Expr] = [
-            # a missing first url indicates delayed or incomplete ingestion and we can ignore those
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.NotEq, left=ast.Field(chain=["first_url"]), right=ast.Constant(value=None)
-            )
-        ]
+        exprs: list[ast.Expr] = []
 
         if self._filter.recording_duration_filter:
             op = (
@@ -278,7 +279,7 @@ class SessionRecordingListFromFilters:
                 ),
             )
 
-        return ast.And(exprs=exprs)
+        return ast.And(exprs=exprs) if exprs else ast.Constant(value=True)
 
     def _strip_person_and_event_properties(self, property_group: PropertyGroup) -> PropertyGroup | None:
         property_groups_to_keep = [
@@ -306,7 +307,10 @@ class PersonsPropertiesSubQuery:
         self._ttl_days = ttl_days
 
     def get_query(self) -> ast.SelectQuery | ast.SelectUnionQuery | None:
-        if self.person_properties:
+        poe_is_off = (
+            self._team.person_on_events_mode is None or self._team.person_on_events_mode == PersonsOnEventsMode.DISABLED
+        )
+        if poe_is_off and self.person_properties:
             return parse_select(
                 """
                 SELECT distinct_id
@@ -421,7 +425,8 @@ class EventsSubQuery:
         return event_exprs, list(event_names)
 
     def get_query(self) -> ast.SelectQuery | ast.SelectUnionQuery | None:
-        if self._filter.entities or self.event_properties:
+        poe_mode_active = self._team.person_on_events_mode != PersonsOnEventsMode.DISABLED and self.person_properties
+        if self._filter.entities or self.event_properties or poe_mode_active:
             return ast.SelectQuery(
                 select=[ast.Alias(alias="session_id", expr=ast.Field(chain=["$session_id"]))],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
@@ -479,6 +484,9 @@ class EventsSubQuery:
         if self.event_properties:
             exprs.append(property_to_expr(self.event_properties, team=self._team, scope="replay"))
 
+        if self._team.person_on_events_mode and self.person_properties:
+            exprs.append(property_to_expr(self.person_properties, team=self._team, scope="event"))
+
         if self._filter.session_ids:
             exprs.append(
                 ast.CompareOperation(
@@ -508,3 +516,15 @@ class EventsSubQuery:
     @cached_property
     def event_properties(self):
         return [g for g in self._filter.property_groups.flat if is_event_property(g)]
+
+    @cached_property
+    def person_properties(self) -> PropertyGroup | None:
+        person_property_groups = [g for g in self._filter.property_groups.flat if is_person_property(g)]
+        return (
+            PropertyGroup(
+                type=self._filter.property_operand,
+                values=person_property_groups,
+            )
+            if person_property_groups
+            else None
+        )
