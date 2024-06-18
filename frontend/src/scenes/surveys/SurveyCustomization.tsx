@@ -148,7 +148,7 @@ export function Customization({ appearance, surveyQuestionItem, onAppearanceChan
                                             onAppearanceChange({ ...appearance, surveyPopupDelay })
                                         }}
                                     />
-                                    Delay survey popup after page load by{' '}
+                                    Delay survey popup after page load by at least {' '}
                                     <LemonInput
                                         type="number"
                                         data-attr="survey-popup-delay-input"
