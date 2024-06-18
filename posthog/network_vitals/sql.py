@@ -10,38 +10,41 @@ from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_NETWORKS_VITALS_EVENTS
 
 NETWORK_VITALS_DATA_TABLE = lambda: "sharded_network_vitals"
 
-
-KAFKA_NETWORK_VITALS_TABLE_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
-(
+columns = """
     session_id VARCHAR,
     team_id Int64,
     timestamp DateTime64(6, 'UTC'),
     current_url VARCHAR,
+    -- allows storing API load time along side web vitals or future mobile specific data
+    vitals_type LowCardinality(string),
     fcp Nullable(Float64),
     lcp Nullable(Float64),
     cls Nullable(Float64),
     inp Nullable(Float64),
+    -- for measuring e.g. API performance
+    load_time Nullable(Float64),
+    -- when the current URL isn't the measured thing e.g. for API requests
+    measured_url Nullable(string),
+    -- e.g. for API requests
+    status Nullable(UInt16),
     -- we store the rest of the properties as a JSON string, just like the events table
     properties VARCHAR CODEC(ZSTD(3)),
+    _timestamp DateTime,
+    _offset UInt64,
+    _partition UInt64
+"""
+
+KAFKA_NETWORK_VITALS_TABLE_BASE_SQL = """
+CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
+(
+    {columns}
 ) ENGINE = {engine}
 """
 
 NETWORK_VITALS_TABLE_BASE_SQL = """
 CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 (
-    session_id VARCHAR,
-    team_id Int64,
-    timestamp DateTime64(6, 'UTC'),
-    current_url VARCHAR,
-    fcp Nullable(Float64),
-    lcp Nullable(Float64),
-    cls Nullable(Float64),
-    inp Nullable(Float64),
-    properties VARCHAR CODEC(ZSTD(3)),
-    _timestamp DateTime,
-    _offset UInt64,
-    _partition UInt64
+    {columns}
 ) ENGINE = {engine}
 """
 
@@ -53,7 +56,11 @@ NETWORK_VITALS_TABLE_SQL = lambda: (
     NETWORK_VITALS_TABLE_BASE_SQL
     + """
     PARTITION BY toYYYYMM(timestamp)
-    ORDER BY (team_id,  toDate(timestamp), current_url)
+    -- for each session we'll visit multiple URLs
+    -- on those we'll send multiple vitals
+    -- some like API requests will send multiple vitals for each type
+    -- so we ultimately order by timestamp so that only true duplicates are merged
+    ORDER BY (vitals_type, team_id,  toDate(timestamp), current_url, timestamp)
     {ttl_period}
 """
 ).format(
@@ -61,12 +68,14 @@ NETWORK_VITALS_TABLE_SQL = lambda: (
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=NETWORK_VITALS_DATA_TABLE_ENGINE(),
     ttl_period=ttl_period("timestamp", 1, unit="YEAR"),
+    columns=columns,
 )
 
 KAFKA_NETWORK_VITALS_TABLE_SQL = lambda: KAFKA_NETWORK_VITALS_TABLE_BASE_SQL.format(
     table_name="kafka_network_vitals",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=kafka_engine(topic=KAFKA_CLICKHOUSE_NETWORKS_VITALS_EVENTS),
+    columns=columns,
 )
 
 NETWORK_VITALS_TABLE_MV_SQL = (
@@ -78,10 +87,14 @@ AS SELECT
     team_id,
     timestamp,
     current_url,
+    vitals_type,
     fcp,
     lcp,
     cls,
     inp,
+    load_time,
+    measured_url,
+    status,
     properties,
     _timestamp,
     _offset,
@@ -105,6 +118,7 @@ WRITABLE_NETWORK_VITALS_TABLE_SQL = lambda: NETWORK_VITALS_TABLE_BASE_SQL.format
         # we'll most often query by current url, so we'll use that in the sharding key
         sharding_key="cityHash64(concat(toString(team_id), '-', current_url, '-', toString(toDate(timestamp))))",
     ),
+    columns=columns,
 )
 
 # This table is responsible for reading from heatmaps on a cluster setting
@@ -116,6 +130,7 @@ DISTRIBUTED_NETWORK_VITALS_TABLE_SQL = lambda: NETWORK_VITALS_TABLE_BASE_SQL.for
         # we'll most often query by current url, so we'll use that in the sharding key
         sharding_key="cityHash64(concat(toString(team_id), '-', current_url, '-', toString(toDate(timestamp))))",
     ),
+    columns=columns,
 )
 
 DROP_NETWORK_VITALS_TABLE_SQL = lambda: (
