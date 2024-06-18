@@ -289,6 +289,7 @@ export class HogExecutor {
             }
         } catch (err) {
             result.error = err
+            addLog(result, 'error', `Function encountered an error: ${err}`)
             status.error('🦔', `[HogExecutor] Error executing function ${hogFunction.id} - ${hogFunction.name}`, err)
         }
 
