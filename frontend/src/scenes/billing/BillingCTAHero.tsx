@@ -20,7 +20,6 @@ export const BillingCTAHero = ({ product }: { product: BillingProductV2Type }): 
     return (
         <div className="flex relative justify-between items-center rounded-lg bg-mark" ref={billingHeroRef}>
             <div className="p-4">
-                {/* <h1>Add your credit card to unlock all the features.</h1> */}
                 <h1 className="mb-0">Get the whole hog.</h1>
                 <h1 className="text-danger">Only pay for what you use.</h1>
                 <div className="mt-2 mb-0 max-w-xl">
