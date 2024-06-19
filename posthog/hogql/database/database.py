@@ -1,14 +1,12 @@
 import dataclasses
-<<<<<<< HEAD
-from typing import TYPE_CHECKING, Any, ClassVar, Optional, TypeAlias, cast
 from collections.abc import Callable
-=======
 from typing import TYPE_CHECKING, Any, ClassVar, Optional, TypeAlias, cast, Union
->>>>>>> dff53c11a4 (WIP wire up sessions table V2)
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from django.db.models import Q
 from pydantic import ConfigDict, BaseModel
 from sentry_sdk import capture_exception
-from django.db.models import Q
+
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
@@ -30,15 +28,15 @@ from posthog.hogql.database.models import (
     ExpressionField,
 )
 from posthog.hogql.database.schema.channel_type import create_initial_channel_type, create_initial_domain_type
+from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
+from posthog.hogql.database.schema.events import EventsTable
+from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.heatmaps import HeatmapsTable
 from posthog.hogql.database.schema.log_entries import (
     LogEntriesTable,
     ReplayConsoleLogsLogEntriesTable,
     BatchExportLogEntriesTable,
 )
-from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
-from posthog.hogql.database.schema.events import EventsTable
-from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.database.schema.person_distinct_id_overrides import (
     PersonDistinctIdOverridesTable,
