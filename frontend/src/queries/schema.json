@@ -7090,6 +7090,10 @@
                         {
                             "const": "console_log_query",
                             "type": "string"
+                        },
+                        {
+                            "const": "snapshot_source",
+                            "type": "string"
                         }
                     ]
                 },
