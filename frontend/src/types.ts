@@ -89,7 +89,7 @@ export enum AvailableFeature {
     SURVEYS_SLACK_NOTIFICATIONS = 'surveys_slack_notifications',
     SURVEYS_WAIT_PERIODS = 'surveys_wait_periods',
     SURVEYS_RECURRING = 'surveys_recurring',
-    SURVEYS_EVENTS = 'survey_events',
+    SURVEYS_EVENTS = 'surveys_events',
     TRACKED_USERS = 'tracked_users',
     TEAM_MEMBERS = 'team_members',
     API_ACCESS = 'api_access',
@@ -3793,6 +3793,11 @@ export interface DataWarehouseViewLink {
     created_at?: string | null
 }
 
+export enum DataWarehouseSettingsTab {
+    Managed = 'managed',
+    SelfManaged = 'self_managed',
+}
+
 export const externalDataSources = ['Stripe', 'Hubspot', 'Postgres', 'Zendesk', 'Snowflake'] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -3968,6 +3973,7 @@ export type BatchExportConfiguration = {
     start_at: string | null
     end_at: string | null
     paused: boolean
+    model: string
     latest_runs?: BatchExportRun[]
 }
 

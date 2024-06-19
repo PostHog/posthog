@@ -199,6 +199,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
             "id",
             "team_id",
             "name",
+            "model",
             "destination",
             "interval",
             "paused",

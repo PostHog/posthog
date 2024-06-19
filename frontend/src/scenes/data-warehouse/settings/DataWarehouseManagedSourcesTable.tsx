@@ -42,7 +42,7 @@ const StatusTagSetting = {
     Failed: 'danger',
 }
 
-export function DataWarehouseSourcesTable(): JSX.Element {
+export function DataWarehouseManagedSourcesTable(): JSX.Element {
     const { dataWarehouseSources, dataWarehouseSourcesLoading, sourceReloadingById } =
         useValues(dataWarehouseSettingsLogic)
     const { deleteSource, reloadSource, updateSource } = useActions(dataWarehouseSettingsLogic)
