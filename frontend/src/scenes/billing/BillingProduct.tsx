@@ -292,22 +292,25 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                             <h4 className="my-4">Add-ons</h4>
                             {featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] == 'test' &&
                                 billing?.subscription_level == 'free' && (
-                                    <div className="mb-4 flex justify-between items-center bg-mark rounded px-6 py-4">
-                                        <div>
-                                            Add-ons are only available on paid plans. Upgrade to access these features.
+                                    <LemonBanner type="warning" className="text-sm mb-4">
+                                        <div className="flex justify-between items-center">
+                                            <div>
+                                                Add-ons are only available on paid plans. Upgrade to access these
+                                                features.
+                                            </div>
+                                            <LemonButton
+                                                className="shrink-0"
+                                                to={`/api/billing/activate?products=all_products:&redirect_path=${redirectPath}`}
+                                                type="primary"
+                                                status="alt"
+                                                disableClientSideRouting
+                                                loading={!!billingProductLoading}
+                                                onClick={() => setBillingProductLoading(product.type)}
+                                            >
+                                                Upgrade now
+                                            </LemonButton>
                                         </div>
-                                        <LemonButton
-                                            className="shrink-0"
-                                            to={`/api/billing/activate?products=all_products:&redirect_path=${redirectPath}`}
-                                            type="primary"
-                                            status="alt"
-                                            disableClientSideRouting
-                                            loading={!!billingProductLoading}
-                                            onClick={() => setBillingProductLoading(product.type)}
-                                        >
-                                            Upgrade now
-                                        </LemonButton>
-                                    </div>
+                                    </LemonBanner>
                                 )}
                             <div className="gap-y-4 flex flex-col">
                                 {product.addons
