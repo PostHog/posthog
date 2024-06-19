@@ -115,7 +115,7 @@ class RawSessionsTableV1(Table):
         ]
 
 
-def select_from_sessions_table(
+def select_from_sessions_table_v1(
     requested_fields: dict[str, list[str | int]], node: ast.SelectQuery, context: HogQLContext
 ):
     from posthog.hogql import ast
@@ -271,7 +271,7 @@ class SessionsTableV1(LazyTable):
         context,
         node: ast.SelectQuery,
     ):
-        return select_from_sessions_table(table_to_add.fields_accessed, node, context)
+        return select_from_sessions_table_v1(table_to_add.fields_accessed, node, context)
 
     def to_printed_clickhouse(self, context):
         return "sessions"
@@ -293,7 +293,7 @@ def join_events_table_to_sessions_table(
     if not join_to_add.fields_accessed:
         raise ResolutionError("No fields requested from events")
 
-    join_expr = ast.JoinExpr(table=select_from_sessions_table(join_to_add.fields_accessed, node, context))
+    join_expr = ast.JoinExpr(table=select_from_sessions_table_v1(join_to_add.fields_accessed, node, context))
     join_expr.join_type = "LEFT JOIN"
     join_expr.alias = join_to_add.to_table
     join_expr.constraint = ast.JoinConstraint(

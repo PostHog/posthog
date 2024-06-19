@@ -118,7 +118,7 @@ class RawSessionsTableV2(Table):
         ]
 
 
-def select_from_sessions_table(
+def select_from_sessions_table_v2(
     requested_fields: dict[str, list[str | int]], node: ast.SelectQuery, context: HogQLContext
 ):
     from posthog.hogql import ast
@@ -293,7 +293,7 @@ class SessionsTableV2(LazyTable):
         context,
         node: ast.SelectQuery,
     ):
-        return select_from_sessions_table(table_to_add.fields_accessed, node, context)
+        return select_from_sessions_table_v2(table_to_add.fields_accessed, node, context)
 
     def to_printed_clickhouse(self, context):
         return "sessions"
@@ -308,6 +308,13 @@ class SessionsTableV2(LazyTable):
         ]
 
 
+def session_id_to_session_id_v7_expr(session_id: ast.Expr) -> ast.Expr:
+    return ast.Call(
+        name="_toUInt128",
+        args=[ast.Call(name="toUUID", args=[session_id])],
+    )
+
+
 def join_events_table_to_sessions_table_v2(
     join_to_add: LazyJoinToAdd, context: HogQLContext, node: ast.SelectQuery
 ) -> ast.JoinExpr:
@@ -316,16 +323,13 @@ def join_events_table_to_sessions_table_v2(
     if not join_to_add.fields_accessed:
         raise ResolutionError("No fields requested from events")
 
-    join_expr = ast.JoinExpr(table=select_from_sessions_table(join_to_add.fields_accessed, node, context))
+    join_expr = ast.JoinExpr(table=select_from_sessions_table_v2(join_to_add.fields_accessed, node, context))
     join_expr.join_type = "LEFT JOIN"
     join_expr.alias = join_to_add.to_table
     join_expr.constraint = ast.JoinConstraint(
         expr=ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
-            left=ast.Call(
-                name="_toUInt128",
-                args=[ast.Call(name="toUUID", args=[ast.Field(chain=[join_to_add.from_table, "$session_id"])])],
-            ),
+            left=session_id_to_session_id_v7_expr(ast.Field(chain=[join_to_add.from_table, "$session_id"])),
             right=ast.Field(chain=[join_to_add.to_table, "session_id_v7"]),
         ),
         constraint_type="ON",

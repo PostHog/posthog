@@ -51,6 +51,7 @@ from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable,
 from posthog.hogql.database.schema.session_replay_events import (
     RawSessionReplayEventsTable,
     SessionReplayEventsTable,
+    join_replay_table_to_sessions_table_v2,
 )
 from posthog.hogql.database.schema.sessions_v1 import RawSessionsTableV1, SessionsTableV1
 from posthog.hogql.database.schema.sessions_v2 import (
@@ -242,13 +243,29 @@ def create_hogql_database(
         )
 
     if modifiers.sessionTableVersion in [SessionTableVersion.V2]:
-        database.sessions = SessionsTableV2()
-        database.raw_sessions = RawSessionsTableV2()
-        database.events.fields["session"] = LazyJoin(
+        raw_sessions = RawSessionsTableV2()
+        database.raw_sessions = raw_sessions
+        sessions = SessionsTableV2()
+        events = database.events
+        events.fields["session"] = LazyJoin(
             from_field=["$session_id"],
-            join_table=SessionsTableV2(),
+            join_table=sessions,
             join_function=join_events_table_to_sessions_table_v2,
         )
+        replay_events = database.session_replay_events
+        replay_events.fields["session"] = LazyJoin(
+            from_field=["session_id"],
+            join_table=sessions,
+            join_function=join_replay_table_to_sessions_table_v2,
+        )
+        replay_events.fields["events"].join_table = events
+        raw_replay_events = database.raw_session_replay_events
+        raw_replay_events.fields["session"] = LazyJoin(
+            from_field=["session_id"],
+            join_table=sessions,
+            join_function=join_replay_table_to_sessions_table_v2,
+        )
+        raw_replay_events.fields["events"].join_table = events
 
     database.persons.fields["$virt_initial_referring_domain_type"] = create_initial_domain_type(
         "$virt_initial_referring_domain_type"

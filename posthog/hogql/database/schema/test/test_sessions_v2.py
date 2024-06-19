@@ -66,6 +66,21 @@ class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
             1,
         )
 
+    def test_select_session_replay_session_duration(self):
+        session_id = str(uuid7())
+
+        response = self.__execute(
+            parse_select(
+                "select raw_session_replay_events.session.duration from raw_session_replay_events",
+                placeholders={"session_id": ast.Constant(value=session_id)},
+            ),
+        )
+
+        self.assertEqual(
+            len(response.results or []),
+            0,  # just making sure the query runs
+        )
+
     def test_channel_type(self):
         session_id = str(uuid7())
 
