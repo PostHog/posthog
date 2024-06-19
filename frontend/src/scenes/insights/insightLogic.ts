@@ -52,9 +52,8 @@ import {
 
 import { teamLogic } from '../teamLogic'
 import type { insightLogicType } from './insightLogicType'
-import { extractObjectDiffKeys, getInsightId } from './utils'
+import { getInsightId } from './utils'
 
-const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 export const UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES = 3
 
 function emptyFilters(filters: Partial<FilterType> | undefined): boolean {
@@ -105,15 +104,6 @@ export const insightLogic = kea<insightLogicType>([
         }),
         setFiltersMerge: (filters: Partial<FilterType>) => ({ filters }),
         reportInsightViewedForRecentInsights: () => true,
-        reportInsightViewed: (
-            insightModel: Partial<InsightModel>,
-            filters: Partial<FilterType>,
-            previousFilters?: Partial<FilterType>
-        ) => ({
-            insightModel,
-            filters,
-            previousFilters,
-        }),
         setIsLoading: (isLoading: boolean) => ({ isLoading }),
         setNotFirstLoad: true,
         setInsight: (insight: Partial<InsightModel>, options: SetInsightOptions) => ({
@@ -519,28 +509,6 @@ export const insightLogic = kea<insightLogicType>([
         showPersonsModal: [() => [(_, p) => p.query], (query?: InsightVizNode) => !query || !query.hidePersonsModal],
     }),
     listeners(({ actions, selectors, values }) => ({
-        setFiltersMerge: ({ filters }) => {
-            actions.setFilters({ ...values.filters, ...filters })
-        },
-        setFilters: async ({ filters }, _, __, previousState) => {
-            const previousFilters = selectors.filters(previousState)
-            if (objectsEqual(previousFilters, filters)) {
-                return
-            }
-            const dupeFilters = { ...filters }
-            const dupePrevFilters = { ...selectors.filters(previousState) }
-            if ('new_entity' in dupeFilters) {
-                delete (dupeFilters as any).new_entity
-            }
-            if ('new_entity' in dupePrevFilters) {
-                delete (dupePrevFilters as any).new_entity
-            }
-            if (objectsEqual(dupePrevFilters, dupeFilters)) {
-                return
-            }
-
-            actions.reportInsightViewed(values.insight, filters, previousFilters)
-        },
         reportInsightViewedForRecentInsights: async () => {
             // Report the insight being viewed to our '/viewed' endpoint. Used for "recently viewed insights"
 
@@ -552,44 +520,6 @@ export const insightLogic = kea<insightLogicType>([
             // right now
             if (values.insight.id) {
                 return api.create(`api/projects/${teamLogic.values.currentTeamId}/insights/${values.insight.id}/viewed`)
-            }
-        },
-        reportInsightViewed: async ({ filters, previousFilters }, breakpoint) => {
-            await breakpoint(IS_TEST_MODE ? 1 : 500) // Debounce to avoid noisy events from changing filters multiple times
-            if (!values.isInDashboardContext) {
-                const { fromDashboard } = router.values.hashParams
-                const changedKeysObj: Record<string, any> | undefined =
-                    previousFilters && extractObjectDiffKeys(previousFilters, filters)
-
-                const insightMode =
-                    insightSceneLogic.isMounted() && insightSceneLogic.values.insight === values.insight
-                        ? insightSceneLogic.values.insightMode
-                        : ItemMode.View
-
-                eventUsageLogic.actions.reportInsightViewed(
-                    values.insight,
-                    filters || {},
-                    insightMode,
-                    values.isFirstLoad,
-                    Boolean(fromDashboard),
-                    0,
-                    changedKeysObj,
-                    values.isUsingSessionAnalysis
-                )
-
-                actions.setNotFirstLoad()
-                await breakpoint(IS_TEST_MODE ? 1 : 10000) // Tests will wait for all breakpoints to finish
-
-                eventUsageLogic.actions.reportInsightViewed(
-                    values.insight,
-                    filters || {},
-                    insightMode,
-                    values.isFirstLoad,
-                    Boolean(fromDashboard),
-                    10,
-                    changedKeysObj,
-                    values.isUsingSessionAnalysis
-                )
             }
         },
         saveInsight: async ({ redirectToViewMode }) => {
@@ -667,9 +597,6 @@ export const insightLogic = kea<insightLogicType>([
             actions.setInsight(insight, { fromPersistentApi: true, overrideFilter: true })
             savedInsightsLogic.findMounted()?.actions.loadInsights() // Load insights afresh
             router.actions.push(urls.insightEdit(insight.short_id))
-        },
-        loadInsightSuccess: async ({ insight }) => {
-            actions.reportInsightViewed(insight, insight?.filters || {})
         },
         toggleVisibility: ({ index }) => {
             const currentIsHidden = !!values.hiddenLegendKeys?.[index]
