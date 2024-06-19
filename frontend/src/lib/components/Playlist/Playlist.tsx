@@ -31,7 +31,7 @@ type PlaylistHeaderAction = Pick<LemonButtonProps, 'icon' | 'tooltip' | 'childre
 export type PlaylistProps<T> = {
     sections: PlaylistSection<T>[]
     listEmptyState: JSX.Element
-    content: ({ activeItem }: { activeItem: T }) => JSX.Element
+    content: ({ activeItem }: { activeItem: T | null }) => JSX.Element
     title?: string
     notebooksHref?: string
     embedded?: boolean
@@ -118,7 +118,7 @@ export function Playlist<
                     onDoubleClick={() => setListCollapsed(!listCollapsed)}
                 />
             </div>
-            <div className="Playlist__main">{activeItem && content({ activeItem })}</div>
+            <div className="Playlist__main">{content({ activeItem })}</div>
         </div>
     )
 }

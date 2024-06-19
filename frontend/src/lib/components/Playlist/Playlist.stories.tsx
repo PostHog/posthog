@@ -22,7 +22,7 @@ const Template: StoryFn<typeof Playlist> = (props: Partial<PlaylistProps<any>>) 
     )
 
     return (
-        <div className="h-96">
+        <div className="h-96 min-w-[40rem]">
             <Playlist
                 title="Title"
                 sections={[]}
