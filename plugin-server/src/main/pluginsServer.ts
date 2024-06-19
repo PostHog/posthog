@@ -270,7 +270,7 @@ export async function startPluginsServer(
                     status.info('⚡', 'Reloading plugins!')
                     await piscina?.broadcastTask({ task: 'reloadPlugins' })
 
-                    if (hub.capabilities.pluginScheduledTasks && piscina) {
+                    if (hub.capabilities.pluginScheduledTasks) {
                         await piscina.broadcastTask({ task: 'reloadSchedule' })
                         hub.pluginSchedule = await loadPluginSchedule(piscina)
                     }
@@ -283,7 +283,7 @@ export async function startPluginsServer(
                 },
                 'populate-plugin-capabilities': async (message) => {
                     // We need this to be done in only once
-                    if (hub.capabilities.appManagementSingleton && piscina) {
+                    if (hub.capabilities.appManagementSingleton) {
                         await piscina?.broadcastTask({
                             task: 'populatePluginCapabilities',
                             args: JSON.parse(message),
