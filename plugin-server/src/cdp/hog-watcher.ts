@@ -1,10 +1,11 @@
 import { HogFunctionInvocationAsyncResponse, HogFunctionInvocationResult, HogFunctionType } from './types'
 
 export type HogWatcherObservation = {
-    hogFunctionId: HogFunctionType['id']
-    averageHogDurationMs: number
-    averageAsyncFunctionDurationMs: number
     rating: number
+    successes: number
+    failures: number
+    asyncFunctionFailures: number
+    asyncFunctionSuccesses: number
 }
 
 /**
@@ -14,23 +15,42 @@ export type HogWatcherObservation = {
  */
 export class HogWatcher {
     // TODO: Move to redis or some other shared storage
-    observations: Record<HogFunctionType['id'], any> = {}
+    observations: Record<HogFunctionType['id'], HogWatcherObservation> = {}
 
     constructor() {}
 
-    observeResult(result: HogFunctionInvocationResult) {
-        console.log('HogWatcher: observe', result)
+    private patchObservation(id: HogFunctionType['id'], update: (x: HogWatcherObservation) => HogWatcherObservation) {
+        const observation: HogWatcherObservation = (this.observations[id] = this.observations[id] ?? {
+            successes: 0,
+            failures: 0,
+            asyncFunctionFailures: 0,
+            asyncFunctionSuccesses: 0,
+            rating: 0,
+        })
+
+        this.observations[id] = update(observation)
+        console.log('Observation updated', id, this.observations[id])
     }
 
-    async observeResults(results: HogFunctionInvocationResult[]) {
+    observeResults(results: HogFunctionInvocationResult[]) {
         // TODO: Actually measure something and store the result
         results.forEach((result) => {
-            this.observeResult(result)
+            this.patchObservation(result.hogFunctionId, (x) => ({
+                ...x,
+                successes: x.successes + (result.finished ? 1 : 0),
+                failures: x.failures + (result.error ? 1 : 0),
+            }))
         })
     }
 
-    async observeAsyncFunctionResponses(responses: HogFunctionInvocationAsyncResponse[]) {
-        // TODO
+    observeAsyncFunctionResponses(responses: HogFunctionInvocationAsyncResponse[]) {
+        responses.forEach((response) => {
+            this.patchObservation(response.hogFunctionId, (x) => ({
+                ...x,
+                asyncFunctionSuccesses: x.asyncFunctionSuccesses + (response.error ? 0 : 1),
+                asyncFunctionFailures: x.asyncFunctionFailures + (response.error ? 1 : 0),
+            }))
+        })
     }
 
     getOverflowedHogFunctionIds(): HogFunctionType['id'][] {
