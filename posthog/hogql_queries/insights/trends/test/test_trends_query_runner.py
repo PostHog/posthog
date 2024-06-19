@@ -2696,7 +2696,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             assert len(response.results) == 4
             assert len(breakdown_labels) == 4
 
-    def test_trends_event_multiple_breakdowns_groups_into_bins(self):
+    def test_trends_event_multiple_numeric_breakdowns(self):
         self._create_events(
             [
                 SeriesTestData(
@@ -2768,6 +2768,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     distinct_id="p6",
                     events=[
                         Series(event="$pageview", timestamps=["2020-01-15T12:00:00Z"]),
+                        Series(event="$pageleave", timestamps=["2020-01-16T11:00:00Z"]),
                         Series(event="$pageleave", timestamps=["2020-01-16T12:00:00Z"]),
                     ],
                     properties={"$bin": 128},
@@ -2782,9 +2783,106 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [EventsNode(event="$pageview")],
             None,
             BreakdownFilter(
-                breakdown_histogram_bin_count=4,
                 breakdowns=[
-                    Breakdown(property="$bin", histogram_bin_count=4),
+                    Breakdown(property="$bin"),
+                ],
+            ),
+        )
+        breakdown_labels = [result["breakdown_value"] for result in response.results]
+
+        assert len(response.results) == 6
+        assert len(breakdown_labels) == 6
+        assert breakdown_labels == [["4"], ["8"], ["16"], ["32"], ["64"]]
+
+    def test_trends_event_multiple_numeric_breakdowns_into_bins(self):
+        self._create_events(
+            [
+                SeriesTestData(
+                    distinct_id="p1",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",
+                                "2020-01-12T12:00:00Z",
+                                "2020-01-13T12:00:00Z",
+                                "2020-01-15T12:00:00Z",
+                                "2020-01-17T12:00:00Z",
+                                "2020-01-19T12:00:00Z",
+                            ],
+                        ),
+                        Series(
+                            event="$pageleave",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",
+                                "2020-01-12T12:00:00Z",
+                                "2020-01-13T12:00:00Z",
+                            ],
+                        ),
+                    ],
+                    properties={"$bin": 4},
+                ),
+                SeriesTestData(
+                    distinct_id="p2",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=["2020-01-09T12:00:00Z", "2020-01-12T12:00:00Z"],
+                        ),
+                        Series(
+                            event="$pageleave",
+                            timestamps=[
+                                "2020-01-13T12:00:00Z",
+                            ],
+                        ),
+                    ],
+                    properties={"$bin": 8},
+                ),
+                SeriesTestData(
+                    distinct_id="p3",
+                    events=[
+                        Series(event="$pageview", timestamps=["2020-01-12T12:00:00Z"]),
+                        Series(event="$pageleave", timestamps=["2020-01-13T12:00:00Z"]),
+                    ],
+                    properties={"$bin": 16},
+                ),
+                SeriesTestData(
+                    distinct_id="p4",
+                    events=[
+                        Series(event="$pageview", timestamps=["2020-01-15T12:00:00Z"]),
+                        Series(event="$pageleave", timestamps=["2020-01-16T12:00:00Z"]),
+                    ],
+                    properties={"$bin": 32},
+                ),
+                SeriesTestData(
+                    distinct_id="p5",
+                    events=[
+                        Series(event="$pageview", timestamps=["2020-01-15T12:00:00Z"]),
+                        Series(event="$pageleave", timestamps=["2020-01-16T12:00:00Z"]),
+                    ],
+                    properties={"$bin": 64},
+                ),
+                SeriesTestData(
+                    distinct_id="p6",
+                    events=[
+                        Series(event="$pageview", timestamps=["2020-01-15T12:00:00Z"]),
+                        Series(event="$pageleave", timestamps=["2020-01-16T11:00:00Z"]),
+                        Series(event="$pageleave", timestamps=["2020-01-16T12:00:00Z"]),
+                    ],
+                    properties={"$bin": 128},
+                ),
+            ]
+        )
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(
+                breakdowns=[
+                    Breakdown(property="$bin", histogram_bin_count=2),
                 ],
             ),
         )
@@ -2792,7 +2890,4 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert len(response.results) == 2
         assert len(breakdown_labels) == 2
-        assert breakdown_labels == [
-            ["https://posthog.com"],
-            ["https://posthog.com/foo/bar"],
-        ]
+        assert breakdown_labels == [["4"], ["8"], ["16"], ["32"], ["64"]]

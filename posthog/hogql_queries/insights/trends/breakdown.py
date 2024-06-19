@@ -10,11 +10,13 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team.team import Team
 from posthog.schema import (
     ActionsNode,
+    BreakdownFilter,
     DataWarehouseNode,
     EventsNode,
     HogQLQueryModifiers,
     InCohortVia,
     TrendsQuery,
+    Breakdown as BreakdownSchema,
 )
 
 BREAKDOWN_OTHER_STRING_LABEL = "$$_posthog_breakdown_other_$$"
@@ -71,19 +73,25 @@ class Breakdown:
 
     @cached_property
     def is_histogram_breakdown(self) -> bool:
-        return self.enabled and self.query.breakdownFilter.breakdown_histogram_bin_count is not None
+        if self.enabled:
+            breakdown_filter = cast(BreakdownFilter, self.query.breakdownFilter)
+            if not self.is_multiple_breakdown:
+                return breakdown_filter.breakdown_histogram_bin_count is not None
+
+            for breakdown in cast(list[BreakdownSchema], breakdown_filter.breakdowns):
+                if breakdown.histogram_bin_count is not None:
+                    return True
+        return False
 
     @cached_property
     def is_multiple_breakdown(self) -> bool:
         return self.enabled and self.query.breakdownFilter.breakdowns is not None
 
-    def column_expr(self) -> ast.Alias:
-        if self.is_histogram_breakdown:
-            return ast.Alias(alias="breakdown_value", expr=ast.Field(chain=self._properties_chain))
+    def column_expr(self) -> list[ast.Alias] | ast.Alias:
         if self.query.breakdownFilter.breakdown_type == "cohort":
             if self.modifiers.inCohortVia == InCohortVia.LEFTJOIN_CONJOINED:
                 return ast.Alias(
-                    alias="breakdown_value",
+                    alias=self.breakdown_alias,
                     expr=hogql_to_string(ast.Field(chain=["__in_cohort", "cohort_id"])),
                 )
 
@@ -91,11 +99,29 @@ class Breakdown:
                 0 if self.query.breakdownFilter.breakdown == "all" else int(self.query.breakdownFilter.breakdown)  # type: ignore
             )
             return ast.Alias(
-                alias="breakdown_value",
+                alias=self.breakdown_alias,
                 expr=hogql_to_string(ast.Constant(value=cohort_breakdown)),
             )
 
-        return ast.Alias(alias="breakdown_value", expr=self._get_breakdown_expression)
+        if self.query.breakdownFilter.breakdown_type == "hogql":
+            return ast.Alias(
+                alias=self.breakdown_alias,
+                expr=self._get_breakdown_values_transform(parse_expr(self.query.breakdownFilter.breakdown)),
+            )
+
+        if self.is_multiple_breakdown:
+            return self._get_multiple_breakdowns_aliases()
+
+        if self.query.breakdownFilter.breakdown_histogram_bin_count is not None:
+            return ast.Alias(
+                alias=self.breakdown_alias,
+                expr=ast.Field(chain=self._properties_chain),
+            )
+
+        return ast.Alias(
+            alias=self.breakdown_alias,
+            expr=self._get_breakdown_values_transform(ast.Field(chain=self._properties_chain)),
+        )
 
     def events_where_filter(self, breakdown_values_override: Optional[str | int] = None) -> ast.Expr | None:
         if (
@@ -157,18 +183,10 @@ class Breakdown:
                 return ast.CompareOperation(left=left, op=ast.CompareOperationOp.Eq, right=ast.Constant(value=value))
         return ast.Constant(value=True)
 
-    @cached_property
-    def _get_breakdown_expression(self) -> ast.Call:
-        if self.query.breakdownFilter.breakdown_type == "hogql":
-            return self._get_breakdown_values_transform(parse_expr(self.query.breakdownFilter.breakdown))
-        if self.query.breakdownFilter.breakdowns:
-            return self._get_breakdown_list_values_transform()
-        return self._get_breakdown_values_transform(ast.Field(chain=self._properties_chain))
-
     def _get_breakdown_values_transform(self, node: ast.Expr) -> ast.Call:
         if self.query.breakdownFilter and self.query.breakdownFilter.breakdown_normalize_url:
             node = self._get_normalized_url_transform(node)
-        return self._get_replace_null_values_transform(node)
+        return self.get_replace_null_values_transform(node)
 
     def _get_normalized_url_transform(self, node: ast.Expr):
         return cast(
@@ -176,7 +194,8 @@ class Breakdown:
             parse_expr("empty(trimRight({node}, '/?#')) ? '/' : trimRight({node}, '/?#')", placeholders={"node": node}),
         )
 
-    def _get_replace_null_values_transform(self, node: ast.Expr):
+    @staticmethod
+    def get_replace_null_values_transform(node: ast.Expr):
         return cast(
             ast.Call,
             parse_expr(
@@ -196,9 +215,10 @@ class Breakdown:
             group_type_index=self.query.breakdownFilter.breakdown_group_type_index,
         )
 
-    def _get_breakdown_list_values_transform(self):
-        breakdowns: list[ast.Expr] = []
-        for breakdown in self.query.breakdownFilter.breakdowns:
+    def _get_multiple_breakdowns_aliases(self):
+        breakdowns: list[ast.Alias] = []
+
+        for idx, breakdown in enumerate(self.query.breakdownFilter.breakdowns):
             node = ast.Field(
                 chain=get_properties_chain(
                     breakdown_type=breakdown.type,
@@ -207,10 +227,25 @@ class Breakdown:
                 )
             )
 
-            if breakdown.normalize_url:
-                node = self._get_normalized_url_transform(node)
-            node = self._get_replace_null_values_transform(node)
+            if breakdown.histogram_bin_count is None:
+                if breakdown.normalize_url:
+                    node = self._get_normalized_url_transform(node)
+                node = self.get_replace_null_values_transform(node)
 
-            breakdowns.append(node)
+            breakdowns.append(ast.Alias(expr=node, alias=self._get_multiple_breakdown_alias_name(idx + 1)))
+        return breakdowns
 
-        return ast.Array(exprs=breakdowns)
+    @staticmethod
+    def _get_multiple_breakdown_alias_name(idx: int):
+        return f"breakdown_value_{idx}"
+
+    @property
+    def breakdown_alias(self):
+        return "breakdown_value"
+
+    @cached_property
+    def multiple_breakdowns_aliases(self):
+        return [
+            self._get_multiple_breakdown_alias_name(idx + 1)
+            for idx in range(len(self.query.breakdownFilter.breakdowns))
+        ]
