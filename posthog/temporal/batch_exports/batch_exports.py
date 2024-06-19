@@ -30,72 +30,6 @@ from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 
-SELECT_QUERY_TEMPLATE = Template(
-    """
-    SELECT
-    $fields
-    FROM events
-    WHERE
-        team_id = {team_id}
-        AND $timestamp_field >= toDateTime64({data_interval_start}, 6, 'UTC')
-        AND $timestamp_field < toDateTime64({data_interval_end}, 6, 'UTC')
-        $timestamp
-        $exclude_events
-        $include_events
-    $group_by
-    $order_by
-    $format
-    """
-)
-
-TIMESTAMP_PREDICATES = Template(
-    """
--- These 'timestamp' checks are a heuristic to exploit the sort key.
--- Ideally, we need a schema that serves our needs, i.e. with a sort key on the _timestamp field used for batch exports.
--- As a side-effect, this heuristic will discard historical loads older than a day.
-AND timestamp >= toDateTime64({data_interval_start}, 6, 'UTC') - INTERVAL $lookback_days DAY
-AND timestamp < toDateTime64({data_interval_end}, 6, 'UTC') + INTERVAL 1 DAY
-"""
-)
-
-
-def get_timestamp_predicates_for_team(team_id: int, is_backfill: bool = False) -> str:
-    if str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS or is_backfill:
-        return ""
-    else:
-        return TIMESTAMP_PREDICATES.substitute(
-            lookback_days=settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS),
-        )
-
-
-def get_timestamp_field(is_backfill: bool) -> str:
-    """Return the field to use for timestamp bounds."""
-    if is_backfill:
-        timestamp_field = "timestamp"
-    else:
-        timestamp_field = "COALESCE(inserted_at, _timestamp)"
-    return timestamp_field
-
-
-def default_fields() -> list[BatchExportField]:
-    """Return list of default batch export Fields."""
-    return [
-        BatchExportField(expression="uuid", alias="uuid"),
-        BatchExportField(expression="team_id", alias="team_id"),
-        BatchExportField(expression="timestamp", alias="timestamp"),
-        BatchExportField(expression="_inserted_at", alias="_inserted_at"),
-        BatchExportField(expression="created_at", alias="created_at"),
-        BatchExportField(expression="event", alias="event"),
-        BatchExportField(expression="properties", alias="properties"),
-        BatchExportField(expression="distinct_id", alias="distinct_id"),
-        BatchExportField(expression="set", alias="set"),
-        BatchExportField(
-            expression="set_once",
-            alias="set_once",
-        ),
-    ]
-
-
 BytesGenerator = collections.abc.Generator[bytes, None, None]
 RecordsGenerator = collections.abc.Generator[pa.RecordBatch, None, None]
 
@@ -157,6 +91,26 @@ FROM
 FORMAT ArrowStream
 """)
 
+
+def default_fields() -> list[BatchExportField]:
+    """Return list of default batch export Fields."""
+    return [
+        BatchExportField(expression="uuid", alias="uuid"),
+        BatchExportField(expression="team_id", alias="team_id"),
+        BatchExportField(expression="timestamp", alias="timestamp"),
+        BatchExportField(expression="_inserted_at", alias="_inserted_at"),
+        BatchExportField(expression="created_at", alias="created_at"),
+        BatchExportField(expression="event", alias="event"),
+        BatchExportField(expression="properties", alias="properties"),
+        BatchExportField(expression="distinct_id", alias="distinct_id"),
+        BatchExportField(expression="set", alias="set"),
+        BatchExportField(
+            expression="set_once",
+            alias="set_once",
+        ),
+    ]
+
+
 DEFAULT_MODELS = {"events", "persons"}
 
 
@@ -171,6 +125,25 @@ async def iter_model_records(
     else:
         for record in iter_records(client, team_id=team_id, is_backfill=is_backfill, **parameters):
             yield record
+
+
+async def iter_records_from_model_view(
+    client: ClickHouseClient, model: str, is_backfill: bool, team_id: int, **parameters
+) -> AsyncRecordsGenerator:
+    if model == "persons":
+        view = SELECT_FROM_PERSONS_VIEW
+    else:
+        # TODO: Let this model be exported by `astream_query_as_arrow`.
+        # Just to reduce risk, I don't want to change the function that runs 100% of the exports
+        # without battle testing it first.
+        # There are already changes going out to the queries themselves that will impact events in a
+        # positive way. So, we can come back later and drop this block.
+        for record_batch in iter_records(client, team_id=team_id, is_backfill=is_backfill, **parameters):
+            yield record_batch
+        return
+
+    async for record_batch in client.astream_query_as_arrow(view, query_parameters=parameters):
+        yield record_batch
 
 
 def iter_records(
@@ -248,25 +221,6 @@ def iter_records(
         query_parameters = base_query_parameters
 
     yield from client.stream_query_as_arrow(query_str, query_parameters=query_parameters)
-
-
-async def iter_records_from_model_view(
-    client: ClickHouseClient, model: str, is_backfill: bool, team_id: int, **parameters
-) -> AsyncRecordsGenerator:
-    if model == "persons":
-        view = SELECT_FROM_PERSONS_VIEW
-    else:
-        # TODO: Let this model be exported by `astream_query_as_arrow`.
-        # Just to reduce risk, I don't want to change the function that runs 100% of the exports
-        # without battle testing it first.
-        # There are already changes going out to the queries themselves that will impact events in a
-        # positive way. So, we can come back later and drop this block.
-        for record_batch in iter_records(client, team_id=team_id, is_backfill=is_backfill, **parameters):
-            yield record_batch
-        return
-
-    async for record_batch in client.astream_query_as_arrow(view, query_parameters=parameters):
-        yield record_batch
 
 
 def get_data_interval(interval: str, data_interval_end: str | None) -> tuple[dt.datetime, dt.datetime]:
