@@ -462,7 +462,7 @@ export async function startPluginsServer(
             })
         }
 
-        status.info('🚀', 'Finished Launching plugin server...')
+        status.info('🚀', `Finished Launching plugin server in ${Date.now() - timer.valueOf()}ms `)
 
         return serverInstance
     } catch (error) {
