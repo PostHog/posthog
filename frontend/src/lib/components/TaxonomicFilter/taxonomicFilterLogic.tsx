@@ -214,7 +214,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         searchPlaceholder: 'data warehouse table name',
                         type: TaxonomicFilterGroupType.DataWarehouse,
                         logic: dataWarehouseSceneLogic,
-                        value: 'dataWarehouseTables',
+                        value: 'dataWarehouseTablesAndViews',
                         getName: (table: DatabaseSchemaTable) => table.name,
                         getValue: (table: DatabaseSchemaTable) => table.name,
                         getPopoverHeader: () => 'Data Warehouse Table',

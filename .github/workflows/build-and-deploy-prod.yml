@@ -9,6 +9,7 @@ on:
             - master
         paths-ignore:
             - 'rust/**'
+            - 'livestream/**'
 
 jobs:
     slack:

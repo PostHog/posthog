@@ -226,7 +226,7 @@ const List = ({
                 </div>
             </DraggableToNotebook>
 
-            <div className={clsx('overflow-y-auto')} onScroll={handleScroll} ref={contentRef}>
+            <div className="overflow-y-auto" onScroll={handleScroll} ref={contentRef}>
                 {actionContent && <div className="bg-side">{actionContent}</div>}
 
                 {sections.flatMap((s) => s.items).length ? (

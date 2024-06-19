@@ -18,6 +18,7 @@ import {
 import { BindLogic, useActions, useValues } from 'kea'
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
 import { FlagSelector } from 'lib/components/FlagSelector'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -59,7 +60,8 @@ export default function SurveyEdit(): JSX.Element {
         setFlagPropertyErrors,
         setSchedule,
     } = useActions(surveyLogic)
-    const { surveysMultipleQuestionsAvailable, surveysRecurringScheduleAvailable } = useValues(surveysLogic)
+    const { surveysMultipleQuestionsAvailable, surveysRecurringScheduleAvailable, surveysEventsAvailable } =
+        useValues(surveysLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const sortedItemIds = survey.questions.map((_, idx) => idx.toString())
     const { thankYouMessageDescriptionContentType } = survey.appearance
@@ -618,9 +620,13 @@ export default function SurveyEdit(): JSX.Element {
                                                     )}
                                                 </BindLogic>
                                             </LemonField.Pure>
-                                            {featureFlags[FEATURE_FLAGS.SURVEYS_EVENTS] && (
-                                                <LemonField.Pure label="User sends events">
+                                            {featureFlags[FEATURE_FLAGS.SURVEYS_EVENTS] && surveysEventsAvailable && (
+                                                <LemonField.Pure
+                                                    label="User sends events"
+                                                    info="Note that these events are only observed, and activate this survey, in the current user session."
+                                                >
                                                     <EventSelect
+                                                        filterGroupTypes={[TaxonomicFilterGroupType.CustomEvents]}
                                                         onChange={(includedEvents) => {
                                                             setSurveyValue('conditions', {
                                                                 ...survey.conditions,

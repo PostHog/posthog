@@ -9,7 +9,6 @@ import { UniversalFiltersGroup, UniversalFilterValue } from 'lib/components/Univ
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isActionFilter, isEventFilter } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectClean, objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -90,6 +89,7 @@ export const DEFAULT_RECORDING_FILTERS: RecordingFilters = {
     date_from: '-3d',
     date_to: null,
     console_logs: [],
+    snapshot_source: null,
     console_search_query: '',
     operand: FilterLogicalOperator.And,
 }
@@ -131,6 +131,7 @@ function convertUniversalFiltersToLegacyFilters(universalFilters: RecordingUnive
     const events: FilterType['events'] = []
     const actions: FilterType['actions'] = []
     let console_logs: FilterableLogLevel[] = []
+    let snapshot_source: AnyPropertyFilter | null = null
     let console_search_query = ''
 
     filters.forEach((f) => {
@@ -144,6 +145,11 @@ function convertUniversalFiltersToLegacyFilters(universalFilters: RecordingUnive
                     console_logs = f.value as FilterableLogLevel[]
                 } else if (f.key === 'console_log_query') {
                     console_search_query = (f.value || '') as string
+                } else if (f.key === 'snapshot_source') {
+                    const value = f.value as string[] | null
+                    if (value) {
+                        snapshot_source = f
+                    }
                 }
             } else {
                 properties.push(f)
@@ -162,6 +168,7 @@ function convertUniversalFiltersToLegacyFilters(universalFilters: RecordingUnive
         duration_type_filter: durationFilter.key,
         console_search_query,
         console_logs,
+        snapshot_source,
         operand: nestedFilters.type,
     }
 }
@@ -283,14 +290,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         hog_ql_filtering: values.useHogQLFiltering,
                     }
 
-                    if (values.artificialLag && !params.date_to) {
-                        // values.artificalLag is a number of seconds to delay the recordings by
-                        // convert it to an absolute UTC timestamp as the relative date parsing in the backend
-                        // can't cope with seconds as a relative date
-                        const absoluteLag = now().subtract(values.artificialLag, 'second')
-                        params['date_to'] = absoluteLag.toISOString()
-                    }
-
                     if (values.orderBy === 'start_time') {
                         if (direction === 'older') {
                             params['date_to'] =
@@ -352,7 +351,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
                         recordings = [...recordings, ...fetchedRecordings.results]
                     }
-                    // TODO: Check for pinnedRecordings being IDs and fetch them, returnig the merged list
+                    // TODO: Check for pinnedRecordings being IDs and fetch them, returning the merged list
 
                     return recordings
                 },
@@ -507,6 +506,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             {
                 loadSessionRecordingsFailure: () => true,
                 loadSessionRecordingSuccess: () => false,
+                setUniversalFilters: () => false,
                 setAdvancedFilters: () => false,
                 setSimpleFilters: () => false,
                 loadNext: () => false,
@@ -570,16 +570,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         },
     })),
     selectors({
-        artificialLag: [
-            (s) => [s.featureFlags],
-            (featureFlags) => {
-                const lag = featureFlags[FEATURE_FLAGS.SESSION_REPLAY_ARTIFICIAL_LAG]
-                // lag needs to match `\d+` when present it is a number of seconds delay
-                // relative_date parsing in the backend can't cope with seconds
-                // so it will be converted to an absolute date when added to API call
-                return typeof lag === 'string' && /^\d+$/.test(lag) ? Number.parseInt(lag) : null
-            },
-        ],
         useHogQLFiltering: [
             (s) => [s.featureFlags],
             (featureFlags) => !!featureFlags[FEATURE_FLAGS.SESSION_REPLAY_HOG_QL_FILTERING],

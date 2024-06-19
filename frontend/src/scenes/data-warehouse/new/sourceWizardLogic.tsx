@@ -168,6 +168,13 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
                                 value: 'keypair',
                                 fields: [
                                     {
+                                        name: 'username',
+                                        label: 'Tunnel username',
+                                        type: 'text',
+                                        required: false,
+                                        placeholder: 'User1',
+                                    },
+                                    {
                                         name: 'private_key',
                                         label: 'Tunnel private key',
                                         type: 'textarea',

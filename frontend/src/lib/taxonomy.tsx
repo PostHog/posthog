@@ -1076,6 +1076,11 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         },
     },
     replay: {
+        snapshot_source: {
+            label: 'Platform',
+            description: 'Platform the session was recorded on',
+            examples: ['web', 'mobile'],
+        },
         console_log_level: {
             label: 'Log level',
             description: 'Level of console logs captured',

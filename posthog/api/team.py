@@ -199,7 +199,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     def get_live_events_token(self, team: Team) -> Optional[str]:
         return encode_jwt(
-            {"team_id": team.id},
+            {"team_id": team.id, "api_token": team.api_token},
             timedelta(days=7),
             PosthogJwtAudience.LIVESTREAM,
         )

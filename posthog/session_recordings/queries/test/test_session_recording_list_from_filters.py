@@ -562,17 +562,17 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                     "session_id": session_id_two,
                     "first_url": "https://first-is-on-second-event.com",
                 },
-                # sessions without urls are not included
-                # {
-                #     "session_id": session_id_three,
-                #     "first_url": None,
-                # },
+                {
+                    "session_id": session_id_three,
+                    "first_url": None,
+                },
                 {
                     "session_id": session_id_four,
                     "first_url": "https://on-second-received-event-but-actually-first.com",
                 },
             ],
-            key=lambda x: x["session_id"],
+            # mypy unhappy about this lambda when first_url can be None 🤷️
+            key=lambda x: x["session_id"],  # type: ignore
         )
 
     def test_recordings_dont_leak_data_between_teams(self):
@@ -2836,6 +2836,41 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert sorted([sr["session_id"] for sr in session_recordings]) == sorted([])
+
+    @snapshot_clickhouse_queries
+    def test_filter_for_recordings_by_snapshot_source(self):
+        user = "test_duration_filter-user"
+        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+
+        session_id_one = "session one id"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_id_one,
+            team_id=self.team.id,
+            snapshot_source="web",
+        )
+
+        session_id_two = "session two id"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_id_two,
+            team_id=self.team.id,
+            snapshot_source="mobile",
+        )
+
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {
+                "snapshot_source": '{"key": "snapshot_source", "value": ["web"], "operator": "exact", "type": "recording"}'
+            }
+        )
+        assert [r["session_id"] for r in session_recordings] == [session_id_one]
+
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {
+                "snapshot_source": '{"key": "snapshot_source", "value": ["mobile"], "operator": "exact", "type": "recording"}'
+            }
+        )
+        assert [r["session_id"] for r in session_recordings] == [session_id_two]
 
     @also_test_with_materialized_columns(
         event_properties=["is_internal_user"],

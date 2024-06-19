@@ -42,7 +42,7 @@ const StatusTagSetting = {
     Failed: 'danger',
 }
 
-export function DataWarehouseSourcesTable(): JSX.Element {
+export function DataWarehouseManagedSourcesTable(): JSX.Element {
     const { dataWarehouseSources, dataWarehouseSourcesLoading, sourceReloadingById } =
         useValues(dataWarehouseSettingsLogic)
     const { deleteSource, reloadSource, updateSource } = useActions(dataWarehouseSettingsLogic)
@@ -333,7 +333,7 @@ const SchemaTable = ({ schemas }: SchemaTableProps): JSX.Element => {
                                 },
                             }
                             return (
-                                <Link to={urls.insightNew(undefined, undefined, JSON.stringify(query))}>
+                                <Link to={urls.dataWarehouse(JSON.stringify(query))}>
                                     <code>{schema.table.name}</code>
                                 </Link>
                             )
