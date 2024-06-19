@@ -292,7 +292,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                             <h4 className="my-4">Add-ons</h4>
                             {featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] == 'test' &&
                                 billing?.subscription_level == 'free' && (
-                                    <LemonBanner type="warning" className="text-sm mb-4">
+                                    <LemonBanner type="warning" className="text-sm mb-4" hideIcon>
                                         <div className="flex justify-between items-center">
                                             <div>
                                                 Add-ons are only available on paid plans. Upgrade to access these
