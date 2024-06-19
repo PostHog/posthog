@@ -264,9 +264,5 @@ func main() {
 		}
 	})
 
-	if !isProd {
-		e.Logger.Fatal(e.Start(":8080"))
-	} else {
-		e.Logger.Fatal(e.StartAutoTLS(":443"))
-	}
+	e.Logger.Fatal(e.Start(":8080"))
 }
