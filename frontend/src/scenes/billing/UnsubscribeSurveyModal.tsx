@@ -3,7 +3,7 @@ import './UnsubscribeSurveyModal.scss'
 import { LemonBanner, LemonButton, LemonModal, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
@@ -16,7 +16,7 @@ export const UnsubscribeSurveyModal = ({
 }: {
     product: BillingProductV2Type | BillingProductV2AddonType
 }): JSX.Element | null => {
-    const { featureFlags } = useValues(featureFlagsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const { surveyID, surveyResponse, isAddonProduct } = useValues(billingProductLogic({ product }))
     const { setSurveyResponse, reportSurveyDismissed } = useActions(billingProductLogic({ product }))
     const { deactivateProduct, resetUnsubscribeError } = useActions(billingLogic)
