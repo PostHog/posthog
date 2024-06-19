@@ -3,6 +3,9 @@ name = "posthog"
 version = "2024.06"
 requires-python = ">=3.10"
 
+[tool.setuptools]
+packages = ["ee", "posthog", "hogql_parser"]
+
 [tool.black]
 line-length = 120
 target-version = ['py310']
