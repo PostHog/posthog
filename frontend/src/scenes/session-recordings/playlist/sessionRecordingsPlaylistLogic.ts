@@ -147,7 +147,10 @@ function convertUniversalFiltersToLegacyFilters(universalFilters: RecordingUnive
                 } else if (f.key === 'console_log_query') {
                     console_search_query = (f.value || '') as string
                 } else if (f.key === 'snapshot_source') {
-                    snapshot_source = f
+                    const value = f.value as string[] | null
+                    if (value) {
+                        snapshot_source = f
+                    }
                 }
             } else {
                 properties.push(f)
@@ -504,6 +507,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             {
                 loadSessionRecordingsFailure: () => true,
                 loadSessionRecordingSuccess: () => false,
+                setUniversalFilters: () => false,
                 setAdvancedFilters: () => false,
                 setSimpleFilters: () => false,
                 loadNext: () => false,
