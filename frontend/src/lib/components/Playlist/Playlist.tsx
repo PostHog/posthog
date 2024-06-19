@@ -227,7 +227,7 @@ const List = ({
             </DraggableToNotebook>
 
             <div className="overflow-y-auto" onScroll={handleScroll} ref={contentRef}>
-                {actionContent && <div className="bg-side">{actionContent}</div>}
+                {actionContent && <div className="bg-bg-3000">{actionContent}</div>}
 
                 {sections.flatMap((s) => s.items).length ? (
                     <>
