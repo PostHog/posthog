@@ -1048,12 +1048,15 @@ export const surveyLogic = kea<surveyLogicType>([
                         graph.set(fromIndex, new Set())
                     }
 
-                    if (
+                    if (question.branching?.type === SurveyQuestionBranchingType.ConfirmationMessage) {
+                        return
+                    } else if (
                         question.branching?.type === SurveyQuestionBranchingType.SpecificQuestion &&
                         Number.isInteger(question.branching.index)
                     ) {
                         const toIndex = question.branching.index
                         graph.get(fromIndex).add(toIndex)
+                        return
                     } else if (
                         question.branching?.type === SurveyQuestionBranchingType.ResponseBased &&
                         isObject(question.branching?.responseValues)

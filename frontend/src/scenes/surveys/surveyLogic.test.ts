@@ -837,7 +837,7 @@ describe('set response-based survey branching', () => {
             SURVEY.questions = [
                 {
                     type: SurveyQuestionType.Rating,
-                    question: 'First',
+                    question: '0',
                     description: '',
                     display: 'number',
                     scale: 5,
@@ -850,7 +850,7 @@ describe('set response-based survey branching', () => {
                 },
                 {
                     type: SurveyQuestionType.Rating,
-                    question: 'Second',
+                    question: '1',
                     description: '',
                     display: 'number',
                     scale: 5,
@@ -873,7 +873,7 @@ describe('set response-based survey branching', () => {
             SURVEY.questions = [
                 {
                     type: SurveyQuestionType.Rating,
-                    question: 'First',
+                    question: '0',
                     description: '',
                     display: 'number',
                     scale: 5,
@@ -886,7 +886,7 @@ describe('set response-based survey branching', () => {
                 },
                 {
                     type: SurveyQuestionType.Rating,
-                    question: 'Second',
+                    question: '1',
                     description: '',
                     display: 'number',
                     scale: 5,
@@ -899,7 +899,7 @@ describe('set response-based survey branching', () => {
                 },
                 {
                     type: SurveyQuestionType.Rating,
-                    question: 'Third',
+                    question: '2',
                     description: '',
                     display: 'number',
                     scale: 5,
@@ -923,7 +923,7 @@ describe('set response-based survey branching', () => {
             SURVEY.questions = [
                 {
                     type: SurveyQuestionType.Rating,
-                    question: 'First',
+                    question: '0',
                     description: '',
                     display: 'number',
                     scale: 5,
@@ -936,7 +936,7 @@ describe('set response-based survey branching', () => {
                 },
                 {
                     type: SurveyQuestionType.Rating,
-                    question: 'Second',
+                    question: '1',
                     description: '',
                     display: 'number',
                     scale: 5,
@@ -959,7 +959,7 @@ describe('set response-based survey branching', () => {
             SURVEY.questions = [
                 {
                     type: SurveyQuestionType.Rating,
-                    question: 'First',
+                    question: '0',
                     description: '',
                     display: 'number',
                     scale: 5,
@@ -972,7 +972,7 @@ describe('set response-based survey branching', () => {
                 },
                 {
                     type: SurveyQuestionType.Rating,
-                    question: 'Second',
+                    question: '1',
                     description: '',
                     display: 'number',
                     scale: 5,
@@ -981,7 +981,7 @@ describe('set response-based survey branching', () => {
                 },
                 {
                     type: SurveyQuestionType.Rating,
-                    question: 'Second',
+                    question: '2',
                     description: '',
                     display: 'number',
                     scale: 5,
@@ -990,7 +990,7 @@ describe('set response-based survey branching', () => {
                 },
                 {
                     type: SurveyQuestionType.Rating,
-                    question: 'Second',
+                    question: '3',
                     description: '',
                     display: 'number',
                     scale: 5,
@@ -1003,7 +1003,7 @@ describe('set response-based survey branching', () => {
                 },
                 {
                     type: SurveyQuestionType.Rating,
-                    question: 'Second',
+                    question: '4',
                     description: '',
                     display: 'number',
                     scale: 5,
@@ -1016,7 +1016,7 @@ describe('set response-based survey branching', () => {
                 },
                 {
                     type: SurveyQuestionType.Rating,
-                    question: 'Second',
+                    question: '5',
                     description: '',
                     display: 'number',
                     scale: 5,
@@ -1037,7 +1037,7 @@ describe('set response-based survey branching', () => {
             SURVEY.questions = [
                 {
                     type: SurveyQuestionType.Rating,
-                    question: 'First',
+                    question: '0',
                     description: '',
                     display: 'number',
                     scale: 5,
@@ -1056,7 +1056,7 @@ describe('set response-based survey branching', () => {
             SURVEY.questions = [
                 {
                     type: SurveyQuestionType.Rating,
-                    question: 'First',
+                    question: '0',
                     description: '',
                     display: 'number',
                     scale: 5,
@@ -1065,7 +1065,7 @@ describe('set response-based survey branching', () => {
                 },
                 {
                     type: SurveyQuestionType.Rating,
-                    question: 'Second',
+                    question: '1',
                     description: '',
                     display: 'number',
                     scale: 5,
@@ -1074,7 +1074,7 @@ describe('set response-based survey branching', () => {
                 },
                 {
                     type: SurveyQuestionType.Rating,
-                    question: 'Third',
+                    question: '2',
                     description: '',
                     display: 'number',
                     scale: 5,
@@ -1093,7 +1093,7 @@ describe('set response-based survey branching', () => {
             SURVEY.questions = [
                 {
                     type: SurveyQuestionType.Rating,
-                    question: 'First',
+                    question: '0',
                     description: '',
                     display: 'number',
                     scale: 5,
@@ -1106,7 +1106,7 @@ describe('set response-based survey branching', () => {
                 },
                 {
                     type: SurveyQuestionType.Rating,
-                    question: 'Second',
+                    question: '1',
                     description: '',
                     display: 'number',
                     scale: 5,
@@ -1125,7 +1125,7 @@ describe('set response-based survey branching', () => {
             SURVEY.questions = [
                 {
                     type: SurveyQuestionType.Rating,
-                    question: 'First',
+                    question: '0',
                     description: '',
                     display: 'number',
                     scale: 5,
@@ -1138,7 +1138,7 @@ describe('set response-based survey branching', () => {
                 },
                 {
                     type: SurveyQuestionType.Rating,
-                    question: 'Second',
+                    question: '1',
                     description: '',
                     display: 'number',
                     scale: 5,
@@ -1151,7 +1151,7 @@ describe('set response-based survey branching', () => {
                 },
                 {
                     type: SurveyQuestionType.Rating,
-                    question: 'Third',
+                    question: '2',
                     description: '',
                     display: 'number',
                     scale: 5,
@@ -1171,7 +1171,7 @@ describe('set response-based survey branching', () => {
             SURVEY.questions = [
                 {
                     type: SurveyQuestionType.Rating,
-                    question: 'First',
+                    question: '0',
                     description: '',
                     display: 'number',
                     scale: 5,
@@ -1184,7 +1184,7 @@ describe('set response-based survey branching', () => {
                 },
                 {
                     type: SurveyQuestionType.Rating,
-                    question: 'Second',
+                    question: '1',
                     description: '',
                     display: 'number',
                     scale: 5,
@@ -1207,7 +1207,7 @@ describe('set response-based survey branching', () => {
             SURVEY.questions = [
                 {
                     type: SurveyQuestionType.Rating,
-                    question: 'First',
+                    question: '0',
                     description: '',
                     display: 'number',
                     scale: 5,
@@ -1220,7 +1220,7 @@ describe('set response-based survey branching', () => {
                 },
                 {
                     type: SurveyQuestionType.Rating,
-                    question: 'Second',
+                    question: '1',
                     description: '',
                     display: 'number',
                     scale: 5,
@@ -1229,7 +1229,7 @@ describe('set response-based survey branching', () => {
                 },
                 {
                     type: SurveyQuestionType.Rating,
-                    question: 'Second',
+                    question: '2',
                     description: '',
                     display: 'number',
                     scale: 5,
@@ -1238,7 +1238,7 @@ describe('set response-based survey branching', () => {
                 },
                 {
                     type: SurveyQuestionType.Rating,
-                    question: 'Second',
+                    question: '3',
                     description: '',
                     display: 'number',
                     scale: 5,
@@ -1251,7 +1251,7 @@ describe('set response-based survey branching', () => {
                 },
                 {
                     type: SurveyQuestionType.Rating,
-                    question: 'Second',
+                    question: '4',
                     description: '',
                     display: 'number',
                     scale: 5,
@@ -1261,12 +1261,67 @@ describe('set response-based survey branching', () => {
                 },
                 {
                     type: SurveyQuestionType.Rating,
-                    question: 'Second',
+                    question: '5',
                     description: '',
                     display: 'number',
                     scale: 5,
                     lowerBoundLabel: 'Unlikely',
                     upperBoundLabel: 'Very likely',
+                },
+            ]
+            await expectLogic(logic, () => {
+                logic.actions.loadSurveySuccess(SURVEY)
+            })
+                .toDispatchActions(['loadSurveySuccess'])
+                .toMatchValues({
+                    hasCycle: false,
+                })
+
+            SURVEY.questions = [
+                {
+                    type: SurveyQuestionType.SingleChoice,
+                    choices: ['Yes', 'No'],
+                    question: '0',
+                    description: '',
+                    branching: {
+                        type: SurveyQuestionBranchingType.ResponseBased,
+                        responseValues: { 0: 1, 1: 2 },
+                    },
+                },
+                {
+                    type: SurveyQuestionType.SingleChoice,
+                    choices: ['Yes', 'No'],
+                    question: '1',
+                    description: '',
+                    branching: {
+                        type: SurveyQuestionBranchingType.ResponseBased,
+                        responseValues: { 0: 2, 1: 3 },
+                    },
+                },
+                {
+                    type: SurveyQuestionType.SingleChoice,
+                    choices: ['Yes', 'No'],
+                    question: '2',
+                    description: '',
+                    branching: {
+                        type: SurveyQuestionBranchingType.SpecificQuestion,
+                        index: 4,
+                    },
+                },
+                {
+                    type: SurveyQuestionType.SingleChoice,
+                    choices: ['Yes', 'No'],
+                    question: '3',
+                    description: '',
+                    branching: {
+                        type: SurveyQuestionBranchingType.ConfirmationMessage,
+                    },
+                },
+                {
+                    type: SurveyQuestionType.SingleChoice,
+                    choices: ['Yes', 'No'],
+                    question: '4',
+                    description: '',
                 },
             ]
             await expectLogic(logic, () => {
