@@ -8291,6 +8291,7 @@
                     "type": "object"
                 },
                 "useSessionsTable": {
+                    "deprecated": "ignored, always treated as enabled *",
                     "type": "boolean"
                 }
             },
@@ -8407,6 +8408,7 @@
                     "type": "object"
                 },
                 "useSessionsTable": {
+                    "deprecated": "ignored, always treated as enabled *",
                     "type": "boolean"
                 }
             },
@@ -8496,6 +8498,7 @@
                     "type": "object"
                 },
                 "useSessionsTable": {
+                    "deprecated": "ignored, always treated as enabled *",
                     "type": "boolean"
                 }
             },
