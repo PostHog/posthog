@@ -1429,6 +1429,24 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[0]["count"] == 0
         assert response.results[0]["aggregated_value"] == 10
 
+    def test_trends_display_aggregate_interval(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.MONTH,  # E.g. UI sets interval to month, but we need the total value across all days
+            [EventsNode(event="$pageview")],
+            TrendsFilter(display=ChartDisplayType.BOLD_NUMBER),
+            None,
+        )
+
+        assert len(response.results) == 1
+        assert response.results[0]["data"] == []
+        assert response.results[0]["days"] == []
+        assert response.results[0]["count"] == 0
+        assert response.results[0]["aggregated_value"] == 10
+
     def test_trends_display_cumulative(self):
         self._create_test_events()
 
