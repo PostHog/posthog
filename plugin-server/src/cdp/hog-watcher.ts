@@ -59,6 +59,7 @@ export class HogWatcher {
     }
 
     observeAsyncFunctionResponses(responses: HogFunctionInvocationAsyncResponse[]) {
+        // NOTE: This probably wants to be done using the response status instead :thinking:
         responses.forEach((response) => {
             this.patchObservation(response.hogFunctionId, (x) => ({
                 ...x,
