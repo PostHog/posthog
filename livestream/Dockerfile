@@ -21,4 +21,7 @@ RUN apt-get update && \
 
 FROM ubuntu
 COPY --from=builder /livestream /GeoLite2-City.mmdb /
+COPY --from=builder /etc/ssl/certs /etc/ssl/certs
+COPY --from=builder /usr/share/ca-certificates /usr/share/ca-certificates
+
 CMD ["/livestream"]
