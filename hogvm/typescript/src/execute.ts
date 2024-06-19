@@ -334,11 +334,14 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                     const args = Array(next())
                         .fill(null)
                         .map(() => popStack())
-                    if (options?.functions && options.functions[name] && name !== 'toString') {
+                    if (options?.functions && options.functions.hasOwnProperty(name) && options.functions[name]) {
                         stack.push(convertJSToHog(options.functions[name](...args.map(convertHogToJS))))
                     } else if (
                         name !== 'toString' &&
-                        ((options?.asyncFunctions && options.asyncFunctions[name]) || name in ASYNC_STL)
+                        ((options?.asyncFunctions &&
+                            options.asyncFunctions.hasOwnProperty(name) &&
+                            options.asyncFunctions[name]) ||
+                            name in ASYNC_STL)
                     ) {
                         if (asyncSteps >= maxAsyncSteps) {
                             throw new Error(`Exceeded maximum number of async steps: ${maxAsyncSteps}`)
