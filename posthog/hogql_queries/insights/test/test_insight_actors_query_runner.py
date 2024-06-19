@@ -7,11 +7,13 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team import WeekStartDay
+from posthog.schema import HogQLQueryModifiers
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
     _create_event,
     _create_person,
+    snapshot_clickhouse_queries,
 )
 
 
@@ -76,6 +78,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             query=query,
             team=self.team,
             placeholders=placeholders,
+            modifiers=HogQLQueryModifiers(optimizeJoinedFilters=True),
         )
 
     def test_insight_persons_lifecycle_query(self):
@@ -205,6 +208,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual([("org1",)], response.results)
 
+    @snapshot_clickhouse_queries
     def test_insight_persons_trends_query(self):
         self._create_test_events()
         self.team.timezone = "US/Pacific"

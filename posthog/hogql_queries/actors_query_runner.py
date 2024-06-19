@@ -2,7 +2,8 @@ import itertools
 from typing import Optional
 from collections.abc import Sequence, Iterator
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr, parse_order_expr
+from posthog.hogql.constants import HogQLQuerySettings
+from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
 from posthog.hogql.property import has_aggregation
 from posthog.hogql_queries.actor_strategies import ActorStrategy, PersonStrategy, GroupStrategy
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
@@ -230,12 +231,40 @@ class ActorsQueryRunner(QueryRunner):
                 order_by = []
 
         with self.timings.measure("select"):
-            if self.query.source:
-                join_expr = self.source_table_join()
-            else:
-                join_expr = ast.JoinExpr(table=ast.Field(chain=[self.strategy.origin]))
+            # Insert CTE here
+            assert self.source_query_runner is not None  # For type checking
+            source_query = self.source_query_runner.to_actors_query()
+            if source_query.settings is None:
+                source_query.settings = HogQLQuerySettings()
+            source_query.settings.use_query_cache = True
+
+            source_id_chain = self.source_id_column(source_query)
+            source_alias = "source"
+
+            join_expr = ast.JoinExpr(
+                table=ast.Field(chain=[source_alias]),
+                next_join=ast.JoinExpr(
+                    table=ast.Field(chain=[self.strategy.origin]),
+                    join_type="INNER JOIN",
+                    constraint=ast.JoinConstraint(
+                        expr=ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=ast.Field(chain=[self.strategy.origin, self.strategy.origin_id]),
+                            right=ast.Field(chain=[source_alias, *source_id_chain]),
+                        ),
+                        constraint_type="ON",
+                    ),
+                ),
+            )
+
+            s = parse_select("SELECT actor_id FROM source")
+            s.select_from.table = source_query
 
             stmt = ast.SelectQuery(
+                ctes={
+                    source_alias: ast.CTE(name=source_alias, expr=source_query, cte_type="subquery"),
+                    "person_ids": ast.CTE(name="person_ids", expr=s, cte_type="subquery"),
+                },
                 select=columns,
                 select_from=join_expr,
                 where=where,

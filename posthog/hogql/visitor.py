@@ -347,12 +347,15 @@ class CloningVisitor(Visitor[Any]):
         )
 
     def visit_and(self, node: ast.And):
-        return ast.And(
-            start=None if self.clear_locations else node.start,
-            end=None if self.clear_locations else node.end,
-            type=None if self.clear_types else node.type,
-            exprs=[self.visit(expr) for expr in node.exprs],
-        )
+        try:
+            return ast.And(
+                start=None if self.clear_locations else node.start,
+                end=None if self.clear_locations else node.end,
+                type=None if self.clear_types else node.type,
+                exprs=[self.visit(expr) for expr in node.exprs],
+            )
+        except AttributeError:
+            pass
 
     def visit_or(self, node: ast.Or):
         return ast.Or(
