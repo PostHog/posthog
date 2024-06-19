@@ -1,5 +1,6 @@
 import { JSONContent } from '@tiptap/core'
 import { isEmptyObject } from 'lib/utils'
+import { DEFAULT_QUERY } from 'scenes/notebooks/Nodes/NotebookNodeQuery'
 
 import {
     breakdownFilterToQuery,
@@ -82,11 +83,19 @@ function convertInsightQueryStringsToObjects(content: JSONContent[]): JSONConten
             return node
         }
 
+        let query
+
+        try {
+            query = JSON.parse(node.attrs.query)
+        } catch (e) {
+            query = DEFAULT_QUERY
+        }
+
         return {
             ...node,
             attrs: {
                 ...node.attrs,
-                query: JSON.parse(node.attrs.query),
+                query,
             },
         }
     })
