@@ -48,8 +48,8 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
 
     const actuallyShowQueryEditor = insightMode === ItemMode.Edit && showQueryEditor
 
-    const setQuery = (query: Node): void => {
-        if (!isInsightVizNode(query)) {
+    const setQuery = (query: Node, isSourceUpdate?: boolean): void => {
+        if (!isInsightVizNode(query) || isSourceUpdate) {
             setInsightQuery(query)
         }
     }
