@@ -52,7 +52,6 @@ const { version } = require('../../package.json')
 // TODO: refactor this into a class, removing the need for many different Servers
 type ServerInstance = {
     hub: Hub
-    // piscina?: Piscina
     stop: () => Promise<void>
 }
 
@@ -231,7 +230,7 @@ export async function startPluginsServer(
             // it's that heavy so it may be fine, but something to watch out
             // for.
             await graphileWorker.connectProducer()
-            piscina = piscina ?? (await makePiscina(serverConfig, hub))
+            const piscina = await makePiscina(serverConfig, hub)
             status.info('👷', 'Starting graphile worker...')
             await startGraphileWorker(hub, graphileWorker, piscina)
             status.info('👷', 'Graphile worker is ready!')
@@ -256,10 +255,61 @@ export async function startPluginsServer(
                 })
                 shutdownCallbacks.push(async () => jobsConsumer.disconnect())
             }
+
+            const pubSub = new PubSub(hub, {
+                [hub.PLUGINS_RELOAD_PUBSUB_CHANNEL]: async () => {
+                    status.info('⚡', 'Reloading plugins!')
+                    await piscina?.broadcastTask({ task: 'reloadPlugins' })
+
+                    if (hub.capabilities.pluginScheduledTasks && piscina) {
+                        await piscina.broadcastTask({ task: 'reloadSchedule' })
+                        hub.pluginSchedule = await loadPluginSchedule(piscina)
+                    }
+                },
+                'reset-available-product-features-cache': async (message) => {
+                    await piscina?.broadcastTask({
+                        task: 'resetAvailableProductFeaturesCache',
+                        args: JSON.parse(message),
+                    })
+                },
+                'populate-plugin-capabilities': async (message) => {
+                    // We need this to be done in only once
+                    if (hub.capabilities.appManagementSingleton && piscina) {
+                        await piscina?.broadcastTask({
+                            task: 'populatePluginCapabilities',
+                            args: JSON.parse(message),
+                        })
+                    }
+                },
+            })
+
+            await pubSub.start()
+            shutdownCallbacks.push(async () => pubSub.stop())
+
+            if (capabilities.preflightSchedules) {
+                // These are used by the preflight checks in the Django app to determine if
+                // the plugin-server is running.
+                schedule.scheduleJob('*/5 * * * * *', async () => {
+                    await hub.db.redisSet(
+                        '@posthog-plugin-server/ping',
+                        new Date().toISOString(),
+                        'preflightSchedules',
+                        60,
+                        {
+                            jsonSerialize: false,
+                        }
+                    )
+                    await hub.db.redisSet('@posthog-plugin-server/version', version, 'preflightSchedules', undefined, {
+                        jsonSerialize: false,
+                    })
+                })
+            }
+
+            // TODO: Should this only be running for this kind of capability?
+            pluginServerStartupTimeMs.inc(Date.now() - timer.valueOf())
         }
 
         if (capabilities.ingestion) {
-            piscina = piscina ?? (await makePiscina(serverConfig, hub))
             const consumer = await startAnalyticsEventsIngestionConsumer({
                 hub: hub,
             })
@@ -271,7 +321,6 @@ export async function startPluginsServer(
         }
 
         if (capabilities.ingestionHistorical) {
-            piscina = piscina ?? (await makePiscina(serverConfig, hub))
             const consumer = await startAnalyticsEventsIngestionHistoricalConsumer({
                 hub: hub,
             })
@@ -282,7 +331,6 @@ export async function startPluginsServer(
         }
 
         if (capabilities.ingestionOverflow) {
-            piscina = piscina ?? (await makePiscina(serverConfig, hub))
             const queue = await startAnalyticsEventsIngestionOverflowConsumer({
                 hub: hub,
             })
@@ -292,7 +340,6 @@ export async function startPluginsServer(
         }
 
         if (capabilities.processAsyncOnEventHandlers) {
-            piscina = piscina ?? (await makePiscina(serverConfig, hub))
             const consumer = await startAsyncOnEventHandlerConsumer({
                 hub: hub,
             })
@@ -323,15 +370,17 @@ export async function startPluginsServer(
         }
 
         if (capabilities.sessionRecordingBlobIngestion) {
-            const recordingConsumerConfig = sessionRecordingConsumerConfig(serverConfig)
-            const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
-            const s3 = hub?.objectStorage ?? getObjectStorage(recordingConsumerConfig)
-
-            if (!s3) {
+            if (!hub.objectStorage) {
                 throw new Error("Can't start session recording blob ingestion without object storage")
             }
             // NOTE: We intentionally pass in the original serverConfig as the ingester uses both kafkas
-            const ingester = new SessionRecordingIngester(serverConfig, postgres, s3, false, captureRedis)
+            const ingester = new SessionRecordingIngester(
+                serverConfig,
+                hub.postgres,
+                hub.objectStorage,
+                false,
+                captureRedis
+            )
             await ingester.start()
 
             const batchConsumer = ingester.batchConsumer
@@ -344,16 +393,18 @@ export async function startPluginsServer(
         }
 
         if (capabilities.sessionRecordingBlobOverflowIngestion) {
-            const recordingConsumerConfig = sessionRecordingConsumerConfig(serverConfig)
-            const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
-            const s3 = hub?.objectStorage ?? getObjectStorage(recordingConsumerConfig)
-
-            if (!s3) {
+            if (!hub.objectStorage) {
                 throw new Error("Can't start session recording blob ingestion without object storage")
             }
             // NOTE: We intentionally pass in the original serverConfig as the ingester uses both kafkas
             // NOTE: We don't pass captureRedis to disable overflow computation on the overflow topic
-            const ingester = new SessionRecordingIngester(serverConfig, postgres, s3, true, undefined)
+            const ingester = new SessionRecordingIngester(
+                serverConfig,
+                hub.postgres,
+                hub.objectStorage,
+                true,
+                undefined
+            )
             await ingester.start()
 
             const batchConsumer = ingester.batchConsumer
@@ -389,13 +440,10 @@ export async function startPluginsServer(
         }
 
         if (capabilities.personOverrides) {
-            const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
-            const kafkaProducer = hub?.kafkaProducer ?? (await createKafkaProducerWrapper(serverConfig))
-
             const personOverridesPeriodicTask = new DeferredPersonOverrideWorker(
-                postgres,
-                kafkaProducer,
-                new FlatPersonOverrideWriter(postgres)
+                hub.postgres,
+                hub.kafkaProducer,
+                new FlatPersonOverrideWriter(hub.postgres)
             ).runTask(5000)
             personOverridesPeriodicTask.promise.catch(async () => {
                 status.error('⚠️', 'Person override worker task crashed! Requesting shutdown...')
@@ -414,44 +462,6 @@ export async function startPluginsServer(
             })
         }
 
-        if (piscina) {
-            // If we have instantiated a piscina, then we want to setup pubsub for it
-            const pubSub = new PubSub(hub, {
-                [hub.PLUGINS_RELOAD_PUBSUB_CHANNEL]: async () => {
-                    status.info('⚡', 'Reloading plugins!')
-                    await piscina?.broadcastTask({ task: 'reloadPlugins' })
-
-                    if (hub.capabilities.pluginScheduledTasks && piscina) {
-                        await piscina.broadcastTask({ task: 'reloadSchedule' })
-                        hub.pluginSchedule = await loadPluginSchedule(piscina)
-                    }
-                },
-                'reset-available-product-features-cache': async (message) => {
-                    await piscina?.broadcastTask({
-                        task: 'resetAvailableProductFeaturesCache',
-                        args: JSON.parse(message),
-                    })
-                },
-                'populate-plugin-capabilities': async (message) => {
-                    // We need this to be done in only once
-                    if (hub.capabilities.appManagementSingleton && piscina) {
-                        await piscina?.broadcastTask({ task: 'populatePluginCapabilities', args: JSON.parse(message) })
-                    }
-                },
-            })
-
-            await pubSub.start()
-            shutdownCallbacks.push(async () => pubSub.stop())
-
-            if (capabilities.preflightSchedules) {
-                startPreflightSchedules(hub)
-            }
-
-            pluginServerStartupTimeMs.inc(Date.now() - timer.valueOf())
-            hub.lastActivity = new Date().valueOf()
-            hub.lastActivityType = 'serverStart'
-        }
-
         status.info('🚀', 'Finished Launching plugin server...')
 
         return serverInstance
@@ -463,19 +473,6 @@ export async function startPluginsServer(
         await closeJobs()
         process.exit(1)
     }
-}
-
-const startPreflightSchedules = (hub: Hub) => {
-    // These are used by the preflight checks in the Django app to determine if
-    // the plugin-server is running.
-    schedule.scheduleJob('*/5 * * * * *', async () => {
-        await hub.db.redisSet('@posthog-plugin-server/ping', new Date().toISOString(), 'preflightSchedules', 60, {
-            jsonSerialize: false,
-        })
-        await hub.db.redisSet('@posthog-plugin-server/version', version, 'preflightSchedules', undefined, {
-            jsonSerialize: false,
-        })
-    })
 }
 
 export async function stopPiscina(piscina: Piscina): Promise<void> {

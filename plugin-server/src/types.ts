@@ -289,8 +289,6 @@ export interface Hub extends PluginsServerConfig {
     // geoip database, setup in workers
     mmdb?: ReaderModel
     // diagnostics
-    lastActivity: number
-    lastActivityType: string
     statelessVms: StatelessVmMap
     conversionBufferEnabledTeams: Set<number>
     // functions
