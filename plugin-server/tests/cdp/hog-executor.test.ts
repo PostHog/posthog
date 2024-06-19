@@ -242,4 +242,26 @@ describe('Hog Executor', () => {
             expect(asyncResult2.logs.map((log) => log.message)).toEqual(['Function exceeded maximum async steps'])
         })
     })
+
+    describe('slow functions', () => {
+        beforeEach(() => {
+            // We need to use real timers for this test as the timeout is based on real time
+            jest.useRealTimers()
+        })
+        it('limits the execution time and exits appropriately', () => {
+            const fn = createHogFunction({
+                ...HOG_EXAMPLES.long_function,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+
+            mockFunctionManager.getTeamHogFunctions.mockReturnValue({
+                [fn.id]: fn,
+            })
+
+            const results = executor.executeMatchingFunctions(createHogExecutionGlobals())
+            expect(results).toHaveLength(1)
+            expect(results[0].error).toContain('Execution timed out after 0.1 seconds. Performed ')
+        })
+    })
 })

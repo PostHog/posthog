@@ -245,7 +245,7 @@ export class HogExecutor {
             try {
                 execRes = exec(state ?? hogFunction.bytecode, {
                     globals,
-                    timeout: 100, // NOTE: This will likely be configurable in the future
+                    timeout: 0.1, // TODO: Swap this to milliseconds when the package is updated
                     maxAsyncSteps: MAX_ASYNC_STEPS, // NOTE: This will likely be configurable in the future
                     asyncFunctions: {
                         // We need to pass these in but they don't actually do anything as it is a sync exec
