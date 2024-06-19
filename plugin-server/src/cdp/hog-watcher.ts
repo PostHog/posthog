@@ -29,7 +29,22 @@ export class HogWatcher {
         })
 
         this.observations[id] = update(observation)
+        this.observations[id].rating = this.calculateRating(this.observations[id])
         console.log('Observation updated', id, this.observations[id])
+    }
+
+    private calculateRating(observation: HogWatcherObservation): number {
+        // Rating is from 0 to 1
+        // 1 - Function is working perfectly
+        // 0 - Function is not working at all
+
+        const totalInvocations = observation.successes + observation.failures
+        const totalAsyncInvocations = observation.asyncFunctionSuccesses + observation.asyncFunctionFailures
+
+        const successRate = totalInvocations ? observation.successes / totalInvocations : 1
+        const asyncSuccessRate = totalAsyncInvocations ? observation.asyncFunctionSuccesses / totalAsyncInvocations : 1
+
+        return Math.min(1, successRate, asyncSuccessRate)
     }
 
     observeResults(results: HogFunctionInvocationResult[]) {
