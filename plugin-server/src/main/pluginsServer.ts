@@ -203,6 +203,8 @@ export async function startPluginsServer(
             capability: keyof PluginServerCapabilities | (keyof PluginServerCapabilities)[],
             startup: () => Promise<any> | void
         ) => {
+            const start = Date.now()
+            status.info('⚡️', `Starting service with capabilities ${capability}`)
             if (Array.isArray(capability)) {
                 if (!capability.some((c) => capabilities[c])) {
                     return
@@ -211,7 +213,10 @@ export async function startPluginsServer(
                 return
             }
 
-            services.push(startup() ?? Promise.resolve())
+            const promise = (startup() ?? Promise.resolve()).then(() =>
+                status.info('🚀', `Service with capabilities ${capability} started in ${Date.now() - start}ms`)
+            )
+            services.push(promise)
         }
 
         status.info('🚀', 'Launching plugin server...')
