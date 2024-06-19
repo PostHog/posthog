@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"net"
 
 	"github.com/oschwald/maxminddb-golang"
@@ -24,7 +25,7 @@ func NewGeoLocator(dbPath string) (*GeoLocator, error) {
 func (g *GeoLocator) Lookup(ipString string) (float64, float64, error) {
 	ip := net.ParseIP(ipString)
 	if ip == nil {
-		return 0, 0
+		return 0, 0, errors.New("invalid IP address")
 	}
 
 	var record struct {
