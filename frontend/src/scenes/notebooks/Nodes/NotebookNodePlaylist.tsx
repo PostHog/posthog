@@ -53,7 +53,7 @@ const Component = ({
         useActions(notebookNodeLogic)
 
     const logic = sessionRecordingsPlaylistLogic(recordingPlaylistLogicProps)
-    const { activeSessionRecordingId } = useValues(logic)
+    const { activeSessionRecording } = useValues(logic)
     const { setSelectedRecordingId } = useActions(logic)
 
     const getReplayLogic = (
@@ -63,17 +63,17 @@ const Component = ({
 
     useEffect(() => {
         setActions(
-            activeSessionRecordingId
+            activeSessionRecording
                 ? [
                       {
                           text: 'View replay',
                           onClick: () => {
-                              getReplayLogic(activeSessionRecordingId)?.actions.setPause()
+                              getReplayLogic(activeSessionRecording.id)?.actions.setPause()
 
                               insertAfter({
                                   type: NotebookNodeType.Recording,
                                   attrs: {
-                                      id: String(activeSessionRecordingId),
+                                      id: String(activeSessionRecording.id),
                                       __init: {
                                           expanded: true,
                                       },
@@ -85,16 +85,16 @@ const Component = ({
                           text: 'Comment',
                           icon: <IconComment />,
                           onClick: () => {
-                              if (activeSessionRecordingId) {
-                                  const time = getReplayLogic(activeSessionRecordingId)?.values.currentPlayerTime
-                                  insertReplayCommentByTimestamp(time ?? 0, activeSessionRecordingId)
+                              if (activeSessionRecording.id) {
+                                  const time = getReplayLogic(activeSessionRecording.id)?.values.currentPlayerTime
+                                  insertReplayCommentByTimestamp(time ?? 0, activeSessionRecording.id)
                               }
                           },
                       },
                   ]
                 : []
         )
-    }, [activeSessionRecordingId])
+    }, [activeSessionRecording])
 
     useEffect(() => {
         setMessageListeners({
