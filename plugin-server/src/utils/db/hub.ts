@@ -25,6 +25,7 @@ import {
 import { ActionManager } from '../../worker/ingestion/action-manager'
 import { ActionMatcher } from '../../worker/ingestion/action-matcher'
 import { AppMetrics } from '../../worker/ingestion/app-metrics'
+import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { OrganizationManager } from '../../worker/ingestion/organization-manager'
 import { EventsProcessor } from '../../worker/ingestion/process-event'
 import { TeamManager } from '../../worker/ingestion/team-manager'
@@ -150,6 +151,7 @@ export async function createHub(
 
     const actionManager = new ActionManager(postgres, serverConfig)
     const actionMatcher = new ActionMatcher(postgres, actionManager, teamManager)
+    const groupTypeManager = new GroupTypeManager(postgres, teamManager, serverConfig.SITE_URL)
 
     const enqueuePluginJob = async (job: EnqueuedPluginJob) => {
         // NOTE: we use the producer directly here rather than using the wrapper
@@ -172,7 +174,15 @@ export async function createHub(
         })
     }
 
-    const hub: Partial<Hub> = {
+    const appMetrics = new AppMetrics(
+        kafkaProducer,
+        serverConfig.APP_METRICS_FLUSH_FREQUENCY_MS,
+        serverConfig.APP_METRICS_FLUSH_MAX_QUEUE_SIZE
+    )
+
+    const eventsProcessor = new EventsProcessor(serverConfig, db, kafkaProducer, teamManager, groupTypeManager)
+
+    const hub: Hub = {
         ...serverConfig,
         instanceId,
         capabilities,
@@ -183,7 +193,10 @@ export async function createHub(
         kafka,
         kafkaProducer,
         enqueuePluginJob,
-        objectStorage: objectStorage,
+        objectStorage,
+        appMetrics,
+        groupTypeManager,
+        eventsProcessor,
 
         plugins: new Map(),
         pluginConfigs: new Map(),
@@ -207,15 +220,6 @@ export async function createHub(
         eventsToDropByToken: createEventsToDropByToken(process.env.DROP_EVENTS_BY_TOKEN_DISTINCT_ID),
     }
 
-    // :TODO: This is only used on worker threads, not main
-    hub.eventsProcessor = new EventsProcessor(hub as Hub)
-
-    hub.appMetrics = new AppMetrics(
-        kafkaProducer,
-        serverConfig.APP_METRICS_FLUSH_FREQUENCY_MS,
-        serverConfig.APP_METRICS_FLUSH_MAX_QUEUE_SIZE
-    )
-
     const closeHub = async () => {
         if (!isTestEnv()) {
             await hub.appMetrics?.flush()
@@ -223,13 +227,13 @@ export async function createHub(
         await Promise.allSettled([kafkaProducer.disconnect(), redisPool.drain(), hub.postgres?.end()])
         await redisPool.clear()
 
-        // Break circular references to allow the hub to be GCed when running unit tests
-        // TODO: change these structs to not directly reference the hub
-        hub.eventsProcessor = undefined
-        hub.appMetrics = undefined
+        // // Break circular references to allow the hub to be GCed when running unit tests
+        // // TODO: change these structs to not directly reference the hub
+        // hub.eventsProcessor = undefined
+        // hub.appMetrics = undefined
     }
 
-    return [hub as Hub, closeHub]
+    return [hub, closeHub]
 }
 
 export type KafkaConfig = {

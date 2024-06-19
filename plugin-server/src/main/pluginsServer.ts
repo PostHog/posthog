@@ -56,7 +56,7 @@ export async function startPluginsServer(
     makePiscina: (serverConfig: PluginsServerConfig, hub: Hub) => Promise<Piscina> = defaultMakePiscina,
     capabilitiesOverride?: PluginServerCapabilities
 ): Promise<ServerInstance> {
-    const timer = new Date()
+    const startTime = new Date()
 
     const serverConfig: PluginsServerConfig = {
         ...defaultConfig,
@@ -75,14 +75,11 @@ export async function startPluginsServer(
 
     let httpServer: Server | undefined // server
 
-    let lastActivityCheck: NodeJS.Timeout | undefined
-
     let shuttingDown = false
 
     async function closeJobs(): Promise<void> {
         shuttingDown = true
         status.info('💤', ' Shutting down gracefully...')
-        lastActivityCheck && clearInterval(lastActivityCheck)
 
         // HACKY: Stop all consumers and the graphile worker, as well as the
         // http server. Note that we close the http server before the others to
@@ -318,7 +315,7 @@ export async function startPluginsServer(
             }
 
             // TODO: Should this only be running for this kind of capability?
-            pluginServerStartupTimeMs.inc(Date.now() - timer.valueOf())
+            pluginServerStartupTimeMs.inc(Date.now() - startTime.valueOf())
         })
 
         startCapabilities('ingestion', async () => {
@@ -477,7 +474,7 @@ export async function startPluginsServer(
             })
         }
 
-        status.info('🚀', `Finished Launching plugin server in ${Date.now() - timer.valueOf()}ms `)
+        status.info('🚀', `Finished Launching plugin server in ${Date.now() - startTime.valueOf()}ms `)
 
         return serverInstance
     } catch (error) {
