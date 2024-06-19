@@ -603,9 +603,17 @@ class QueryMatchingTest:
         # HogQL person id in session recording queries
         # ifNull(equals(s__pdi.person_id, '0176be33-0398-0091-ec89-570d7768f2f4'), 0))
         # ifNull(equals(person_distinct_ids__person.id, '0176be33-0398-000c-0772-f78c97593bdd'), 0))))
+        # equals(events.person_id, '0176be33-0398-0060-abed-8da43384e020')
         query = re.sub(
-            r"ifNull\(equals\(([^.]+[._])?person.id, '[0-9a-f-]{36}'\), \d+\)",
-            r"ifNull(equals(\1person_id, '00000000-0000-0000-0000-000000000000'), 0)",
+            r"equals\(([^.]+[._])?person.id, '[0-9a-f-]{36}'\)",
+            r"equals(\1person_id, '00000000-0000-0000-0000-000000000000')",
+            query,
+        )
+
+        # equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), '0176be33-0398-0090-a0e7-7cd9139f8089')
+        query = re.sub(
+            r"events__override.person_id, events.person_id\), '[0-9a-f-]{36}'\)",
+            r"events__override.person_id, events.person_id), '00000000-0000-0000-0000-000000000000')",
             query,
         )
 
