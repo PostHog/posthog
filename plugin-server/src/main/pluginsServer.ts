@@ -54,7 +54,7 @@ const pluginServerStartupTimeMs = new Counter({
 export async function startPluginsServer(
     config: Partial<PluginsServerConfig>,
     makePiscina: (serverConfig: PluginsServerConfig, hub: Hub) => Promise<Piscina> = defaultMakePiscina,
-    capabilities?: PluginServerCapabilities
+    capabilitiesOverride?: PluginServerCapabilities
 ): Promise<ServerInstance> {
     const timer = new Date()
 
@@ -175,7 +175,7 @@ export async function startPluginsServer(
         process.exit(1)
     })
 
-    capabilities = capabilities ?? getPluginServerCapabilities(serverConfig)
+    const capabilities = capabilitiesOverride ?? getPluginServerCapabilities(serverConfig)
 
     // A collection of healthchecks that should be used to validate the
     // health of the plugin-server. These are used by the /_health endpoint
