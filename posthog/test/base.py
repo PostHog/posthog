@@ -610,6 +610,13 @@ class QueryMatchingTest:
             query,
         )
 
+        # equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), '0176be33-0398-0090-a0e7-7cd9139f8089')
+        query = re.sub(
+            r"events__override.person_id, events.person_id\), '[0-9a-f-]{36}'\)",
+            r"events__override.person_id, events.person_id), '00000000-0000-0000-0000-000000000000')",
+            query,
+        )
+
         query = re.sub(
             "and current_person_id = '[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}'",
             r"AND current_person_id = '00000000-0000-0000-0000-000000000000'",
