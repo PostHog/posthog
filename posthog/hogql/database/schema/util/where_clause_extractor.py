@@ -6,6 +6,7 @@ from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp, ArithmeticOperationOp
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField, LazyJoinToAdd, LazyTableToAdd
+from posthog.hogql.database.schema.person_distinct_ids import PersonDistinctIdsTable
 
 from posthog.hogql.visitor import clone_expr, CloningVisitor, Visitor, TraversingVisitor
 
@@ -80,20 +81,24 @@ class WhereClauseExtractor(CloningVisitor):
                             op=ast.CompareOperationOp.In,
                             left=ast.Field(chain=["id"], type=ast.FieldType(name="id", table_type=table)),
                             right=ast.SelectQuery(
-                                select=[ast.Field(chain=["actor_id"])],
-                                select_from=ast.JoinExpr(table=ast.Field(chain=["source"])),
+                                select=[ast.Field(chain=["person_id"])],
+                                select_from=ast.JoinExpr(table=ast.Field(chain=["person_ids"])),
                             ),
                         )
                     )
-
-        """
-        right=ast.Field(
-            chain=["person_ids"],
-            type=ast.FieldType(
-                name="person_ids", table_type=select_query.type.ctes["person_ids"].expr
-            ),
-        ),
-        """
+            if isinstance(table, PersonDistinctIdsTable):
+                if "distinct_ids" in select_query.type.ctes:
+                    # wheres.append(parse_expr("persons.id IN person_ids"))
+                    wheres.append(
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.In,
+                            left=ast.Field(chain=["id"], type=ast.FieldType(name="id", table_type=table)),
+                            right=ast.SelectQuery(
+                                select=[ast.Field(chain=["distinct_id"])],
+                                select_from=ast.JoinExpr(table=ast.Field(chain=["distinct_ids"])),
+                            ),
+                        )
+                    )
 
         # visit the where clause
         if select_query.where:

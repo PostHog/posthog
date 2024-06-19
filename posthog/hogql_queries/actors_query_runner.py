@@ -257,12 +257,13 @@ class ActorsQueryRunner(QueryRunner):
                 ),
             )
 
-            s = parse_select("SELECT actor_id FROM source")
+            s = parse_select("SELECT actor_id as person_id FROM source")
             s.select_from.table = source_query
 
             stmt = ast.SelectQuery(
                 ctes={
                     source_alias: ast.CTE(name=source_alias, expr=source_query, cte_type="subquery"),
+                    # How to get rid of the extra superfluous select
                     "person_ids": ast.CTE(name="person_ids", expr=s, cte_type="subquery"),
                 },
                 select=columns,
