@@ -37,7 +37,7 @@ Default.args = {
     sections: [
         {
             key: 'default',
-            title: `Default section`,
+            title: 'Default section',
             items: range(0, 100).map((idx) => ({ id: idx })),
             render: ListItem,
         },
@@ -58,6 +58,19 @@ MultipleSections.args = {
             title: 'Second section',
             items: range(0, 5).map((idx) => ({ id: idx })),
             render: ListItem,
+        },
+    ],
+}
+
+export const WithFooter: Story = Template.bind({})
+WithFooter.args = {
+    sections: [
+        {
+            key: 'default',
+            title: 'Section with footer',
+            items: range(0, 100).map((idx) => ({ id: idx })),
+            render: ListItem,
+            footer: <div className="px-1 py-3">Section footer</div>,
         },
     ],
 }

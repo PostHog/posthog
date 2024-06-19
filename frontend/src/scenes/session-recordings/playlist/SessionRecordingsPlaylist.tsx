@@ -1,5 +1,5 @@
 import { IconFilter, IconGear } from '@posthog/icons'
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { Playlist, PlaylistSection } from 'lib/components/Playlist/Playlist'
@@ -123,6 +123,19 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
                 sessionSummaryLoading={sessionSummaryLoading}
             />
         ),
+        footer: (
+            <div className="m-4 h-10 flex items-center justify-center gap-2 text-muted-alt">
+                {sessionRecordingsResponseLoading ? (
+                    <>
+                        <Spinner textColored /> Loading
+                    </>
+                ) : hasNext ? (
+                    <LemonButton onClick={() => maybeLoadSessionRecordings('older')}>Load more</LemonButton>
+                ) : (
+                    'No more results'
+                )}
+            </div>
+        ),
     })
 
     return (
@@ -147,7 +160,6 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
                     listEmptyState={<ListEmptyState />}
                     onSelect={setSelectedRecordingId}
                     activeItemId={activeSessionRecordingId}
-                    onLoadMore={hasNext ? () => maybeLoadSessionRecordings('older') : undefined}
                     content={({ activeItem }) =>
                         !activeItem ? (
                             <div className="mt-20">

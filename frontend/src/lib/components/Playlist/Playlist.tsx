@@ -1,7 +1,7 @@
 import './Playlist.scss'
 
 import { IconCollapse } from '@posthog/icons'
-import { LemonButton, LemonButtonProps, LemonCollapse, LemonSkeleton, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonProps, LemonCollapse, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
@@ -19,6 +19,7 @@ export type PlaylistSection = {
     title?: string
     items: any[]
     render: ({ item, isActive }: { item: any; isActive: any }) => JSX.Element
+    footer?: JSX.Element
 }
 
 type PlaylistHeaderAction = Pick<LemonButtonProps, 'icon' | 'tooltip' | 'children'> & {
@@ -37,7 +38,6 @@ export type PlaylistProps = {
     headerActions?: PlaylistHeaderAction[]
     onScrollListEdge?: (edge: 'top' | 'bottom') => void
     onSelect?: (item: any) => void
-    onLoadMore?: () => void
     'data-attr'?: string
     activeItemId?: string
 }
@@ -59,7 +59,6 @@ export function Playlist({
     listEmptyState,
     onSelect,
     'data-attr': dataAttr,
-    onLoadMore,
 }: PlaylistProps): JSX.Element {
     const [controlledActiveItemId, setControlledActiveItemId] = useState<string | null>(null)
     const [listCollapsed, setListCollapsed] = useState<boolean>(false)
@@ -102,7 +101,6 @@ export function Playlist({
                         activeItemId={activeItemId}
                         setActiveItemId={onChangeActiveItem}
                         emptyState={listEmptyState}
-                        onLoadMore={onLoadMore}
                     />
                 )}
                 <Resizer
@@ -136,7 +134,6 @@ const List = ({
     onScrollListEdge,
     loading,
     emptyState,
-    onLoadMore,
 }: {
     title: PlaylistProps['title']
     notebooksHref: PlaylistProps['notebooksHref']
@@ -148,7 +145,6 @@ const List = ({
     onScrollListEdge: PlaylistProps['onScrollListEdge']
     loading: PlaylistProps['loading']
     emptyState: PlaylistProps['listEmptyState']
-    onLoadMore: PlaylistProps['onLoadMore']
 }): JSX.Element => {
     const [activeHeaderActionKey, setActiveHeaderActionKey] = useState<string | null>(null)
     const lastScrollPositionRef = useRef(0)
@@ -248,18 +244,6 @@ const List = ({
                         ) : (
                             <ListSection {...sections[0]} activeItemId={activeItemId} onClick={setActiveItemId} />
                         )}
-
-                        <div className="m-4 h-10 flex items-center justify-center gap-2 text-muted-alt">
-                            {loading ? (
-                                <>
-                                    <Spinner textColored /> Loading
-                                </>
-                            ) : onLoadMore ? (
-                                <LemonButton onClick={onLoadMore}>Load more</LemonButton>
-                            ) : sections.length <= 1 ? (
-                                'No more results'
-                            ) : null}
-                        </div>
                     </>
                 ) : loading ? (
                     <LoadingState />
@@ -274,6 +258,7 @@ const List = ({
 const ListSection = ({
     items,
     render,
+    footer,
     onClick,
     activeItemId,
 }: PlaylistSection & {
@@ -288,6 +273,7 @@ const ListSection = ({
                         {render({ item, isActive: item.id === activeItemId })}
                     </div>
                 ))}
+            {footer}
         </>
     )
 }
