@@ -27,6 +27,7 @@ import { RustyHook } from '../worker/rusty-hook'
 import { AsyncFunctionExecutor } from './async-function-executor'
 import { addLog, HogExecutor } from './hog-executor'
 import { HogFunctionManager } from './hog-function-manager'
+import { HogWatcher } from './hog-watcher'
 import {
     CdpOverflowMessage,
     HogFunctionInvocation,
@@ -69,6 +70,7 @@ abstract class CdpConsumerBase {
     hogFunctionManager: HogFunctionManager
     asyncFunctionExecutor?: AsyncFunctionExecutor
     hogExecutor: HogExecutor
+    hogWatcher: HogWatcher
     appMetrics?: AppMetrics
     isStopping = false
 
@@ -83,6 +85,7 @@ abstract class CdpConsumerBase {
         this.teamManager = new TeamManager(postgres, config)
         this.organizationManager = new OrganizationManager(postgres, this.teamManager)
         this.groupTypeManager = new GroupTypeManager(postgres, this.teamManager)
+        this.hogWatcher = new HogWatcher()
         this.hogFunctionManager = new HogFunctionManager(postgres, config)
         this.hogExecutor = new HogExecutor(this.config, this.hogFunctionManager)
     }
@@ -91,6 +94,7 @@ abstract class CdpConsumerBase {
 
     protected async processInvocationResults(results: HogFunctionInvocationResult[]): Promise<void> {
         // Processes any async functions and queues up produced messages
+        await this.hogWatcher.observeResults(results)
 
         // TODO: Follow up - process metrics from the invocationResults
         await runInstrumentedFunction({
@@ -120,6 +124,8 @@ abstract class CdpConsumerBase {
                         if (result.asyncFunctionRequest) {
                             const res = await this.asyncFunctionExecutor!.execute(result)
 
+                            // NOTE: This is very temporary as it is producing the response. the response will actually be produced by the 3rd party service
+                            // Later this will actually be the _request_ which we will push to the async function topic if we make one
                             if (res) {
                                 messagesToProduce.push({
                                     topic: KAFKA_CDP_FUNCTION_CALLBACKS,
@@ -150,7 +156,25 @@ abstract class CdpConsumerBase {
     ): Promise<HogFunctionInvocationResult[]> {
         return await runInstrumentedFunction({
             statsKey: `cdpConsumer.handleEachBatch.executeAsyncResponses`,
-            func: async () => await Promise.all(asyncResponses.map((e) => this.hogExecutor.executeAsyncResponse(e))),
+            func: async () => {
+                await this.hogWatcher.observeAsyncFunctionResponses(asyncResponses)
+                // Filter for blocked functions
+                asyncResponses = asyncResponses.filter((e) => {
+                    if (this.hogWatcher.isHogFunctionOverflowed(e.hogFunctionId)) {
+                        // TODO: Move to overflow
+                        return false
+                    }
+                    if (this.hogWatcher.isHogFunctionDisabled(e.hogFunctionId)) {
+                        // TODO: We probably want to log some metric that it was blocked
+                        return false
+                    }
+                    return true
+                })
+
+                const results = await Promise.all(asyncResponses.map((e) => this.hogExecutor.executeAsyncResponse(e)))
+                await this.hogWatcher.observeResults(results)
+                return results
+            },
         })
     }
 
@@ -160,9 +184,20 @@ abstract class CdpConsumerBase {
         return await runInstrumentedFunction({
             statsKey: `cdpConsumer.handleEachBatch.executeMatchingFunctions`,
             func: async () => {
-                return (
-                    await Promise.all(invocationGlobals.map((e) => this.hogExecutor.executeMatchingFunctions(e)))
+                const results = (
+                    await Promise.all(
+                        invocationGlobals.map((e) => {
+                            // TODO: Load all functions related to this event
+                            // Check if they are overflowed - if so move to the overflow queue
+                            // BUT only one event and a list of hog function IDs, as we don't want to duplicate the overflow situation
+                            // Check if they are disabled - if so we log and drop it entirely
+
+                            return this.hogExecutor.executeMatchingFunctions(e)
+                        })
+                    )
                 ).flat()
+                await this.hogWatcher.observeResults(results)
+                return results
             },
         })
     }

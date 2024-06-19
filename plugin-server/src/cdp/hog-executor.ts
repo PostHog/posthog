@@ -17,6 +17,8 @@ import { convertToHogFunctionFilterGlobal } from './utils'
 
 const MAX_ASYNC_STEPS = 2
 
+const DEFAULT_TIMEOUT = 0.1 // TODO: Change to 100 when the package is updated
+
 export const formatInput = (bytecode: any, globals: HogFunctionInvocation['globals']): any => {
     // Similar to how we generate the bytecode by iterating over the values,
     // here we iterate over the object and replace the bytecode with the actual values
@@ -25,7 +27,7 @@ export const formatInput = (bytecode: any, globals: HogFunctionInvocation['globa
     if (Array.isArray(bytecode) && bytecode[0] === '_h') {
         const res = exec(bytecode, {
             globals,
-            timeout: 100,
+            timeout: DEFAULT_TIMEOUT,
             maxAsyncSteps: 0,
         })
 
@@ -74,44 +76,41 @@ export class HogExecutor {
      */
     executeMatchingFunctions(event: HogFunctionInvocationGlobals): HogFunctionInvocationResult[] {
         const allFunctionsForTeam = this.hogFunctionManager.getTeamHogFunctions(event.project.id)
-
         const filtersGlobals = convertToHogFunctionFilterGlobal(event)
 
         // Filter all functions based on the invocation
-        const functions = Object.fromEntries(
-            Object.entries(allFunctionsForTeam).filter(([_key, value]) => {
-                try {
-                    const filters = value.filters
+        const functions = allFunctionsForTeam.filter((hogFunction) => {
+            try {
+                const filters = hogFunction.filters
 
-                    if (!filters?.bytecode) {
-                        // NOTE: If we don't have bytecode this indicates something went wrong.
-                        // The model will always save a bytecode if it was compiled correctly
-                        return false
-                    }
-
-                    const filterResult = exec(filters.bytecode, {
-                        globals: filtersGlobals,
-                        timeout: 100,
-                        maxAsyncSteps: 0,
-                    })
-
-                    if (typeof filterResult.result !== 'boolean') {
-                        // NOTE: If the result is not a boolean we should not execute the function
-                        return false
-                    }
-
-                    return filterResult.result
-                } catch (error) {
-                    status.error('🦔', `[HogExecutor] Error filtering function`, {
-                        hogFunctionId: value.id,
-                        hogFunctionName: value.name,
-                        error: error.message,
-                    })
+                if (!filters?.bytecode) {
+                    // NOTE: If we don't have bytecode this indicates something went wrong.
+                    // The model will always save a bytecode if it was compiled correctly
+                    return false
                 }
 
-                return false
-            })
-        )
+                const filterResult = exec(filters.bytecode, {
+                    globals: filtersGlobals,
+                    timeout: DEFAULT_TIMEOUT,
+                    maxAsyncSteps: 0,
+                })
+
+                if (typeof filterResult.result !== 'boolean') {
+                    // NOTE: If the result is not a boolean we should not execute the function
+                    return false
+                }
+
+                return filterResult.result
+            } catch (error) {
+                status.error('🦔', `[HogExecutor] Error filtering function`, {
+                    hogFunctionId: hogFunction.id,
+                    hogFunctionName: hogFunction.name,
+                    error: error.message,
+                })
+            }
+
+            return false
+        })
 
         if (!Object.keys(functions).length) {
             return []
@@ -159,13 +158,6 @@ export class HogExecutor {
             throw new Error('No hog function id provided')
         }
 
-        // TODO: The VM takes care of ensuring we don't get stuck in a loop but we should add some extra protection
-        // to be super sure
-
-        const hogFunction = this.hogFunctionManager.getTeamHogFunctions(invocation.globals.project.id)[
-            invocation.hogFunctionId
-        ]
-
         const baseInvocation: HogFunctionInvocation = {
             id: invocation.id,
             globals: invocation.globals,
@@ -181,6 +173,11 @@ export class HogExecutor {
             finished: false,
             error,
         })
+
+        const hogFunction = this.hogFunctionManager.getTeamHogFunction(
+            invocation.globals.project.id,
+            invocation.hogFunctionId
+        )
 
         if (!hogFunction) {
             return errorRes(`Hog Function with ID ${invocation.hogFunctionId} not found`)
@@ -245,7 +242,7 @@ export class HogExecutor {
             try {
                 execRes = exec(state ?? hogFunction.bytecode, {
                     globals,
-                    timeout: 0.1, // TODO: Swap this to milliseconds when the package is updated
+                    timeout: DEFAULT_TIMEOUT, // TODO: Swap this to milliseconds when the package is updated
                     maxAsyncSteps: MAX_ASYNC_STEPS, // NOTE: This will likely be configurable in the future
                     asyncFunctions: {
                         // We need to pass these in but they don't actually do anything as it is a sync exec
