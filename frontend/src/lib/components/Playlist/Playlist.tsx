@@ -19,6 +19,7 @@ export type PlaylistSection<T> = {
     title?: string
     items: T[]
     render: ({ item, isActive }: { item: T; isActive: boolean }) => JSX.Element
+    initiallyOpen?: boolean
     footer?: JSX.Element
 }
 
@@ -185,9 +186,9 @@ function List<
         lastScrollPositionRef.current = e.currentTarget.scrollTop
     }
 
-    const actionContent = headerActions?.find((a) => activeHeaderActionKey === a.key)?.content
-
     const itemsCount = sections.flatMap((s) => s.items).length
+    const actionContent = headerActions?.find((a) => activeHeaderActionKey === a.key)?.content
+    const initiallyOpenSections = sections.filter((s) => s.initiallyOpen).map((s) => s.key)
 
     return (
         <div className="flex flex-col w-full bg-bg-light overflow-hidden border-r h-full">
@@ -239,7 +240,7 @@ function List<
                     <>
                         {sections.length > 1 ? (
                             <LemonCollapse
-                                defaultActiveKeys={sections.map((s) => s.key)}
+                                defaultActiveKeys={initiallyOpenSections}
                                 panels={sections.map((s) => ({
                                     key: s.key,
                                     header: s.title,
@@ -248,6 +249,7 @@ function List<
                                     ),
                                     className: 'p-0',
                                 }))}
+                                multiple
                                 embedded
                                 size="small"
                             />

@@ -107,6 +107,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
             render: ({ item, isActive }) => (
                 <SessionRecordingPreview recording={item} isActive={isActive} pinned={true} />
             ),
+            initiallyOpen: true,
         })
     }
 
