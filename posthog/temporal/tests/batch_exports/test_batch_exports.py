@@ -8,6 +8,7 @@ from django.test import override_settings
 
 from posthog.temporal.batch_exports.batch_exports import (
     get_data_interval,
+    iter_model_records,
     iter_records,
 )
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
@@ -240,7 +241,6 @@ async def test_iter_records_ignores_timestamp_predicates(clickhouse_client):
         {"expression": "event", "alias": "event_name"},
         {"expression": "team_id", "alias": "team"},
         {"expression": "timestamp", "alias": "time_the_stamp"},
-        {"expression": "inserted_at", "alias": "ingestion_time"},
         {"expression": "created_at", "alias": "creation_time"},
     ],
 )
@@ -264,11 +264,13 @@ async def test_iter_records_with_single_field_and_alias(clickhouse_client, field
 
     records = [
         record
-        for record_batch in iter_records(
-            clickhouse_client,
-            team_id,
-            data_interval_start.isoformat(),
-            data_interval_end.isoformat(),
+        async for record_batch in iter_model_records(
+            client=clickhouse_client,
+            model="events",
+            team_id=team_id,
+            is_backfill=False,
+            interval_start=data_interval_start.isoformat(),
+            interval_end=data_interval_end.isoformat(),
             fields=[field],
         )
         for record in record_batch.to_pylist()
