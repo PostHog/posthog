@@ -1,7 +1,7 @@
 import { VMState } from '@posthog/hogvm'
 import { DateTime } from 'luxon'
 
-import { ElementPropertyFilter, EventPropertyFilter, PersonPropertyFilter, RawClickHouseEvent } from '../types'
+import { ElementPropertyFilter, EventPropertyFilter, PersonPropertyFilter } from '../types'
 
 export type HogBytecode = any[]
 
