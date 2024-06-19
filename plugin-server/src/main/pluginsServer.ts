@@ -426,7 +426,7 @@ export async function startPluginsServer(
         })
 
         startCapabilities('cdpProcessedEvents', async () => {
-            const consumer = new CdpProcessedEventsConsumer(serverConfig, hub)
+            const consumer = new CdpProcessedEventsConsumer(hub)
             await consumer.start()
 
             shutdownOnConsumerExit(consumer.batchConsumer!)
@@ -435,7 +435,7 @@ export async function startPluginsServer(
         })
 
         startCapabilities('cdpFunctionCallbacks', async () => {
-            const consumer = new CdpFunctionCallbackConsumer(serverConfig, hub)
+            const consumer = new CdpFunctionCallbackConsumer(hub)
             await consumer.start()
 
             shutdownOnConsumerExit(consumer.batchConsumer!)
