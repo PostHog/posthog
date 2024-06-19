@@ -11,23 +11,16 @@ import v8Profiler from 'v8-profiler-next'
 
 import { getPluginServerCapabilities } from '../capabilities'
 import { CdpFunctionCallbackConsumer, CdpProcessedEventsConsumer } from '../cdp/cdp-consumers'
-import { defaultConfig, sessionRecordingConsumerConfig } from '../config/config'
+import { defaultConfig } from '../config/config'
 import { Hub, PluginServerCapabilities, PluginsServerConfig } from '../types'
-import { createHub, createKafkaClient, createKafkaProducerWrapper } from '../utils/db/hub'
-import { PostgresRouter } from '../utils/db/postgres'
+import { createHub } from '../utils/db/hub'
 import { cancelAllScheduledJobs } from '../utils/node-schedule'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
 import { createRedisClient, delay } from '../utils/utils'
-import { ActionManager } from '../worker/ingestion/action-manager'
-import { ActionMatcher } from '../worker/ingestion/action-matcher'
-import { AppMetrics } from '../worker/ingestion/app-metrics'
 import { GroupTypeManager } from '../worker/ingestion/group-type-manager'
-import { OrganizationManager } from '../worker/ingestion/organization-manager'
 import { DeferredPersonOverrideWorker, FlatPersonOverrideWriter } from '../worker/ingestion/person-state'
-import { TeamManager } from '../worker/ingestion/team-manager'
 import Piscina, { makePiscina as defaultMakePiscina } from '../worker/piscina'
-import { RustyHook } from '../worker/rusty-hook'
 import { GraphileWorker } from './graphile-worker/graphile-worker'
 import { loadPluginSchedule } from './graphile-worker/schedule'
 import { startGraphileWorker } from './graphile-worker/worker-setup'
@@ -35,7 +28,6 @@ import { startAnalyticsEventsIngestionConsumer } from './ingestion-queues/analyt
 import { startAnalyticsEventsIngestionHistoricalConsumer } from './ingestion-queues/analytics-events-ingestion-historical-consumer'
 import { startAnalyticsEventsIngestionOverflowConsumer } from './ingestion-queues/analytics-events-ingestion-overflow-consumer'
 import { startJobsConsumer } from './ingestion-queues/jobs-consumer'
-import { IngestionConsumer, KafkaJSIngestionConsumer } from './ingestion-queues/kafka-queue'
 import {
     startAsyncOnEventHandlerConsumer,
     startAsyncWebhooksHandlerConsumer,
@@ -43,7 +35,6 @@ import {
 import { startScheduledTasksConsumer } from './ingestion-queues/scheduled-tasks-consumer'
 import { SessionRecordingIngester } from './ingestion-queues/session-recording/session-recordings-consumer'
 import { expressApp, setupCommonRoutes } from './services/http-server'
-import { getObjectStorage } from './services/object_storage'
 
 CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
 
@@ -207,6 +198,22 @@ export async function startPluginsServer(
     }
 
     try {
+        const services: Promise<any>[] = []
+        const startService = (
+            capability: keyof PluginServerCapabilities | (keyof PluginServerCapabilities)[],
+            startup: () => Promise<any> | void
+        ) => {
+            if (Array.isArray(capability)) {
+                if (!capability.some((c) => capabilities[c])) {
+                    return
+                }
+            } else if (!capabilities[capability]) {
+                return
+            }
+
+            services.push(startup() ?? Promise.resolve())
+        }
+
         status.info('🚀', 'Launching plugin server...')
         // Based on the mode the plugin server was started, we start a number of
         // different services. Mostly this is reasonably obvious from the name.
@@ -219,7 +226,7 @@ export async function startPluginsServer(
         // 3. clickhouse_events_json and plugin_events_ingestion
         // 4. conversion_events_buffer
         //
-        if (capabilities.processPluginJobs || capabilities.pluginScheduledTasks) {
+        startService(['processPluginJobs', 'pluginScheduledTasks'], async () => {
             const graphileWorker = new GraphileWorker(hub)
             shutdownCallbacks.push(async () => graphileWorker.stop())
             // `connectProducer` just runs the PostgreSQL migrations. Ideally it
@@ -307,9 +314,9 @@ export async function startPluginsServer(
 
             // TODO: Should this only be running for this kind of capability?
             pluginServerStartupTimeMs.inc(Date.now() - timer.valueOf())
-        }
+        })
 
-        if (capabilities.ingestion) {
+        startService('ingestion', async () => {
             const consumer = await startAnalyticsEventsIngestionConsumer({
                 hub: hub,
             })
@@ -318,9 +325,9 @@ export async function startPluginsServer(
             shutdownCallbacks.push(async () => consumer.queue.stop())
             healthChecks['analytics-ingestion'] = consumer.isHealthy
             readyChecks['analytics-ingestion'] = () => consumer.queue.consumerReady
-        }
+        })
 
-        if (capabilities.ingestionHistorical) {
+        startService('ingestionHistorical', async () => {
             const consumer = await startAnalyticsEventsIngestionHistoricalConsumer({
                 hub: hub,
             })
@@ -328,27 +335,27 @@ export async function startPluginsServer(
             shutdownCallbacks.push(async () => consumer.queue.stop())
             shutdownOnConsumerExit(consumer.queue.consumer!)
             healthChecks['analytics-ingestion-historical'] = consumer.isHealthy
-        }
+        })
 
-        if (capabilities.ingestionOverflow) {
+        startService('ingestionOverflow', async () => {
             const queue = await startAnalyticsEventsIngestionOverflowConsumer({
                 hub: hub,
             })
 
             shutdownCallbacks.push(async () => queue.stop())
             shutdownOnConsumerExit(queue.consumer!)
-        }
+        })
 
-        if (capabilities.processAsyncOnEventHandlers) {
+        startService('processAsyncOnEventHandlers', async () => {
             const consumer = await startAsyncOnEventHandlerConsumer({
                 hub: hub,
             })
 
             shutdownCallbacks.push(async () => consumer.queue.stop())
             healthChecks['on-event-ingestion'] = consumer.isHealthy
-        }
+        })
 
-        if (capabilities.processAsyncWebhooksHandlers) {
+        startService('processAsyncWebhooksHandlers', async () => {
             // TODO: Move to hub
             const groupTypeManager = new GroupTypeManager(hub.postgres, hub.teamManager, serverConfig.SITE_URL)
 
@@ -367,9 +374,9 @@ export async function startPluginsServer(
 
             shutdownCallbacks.push(async () => consumer.stop())
             healthChecks['webhooks-ingestion'] = consumer.isHealthy
-        }
+        })
 
-        if (capabilities.sessionRecordingBlobIngestion) {
+        startService('sessionRecordingBlobIngestion', async () => {
             if (!hub.objectStorage) {
                 throw new Error("Can't start session recording blob ingestion without object storage")
             }
@@ -390,9 +397,9 @@ export async function startPluginsServer(
                 shutdownOnConsumerExit(batchConsumer)
                 healthChecks['session-recordings-blob'] = () => ingester.isHealthy() ?? false
             }
-        }
+        })
 
-        if (capabilities.sessionRecordingBlobOverflowIngestion) {
+        startService('sessionRecordingBlobOverflowIngestion', async () => {
             if (!hub.objectStorage) {
                 throw new Error("Can't start session recording blob ingestion without object storage")
             }
@@ -414,18 +421,18 @@ export async function startPluginsServer(
                 shutdownOnConsumerExit(batchConsumer)
                 healthChecks['session-recordings-blob-overflow'] = () => ingester.isHealthy() ?? false
             }
-        }
+        })
 
-        if (capabilities.cdpProcessedEvents) {
+        startService('cdpProcessedEvents', async () => {
             const consumer = new CdpProcessedEventsConsumer(serverConfig, hub)
             await consumer.start()
 
             shutdownOnConsumerExit(consumer.batchConsumer!)
             shutdownCallbacks.push(async () => await consumer.stop())
             healthChecks['cdp-processed-events'] = () => consumer.isHealthy() ?? false
-        }
+        })
 
-        if (capabilities.cdpFunctionCallbacks) {
+        startService('cdpFunctionCallbacks', async () => {
             const consumer = new CdpFunctionCallbackConsumer(serverConfig, hub)
             await consumer.start()
 
@@ -437,9 +444,9 @@ export async function startPluginsServer(
             if (capabilities.http) {
                 consumer.addApiRoutes(expressApp)
             }
-        }
+        })
 
-        if (capabilities.personOverrides) {
+        startService('personOverrides', () => {
             const personOverridesPeriodicTask = new DeferredPersonOverrideWorker(
                 hub.postgres,
                 hub.kafkaProducer,
@@ -452,8 +459,11 @@ export async function startPluginsServer(
             })
 
             shutdownCallbacks.push(async () => personOverridesPeriodicTask.stop())
-        }
+        })
 
+        await Promise.all(services)
+
+        // HTTP we setup last as it is somewhat dependent on the other services
         if (capabilities.http) {
             const app = setupCommonRoutes(healthChecks, readyChecks)
 
