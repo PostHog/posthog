@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, TypeAlias
 
 from django.utils.timezone import datetime
 
@@ -11,13 +11,14 @@ from posthog.hogql_queries.web_analytics.web_analytics_query_runner import (
     WebAnalyticsQueryRunner,
 )
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.schema import CachedWebOverviewQueryResponse, WebOverviewQueryResponse, WebOverviewQuery
+from posthog.schema import CachedWebOverviewQueryResponse, WebOverviewQueryResponse, WebOverviewQuery, CacheMissResponse
 
 
 class LegacyWebOverviewQueryRunner(WebAnalyticsQueryRunner):
     query: WebOverviewQuery
     response: WebOverviewQueryResponse
-    cached_response: CachedWebOverviewQueryResponse
+    CachedResponseType: TypeAlias = CachedWebOverviewQueryResponse
+    cached_response: CachedResponseType | CacheMissResponse
 
     def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         with self.timings.measure("date_expr"):

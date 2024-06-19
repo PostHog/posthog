@@ -3,7 +3,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.constants import HogQLGlobalSettings, MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY
 from math import ceil
-from typing import Any
+from typing import TypeAlias, Any
 from typing import Optional
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
@@ -31,6 +31,7 @@ from posthog.schema import (
     IntervalType,
     RetentionEntity,
     EntityType,
+    CacheMissResponse,
 )
 from posthog.schema import RetentionQuery, RetentionType
 
@@ -48,7 +49,8 @@ DEFAULT_ENTITY = RetentionEntity(
 class RetentionQueryRunner(QueryRunner):
     query: RetentionQuery
     response: RetentionQueryResponse
-    cached_response: CachedRetentionQueryResponse
+    CachedResponseType: TypeAlias = CachedRetentionQueryResponse
+    cached_response: CachedResponseType | CacheMissResponse
     target_entity: RetentionEntity
     returning_entity: RetentionEntity
 

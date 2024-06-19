@@ -1,5 +1,5 @@
 import itertools
-from typing import Optional
+from typing import TypeAlias, Optional
 from collections.abc import Sequence, Iterator
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_order_expr
@@ -8,13 +8,20 @@ from posthog.hogql_queries.actor_strategies import ActorStrategy, PersonStrategy
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
-from posthog.schema import ActorsQuery, ActorsQueryResponse, CachedActorsQueryResponse, DashboardFilter
+from posthog.schema import (
+    ActorsQuery,
+    ActorsQueryResponse,
+    CachedActorsQueryResponse,
+    DashboardFilter,
+    CacheMissResponse,
+)
 
 
 class ActorsQueryRunner(QueryRunner):
     query: ActorsQuery
     response: ActorsQueryResponse
-    cached_response: CachedActorsQueryResponse
+    CachedResponseType: TypeAlias = CachedActorsQueryResponse
+    cached_response: CachedResponseType | CacheMissResponse
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

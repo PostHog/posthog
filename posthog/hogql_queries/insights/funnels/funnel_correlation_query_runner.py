@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Literal, Optional, Any, TypedDict, cast
+from typing import TypeAlias, Literal, Optional, Any, TypedDict, cast
 
 from posthog.constants import AUTOCAPTURE_EVENT
 from posthog.hogql.parser import parse_select
@@ -40,6 +40,7 @@ from posthog.schema import (
     HogQLQueryModifiers,
     HogQLQueryResponse,
     EventOddsRatioSerialized,
+    CacheMissResponse,
 )
 
 
@@ -87,7 +88,8 @@ class FunnelCorrelationQueryRunner(QueryRunner):
 
     query: FunnelCorrelationQuery
     response: FunnelCorrelationResponse
-    cached_response: CachedFunnelCorrelationResponse
+    CachedResponseType: TypeAlias = CachedFunnelCorrelationResponse
+    cached_response: CachedResponseType | CacheMissResponse
 
     funnels_query: FunnelsQuery
     actors_query: FunnelsActorsQuery

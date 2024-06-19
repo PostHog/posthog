@@ -1,5 +1,5 @@
 import json
-from typing import cast
+from typing import TypeAlias, cast
 from posthog.api.element import ElementSerializer
 
 
@@ -15,6 +15,7 @@ from posthog.schema import (
     SessionsTimelineQueryResponse,
     CachedSessionsTimelineQueryResponse,
     TimelineEntry,
+    CacheMissResponse,
 )
 from posthog.utils import relative_date_parse
 
@@ -39,7 +40,8 @@ class SessionsTimelineQueryRunner(QueryRunner):
 
     query: SessionsTimelineQuery
     response: SessionsTimelineQueryResponse
-    cached_response: CachedSessionsTimelineQueryResponse
+    CachedResponseType: TypeAlias = CachedSessionsTimelineQueryResponse
+    cached_response: CachedResponseType | CacheMissResponse
 
     def _get_events_subquery(self) -> ast.SelectQuery:
         after = relative_date_parse(self.query.after or "-24h", self.team.timezone_info)

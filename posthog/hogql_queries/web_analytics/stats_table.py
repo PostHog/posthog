@@ -1,4 +1,4 @@
-from typing import Union
+from typing import Union, TypeAlias
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
@@ -22,13 +22,15 @@ from posthog.schema import (
     WebStatsTableQueryResponse,
     EventPropertyFilter,
     PersonPropertyFilter,
+    CacheMissResponse,
 )
 
 
 class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
     query: WebStatsTableQuery
     response: WebStatsTableQueryResponse
-    cached_response: CachedWebStatsTableQueryResponse
+    CachedResponseType: TypeAlias = CachedWebStatsTableQueryResponse
+    cached_response: CachedResponseType | CacheMissResponse
     paginator: HogQLHasMorePaginator
 
     def __init__(self, *args, **kwargs):

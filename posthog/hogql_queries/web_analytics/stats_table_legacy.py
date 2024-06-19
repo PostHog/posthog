@@ -1,3 +1,5 @@
+from typing import TypeAlias
+
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.database.schema.channel_type import create_channel_type_expr
@@ -17,13 +19,15 @@ from posthog.schema import (
     WebStatsTableQuery,
     WebStatsBreakdown,
     WebStatsTableQueryResponse,
+    CacheMissResponse,
 )
 
 
 class LegacyWebStatsTableQueryRunner(WebAnalyticsQueryRunner):
     query: WebStatsTableQuery
     response: WebStatsTableQueryResponse
-    cached_response: CachedWebStatsTableQueryResponse
+    CachedResponseType: TypeAlias = CachedWebStatsTableQueryResponse
+    cached_response: CachedResponseType | CacheMissResponse
     paginator: HogQLHasMorePaginator
 
     def __init__(self, *args, **kwargs):

@@ -1,3 +1,5 @@
+from typing import TypeAlias
+
 from django.utils.timezone import datetime
 
 from posthog.hogql import ast
@@ -8,13 +10,19 @@ from posthog.hogql_queries.web_analytics.web_analytics_query_runner import (
     WebAnalyticsQueryRunner,
 )
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.schema import CachedWebTopClicksQueryResponse, WebTopClicksQuery, WebTopClicksQueryResponse
+from posthog.schema import (
+    CachedWebTopClicksQueryResponse,
+    WebTopClicksQuery,
+    WebTopClicksQueryResponse,
+    CacheMissResponse,
+)
 
 
 class WebTopClicksQueryRunner(WebAnalyticsQueryRunner):
     query: WebTopClicksQuery
     response: WebTopClicksQueryResponse
-    cached_response: CachedWebTopClicksQueryResponse
+    CachedResponseType: TypeAlias = CachedWebTopClicksQueryResponse
+    cached_response: CachedResponseType | CacheMissResponse
 
     def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         with self.timings.measure("top_clicks_query"):

@@ -1,4 +1,4 @@
-from typing import cast
+from typing import TypeAlias, cast
 
 from posthog.hogql import ast
 from posthog.hogql_queries.insights.lifecycle_query_runner import LifecycleQueryRunner
@@ -9,13 +9,15 @@ from posthog.schema import (
     InsightActorsQueryOptions,
     InsightActorsQueryOptionsResponse,
     CachedInsightActorsQueryOptionsResponse,
+    CacheMissResponse,
 )
 
 
 class InsightActorsQueryOptionsRunner(QueryRunner):
     query: InsightActorsQueryOptions
     response: InsightActorsQueryOptionsResponse
-    cached_response: CachedInsightActorsQueryOptionsResponse
+    CachedResponseType: TypeAlias = CachedInsightActorsQueryOptionsResponse
+    cached_response: CachedResponseType | CacheMissResponse
 
     @cached_property
     def source_runner(self) -> QueryRunner:
