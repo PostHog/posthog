@@ -113,7 +113,7 @@ abstract class CdpConsumerBase {
                             messagesToProduce.push({
                                 topic: KAFKA_LOG_ENTRIES,
                                 value: sanitized,
-                                key: x.instance_id,
+                                key: sanitized.instance_id,
                             })
                         })
 

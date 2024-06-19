@@ -83,6 +83,7 @@ export enum PluginServerMode {
     person_overrides = 'person-overrides',
     cdp_processed_events = 'cdp-processed-events',
     cdp_function_callbacks = 'cdp-function-callbacks',
+    cdp_overflow = 'cdp-overflow',
 }
 
 export const stringToPluginServerMode = Object.fromEntries(
@@ -317,6 +318,7 @@ export interface PluginServerCapabilities {
     sessionRecordingBlobOverflowIngestion?: boolean
     cdpProcessedEvents?: boolean
     cdpFunctionCallbacks?: boolean
+    cdpOverflow?: boolean
     personOverrides?: boolean
     appManagementSingleton?: boolean
     preflightSchedules?: boolean // Used for instance health checks on hobby deploy, not useful on cloud

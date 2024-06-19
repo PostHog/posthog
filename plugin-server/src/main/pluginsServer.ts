@@ -10,7 +10,7 @@ import { Counter } from 'prom-client'
 import v8Profiler from 'v8-profiler-next'
 
 import { getPluginServerCapabilities } from '../capabilities'
-import { CdpFunctionCallbackConsumer, CdpProcessedEventsConsumer } from '../cdp/cdp-consumers'
+import { CdpFunctionCallbackConsumer, CdpOverflowConsumer, CdpProcessedEventsConsumer } from '../cdp/cdp-consumers'
 import { defaultConfig, sessionRecordingConsumerConfig } from '../config/config'
 import { Hub, PluginServerCapabilities, PluginsServerConfig } from '../types'
 import { createHub, createKafkaClient, createKafkaProducerWrapper } from '../utils/db/hub'
@@ -496,13 +496,8 @@ export async function startPluginsServer(
             const consumer = new CdpProcessedEventsConsumer(serverConfig, hub)
             await consumer.start()
 
-            if (consumer.batchConsumer) {
-                shutdownOnConsumerExit(consumer.batchConsumer)
-            }
-
-            shutdownCallbacks.push(async () => {
-                await consumer.stop()
-            })
+            shutdownOnConsumerExit(consumer.batchConsumer!)
+            shutdownCallbacks.push(async () => await consumer.stop())
             healthChecks['cdp-processed-events'] = () => consumer.isHealthy() ?? false
         }
 
@@ -511,19 +506,25 @@ export async function startPluginsServer(
             const consumer = new CdpFunctionCallbackConsumer(serverConfig, hub)
             await consumer.start()
 
-            if (consumer.batchConsumer) {
-                shutdownOnConsumerExit(consumer.batchConsumer)
-            }
+            shutdownOnConsumerExit(consumer.batchConsumer!)
 
-            shutdownCallbacks.push(async () => {
-                await consumer.stop()
-            })
+            shutdownCallbacks.push(async () => await consumer.stop())
             healthChecks['cdp-function-callbacks'] = () => consumer.isHealthy() ?? false
 
             // NOTE: The function callback service is more idle so can handle http requests as well
             if (capabilities.http) {
                 consumer.addApiRoutes(expressApp)
             }
+        }
+
+        if (capabilities.cdpOverflow) {
+            ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, capabilities)
+            const consumer = new CdpOverflowConsumer(serverConfig, hub)
+            await consumer.start()
+
+            shutdownOnConsumerExit(consumer.batchConsumer!)
+            shutdownCallbacks.push(async () => await consumer.stop())
+            healthChecks['cdp-overflow'] = () => consumer.isHealthy() ?? false
         }
 
         if (capabilities.personOverrides) {
