@@ -498,7 +498,7 @@ export const insightLogic = kea<insightLogicType>([
         ],
         showPersonsModal: [() => [(_, p) => p.query], (query?: InsightVizNode) => !query || !query.hidePersonsModal],
     }),
-    listeners(({ actions, selectors, values }) => ({
+    listeners(({ actions, values }) => ({
         reportInsightViewedForRecentInsights: async () => {
             // Report the insight being viewed to our '/viewed' endpoint. Used for "recently viewed insights"
 
