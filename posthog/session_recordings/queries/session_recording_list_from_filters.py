@@ -273,7 +273,7 @@ class SessionRecordingListFromFilters:
                 ),
             )
 
-        if self._filter.snapshot_source_filter:
+        if self._filter.snapshot_source_filter and self._filter.snapshot_source_filter.value:
             op = (
                 ast.CompareOperationOp.In
                 if self._filter.snapshot_source_filter.operator == "exact"
