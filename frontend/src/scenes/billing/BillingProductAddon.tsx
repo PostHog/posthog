@@ -169,7 +169,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                                             (billingError && billingError.message) ||
                                             (featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' &&
                                                 billing?.subscription_level === 'free' &&
-                                                'Upgrade to the paid plan to add add-ons')
+                                                'Upgrade to add add-ons')
                                         }
                                         loading={billingProductLoading === addon.type}
                                         onClick={() =>
