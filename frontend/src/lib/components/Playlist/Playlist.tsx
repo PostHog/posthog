@@ -26,17 +26,17 @@ type PlaylistHeaderAction = Pick<LemonButtonProps, 'icon' | 'tooltip' | 'childre
     content: React.ReactNode
 }
 
-type PlaylistProps = {
+export type PlaylistProps = {
+    sections: PlaylistSection[]
+    listEmptyState: JSX.Element
+    content: ({ activeItem }: { activeItem: any }) => JSX.Element
     title?: string
     notebooksHref?: string
-    embedded: boolean
-    sections: PlaylistSection[]
+    embedded?: boolean
     loading?: boolean
     headerActions?: PlaylistHeaderAction[]
     onScrollListEdge?: (edge: 'top' | 'bottom') => void
-    listEmptyState: JSX.Element
-    onSelect: (item: any) => void
-    content: ({ activeItem }: { activeItem: any }) => JSX.Element
+    onSelect?: (item: any) => void
     onLoadMore?: () => void
     'data-attr'?: string
     activeItemId?: string
@@ -50,7 +50,7 @@ export function Playlist({
     title,
     notebooksHref,
     loading,
-    embedded,
+    embedded = false,
     activeItemId: propsActiveItemId,
     content,
     sections,
@@ -71,7 +71,7 @@ export function Playlist({
 
     const onChangeActiveItem = (item: any): void => {
         setControlledActiveItemId(item.id)
-        onSelect(item.id)
+        onSelect?.(item.id)
     }
 
     const activeItemId = propsActiveItemId === undefined ? controlledActiveItemId : propsActiveItemId
@@ -243,6 +243,7 @@ const List = ({
                                     className: 'p-0',
                                 }))}
                                 embedded
+                                size="small"
                             />
                         ) : (
                             <ListSection {...sections[0]} activeItemId={activeItemId} onClick={setActiveItemId} />
@@ -255,9 +256,9 @@ const List = ({
                                 </>
                             ) : onLoadMore ? (
                                 <LemonButton onClick={onLoadMore}>Load more</LemonButton>
-                            ) : (
+                            ) : sections.length <= 1 ? (
                                 'No more results'
-                            )}
+                            ) : null}
                         </div>
                     </>
                 ) : loading ? (
