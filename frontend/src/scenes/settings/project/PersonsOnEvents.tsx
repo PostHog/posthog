@@ -15,7 +15,7 @@ const POE_OPTIONS: LemonRadioOption<PoEMode>[] = [
         value: 'person_id_override_properties_on_events',
         label: (
             <span className="inline-flex items-center gap-1.5">
-                Use person properties from the time of the event<LemonTag>DEFAULT</LemonTag>
+                Use person properties from the time of the event<LemonTag>RECOMMENDED</LemonTag>
             </span>
         ),
         description: (
