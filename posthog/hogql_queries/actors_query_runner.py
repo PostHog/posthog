@@ -257,7 +257,7 @@ class ActorsQueryRunner(QueryRunner):
                 ),
             )
 
-            s = parse_select("SELECT actor_id as person_id FROM source")
+            s = parse_select("SELECT distinct actor_id as person_id FROM source")
             s.select_from.table = source_query
 
             stmt = ast.SelectQuery(

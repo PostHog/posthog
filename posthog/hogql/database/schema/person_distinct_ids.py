@@ -44,7 +44,7 @@ def select_from_person_distinct_ids_table(
         deleted_field="is_deleted",
     )
 
-    if "person_ids" in node.type.ctes:
+    if "distinct_ids" in node.type.ctes:
         comparison = clone_expr(
             ast.CompareOperation(
                 op=ast.CompareOperationOp.In,
@@ -52,8 +52,8 @@ def select_from_person_distinct_ids_table(
                     chain=["distinct_id"], type=ast.FieldType(name="distinct_id", table_type=PersonDistinctIdsTable)
                 ),
                 right=ast.SelectQuery(
-                    select=[ast.Field(chain=["person_id"])],
-                    select_from=ast.JoinExpr(table=ast.Field(chain=["person_ids"])),
+                    select=[ast.Field(chain=["distinct_id"])],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["distinct_ids"])),
                 ),
             ),
             clear_types=True,

@@ -8,7 +8,7 @@ from dateutil.relativedelta import relativedelta
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext, HogQLQuerySettings
-from posthog.hogql.parser import parse_expr
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.trends.aggregation_operations import AggregationOperations
@@ -166,14 +166,20 @@ class TrendsActorsQueryBuilder:
 
     def build_actors_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         # Insert CTE here
-        events_query = self._cte_events_query()
-        if events_query.settings is None:
-            events_query.settings = HogQLQuerySettings()
-        events_query.settings.use_query_cache = True
+        cte_events_query = self._cte_events_query()
+        if cte_events_query.settings is None:
+            cte_events_query.settings = HogQLQuerySettings()
+        cte_events_query.settings.use_query_cache = True
 
         # need to modify events query to ask for correct things only
+        s = parse_select("SELECT distinct distinct_id as distinct_id FROM e")
+        s.select_from.table = cte_events_query
+
         return ast.SelectQuery(
-            ctes={"e": ast.CTE(name="e", expr=events_query, cte_type="subquery")},
+            ctes={
+                "e": ast.CTE(name="e", expr=cte_events_query, cte_type="subquery"),
+                "distinct_ids": ast.CTE(name="distinct_ids", expr=s, cte_type="subquery"),
+            },
             select=[
                 ast.Field(chain=["actor_id"]),
                 ast.Alias(alias="event_count", expr=self._get_actor_value_expr()),
@@ -203,7 +209,7 @@ class TrendsActorsQueryBuilder:
         return query
 
     def _cte_events_query(self) -> ast.SelectQuery:
-        query = ast.SelectQuery(
+        return ast.SelectQuery(
             select=[ast.Field(chain=["*"])],  # Filter this down to save space
             select_from=ast.JoinExpr(
                 table=ast.Field(chain=["events"]),
@@ -212,7 +218,6 @@ class TrendsActorsQueryBuilder:
             ),
             where=self._cte_events_where_expr(),
         )
-        return query
 
     def _get_actor_value_expr(self) -> ast.Expr:
         return parse_expr("count()")
