@@ -270,9 +270,6 @@ class Resolver(CloningVisitor):
     def visit_join_expr(self, node: ast.JoinExpr):
         """Visit each FROM and JOIN table or subquery."""
 
-        # all expressions combined by UNION ALL can use CTEs from the first expression
-        # so we put these CTEs to the scope
-
         if len(self.scopes) == 0:
             raise ImpossibleASTError("Unexpected JoinExpr outside a SELECT query")
 
