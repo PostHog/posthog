@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/getsentry/sentry-go"
@@ -26,4 +27,10 @@ func loadConfigs() {
 		fmt.Println("Config file changed:", e.Name)
 	})
 	viper.WatchConfig()
+
+	viper.SetEnvPrefix("livestream") // will be uppercased automatically
+	replacer := strings.NewReplacer(".", "_")
+	viper.SetEnvKeyReplacer(replacer)
+	viper.BindEnv("jwt.secret")   // read from LIVESTREAM_JWT_SECRET
+	viper.BindEnv("postgres.url") // read from LIVESTREAM_POSTGRES_URL
 }

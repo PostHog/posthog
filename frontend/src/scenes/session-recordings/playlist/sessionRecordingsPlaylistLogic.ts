@@ -90,6 +90,7 @@ export const DEFAULT_RECORDING_FILTERS: RecordingFilters = {
     date_from: '-3d',
     date_to: null,
     console_logs: [],
+    snapshot_source: null,
     console_search_query: '',
     operand: FilterLogicalOperator.And,
 }
@@ -131,6 +132,7 @@ function convertUniversalFiltersToLegacyFilters(universalFilters: RecordingUnive
     const events: FilterType['events'] = []
     const actions: FilterType['actions'] = []
     let console_logs: FilterableLogLevel[] = []
+    let snapshot_source: AnyPropertyFilter | null = null
     let console_search_query = ''
 
     filters.forEach((f) => {
@@ -144,6 +146,11 @@ function convertUniversalFiltersToLegacyFilters(universalFilters: RecordingUnive
                     console_logs = f.value as FilterableLogLevel[]
                 } else if (f.key === 'console_log_query') {
                     console_search_query = (f.value || '') as string
+                } else if (f.key === 'snapshot_source') {
+                    const value = f.value as string[] | null
+                    if (value) {
+                        snapshot_source = f
+                    }
                 }
             } else {
                 properties.push(f)
@@ -162,6 +169,7 @@ function convertUniversalFiltersToLegacyFilters(universalFilters: RecordingUnive
         duration_type_filter: durationFilter.key,
         console_search_query,
         console_logs,
+        snapshot_source,
         operand: nestedFilters.type,
     }
 }
@@ -499,6 +507,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             {
                 loadSessionRecordingsFailure: () => true,
                 loadSessionRecordingSuccess: () => false,
+                setUniversalFilters: () => false,
                 setAdvancedFilters: () => false,
                 setSimpleFilters: () => false,
                 loadNext: () => false,
