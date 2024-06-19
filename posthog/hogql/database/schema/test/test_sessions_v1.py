@@ -1,11 +1,11 @@
 from parameterized import parameterized
 
 from posthog.hogql import ast
-from posthog.hogql.database.schema.sessions import get_lazy_session_table_properties
+from posthog.hogql.database.schema.sessions_v1 import get_lazy_session_table_properties
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 from posthog.models.property_definition import PropertyType
-from posthog.schema import HogQLQueryModifiers, BounceRatePageViewMode
+from posthog.schema import HogQLQueryModifiers, BounceRatePageViewMode, SessionTableVersion
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -15,6 +15,14 @@ from posthog.test.base import (
 
 
 class TestSessionsV1(ClickhouseTestMixin, APIBaseTest):
+    def __execute(self, query):
+        modifiers = HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V1)
+        return execute_hogql_query(
+            query=query,
+            team=self.team,
+            modifiers=modifiers,
+        )
+
     def test_select_star(self):
         session_id = "session_test_select_star"
 
@@ -25,12 +33,11 @@ class TestSessionsV1(ClickhouseTestMixin, APIBaseTest):
             properties={"$current_url": "https://example.com", "$session_id": session_id},
         )
 
-        response = execute_hogql_query(
+        response = self.__execute(
             parse_select(
                 "select * from sessions where session_id = {session_id}",
                 placeholders={"session_id": ast.Constant(value=session_id)},
             ),
-            self.team,
         )
 
         self.assertEqual(
@@ -48,12 +55,11 @@ class TestSessionsV1(ClickhouseTestMixin, APIBaseTest):
             properties={"gad_source": "1", "$session_id": session_id},
         )
 
-        response = execute_hogql_query(
+        response = self.__execute(
             parse_select(
                 "select $channel_type from sessions where session_id = {session_id}",
                 placeholders={"session_id": ast.Constant(value=session_id)},
             ),
-            self.team,
         )
 
         result = (response.results or [])[0]
@@ -72,12 +78,11 @@ class TestSessionsV1(ClickhouseTestMixin, APIBaseTest):
             properties={"gad_source": "1", "$session_id": session_id},
         )
 
-        response = execute_hogql_query(
+        response = self.__execute(
             parse_select(
                 "select events.session.$channel_type from events where $session_id = {session_id}",
                 placeholders={"session_id": ast.Constant(value=session_id)},
             ),
-            self.team,
         )
 
         result = (response.results or [])[0]
@@ -96,12 +101,11 @@ class TestSessionsV1(ClickhouseTestMixin, APIBaseTest):
             properties={"gad_source": "1", "$session_id": session_id},
         )
 
-        response = execute_hogql_query(
+        response = self.__execute(
             parse_select(
                 "select session.$channel_type from events where $session_id = {session_id}",
                 placeholders={"session_id": ast.Constant(value=session_id)},
             ),
-            self.team,
         )
 
         result = (response.results or [])[0]
@@ -130,12 +134,11 @@ class TestSessionsV1(ClickhouseTestMixin, APIBaseTest):
             properties={"$session_id": s2, "utm_source": "source2"},
         )
 
-        response = execute_hogql_query(
+        response = self.__execute(
             parse_select(
                 "select events.person_id, session.$entry_utm_source from events where $session_id = {session_id} or $session_id = {session_id2} order by 2 asc",
                 placeholders={"session_id": ast.Constant(value=s1), "session_id2": ast.Constant(value=s2)},
             ),
-            self.team,
         )
 
         [row1, row2] = response.results or []
@@ -224,7 +227,9 @@ class TestSessionsV1(ClickhouseTestMixin, APIBaseTest):
                 "select $is_bounce, session_id from sessions ORDER BY session_id",
             ),
             self.team,
-            modifiers=HogQLQueryModifiers(bounceRatePageViewMode=bounceRatePageViewMode),
+            modifiers=HogQLQueryModifiers(
+                bounceRatePageViewMode=bounceRatePageViewMode, sessionTableVersion=SessionTableVersion.V1
+            ),
         )
         self.assertEqual(
             [

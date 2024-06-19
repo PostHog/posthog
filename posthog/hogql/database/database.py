@@ -241,7 +241,7 @@ def create_hogql_database(
             join_function=join_with_persons_table,
         )
 
-    if modifiers.sessionTableVersion in [SessionTableVersion.V2, SessionTableVersion.AUTO] or True:
+    if modifiers.sessionTableVersion in [SessionTableVersion.V2]:
         database.sessions = SessionsTableV2()
         database.raw_sessions = RawSessionsTableV2()
         database.events.fields["session"] = LazyJoin(
