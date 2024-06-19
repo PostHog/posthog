@@ -43,7 +43,6 @@ import {
     InsightModel,
     InsightShortId,
     InsightType,
-    ItemMode,
     MultipleSurveyQuestion,
     PersonType,
     PropertyFilterType,
