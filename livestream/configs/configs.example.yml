@@ -1,4 +1,6 @@
 prod: true
+sentry:
+    dsn: 'david://cramer'
 kafka:
     brokers: 'localhost:9092'
     topic: ''
