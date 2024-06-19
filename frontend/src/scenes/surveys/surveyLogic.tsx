@@ -6,7 +6,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
-import { hasFormErrors } from 'lib/utils'
+import { hasFormErrors, isObject } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -137,6 +137,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 'reportSurveyStopped',
                 'reportSurveyResumed',
                 'reportSurveyViewed',
+                'reportSurveyCycleDetected',
             ],
         ],
         values: [enabledFlagLogic, ['featureFlags as enabledFlags'], surveysLogic, ['surveys']],
@@ -1038,6 +1039,61 @@ export const surveyLogic = kea<surveyLogicType>([
                 return SurveyQuestionBranchingType.ConfirmationMessage
             },
         ],
+        hasCycle: [
+            (s) => [s.survey],
+            (survey) => {
+                const graph = new Map()
+                survey.questions.forEach((question, fromIndex: number) => {
+                    if (!graph.has(fromIndex)) {
+                        graph.set(fromIndex, new Set())
+                    }
+
+                    if (question.branching?.type === SurveyQuestionBranchingType.ConfirmationMessage) {
+                        return
+                    } else if (
+                        question.branching?.type === SurveyQuestionBranchingType.SpecificQuestion &&
+                        Number.isInteger(question.branching.index)
+                    ) {
+                        const toIndex = question.branching.index
+                        graph.get(fromIndex).add(toIndex)
+                        return
+                    } else if (
+                        question.branching?.type === SurveyQuestionBranchingType.ResponseBased &&
+                        isObject(question.branching?.responseValues)
+                    ) {
+                        for (const [_, toIndex] of Object.entries(question.branching?.responseValues)) {
+                            if (Number.isInteger(toIndex)) {
+                                graph.get(fromIndex).add(toIndex)
+                            }
+                        }
+                    }
+
+                    // No branching - still need to connect the next question
+                    if (fromIndex < survey.questions.length - 1) {
+                        const toIndex = fromIndex + 1
+                        graph.get(fromIndex).add(toIndex)
+                    }
+                })
+
+                let cycleDetected = false
+                function dfs(node: number, seen: number[]): void {
+                    if (cycleDetected) {
+                        return
+                    }
+
+                    for (const neighbor of graph.get(node) || []) {
+                        if (seen.includes(neighbor)) {
+                            cycleDetected = true
+                            return
+                        }
+                        dfs(neighbor, seen.concat(neighbor))
+                    }
+                }
+                dfs(0, [0])
+
+                return cycleDetected
+            },
+        ],
     }),
     forms(({ actions, props, values }) => ({
         survey: {
@@ -1061,6 +1117,14 @@ export const surveyLogic = kea<surveyLogicType>([
                 urlMatchType: values.urlMatchTypeValidationError,
             }),
             submit: (surveyPayload) => {
+                if (values.hasCycle) {
+                    actions.reportSurveyCycleDetected(values.survey)
+
+                    return lemonToast.error(
+                        'Your survey contains an endless cycle. Please revisit your branching rules.'
+                    )
+                }
+
                 // when the survey is being submitted, we should turn off editing mode
                 actions.editingSurvey(false)
                 if (props.id && props.id !== 'new') {
