@@ -4,7 +4,7 @@ import uuid
 from collections import defaultdict, namedtuple
 from contextlib import contextmanager
 from time import time, time_ns
-from typing import TYPE_CHECKING, Any, Optional, TypeVar
+from typing import TYPE_CHECKING, Any, Optional, TypeVar, Union
 from collections.abc import Callable, Iterator
 from django.db import IntegrityError, connections, models, transaction
 from django.db.backends.utils import CursorWrapper
@@ -12,6 +12,7 @@ from django.db.backends.ddl_references import Statement
 from django.db.models.constraints import BaseConstraint
 from django.utils.text import slugify
 
+from posthog import datetime
 from posthog.constants import MAX_SLUG_LENGTH
 
 if TYPE_CHECKING:
@@ -95,9 +96,18 @@ class UUIDT(uuid.UUID):
 
 
 # Delete this when we can use the version from the stdlib directly, see https://github.com/python/cpython/issues/102461
-def uuid7(unix_ms_time: Optional[int] = None, seeded_random: Optional["Random"] = None) -> uuid.UUID:
-    if unix_ms_time is None:
-        unix_ms_time = time_ns() // (10**6)
+def uuid7(unix_ms_time: Optional[Union[int, str]] = None, seeded_random: Optional["Random"] = None) -> uuid.UUID:
+    # timestamp part
+    unix_ms_time_int: int
+    if isinstance(unix_ms_time, str):
+        date = datetime.datetime.fromisoformat(unix_ms_time)
+        unix_ms_time_int = int(date.timestamp() * 1000)
+    elif unix_ms_time is None:
+        unix_ms_time_int = time_ns() // (10**6)
+    else:
+        unix_ms_time_int = unix_ms_time
+
+    # random part
     if seeded_random is not None:
         rand_a = seeded_random.getrandbits(12)
         rand_b = seeded_random.getrandbits(56)
@@ -105,9 +115,13 @@ def uuid7(unix_ms_time: Optional[int] = None, seeded_random: Optional["Random"] 
         rand_bytes = int.from_bytes(secrets.token_bytes(10), byteorder="little")
         rand_a = rand_bytes & 0x0FFF
         rand_b = (rand_bytes >> 12) & 0x03FFFFFFFFFFFFFFF
+
+    # fixed constants
     ver = 7
     var = 0b10
-    uuid_int = (unix_ms_time & 0x0FFFFFFFFFFFF) << 80
+
+    # construct the UUID int
+    uuid_int = (unix_ms_time_int & 0x0FFFFFFFFFFFF) << 80
     uuid_int |= ver << 76
     uuid_int |= rand_a << 64
     uuid_int |= var << 62

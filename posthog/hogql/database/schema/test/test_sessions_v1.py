@@ -1,3 +1,4 @@
+import pytest
 from parameterized import parameterized
 
 from posthog.hogql import ast
@@ -5,6 +6,7 @@ from posthog.hogql.database.schema.sessions_v1 import get_lazy_session_table_pro
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 from posthog.models.property_definition import PropertyType
+from posthog.models.utils import uuid7
 from posthog.schema import HogQLQueryModifiers, BounceRatePageViewMode, SessionTableVersion
 from posthog.test.base import (
     APIBaseTest,
@@ -36,6 +38,29 @@ class TestSessionsV1(ClickhouseTestMixin, APIBaseTest):
         response = self.__execute(
             parse_select(
                 "select * from sessions where session_id = {session_id}",
+                placeholders={"session_id": ast.Constant(value=session_id)},
+            ),
+        )
+
+        self.assertEqual(
+            len(response.results or []),
+            1,
+        )
+
+    @pytest.mark.skip(reason="doesn't work, let's fix in V2")
+    def test_select_event_sessions_star(self):
+        session_id = str(uuid7())
+
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="d1",
+            properties={"$current_url": "https://example.com", "$session_id": session_id},
+        )
+
+        response = self.__execute(
+            parse_select(
+                "select session.* from events where session_id = {session_id}",
                 placeholders={"session_id": ast.Constant(value=session_id)},
             ),
         )
