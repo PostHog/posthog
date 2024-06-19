@@ -5,7 +5,6 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
 from posthog.schema import BaseMathType, ChartDisplayType, EventsNode, ActionsNode, DataWarehouseNode
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.hogql_queries.insights.data_warehouse_mixin import DataWarehouseInsightQueryMixin
 
 
@@ -71,18 +70,11 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         self.query_date_range = query_date_range
         self.is_total_value = is_total_value
 
-    @cached_property
-    def _id_field(self) -> ast.Expr:
-        if isinstance(self.series, DataWarehouseNode):
-            return ast.Field(chain=["e", self.series.id_field])
-
-        return ast.Field(chain=["e", "uuid"])
-
     def select_aggregation(self) -> ast.Expr:
         if self.series.math == "hogql" and self.series.math_hogql is not None:
             return parse_expr(self.series.math_hogql)
         elif self.series.math == "total":
-            return parse_expr("count({id_field})", placeholders={"id_field": self._id_field})
+            return parse_expr("count()")
         elif self.series.math == "dau":
             actor = "e.distinct_id" if self.team.aggregate_users_by_distinct_id else "e.person_id"
             return parse_expr(f"count(DISTINCT {actor})")
@@ -112,9 +104,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             elif self.series.math == "p99":
                 return self._math_quantile(0.99, None)
 
-        return parse_expr(
-            "count({id_field})", placeholders={"id_field": self._id_field}
-        )  # All "count per actor" get replaced during query orchestration
+        return parse_expr("count()")  # All "count per actor" get replaced during query orchestration
 
     def actor_id(self) -> ast.Expr:
         if self.series.math == "unique_group" and self.series.math_group_type_index is not None:
@@ -367,7 +357,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 (
                     """
                     SELECT
-                        count({id_field}) AS total
+                        count() AS total
                     FROM {table} AS e
                     WHERE {events_where_clause}
                     GROUP BY {person_field}
@@ -375,7 +365,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                     if isinstance(self.series, DataWarehouseNode)
                     else """
                     SELECT
-                        count({id_field}) AS total
+                        count() AS total
                     FROM events AS e
                     SAMPLE {sample}
                     WHERE {events_where_clause}
@@ -383,7 +373,6 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 """
                 ),
                 placeholders={
-                    "id_field": self._id_field,
                     "table": self._table_expr,
                     "events_where_clause": where_clause_combined,
                     "sample": sample_value,

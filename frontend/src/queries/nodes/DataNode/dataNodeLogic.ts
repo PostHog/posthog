@@ -16,7 +16,6 @@ import {
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import api, { ApiMethodOptions } from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual, shouldCancelQuery, uuid } from 'lib/utils'
@@ -76,7 +75,7 @@ export interface DataNodeLogicProps {
 export const AUTOLOAD_INTERVAL = 30000
 const LOAD_MORE_ROWS_LIMIT = 10000
 
-const concurrencyController = new ConcurrencyController(Infinity)
+const concurrencyController = new ConcurrencyController(1)
 
 /** Compares two queries for semantic equality to prevent double-fetching of data. */
 const queryEqual = (a: DataNode, b: DataNode): boolean => {
@@ -661,11 +660,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         actions.loadNewData()
                     }
                 }, AUTOLOAD_INTERVAL)
-            }
-        },
-        featureFlags: (flags) => {
-            if (flags[FEATURE_FLAGS.DATANODE_CONCURRENCY_LIMIT]) {
-                concurrencyController.setConcurrencyLimit(1)
             }
         },
     })),
