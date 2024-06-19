@@ -41,7 +41,7 @@ CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
 const { version } = require('../../package.json')
 
 // TODO: refactor this into a class, removing the need for many different Servers
-type ServerInstance = {
+export type ServerInstance = {
     hub: Hub
     stop: () => Promise<void>
 }

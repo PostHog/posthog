@@ -26,9 +26,8 @@ export function setupCommonRoutes(
     return expressApp
 }
 
-const buildHealthChecks =
-    (kind: string, checks: { [service: string]: () => Promise<boolean> | boolean }) =>
-    async (req: Request, res: Response) => {
+const buildHealthChecks = (kind: string, checks: { [service: string]: () => Promise<boolean> | boolean }) => {
+    return async (req: Request, res: Response) => {
         const checkResults = await Promise.all(
             // Note that we do not use `Promise.allSettled` here so we can
             // assume that all promises have resolved. If there was a
@@ -54,6 +53,7 @@ const buildHealthChecks =
 
         return res.status(statusCode).json({ status: statusCode === 200 ? 'ok' : 'error', checks: checkResultsMapping })
     }
+}
 
 const getMetrics = async (req: Request, res: Response) => {
     try {
