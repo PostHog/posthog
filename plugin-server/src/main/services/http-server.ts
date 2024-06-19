@@ -16,10 +16,10 @@ expressApp.use(express.json())
 
 export function setupCommonRoutes(
     healthChecks: { [service: string]: () => Promise<boolean> | boolean },
-    analyticsEventsIngestionConsumer?: KafkaJSIngestionConsumer | IngestionConsumer
+    readyChecks: { [service: string]: () => Promise<boolean> | boolean }
 ): express.Application {
     expressApp.get('/_health', buildGetHealth(healthChecks))
-    expressApp.get('/_ready', buildGetReady(analyticsEventsIngestionConsumer))
+    expressApp.get('/_ready', buildGetReady(readyChecks))
     expressApp.get('/_metrics', getMetrics)
     expressApp.get('/metrics', getMetrics)
     expressApp.get('/_profile/:type', getProfileByType)
@@ -81,24 +81,31 @@ const buildGetHealth =
     }
 
 const buildGetReady =
-    (analyticsEventsIngestionConsumer?: KafkaJSIngestionConsumer | IngestionConsumer) =>
-    (req: Request, res: Response) => {
-        // Check that, if the server should have a kafka queue,
-        // the Kafka consumer is ready to consume messages
-        if (!analyticsEventsIngestionConsumer || analyticsEventsIngestionConsumer.consumerReady) {
+    (readyChecks: { [service: string]: () => Promise<boolean> | boolean }) => async (req: Request, res: Response) => {
+        const checkResults = await Promise.all(
+            // Note that we do not use `Promise.allSettled` here so we can
+            // assume that all promises have resolved. If there was a
+            // rejected promise, the http server should catch it and return
+            // a 500 status code.
+            Object.entries(readyChecks).map(async ([service, check]) => {
+                try {
+                    return { service, status: (await check()) ? 'ok' : 'error' }
+                } catch (error) {
+                    return { service, status: 'error', error: error.message }
+                }
+            })
+        )
+
+        const statusCode = checkResults.every((result) => result.status === 'ok') ? 200 : 503
+        const checkResultsMapping = Object.fromEntries(checkResults.map((result) => [result.service, result.status]))
+
+        if (statusCode === 200) {
             status.info('💚', 'Server readiness check succeeded')
-            const responseBody = {
-                status: 'ok',
-            }
-            res.statusCode = 200
-            return res.status(200).json(responseBody)
+        } else {
+            status.info('💔', 'Server readiness check failed', checkResultsMapping)
         }
 
-        status.info('💔', 'Server readiness check failed')
-        const responseBody = {
-            status: 'error',
-        }
-        return res.status(503).json(responseBody)
+        return res.status(statusCode).json({ status: statusCode === 200 ? 'ok' : 'error', checks: checkResultsMapping })
     }
 
 const getMetrics = async (req: Request, res: Response) => {
