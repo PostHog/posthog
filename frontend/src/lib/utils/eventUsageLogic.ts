@@ -235,7 +235,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportPersonsModalViewed: (params: any) => ({
             params,
         }),
-        reportCohortCreatedFromPersonsModal: (filters: Partial<FilterType>) => ({ filters }),
         // insights
         reportInsightCreated: (insightType: InsightType | null) => ({ insightType }),
         reportInsightSaved: (filters: Partial<FilterType>, isNewInsight: boolean) => ({ filters, isNewInsight }),
@@ -641,9 +640,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportPersonsModalViewed: async ({ params }) => {
             posthog.capture('insight person modal viewed', params)
-        },
-        reportCohortCreatedFromPersonsModal: async ({ filters }) => {
-            posthog.capture('person modal cohort created', sanitizeFilterParams(filters))
         },
         reportDashboardViewed: async ({ dashboard, lastRefreshed, delay }, breakpoint) => {
             if (!delay) {
