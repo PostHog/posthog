@@ -21,6 +21,7 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.schema.util.where_clause_extractor import WhereClauseExtractor
 from posthog.hogql.database.schema.persons_pdi import PersonsPDITable, persons_pdi_join
 from posthog.hogql.errors import ResolutionError
+from posthog.hogql.visitor import clone_expr
 from posthog.models.organization import Organization
 from posthog.schema import PersonsArgMaxVersion
 
@@ -97,6 +98,24 @@ def select_from_persons_table(join_or_table: LazyJoinToAdd | LazyTableToAdd, con
             select.where = And(exprs=[select.where, where])
         elif where:
             select.where = where
+
+    if "person_ids" in node.type.ctes:
+        comparison = clone_expr(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.In,
+                left=ast.Field(chain=["id"], type=ast.FieldType(name="id", table_type=PersonsTable)),
+                right=ast.SelectQuery(
+                    select=[ast.Field(chain=["person_id"])],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["person_ids"])),
+                ),
+            ),
+            clear_types=True,
+            clear_locations=True,
+        )
+        if select.where:
+            select.where = And(exprs=[comparison, select.where])
+        else:
+            select.where = comparison
 
     return select
 

@@ -7,7 +7,7 @@ from dateutil.parser import parse
 from dateutil.relativedelta import relativedelta
 
 from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
+from posthog.hogql.constants import LimitContext, HogQLQuerySettings
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.timings import HogQLTimings
@@ -165,7 +165,15 @@ class TrendsActorsQueryBuilder:
         return self.trends_display.is_total_value()
 
     def build_actors_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+        # Insert CTE here
+        events_query = self._cte_events_query()
+        if events_query.settings is None:
+            events_query.settings = HogQLQuerySettings()
+        events_query.settings.use_query_cache = True
+
+        # need to modify events query to ask for correct things only
         return ast.SelectQuery(
+            ctes={"e": ast.CTE(name="e", expr=events_query, cte_type="subquery")},
             select=[
                 ast.Field(chain=["actor_id"]),
                 ast.Alias(alias="event_count", expr=self._get_actor_value_expr()),
@@ -179,6 +187,7 @@ class TrendsActorsQueryBuilder:
         query = ast.SelectQuery(
             select=[
                 ast.Alias(alias="actor_id", expr=self._actor_id_expr()),
+                ast.Field(chain=["e", "distinct_id"]),
                 ast.Field(chain=["e", "timestamp"]),
                 ast.Field(chain=["e", "uuid"]),
                 *([ast.Field(chain=["e", "$session_id"])] if self.include_recordings else []),
@@ -190,6 +199,18 @@ class TrendsActorsQueryBuilder:
                 sample=self._sample_expr(),
             ),
             where=self._events_where_expr(),
+        )
+        return query
+
+    def _cte_events_query(self) -> ast.SelectQuery:
+        query = ast.SelectQuery(
+            select=[ast.Field(chain=["*"])],  # Filter this down to save space
+            select_from=ast.JoinExpr(
+                table=ast.Field(chain=["events"]),
+                alias="e",
+                sample=self._sample_expr(),
+            ),
+            where=self._cte_events_where_expr(),
         )
         return query
 
@@ -211,6 +232,17 @@ class TrendsActorsQueryBuilder:
             exprs=[
                 *self._entity_where_expr(),
                 *self._prop_where_expr(),
+                *self._date_where_expr(),
+                *(self._breakdown_where_expr() if with_breakdown_expr else []),
+                *self._filter_empty_actors_expr(),
+            ]
+        )
+
+    def _cte_events_where_expr(self, with_breakdown_expr: bool = True) -> ast.And:
+        return ast.And(
+            exprs=[
+                *self._entity_where_expr(),
+                # *self._prop_where_expr(),
                 *self._date_where_expr(),
                 *(self._breakdown_where_expr() if with_breakdown_expr else []),
                 *self._filter_empty_actors_expr(),

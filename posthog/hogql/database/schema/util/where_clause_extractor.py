@@ -6,7 +6,6 @@ from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp, ArithmeticOperationOp
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField, LazyJoinToAdd, LazyTableToAdd
-from posthog.hogql.database.schema.person_distinct_ids import PersonDistinctIdsTable
 
 from posthog.hogql.visitor import clone_expr, CloningVisitor, Visitor, TraversingVisitor
 
@@ -66,41 +65,11 @@ class WhereClauseExtractor(CloningVisitor):
 
     def get_inner_where(self, select_query: ast.SelectQuery) -> Optional[ast.Expr]:
         """Return the where clause that should be applied to the inner table. If None is returned, no pre-filtering is possible."""
-
-        wheres = []
-
-        # If CTEs exist for what we're looking for, apply them
-        from posthog.hogql.database.schema.persons import PersonsTable
-
-        for table in self.tracked_tables:
-            if isinstance(table, PersonsTable):
-                if "person_ids" in select_query.type.ctes:
-                    # wheres.append(parse_expr("persons.id IN person_ids"))
-                    wheres.append(
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.In,
-                            left=ast.Field(chain=["id"], type=ast.FieldType(name="id", table_type=table)),
-                            right=ast.SelectQuery(
-                                select=[ast.Field(chain=["person_id"])],
-                                select_from=ast.JoinExpr(table=ast.Field(chain=["person_ids"])),
-                            ),
-                        )
-                    )
-            if isinstance(table, PersonDistinctIdsTable):
-                if "distinct_ids" in select_query.type.ctes:
-                    # wheres.append(parse_expr("persons.id IN person_ids"))
-                    wheres.append(
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.In,
-                            left=ast.Field(chain=["id"], type=ast.FieldType(name="id", table_type=table)),
-                            right=ast.SelectQuery(
-                                select=[ast.Field(chain=["distinct_id"])],
-                                select_from=ast.JoinExpr(table=ast.Field(chain=["distinct_ids"])),
-                            ),
-                        )
-                    )
+        if not select_query.where and not select_query.prewhere:
+            return None
 
         # visit the where clause
+        wheres = []
         if select_query.where:
             wheres.append(select_query.where)
         if select_query.prewhere:
@@ -111,8 +80,8 @@ class WhereClauseExtractor(CloningVisitor):
         else:
             where = self.visit(ast.And(exprs=wheres))
 
-        # if isinstance(where, ast.Constant):
-        #    return None
+        if isinstance(where, ast.Constant):
+            return None
 
         return clone_expr(where, clear_types=True, clear_locations=True)
 
@@ -221,8 +190,7 @@ class WhereClauseExtractor(CloningVisitor):
 
     def visit_select_query(self, node: ast.SelectQuery) -> ast.Expr:
         # going too deep, bail
-        # return ast.Constant(value=True)
-        return node
+        return ast.Constant(value=True)
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation) -> ast.Expr:
         # don't even try to handle complex logic
@@ -299,8 +267,6 @@ class WhereClauseExtractor(CloningVisitor):
                     chain_length = 1
                 new_field.chain = new_field.chain[-chain_length:]
                 return new_field
-        if isinstance(node, ast.Field):
-            return node
         return ast.Constant(value=self.tombstone_string)
 
     def visit_constant(self, node: ast.Constant) -> ast.Expr:
