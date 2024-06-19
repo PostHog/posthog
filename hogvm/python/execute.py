@@ -61,8 +61,8 @@ def execute_bytecode(
         return BytecodeResult(result=None, stdout=stdout, bytecode=bytecode)
 
     def check_timeout():
-        if time.time() - start_time > timeout.seconds and not debug:
-            raise HogVMException(f"Execution timed out after {timeout.seconds} seconds. Performed {ops} ops.")
+        if time.time() - start_time > timeout.total_seconds() and not debug:
+            raise HogVMException(f"Execution timed out after {timeout.total_seconds()} seconds. Performed {ops} ops.")
 
     while True:
         ops += 1
