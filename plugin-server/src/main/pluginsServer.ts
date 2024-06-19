@@ -50,10 +50,9 @@ CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
 const { version } = require('../../package.json')
 
 // TODO: refactor this into a class, removing the need for many different Servers
-export type ServerInstance = {
+type ServerInstance = {
     hub: Hub
-    piscina: Piscina
-    queue: KafkaJSIngestionConsumer | IngestionConsumer | null
+    // piscina?: Piscina
     stop: () => Promise<void>
 }
 
@@ -66,7 +65,7 @@ export async function startPluginsServer(
     config: Partial<PluginsServerConfig>,
     makePiscina: (serverConfig: PluginsServerConfig, hub: Hub) => Promise<Piscina> = defaultMakePiscina,
     capabilities?: PluginServerCapabilities
-): Promise<Partial<ServerInstance>> {
+): Promise<ServerInstance> {
     const timer = new Date()
 
     const serverConfig: PluginsServerConfig = {
@@ -78,9 +77,6 @@ export async function startPluginsServer(
     status.info('ℹ️', `${serverConfig.WORKER_CONCURRENCY} workers, ${serverConfig.TASKS_PER_WORKER} tasks per worker`)
     runStartupProfiles(serverConfig)
 
-    // Structure containing initialized clients for Postgres, Kafka, Redis, etc.
-    let hub: Hub | undefined
-
     // A Node Worker Thread pool
     let piscina: Piscina | undefined
 
@@ -89,10 +85,7 @@ export async function startPluginsServer(
 
     let httpServer: Server | undefined // server
 
-    let closeHub: (() => Promise<void>) | undefined
-
     let lastActivityCheck: NodeJS.Timeout | undefined
-    let stopEventLoopMetrics: (() => void) | undefined
 
     let shuttingDown = false
 
@@ -111,7 +104,6 @@ export async function startPluginsServer(
         // configuration.
         httpServer?.close()
         cancelAllScheduledJobs()
-        stopEventLoopMetrics?.()
         await Promise.allSettled([...shutdownCallbacks.map((cb) => cb())])
 
         if (piscina) {
@@ -194,7 +186,6 @@ export async function startPluginsServer(
     })
 
     capabilities = capabilities ?? getPluginServerCapabilities(serverConfig)
-    let serverInstance: (Partial<ServerInstance> & Pick<ServerInstance, 'hub'>) | undefined
 
     // A collection of healthchecks that should be used to validate the
     // health of the plugin-server. These are used by the /_health endpoint
@@ -208,6 +199,13 @@ export async function startPluginsServer(
     const captureRedis = serverConfig.CAPTURE_CONFIG_REDIS_HOST
         ? await createRedisClient(serverConfig.CAPTURE_CONFIG_REDIS_HOST)
         : undefined
+
+    const [hub, closeHub] = await createHub(serverConfig, capabilities)
+
+    const serverInstance: ServerInstance = {
+        hub,
+        stop: closeJobs,
+    }
 
     try {
         status.info('🚀', 'Launching plugin server...')
@@ -223,9 +221,6 @@ export async function startPluginsServer(
         // 4. conversion_events_buffer
         //
         if (capabilities.processPluginJobs || capabilities.pluginScheduledTasks) {
-            ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, capabilities)
-            serverInstance = serverInstance ? serverInstance : { hub }
-
             const graphileWorker = new GraphileWorker(hub)
             shutdownCallbacks.push(async () => graphileWorker.stop())
             // `connectProducer` just runs the PostgreSQL migrations. Ideally it
@@ -264,15 +259,10 @@ export async function startPluginsServer(
         }
 
         if (capabilities.ingestion) {
-            ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, capabilities)
-            serverInstance = serverInstance ? serverInstance : { hub }
-
             piscina = piscina ?? (await makePiscina(serverConfig, hub))
             const consumer = await startAnalyticsEventsIngestionConsumer({
                 hub: hub,
             })
-
-            serverInstance.queue = consumer.queue
 
             shutdownOnConsumerExit(consumer.queue.consumer!)
             shutdownCallbacks.push(async () => consumer.queue.stop())
@@ -281,9 +271,6 @@ export async function startPluginsServer(
         }
 
         if (capabilities.ingestionHistorical) {
-            ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, capabilities)
-            serverInstance = serverInstance ? serverInstance : { hub }
-
             piscina = piscina ?? (await makePiscina(serverConfig, hub))
             const consumer = await startAnalyticsEventsIngestionHistoricalConsumer({
                 hub: hub,
@@ -295,9 +282,6 @@ export async function startPluginsServer(
         }
 
         if (capabilities.ingestionOverflow) {
-            ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, capabilities)
-            serverInstance = serverInstance ? serverInstance : { hub }
-
             piscina = piscina ?? (await makePiscina(serverConfig, hub))
             const queue = await startAnalyticsEventsIngestionOverflowConsumer({
                 hub: hub,
@@ -308,9 +292,6 @@ export async function startPluginsServer(
         }
 
         if (capabilities.processAsyncOnEventHandlers) {
-            ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, capabilities)
-            serverInstance = serverInstance ? serverInstance : { hub }
-
             piscina = piscina ?? (await makePiscina(serverConfig, hub))
             const consumer = await startAsyncOnEventHandlerConsumer({
                 hub: hub,
@@ -321,84 +302,24 @@ export async function startPluginsServer(
         }
 
         if (capabilities.processAsyncWebhooksHandlers) {
-            // If we have a hub, then reuse some of it's attributes, otherwise
-            // we need to create them. We only initialize the ones we need.
-            const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
-            const kafka = hub?.kafka ?? createKafkaClient(serverConfig)
-            const teamManager = hub?.teamManager ?? new TeamManager(postgres, serverConfig)
-            const organizationManager = hub?.organizationManager ?? new OrganizationManager(postgres, teamManager)
-            const KafkaProducerWrapper = hub?.kafkaProducer ?? (await createKafkaProducerWrapper(serverConfig))
-            const rustyHook = hub?.rustyHook ?? new RustyHook(serverConfig)
-            const appMetrics =
-                hub?.appMetrics ??
-                new AppMetrics(
-                    KafkaProducerWrapper,
-                    serverConfig.APP_METRICS_FLUSH_FREQUENCY_MS,
-                    serverConfig.APP_METRICS_FLUSH_MAX_QUEUE_SIZE
-                )
-
-            const actionManager = hub?.actionManager ?? new ActionManager(postgres, serverConfig)
-            const actionMatcher = hub?.actionMatcher ?? new ActionMatcher(postgres, actionManager, teamManager)
-            const groupTypeManager = new GroupTypeManager(postgres, teamManager, serverConfig.SITE_URL)
+            // TODO: Move to hub
+            const groupTypeManager = new GroupTypeManager(hub.postgres, hub.teamManager, serverConfig.SITE_URL)
 
             const consumer = await startAsyncWebhooksHandlerConsumer({
-                postgres,
-                kafka,
-                teamManager,
-                organizationManager,
+                postgres: hub.postgres,
+                kafka: hub.kafka,
+                teamManager: hub.teamManager,
+                organizationManager: hub.organizationManager,
                 serverConfig,
-                rustyHook,
-                appMetrics,
-                actionMatcher,
-                actionManager,
-                groupTypeManager,
+                rustyHook: hub.rustyHook,
+                appMetrics: hub.appMetrics,
+                actionMatcher: hub.actionMatcher,
+                actionManager: hub.actionManager,
+                groupTypeManager: groupTypeManager,
             })
 
             shutdownCallbacks.push(async () => consumer.stop())
-
             healthChecks['webhooks-ingestion'] = consumer.isHealthy
-        }
-
-        if (hub && serverInstance) {
-            const pubSub = new PubSub(hub, {
-                [hub.PLUGINS_RELOAD_PUBSUB_CHANNEL]: async () => {
-                    status.info('⚡', 'Reloading plugins!')
-                    await piscina?.broadcastTask({ task: 'reloadPlugins' })
-
-                    if (hub?.capabilities.pluginScheduledTasks && piscina) {
-                        await piscina.broadcastTask({ task: 'reloadSchedule' })
-                        hub.pluginSchedule = await loadPluginSchedule(piscina)
-                    }
-                },
-                'reset-available-product-features-cache': async (message) => {
-                    await piscina?.broadcastTask({
-                        task: 'resetAvailableProductFeaturesCache',
-                        args: JSON.parse(message),
-                    })
-                },
-                'populate-plugin-capabilities': async (message) => {
-                    // We need this to be done in only once
-                    if (hub?.capabilities.appManagementSingleton && piscina) {
-                        await piscina?.broadcastTask({ task: 'populatePluginCapabilities', args: JSON.parse(message) })
-                    }
-                },
-            })
-
-            await pubSub.start()
-            shutdownCallbacks.push(async () => pubSub.stop())
-
-            if (capabilities.preflightSchedules) {
-                startPreflightSchedules(hub)
-            }
-
-            serverInstance.piscina = piscina
-            serverInstance.stop = closeJobs
-
-            pluginServerStartupTimeMs.inc(Date.now() - timer.valueOf())
-            status.info('🚀', 'All systems go')
-
-            hub.lastActivity = new Date().valueOf()
-            hub.lastActivityType = 'serverStart'
         }
 
         if (capabilities.sessionRecordingBlobIngestion) {
@@ -445,27 +366,19 @@ export async function startPluginsServer(
         }
 
         if (capabilities.cdpProcessedEvents) {
-            ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, capabilities)
             const consumer = new CdpProcessedEventsConsumer(serverConfig, hub)
             await consumer.start()
 
-            if (consumer.batchConsumer) {
-                shutdownOnConsumerExit(consumer.batchConsumer)
-            }
-
+            shutdownOnConsumerExit(consumer.batchConsumer!)
             shutdownCallbacks.push(async () => await consumer.stop())
             healthChecks['cdp-processed-events'] = () => consumer.isHealthy() ?? false
         }
 
         if (capabilities.cdpFunctionCallbacks) {
-            ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, capabilities)
             const consumer = new CdpFunctionCallbackConsumer(serverConfig, hub)
             await consumer.start()
 
-            if (consumer.batchConsumer) {
-                shutdownOnConsumerExit(consumer.batchConsumer)
-            }
-
+            shutdownOnConsumerExit(consumer.batchConsumer!)
             shutdownCallbacks.push(async () => await consumer.stop())
             healthChecks['cdp-function-callbacks'] = () => consumer.isHealthy() ?? false
 
@@ -501,9 +414,47 @@ export async function startPluginsServer(
             })
         }
 
+        if (piscina) {
+            // If we have instantiated a piscina, then we want to setup pubsub for it
+            const pubSub = new PubSub(hub, {
+                [hub.PLUGINS_RELOAD_PUBSUB_CHANNEL]: async () => {
+                    status.info('⚡', 'Reloading plugins!')
+                    await piscina?.broadcastTask({ task: 'reloadPlugins' })
+
+                    if (hub.capabilities.pluginScheduledTasks && piscina) {
+                        await piscina.broadcastTask({ task: 'reloadSchedule' })
+                        hub.pluginSchedule = await loadPluginSchedule(piscina)
+                    }
+                },
+                'reset-available-product-features-cache': async (message) => {
+                    await piscina?.broadcastTask({
+                        task: 'resetAvailableProductFeaturesCache',
+                        args: JSON.parse(message),
+                    })
+                },
+                'populate-plugin-capabilities': async (message) => {
+                    // We need this to be done in only once
+                    if (hub.capabilities.appManagementSingleton && piscina) {
+                        await piscina?.broadcastTask({ task: 'populatePluginCapabilities', args: JSON.parse(message) })
+                    }
+                },
+            })
+
+            await pubSub.start()
+            shutdownCallbacks.push(async () => pubSub.stop())
+
+            if (capabilities.preflightSchedules) {
+                startPreflightSchedules(hub)
+            }
+
+            pluginServerStartupTimeMs.inc(Date.now() - timer.valueOf())
+            hub.lastActivity = new Date().valueOf()
+            hub.lastActivityType = 'serverStart'
+        }
+
         status.info('🚀', 'Finished Launching plugin server...')
 
-        return serverInstance ?? { stop: closeJobs }
+        return serverInstance
     } catch (error) {
         Sentry.captureException(error)
         status.error('💥', 'Launchpad failure!', { error: error.stack ?? error })
