@@ -114,7 +114,7 @@ describe('Insights', () => {
         cy.get('[data-attr=insight-tags]').should('not.exist')
     })
 
-    it.only('can edit via the query editor', () => {
+    it('can edit via the query editor', () => {
         insight.newInsight('TRENDS')
         insight.save()
         cy.get('[data-attr="more-button"]').click()
