@@ -13,9 +13,9 @@ import { ReactNode } from 'react'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
 import { PercentStackViewFilter } from 'scenes/insights/EditorFilters/PercentStackViewFilter'
+import { ScalePicker } from 'scenes/insights/EditorFilters/ScalePicker'
 import { ShowLegendFilter } from 'scenes/insights/EditorFilters/ShowLegendFilter'
 import { ValueOnSeriesFilter } from 'scenes/insights/EditorFilters/ValueOnSeriesFilter'
-import { YAxisScaleSettings } from 'scenes/insights/EditorFilters/YAxisScaleSettings'
 import { InsightDateFilter } from 'scenes/insights/filters/InsightDateFilter'
 import { RetentionMeanCheckbox } from 'scenes/insights/filters/RetentionMeanCheckbox'
 import { RetentionReferencePicker } from 'scenes/insights/filters/RetentionReferencePicker'
@@ -50,6 +50,7 @@ export function InsightDisplayConfig(): JSX.Element {
         showPercentStackView,
         supportsPercentStackView,
         yAxisScaleType,
+        isNonTimeSeriesDisplay,
     } = useValues(insightVizDataLogic(insightProps))
     const { isTrendsFunnel, isStepsFunnel, isTimeToConvertFunnel, isEmptyFunnel } = useValues(
         funnelDataLogic(insightProps)
@@ -74,7 +75,6 @@ export function InsightDisplayConfig(): JSX.Element {
                           ...(supportsValueOnSeries ? [{ label: () => <ValueOnSeriesFilter /> }] : []),
                           ...(supportsPercentStackView ? [{ label: () => <PercentStackViewFilter /> }] : []),
                           ...(hasLegend ? [{ label: () => <ShowLegendFilter /> }] : []),
-                          ...(isTrends ? [{ label: () => <YAxisScaleSettings /> }] : []),
                       ],
                   },
               ]
@@ -84,6 +84,14 @@ export function InsightDisplayConfig(): JSX.Element {
                   {
                       title: axisLabel(display || ChartDisplayType.ActionsLineGraph),
                       items: [{ label: () => <UnitPicker /> }],
+                  },
+              ]
+            : []),
+        ...(!isNonTimeSeriesDisplay && isTrends
+            ? [
+                  {
+                      title: 'Y-axis scale',
+                      items: [{ label: () => <ScalePicker /> }],
                   },
               ]
             : []),
