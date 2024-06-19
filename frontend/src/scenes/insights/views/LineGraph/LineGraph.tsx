@@ -652,9 +652,9 @@ export function LineGraph_({
                         display: !hideYAxis,
                         ...tickOptions,
                         ...(yAxisScaleType !== 'log10' && { precision }), // Precision is not supported for the log scale
-                        // callback: (value) => {
-                        //     return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView)
-                        // },
+                        callback: (value) => {
+                            return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView)
+                        },
                     },
                     grid: gridOptions,
                     type: yAxisScaleType === 'log10' ? 'logarithmic' : 'linear',
