@@ -1,3 +1,5 @@
+import asyncio
+
 import psycopg
 import pytest
 import pytest_asyncio
@@ -126,17 +128,28 @@ async def setup_postgres_test_db(postgres_config):
 
 
 @pytest_asyncio.fixture(scope="module", autouse=True)
-async def create_batch_export_views(clickhouse_client, django_db_setup):
+async def create_clickhouse_tables_and_views(clickhouse_client, django_db_setup):
     from posthog.batch_exports.sql import (
         CREATE_EVENTS_BATCH_EXPORT_VIEW,
         CREATE_EVENTS_BATCH_EXPORT_VIEW_BACKFILL,
         CREATE_EVENTS_BATCH_EXPORT_VIEW_UNBOUNDED,
         CREATE_PERSONS_BATCH_EXPORT_VIEW,
     )
+    from posthog.clickhouse.schema import CREATE_KAFKA_TABLE_QUERIES
 
-    await clickhouse_client.execute_query(CREATE_EVENTS_BATCH_EXPORT_VIEW)
-    await clickhouse_client.execute_query(CREATE_EVENTS_BATCH_EXPORT_VIEW_BACKFILL)
-    await clickhouse_client.execute_query(CREATE_EVENTS_BATCH_EXPORT_VIEW_UNBOUNDED)
-    await clickhouse_client.execute_query(CREATE_PERSONS_BATCH_EXPORT_VIEW)
+    create_view_queries = (
+        CREATE_EVENTS_BATCH_EXPORT_VIEW,
+        CREATE_EVENTS_BATCH_EXPORT_VIEW_BACKFILL,
+        CREATE_EVENTS_BATCH_EXPORT_VIEW_UNBOUNDED,
+        CREATE_PERSONS_BATCH_EXPORT_VIEW,
+    )
+
+    clickhouse_tasks = set()
+    for query in create_view_queries + CREATE_KAFKA_TABLE_QUERIES:
+        task = asyncio.create_task(clickhouse_client.execute_query(query))
+        clickhouse_tasks.add(task)
+        task.add_done_callback(clickhouse_tasks.discard)
+
+    await asyncio.wait(clickhouse_tasks)
 
     return
