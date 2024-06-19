@@ -10,10 +10,10 @@ const meta: Meta<typeof Playlist> = {
 }
 export default meta
 
-const ListItem = ({ item }): JSX.Element => <div className="p-1">Object {item.id}</div>
+const ListItem = ({ item }: { item: { id: number } }): JSX.Element => <div className="p-1">Object {item.id}</div>
 
-const Template: StoryFn<typeof Playlist> = (props: Partial<PlaylistProps>) => {
-    const mainContent = ({ activeItem }): JSX.Element => (
+const Template: StoryFn<typeof Playlist> = (props: Partial<PlaylistProps<any>>) => {
+    const mainContent = ({ activeItem }: { activeItem: { id: number } }): JSX.Element => (
         <div className="flex items-center justify-center h-full">
             {activeItem ? `Object ${activeItem.id} selected` : 'Select an item from the list'}
         </div>

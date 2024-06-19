@@ -61,7 +61,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
 
     const notebookNode = useNotebookNode()
 
-    const sections: PlaylistSection[] = []
+    const sections: PlaylistSection<SessionRecordingType>[] = []
     const headerActions = []
 
     const onSummarizeClick = (recording: SessionRecordingType): void => {
@@ -127,7 +127,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
             <div className="m-4 h-10 flex items-center justify-center gap-2 text-muted-alt">
                 {sessionRecordingsResponseLoading ? (
                     <>
-                        <Spinner textColored /> Loading
+                        <Spinner textColored /> Loading older recordings
                     </>
                 ) : hasNext ? (
                     <LemonButton onClick={() => maybeLoadSessionRecordings('older')}>Load more</LemonButton>
@@ -158,7 +158,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
                         }
                     }}
                     listEmptyState={<ListEmptyState />}
-                    onSelect={setSelectedRecordingId}
+                    onSelect={(item) => setSelectedRecordingId(item.id)}
                     activeItemId={activeSessionRecordingId}
                     content={({ activeItem }) =>
                         !activeItem ? (

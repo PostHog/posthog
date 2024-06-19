@@ -14,11 +14,11 @@ import { Resizer } from '../Resizer/Resizer'
 
 const SCROLL_TRIGGER_OFFSET = 100
 
-export type PlaylistSection = {
+export type PlaylistSection<T> = {
     key: string
     title?: string
-    items: any[]
-    render: ({ item, isActive }: { item: any; isActive: any }) => JSX.Element
+    items: T[]
+    render: ({ item, isActive }: { item: T; isActive: boolean }) => JSX.Element
     footer?: JSX.Element
 }
 
@@ -27,17 +27,17 @@ type PlaylistHeaderAction = Pick<LemonButtonProps, 'icon' | 'tooltip' | 'childre
     content: React.ReactNode
 }
 
-export type PlaylistProps = {
-    sections: PlaylistSection[]
+export type PlaylistProps<T> = {
+    sections: PlaylistSection<T>[]
     listEmptyState: JSX.Element
-    content: ({ activeItem }: { activeItem: any }) => JSX.Element
+    content: ({ activeItem }: { activeItem: T }) => JSX.Element
     title?: string
     notebooksHref?: string
     embedded?: boolean
     loading?: boolean
     headerActions?: PlaylistHeaderAction[]
     onScrollListEdge?: (edge: 'top' | 'bottom') => void
-    onSelect?: (item: any) => void
+    onSelect?: (item: T) => void
     'data-attr'?: string
     activeItemId?: string
 }
@@ -46,7 +46,12 @@ const CounterBadge = ({ children }: { children: React.ReactNode }): JSX.Element 
     <span className="rounded py-1 px-2 mr-1 text-xs bg-border-light font-semibold select-none">{children}</span>
 )
 
-export function Playlist({
+export function Playlist<
+    T extends {
+        id: string | number // accepts any object as long as it conforms to the interface of having an `id`
+        [key: string]: any
+    }
+>({
     title,
     notebooksHref,
     loading,
@@ -59,8 +64,8 @@ export function Playlist({
     listEmptyState,
     onSelect,
     'data-attr': dataAttr,
-}: PlaylistProps): JSX.Element {
-    const [controlledActiveItemId, setControlledActiveItemId] = useState<string | null>(null)
+}: PlaylistProps<T>): JSX.Element {
+    const [controlledActiveItemId, setControlledActiveItemId] = useState<T['id'] | null>(null)
     const [listCollapsed, setListCollapsed] = useState<boolean>(false)
     const playlistListRef = useRef<HTMLDivElement>(null)
     const { ref: playlistRef, size } = useResizeBreakpoints({
@@ -68,14 +73,14 @@ export function Playlist({
         750: 'medium',
     })
 
-    const onChangeActiveItem = (item: any): void => {
+    const onChangeActiveItem = (item: T): void => {
         setControlledActiveItemId(item.id)
-        onSelect?.(item.id)
+        onSelect?.(item)
     }
 
     const activeItemId = propsActiveItemId === undefined ? controlledActiveItemId : propsActiveItemId
 
-    const activeItem = sections.flatMap((s) => s.items).find((i) => i.id === activeItemId)
+    const activeItem = sections.flatMap((s) => s.items).find((i) => i.id === activeItemId) || null
 
     return (
         <div
@@ -112,7 +117,7 @@ export function Playlist({
                     onDoubleClick={() => setListCollapsed(!listCollapsed)}
                 />
             </div>
-            <div className="Playlist__main">{content({ activeItem })}</div>
+            <div className="Playlist__main">{activeItem && content({ activeItem })}</div>
         </div>
     )
 }
@@ -123,7 +128,12 @@ const CollapsedList = ({ onClickOpen }: { onClickOpen: () => void }): JSX.Elemen
     </div>
 )
 
-const List = ({
+function List<
+    T extends {
+        id: string | number
+        [key: string]: any
+    }
+>({
     title,
     notebooksHref,
     onClickCollapse,
@@ -135,17 +145,17 @@ const List = ({
     loading,
     emptyState,
 }: {
-    title: PlaylistProps['title']
-    notebooksHref: PlaylistProps['notebooksHref']
+    title: PlaylistProps<T>['title']
+    notebooksHref: PlaylistProps<T>['notebooksHref']
     onClickCollapse: () => void
-    activeItemId: string | null
-    setActiveItemId: (id: string) => void
-    headerActions: PlaylistProps['headerActions']
-    sections: PlaylistProps['sections']
-    onScrollListEdge: PlaylistProps['onScrollListEdge']
-    loading: PlaylistProps['loading']
-    emptyState: PlaylistProps['listEmptyState']
-}): JSX.Element => {
+    activeItemId: T['id'] | null
+    setActiveItemId: (item: T) => void
+    headerActions: PlaylistProps<T>['headerActions']
+    sections: PlaylistProps<T>['sections']
+    onScrollListEdge: PlaylistProps<T>['onScrollListEdge']
+    loading: PlaylistProps<T>['loading']
+    emptyState: PlaylistProps<T>['listEmptyState']
+}): JSX.Element {
     const [activeHeaderActionKey, setActiveHeaderActionKey] = useState<string | null>(null)
     const lastScrollPositionRef = useRef(0)
     const contentRef = useRef<HTMLDivElement | null>(null)
@@ -255,16 +265,21 @@ const List = ({
     )
 }
 
-const ListSection = ({
+export function ListSection<
+    T extends {
+        id: string | number
+        [key: string]: any
+    }
+>({
     items,
     render,
     footer,
     onClick,
     activeItemId,
-}: PlaylistSection & {
-    onClick: (item: any) => void
-    activeItemId: string | null
-}): JSX.Element => {
+}: PlaylistSection<T> & {
+    onClick: (item: T) => void
+    activeItemId: T['id'] | null
+}): JSX.Element {
     return (
         <>
             {items.length &&
