@@ -2513,7 +2513,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.client.post(f"/api/projects/{self.team.id}/insights/{insight_1_id}/viewed")
         self.client.post(f"/api/projects/{self.team.id}/insights/{insight_2_id}/viewed")
 
-        response = self.client.get(f"/api/projects/{self.team.id}/insights/my_last_viewed?include_query_insights=true")
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/my_last_viewed")
         response_data = response.json()
 
         # No results if no insights have been viewed

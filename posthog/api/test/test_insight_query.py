@@ -2,7 +2,6 @@ from rest_framework import status
 
 from ee.api.test.base import LicensedTestMixin
 from posthog.api.test.dashboards import DashboardAPI
-from posthog.models.insight import Insight
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 
 
@@ -174,48 +173,3 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             },
             expected_status=status.HTTP_201_CREATED,
         )
-
-    def test_listing_insights_by_default_does_not_include_those_with_only_queries(self) -> None:
-        self.dashboard_api.create_insight({"name": "Insight with filters"})
-        self.dashboard_api.create_insight(
-            {
-                "name": "Insight with persons table query",
-                "query": {
-                    "kind": "DataTableNode",
-                    "columns": ["person", "id", "created_at", "person.$delete"],
-                    "source": {
-                        "kind": "EventsQuery",
-                        "select": ["*"],
-                    },
-                },
-            },
-        )
-
-        created_insights: list[Insight] = list(Insight.objects.all())
-        assert len(created_insights) == 2
-
-        listed_insights = self.dashboard_api.list_insights(query_params={"include_query_insights": False})
-        assert listed_insights["count"] == 1
-        assert listed_insights["results"][0]["name"] == "Insight with filters"
-
-    def test_can_list_insights_including_those_with_only_queries(self) -> None:
-        self.dashboard_api.create_insight({"name": "Insight with filters"})
-        self.dashboard_api.create_insight(
-            {
-                "name": "Insight with persons table query",
-                "query": {
-                    "kind": "DataTableNode",
-                    "columns": ["person", "id", "created_at", "person.$delete"],
-                    "source": {
-                        "kind": "EventsQuery",
-                        "select": ["*"],
-                    },
-                },
-            },
-        )
-
-        created_insights: list[Insight] = list(Insight.objects.all())
-        assert len(created_insights) == 2
-
-        listed_insights = self.dashboard_api.list_insights(query_params={"include_query_insights": True})
-        assert listed_insights["count"] == 2
