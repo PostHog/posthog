@@ -49,8 +49,8 @@ CREATE OR REPLACE VIEW events_batch_export AS (
     FROM
         events
     PREWHERE
-        COALESCE(events.inserted_at, events._timestamp) >= {interval_start:DateTime64}
-        AND COALESCE(events.inserted_at, events._timestamp) < {interval_end:DateTime64}
+        events.inserted_at >= {interval_start:DateTime64}
+        AND events.inserted_at < {interval_end:DateTime64}
     WHERE
         team_id = {team_id:Int64}
         AND events.timestamp >= {interval_start:DateTime64} - INTERVAL {lookback_days:Int32} DAY
@@ -84,8 +84,8 @@ CREATE OR REPLACE VIEW events_batch_export_unbounded AS (
     FROM
         events
     PREWHERE
-        COALESCE(events.inserted_at, events._timestamp) >= {interval_start:DateTime64}
-        AND COALESCE(events.inserted_at, events._timestamp) < {interval_end:DateTime64}
+        events.inserted_at >= {interval_start:DateTime64}
+        AND events.inserted_at < {interval_end:DateTime64}
     WHERE
         team_id = {team_id:Int64}
         AND (length({include_events:Array(String)}) = 0 OR event IN {include_events:Array(String)})
