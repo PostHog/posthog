@@ -81,9 +81,6 @@ export async function startPluginsServer(
     // Structure containing initialized clients for Postgres, Kafka, Redis, etc.
     let hub: Hub | undefined
 
-    // Used to trigger reloads of plugin code/config
-    let pubSub: PubSub | undefined
-
     // A Node Worker Thread pool
     let piscina: Piscina | undefined
 
@@ -275,6 +272,8 @@ export async function startPluginsServer(
                 hub: hub,
             })
 
+            serverInstance.queue = consumer.queue
+
             shutdownOnConsumerExit(consumer.queue.consumer!)
             shutdownCallbacks.push(async () => consumer.queue.stop())
             healthChecks['analytics-ingestion'] = consumer.isHealthy
@@ -393,7 +392,6 @@ export async function startPluginsServer(
             }
 
             serverInstance.piscina = piscina
-            serverInstance.queue = analyticsEventsIngestionConsumer
             serverInstance.stop = closeJobs
 
             pluginServerStartupTimeMs.inc(Date.now() - timer.valueOf())
