@@ -154,7 +154,7 @@ def serializedATN():
         192,190,1,0,0,0,193,196,1,0,0,0,194,192,1,0,0,0,194,195,1,0,0,0,
         195,9,1,0,0,0,196,194,1,0,0,0,197,207,3,12,6,0,198,207,3,14,7,0,
         199,207,3,16,8,0,200,207,3,18,9,0,201,207,3,20,10,0,202,207,3,22,
-        11,0,203,207,3,24,12,0,204,207,3,26,13,0,205,207,3,28,14,0,206,197,
+        11,0,203,207,3,28,14,0,204,207,3,24,12,0,205,207,3,26,13,0,206,197,
         1,0,0,0,206,198,1,0,0,0,206,199,1,0,0,0,206,200,1,0,0,0,206,201,
         1,0,0,0,206,202,1,0,0,0,206,203,1,0,0,0,206,204,1,0,0,0,206,205,
         1,0,0,0,207,11,1,0,0,0,208,210,5,70,0,0,209,211,3,4,2,0,210,209,
@@ -1155,16 +1155,16 @@ class HogQLParser ( Parser ):
             return self.getTypedRuleContext(HogQLParser.VarAssignmentContext,0)
 
 
+        def block(self):
+            return self.getTypedRuleContext(HogQLParser.BlockContext,0)
+
+
         def exprStmt(self):
             return self.getTypedRuleContext(HogQLParser.ExprStmtContext,0)
 
 
         def emptyStmt(self):
             return self.getTypedRuleContext(HogQLParser.EmptyStmtContext,0)
-
-
-        def block(self):
-            return self.getTypedRuleContext(HogQLParser.BlockContext,0)
 
 
         def getRuleIndex(self):
@@ -1226,19 +1226,19 @@ class HogQLParser ( Parser ):
             elif la_ == 7:
                 self.enterOuterAlt(localctx, 7)
                 self.state = 203
-                self.exprStmt()
+                self.block()
                 pass
 
             elif la_ == 8:
                 self.enterOuterAlt(localctx, 8)
                 self.state = 204
-                self.emptyStmt()
+                self.exprStmt()
                 pass
 
             elif la_ == 9:
                 self.enterOuterAlt(localctx, 9)
                 self.state = 205
-                self.block()
+                self.emptyStmt()
                 pass
 
 

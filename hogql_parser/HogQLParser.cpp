@@ -246,8 +246,8 @@ void hogqlparserParserInitialize() {
   	189,194,3,152,76,0,190,191,5,112,0,0,191,193,3,152,76,0,192,190,1,0,0,
   	0,193,196,1,0,0,0,194,192,1,0,0,0,194,195,1,0,0,0,195,9,1,0,0,0,196,194,
   	1,0,0,0,197,207,3,12,6,0,198,207,3,14,7,0,199,207,3,16,8,0,200,207,3,
-  	18,9,0,201,207,3,20,10,0,202,207,3,22,11,0,203,207,3,24,12,0,204,207,
-  	3,26,13,0,205,207,3,28,14,0,206,197,1,0,0,0,206,198,1,0,0,0,206,199,1,
+  	18,9,0,201,207,3,20,10,0,202,207,3,22,11,0,203,207,3,28,14,0,204,207,
+  	3,24,12,0,205,207,3,26,13,0,206,197,1,0,0,0,206,198,1,0,0,0,206,199,1,
   	0,0,0,206,200,1,0,0,0,206,201,1,0,0,0,206,202,1,0,0,0,206,203,1,0,0,0,
   	206,204,1,0,0,0,206,205,1,0,0,0,207,11,1,0,0,0,208,210,5,70,0,0,209,211,
   	3,4,2,0,210,209,1,0,0,0,210,211,1,0,0,0,211,213,1,0,0,0,212,214,5,145,
@@ -1092,16 +1092,16 @@ HogQLParser::VarAssignmentContext* HogQLParser::StatementContext::varAssignment(
   return getRuleContext<HogQLParser::VarAssignmentContext>(0);
 }
 
+HogQLParser::BlockContext* HogQLParser::StatementContext::block() {
+  return getRuleContext<HogQLParser::BlockContext>(0);
+}
+
 HogQLParser::ExprStmtContext* HogQLParser::StatementContext::exprStmt() {
   return getRuleContext<HogQLParser::ExprStmtContext>(0);
 }
 
 HogQLParser::EmptyStmtContext* HogQLParser::StatementContext::emptyStmt() {
   return getRuleContext<HogQLParser::EmptyStmtContext>(0);
-}
-
-HogQLParser::BlockContext* HogQLParser::StatementContext::block() {
-  return getRuleContext<HogQLParser::BlockContext>(0);
 }
 
 
@@ -1177,21 +1177,21 @@ HogQLParser::StatementContext* HogQLParser::statement() {
     case 7: {
       enterOuterAlt(_localctx, 7);
       setState(203);
-      exprStmt();
+      block();
       break;
     }
 
     case 8: {
       enterOuterAlt(_localctx, 8);
       setState(204);
-      emptyStmt();
+      exprStmt();
       break;
     }
 
     case 9: {
       enterOuterAlt(_localctx, 9);
       setState(205);
-      block();
+      emptyStmt();
       break;
     }
 
