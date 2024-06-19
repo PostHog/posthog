@@ -21,13 +21,10 @@ const CommandBarOverlay = forwardRef<HTMLDivElement, CommandBarOverlayProps>(fun
 ): JSX.Element {
     return (
         <div
-            className="fixed top-0 left-0 w-full h-full flex flex-col items-center justify-center p-3"
-            // eslint-disable-next-line react/forbid-dom-props
-            style={{
-                zIndex: 'var(--z-command-palette)',
-                backgroundColor: 'var(--modal-backdrop-color)',
-                backdropFilter: 'blur(var(--modal-backdrop-blur))',
-            }}
+            className={`fixed top-0 left-0 w-full h-full flex flex-col items-center justify-center p-3
+                z-[var(--z-command-palette)]
+                background-[var(--modal-backdrop-color)]
+                backdrop-blur-[var(--modal-backdrop-blur)]`}
         >
             <div className="w-full h-full max-h-160 max-w-248 overflow-hidden">
                 <div
