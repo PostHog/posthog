@@ -151,7 +151,13 @@ async def iter_model_records(
 
 
 async def iter_records_from_model_view(
-    client: ClickHouseClient, model_name: str, is_backfill: bool, team_id: int, **parameters
+    client: ClickHouseClient,
+    model_name: str,
+    is_backfill: bool,
+    team_id: int,
+    interval_start: str,
+    interval_end: str,
+    **parameters,
 ) -> AsyncRecordsGenerator:
     if model_name == "persons":
         view = SELECT_FROM_PERSONS_VIEW
@@ -161,10 +167,20 @@ async def iter_records_from_model_view(
         # without battle testing it first.
         # There are already changes going out to the queries themselves that will impact events in a
         # positive way. So, we can come back later and drop this block.
-        for record_batch in iter_records(client, team_id=team_id, is_backfill=is_backfill, **parameters):
+        for record_batch in iter_records(
+            client,
+            team_id=team_id,
+            is_backfill=is_backfill,
+            interval_start=interval_start,
+            interval_end=interval_end,
+            **parameters,
+        ):
             yield record_batch
         return
 
+    parameters["team_id"] = team_id
+    parameters["interval_start"] = dt.datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
+    parameters["interval_end"] = dt.datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
     async for record_batch in client.astream_query_as_arrow(view, query_parameters=parameters):
         yield record_batch
 
