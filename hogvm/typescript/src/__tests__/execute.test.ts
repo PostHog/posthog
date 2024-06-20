@@ -121,9 +121,7 @@ describe('HogQL Bytecode', () => {
             execSync(['_h', op.STRING, 'another', op.STRING, 'arg', op.CALL, 'invalidFunc', 2], options)
         ).toThrowError('Unsupported function call: invalidFunc')
         expect(() => execSync(['_h', op.INTEGER], options)).toThrowError('Unexpected end of bytecode')
-        expect(() => execSync(['_h', op.CALL, 'match', 1], options)).toThrowError(
-            'Invalid HogQL bytecode, stack is empty'
-        )
+        expect(() => execSync(['_h', op.CALL, 'match', 1], options)).toThrowError('Not enough arguments on the stack')
         expect(() => execSync(['_h', op.TRUE, op.TRUE, op.NOT], options)).toThrowError(
             'Invalid bytecode. More than one value left on stack'
         )
