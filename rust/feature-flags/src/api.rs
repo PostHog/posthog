@@ -60,9 +60,9 @@ impl IntoResponse for FlagError {
 
             FlagError::RateLimited => (StatusCode::TOO_MANY_REQUESTS, self.to_string()),
 
-            FlagError::DataParsingError | FlagError::RedisUnavailable | FlagError::DatabaseUnavailable => {
-                (StatusCode::SERVICE_UNAVAILABLE, self.to_string())
-            }
+            FlagError::DataParsingError
+            | FlagError::RedisUnavailable
+            | FlagError::DatabaseUnavailable => (StatusCode::SERVICE_UNAVAILABLE, self.to_string()),
         }
         .into_response()
     }

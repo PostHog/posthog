@@ -2,8 +2,11 @@ use std::time::Duration;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use redis::{AsyncCommands, RedisError};
-use sqlx::{pool::PoolConnection, postgres::{PgPoolOptions, PgRow}, Postgres};
+use sqlx::{
+    pool::PoolConnection,
+    postgres::{PgPoolOptions, PgRow},
+    Postgres,
+};
 use thiserror::Error;
 use tokio::time::timeout;
 
@@ -27,7 +30,12 @@ pub enum CustomDatabaseError {
 #[async_trait]
 pub trait Client {
     async fn get_connection(&self) -> Result<PoolConnection<Postgres>, CustomDatabaseError>;
-    async fn run_query(&self, query: String, parameters: Vec<String>, timeout_ms: Option<u64>) -> Result<Vec<PgRow>, CustomDatabaseError>;
+    async fn run_query(
+        &self,
+        query: String,
+        parameters: Vec<String>,
+        timeout_ms: Option<u64>,
+    ) -> Result<Vec<PgRow>, CustomDatabaseError>;
 }
 
 pub struct PgClient {
@@ -37,8 +45,9 @@ pub struct PgClient {
 impl PgClient {
     pub async fn new(addr: String) -> Result<PgClient, CustomDatabaseError> {
         let pool = PgPoolOptions::new()
-        .max_connections(5)
-        .connect(&addr).await?;
+            .max_connections(5)
+            .connect(&addr)
+            .await?;
 
         Ok(PgClient { pool })
     }
@@ -46,16 +55,24 @@ impl PgClient {
 
 #[async_trait]
 impl Client for PgClient {
-    async fn run_query(&self, query: String, parameters: Vec<String>, timeout_ms: Option<u64>) -> Result<Vec<PgRow>, CustomDatabaseError> {
-        let query_results = sqlx::query(&query).fetch_all(&self.pool);
+    async fn run_query(
+        &self,
+        query: String,
+        parameters: Vec<String>,
+        timeout_ms: Option<u64>,
+    ) -> Result<Vec<PgRow>, CustomDatabaseError> {
+        let built_query = sqlx::query(&query);
+        let built_query = parameters
+            .iter()
+            .fold(built_query, |acc, param| acc.bind(param));
+        let query_results = built_query.fetch_all(&self.pool);
 
         let timeout_ms = match timeout_ms {
             Some(ms) => ms,
             None => DATABASE_TIMEOUT_MILLISECS,
         };
 
-        let fut =
-            timeout(Duration::from_secs(timeout_ms), query_results).await?;
+        let fut = timeout(Duration::from_secs(timeout_ms), query_results).await?;
 
         Ok(fut?)
     }

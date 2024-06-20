@@ -16,8 +16,12 @@ where
 {
     let redis_client =
         Arc::new(RedisClient::new(config.redis_url).expect("failed to create redis client"));
-    
-    let postgres_client = Arc::new(PgClient::new(config.read_database_url).await.expect("failed to create postgres client"));
+
+    let postgres_client = Arc::new(
+        PgClient::new(config.read_database_url)
+            .await
+            .expect("failed to create postgres client"),
+    );
 
     let app = router::router(redis_client, postgres_client);
 

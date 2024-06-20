@@ -4,8 +4,8 @@ use tracing::instrument;
 
 use crate::{
     api::FlagError,
-    redis::{Client as RedisClient, CustomRedisError},
     database::Client as DatabaseClient,
+    redis::{Client as RedisClient, CustomRedisError},
 };
 
 // TRICKY: This cache data is coming from django-redis. If it ever goes out of sync, we'll bork.
@@ -84,8 +84,8 @@ pub struct FlagFilters {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct FeatureFlag {
-    pub id: i64,
-    pub team_id: i64,
+    pub id: i32,
+    pub team_id: i32,
     pub name: Option<String>,
     pub key: String,
     pub filters: FlagFilters,
@@ -98,9 +98,9 @@ pub struct FeatureFlag {
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
-struct FeatureFlagRow {
-    pub id: i64,
-    pub team_id: i64,
+pub struct FeatureFlagRow {
+    pub id: i32,
+    pub team_id: i32,
     pub name: Option<String>,
     pub key: String,
     pub filters: serde_json::Value,
@@ -137,7 +137,7 @@ impl FeatureFlagList {
     #[instrument(skip_all)]
     pub async fn from_redis(
         client: Arc<dyn RedisClient + Send + Sync>,
-        team_id: i64,
+        team_id: i32,
     ) -> Result<FeatureFlagList, FlagError> {
         // TODO: Instead of failing here, i.e. if not in redis, fallback to pg
         let serialized_flags = client
@@ -173,30 +173,31 @@ impl FeatureFlagList {
     #[instrument(skip_all)]
     pub async fn from_pg(
         client: Arc<dyn DatabaseClient + Send + Sync>,
-        team_id: i64,
+        team_id: i32,
     ) -> Result<FeatureFlagList, FlagError> {
-
-        let query = "SELECT id, team_id, name, key, filters, deleted, active, ensure_experience_continuity FROM posthog_featureflag WHERE team_id = $1";
         let mut conn = client.get_connection().await.map_err(|e| {
             tracing::error!("failed to get connection: {}", e);
             FlagError::DatabaseUnavailable
         })?;
         // TODO: Clean up error handling here
 
+        let query = "SELECT id, team_id, name, key, filters, deleted, active, ensure_experience_continuity FROM posthog_featureflag WHERE team_id = $1";
         let flags_row = sqlx::query_as::<_, FeatureFlagRow>(query)
             .bind(&team_id)
             .fetch_all(&mut *conn)
-            .await.map_err(|e| {
+            .await
+            .map_err(|e| {
                 tracing::error!("failed to fetch data: {}", e);
+                println!("failed to fetch data: {}", e);
                 FlagError::DatabaseUnavailable
             })?;
 
         let serialized_flags = serde_json::to_string(&flags_row).map_err(|e| {
             tracing::error!("failed to serialize flags: {}", e);
             println!("failed to serialize flags: {}", e);
-
             FlagError::DataParsingError
         })?;
+
         let flags_list: Vec<FeatureFlag> =
             serde_json::from_str(&serialized_flags).map_err(|e| {
                 tracing::error!("failed to parse data to flags list: {}", e);
@@ -212,7 +213,8 @@ impl FeatureFlagList {
 mod tests {
     use super::*;
     use crate::test_utils::{
-        insert_flags_for_team_in_redis, insert_new_team_in_redis, setup_redis_client,
+        insert_flags_for_team_in_pg, insert_flags_for_team_in_redis, insert_new_team_in_pg,
+        insert_new_team_in_redis, setup_pg_client, setup_redis_client,
     };
 
     #[tokio::test]
@@ -263,5 +265,65 @@ mod tests {
             Err(FlagError::RedisUnavailable) => (),
             _ => panic!("Expected RedisUnavailable"),
         };
+    }
+
+    #[tokio::test]
+    async fn test_fetch_flags_from_pg() {
+        let client = setup_pg_client(None).await;
+
+        let team = insert_new_team_in_pg(client.clone())
+            .await
+            .expect("Failed to insert team in pg");
+
+        insert_flags_for_team_in_pg(client.clone(), team.id, None)
+            .await
+            .expect("Failed to insert flags");
+
+        let flags_from_pg = FeatureFlagList::from_pg(client.clone(), team.id)
+            .await
+            .expect("Failed to fetch flags from pg");
+
+        assert_eq!(flags_from_pg.flags.len(), 1);
+        let flag = flags_from_pg.flags.get(0).expect("Flags should be in pg");
+
+        assert_eq!(flag.key, "flag1");
+        assert_eq!(flag.team_id, team.id);
+        assert_eq!(flag.filters.groups.len(), 1);
+        assert_eq!(
+            flag.filters.groups[0]
+                .properties
+                .as_ref()
+                .expect("Properties don't exist on flag")
+                .len(),
+            1
+        );
+        let property_filter = &flag.filters.groups[0]
+            .properties
+            .as_ref()
+            .expect("Properties don't exist on flag")[0];
+
+        assert_eq!(property_filter.key, "email");
+        assert_eq!(property_filter.value, "a@b.com");
+        assert_eq!(property_filter.operator, None);
+        assert_eq!(property_filter.prop_type, "person");
+        assert_eq!(property_filter.group_type_index, None);
+        assert_eq!(flag.filters.groups[0].rollout_percentage, Some(50.0));
+    }
+
+    // TODO: Add more tests to validate deserialization of flags.
+    // TODO: Also make sure old flag data is handled, or everything is migrated to new style in production
+
+    #[tokio::test]
+    async fn test_fetch_empty_team_from_pg() {
+        let client = setup_pg_client(None).await;
+
+        match FeatureFlagList::from_pg(client.clone(), 1234)
+            .await
+            .expect("Failed to fetch flags from pg")
+        {
+            FeatureFlagList { flags } => {
+                assert_eq!(flags.len(), 0);
+            }
+        }
     }
 }

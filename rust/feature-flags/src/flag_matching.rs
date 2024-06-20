@@ -1,4 +1,7 @@
-use crate::{database::Client as DatabaseClient, flag_definitions::{FeatureFlag, FlagGroupType}};
+use crate::{
+    database::Client as DatabaseClient,
+    flag_definitions::{FeatureFlag, FlagGroupType},
+};
 use sha1::{Digest, Sha1};
 use std::{fmt::Write, sync::Arc};
 
@@ -31,7 +34,10 @@ pub struct FeatureFlagMatcher {
 const LONG_SCALE: u64 = 0xfffffffffffffff;
 
 impl FeatureFlagMatcher {
-    pub fn new(distinct_id: String, database_client: Option<Arc<dyn DatabaseClient + Send + Sync>>) -> Self {
+    pub fn new(
+        distinct_id: String,
+        database_client: Option<Arc<dyn DatabaseClient + Send + Sync>>,
+    ) -> Self {
         FeatureFlagMatcher {
             // flags,
             distinct_id,

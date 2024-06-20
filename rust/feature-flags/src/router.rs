@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use axum::{routing::post, Router};
 
-use crate::{redis::Client as RedisClient, v0_endpoint, database::Client as DatabaseClient};
+use crate::{database::Client as DatabaseClient, redis::Client as RedisClient, v0_endpoint};
 
 #[derive(Clone)]
 pub struct State {

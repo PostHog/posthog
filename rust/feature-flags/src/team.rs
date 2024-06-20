@@ -4,8 +4,8 @@ use tracing::instrument;
 
 use crate::{
     api::FlagError,
-    redis::{Client as RedisClient, CustomRedisError},
     database::Client as DatabaseClient,
+    redis::{Client as RedisClient, CustomRedisError},
 };
 
 // TRICKY: This cache data is coming from django-redis. If it ever goes out of sync, we'll bork.
@@ -14,7 +14,7 @@ pub const TEAM_TOKEN_CACHE_PREFIX: &str = "posthog:1:team_token:";
 
 #[derive(Debug, Deserialize, Serialize, sqlx::FromRow)]
 pub struct Team {
-    pub id: i64,
+    pub id: i32,
     pub name: String,
     pub api_token: String,
 }
@@ -52,24 +52,28 @@ impl Team {
         Ok(team)
     }
 
-    pub async fn from_pg(client: Arc<dyn DatabaseClient + Send + Sync>, token: String) -> Result<Team, FlagError> {
-        let query = "SELECT id, name, api_token FROM posthog_team WHERE api_token = $1";
+    pub async fn from_pg(
+        client: Arc<dyn DatabaseClient + Send + Sync>,
+        token: String,
+    ) -> Result<Team, FlagError> {
         let mut conn = client.get_connection().await.map_err(|e| {
             tracing::error!("failed to get connection: {}", e);
             FlagError::DatabaseUnavailable
         })?;
         // TODO: Clean up error handling here
 
+        let query = "SELECT id, name, api_token FROM posthog_team WHERE api_token = $1";
         let row = sqlx::query_as::<_, Team>(query)
             .bind(&token)
             .fetch_one(&mut *conn)
-            .await.map_err(|e| {
+            .await
+            .map_err(|e| {
                 tracing::error!("failed to fetch data: {}", e);
-                FlagError::DatabaseUnavailable
+                println!("failed to fetch data: {}", e);
+                FlagError::TokenValidationError
             })?;
 
         Ok(row)
-        
     }
 }
 
@@ -81,14 +85,19 @@ mod tests {
     use super::*;
     use crate::{
         team,
-        test_utils::{insert_new_team_in_pg, insert_new_team_in_redis, random_string, run_database_migrations, setup_pg_client, setup_redis_client},
+        test_utils::{
+            insert_new_team_in_pg, insert_new_team_in_redis, random_string, setup_pg_client,
+            setup_redis_client,
+        },
     };
 
     #[tokio::test]
     async fn test_fetch_team_from_redis() {
         let client = setup_redis_client(None);
 
-        let team = insert_new_team_in_redis(client.clone()).await.expect("Failed to insert team in redis");
+        let team = insert_new_team_in_redis(client.clone())
+            .await
+            .expect("Failed to insert team in redis");
 
         let target_token = team.api_token;
 
@@ -163,19 +172,38 @@ mod tests {
     async fn test_fetch_team_from_pg() {
         // match run_database_migrations() {
         //     Err(e) => panic!("Failed to run migrations: {}", e),
-        //     _ => {}
+        //     _ => (),
         // }
         let client = setup_pg_client(None).await;
 
-        let team = insert_new_team_in_pg(client.clone()).await.expect("Failed to insert team in pg");
+        let team = insert_new_team_in_pg(client.clone())
+            .await
+            .expect("Failed to insert team in pg");
 
         let target_token = team.api_token;
 
         let team_from_pg = Team::from_pg(client.clone(), target_token.clone())
             .await
-            .unwrap();
+            .expect("Failed to fetch team from pg");
 
         assert_eq!(team_from_pg.api_token, target_token);
         assert_eq!(team_from_pg.id, team.id);
+        assert_eq!(team_from_pg.name, team.name);
     }
+
+    #[tokio::test]
+    async fn test_fetch_team_from_pg_with_invalid_token() {
+        // TODO: Figure out a way such that `run_database_migrations` is called only once, and already called
+        // before running these tests.
+
+        let client = setup_pg_client(None).await;
+        let target_token = "xxxx".to_string();
+
+        match Team::from_pg(client.clone(), target_token.clone()).await {
+            Err(FlagError::TokenValidationError) => (),
+            _ => panic!("Expected TokenValidationError"),
+        };
+    }
+
+    // TODO: Handle cases where db connection fails.
 }
