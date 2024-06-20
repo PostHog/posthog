@@ -233,7 +233,7 @@ pub async fn insert_flags_for_team_in_pg(
     let payload_flag = match flag {
         Some(value) => value,
         None => FeatureFlagRow {
-            id: id,
+            id,
             key: "flag1".to_string(),
             name: Some("flag1 description".to_string()),
             active: true,
