@@ -107,6 +107,11 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 self._expr("[1, avg()]"),
                 ast.Array(exprs=[ast.Constant(value=1), ast.Call(name="avg", args=[])]),
             )
+            self.assertEqual(self._expr("[1,]"), ast.Array(exprs=[ast.Constant(value=1)]))
+            self.assertEqual(
+                self._expr("[1, avg(),]"),
+                ast.Array(exprs=[ast.Constant(value=1), ast.Call(name="avg", args=[])]),
+            )
             self.assertEqual(
                 self._expr("properties['value']"),
                 ast.ArrayAccess(
@@ -139,6 +144,14 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             self.assertEqual(
                 self._expr("(1, avg())"),
                 ast.Tuple(exprs=[ast.Constant(value=1), ast.Call(name="avg", args=[])]),
+            )
+            self.assertEqual(
+                self._expr("(1, avg(),)"),
+                ast.Tuple(exprs=[ast.Constant(value=1), ast.Call(name="avg", args=[])]),
+            )
+            self.assertEqual(
+                self._expr("(1,)"),
+                ast.Tuple(exprs=[ast.Constant(value=1)]),
             )
             # needs at least two values to be a tuple
             self.assertEqual(self._expr("(1)"), ast.Constant(value=1))

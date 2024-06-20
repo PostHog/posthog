@@ -26,6 +26,7 @@ import { EntityTypes } from '~/types'
 
 import { HogFunctionIconEditable } from './HogFunctionIcon'
 import { HogFunctionInputWithSchema } from './HogFunctionInputs'
+import { HogFunctionTest, HogFunctionTestPlaceholder } from './HogFunctionTest'
 import { pipelineHogFunctionConfigurationLogic } from './pipelineHogFunctionConfigurationLogic'
 
 export function PipelineHogFunctionConfiguration({
@@ -343,6 +344,8 @@ export function PipelineHogFunctionConfiguration({
                                     )}
                                 </div>
                             </div>
+
+                            {id ? <HogFunctionTest id={id} /> : <HogFunctionTestPlaceholder />}
                             <div className="flex gap-2 justify-end">{saveButtons}</div>
                         </div>
                     </div>

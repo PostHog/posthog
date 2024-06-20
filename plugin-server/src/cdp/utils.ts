@@ -2,7 +2,7 @@
 
 import { GroupTypeToColumnIndex, RawClickHouseEvent, Team } from '../types'
 import { clickHouseTimestampToISO } from '../utils/utils'
-import { HogFunctionFilterGlobals, HogFunctionInvocationGlobals } from './types'
+import { HogFunctionFilterGlobals, HogFunctionInvocationGlobals, ParsedClickhouseEvent } from './types'
 
 export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
     'email',
@@ -25,24 +25,50 @@ const getPersonDisplayName = (team: Team, distinctId: string, properties: Record
     return (customIdentifier || distinctId)?.trim()
 }
 
-// that we can keep to as a contract
-export function convertToHogFunctionInvocationGlobals(
-    event: RawClickHouseEvent,
-    team: Team,
-    siteUrl: string,
-    groupTypes?: GroupTypeToColumnIndex
-): HogFunctionInvocationGlobals {
-    const projectUrl = `${siteUrl}/project/${team.id}`
-
+export function convertToParsedClickhouseEvent(event: RawClickHouseEvent): ParsedClickhouseEvent {
     const properties = event.properties ? JSON.parse(event.properties) : {}
     if (event.elements_chain) {
         properties['$elements_chain'] = event.elements_chain
     }
 
+    return {
+        uuid: event.uuid,
+        event: event.event,
+        team_id: event.team_id,
+        distinct_id: event.distinct_id,
+        person_id: event.person_id,
+        timestamp: clickHouseTimestampToISO(event.timestamp),
+        created_at: clickHouseTimestampToISO(event.created_at),
+        properties: properties,
+        person_created_at: event.person_created_at ? clickHouseTimestampToISO(event.person_created_at) : undefined,
+        person_properties: event.person_properties ? JSON.parse(event.person_properties) : {},
+        group0_properties: event.group0_properties ? JSON.parse(event.group0_properties) : {},
+        group1_properties: event.group1_properties ? JSON.parse(event.group1_properties) : {},
+        group2_properties: event.group2_properties ? JSON.parse(event.group2_properties) : {},
+        group3_properties: event.group3_properties ? JSON.parse(event.group3_properties) : {},
+        group4_properties: event.group4_properties ? JSON.parse(event.group4_properties) : {},
+        group0_created_at: event.group0_created_at ? clickHouseTimestampToISO(event.group0_created_at) : undefined,
+        group1_created_at: event.group1_created_at ? clickHouseTimestampToISO(event.group1_created_at) : undefined,
+        group2_created_at: event.group2_created_at ? clickHouseTimestampToISO(event.group2_created_at) : undefined,
+        group3_created_at: event.group3_created_at ? clickHouseTimestampToISO(event.group3_created_at) : undefined,
+        group4_created_at: event.group4_created_at ? clickHouseTimestampToISO(event.group4_created_at) : undefined,
+    }
+}
+
+// that we can keep to as a contract
+export function convertToHogFunctionInvocationGlobals(
+    event: ParsedClickhouseEvent,
+    team: Team,
+    siteUrl: string,
+    groupTypes?: GroupTypeToColumnIndex
+): HogFunctionInvocationGlobals {
+    const projectUrl = `${siteUrl}/project/${team.id}`
+    const properties = event.properties
+
     let person: HogFunctionInvocationGlobals['person']
 
     if (event.person_id) {
-        const personProperties = event.person_properties ? JSON.parse(event.person_properties) : {}
+        const personProperties = event.person_properties
         const personDisplayName = getPersonDisplayName(team, event.distinct_id, personProperties)
 
         person = {
@@ -64,7 +90,7 @@ export function convertToHogFunctionInvocationGlobals(
 
             // TODO: Check that groupProperties always exist if the event is in that group
             if (groupKey && groupProperties) {
-                const properties = JSON.parse(groupProperties)
+                const properties = groupProperties
 
                 groups[groupType] = {
                     id: groupKey,
@@ -83,16 +109,12 @@ export function convertToHogFunctionInvocationGlobals(
             url: projectUrl,
         },
         event: {
-            // TODO: Element chain!
             uuid: event.uuid,
             name: event.event!,
             distinct_id: event.distinct_id,
             properties,
-            timestamp: clickHouseTimestampToISO(event.timestamp),
-            // TODO: generate url
-            url: `${projectUrl}/events/${encodeURIComponent(event.uuid)}/${encodeURIComponent(
-                clickHouseTimestampToISO(event.timestamp)
-            )}`,
+            timestamp: event.timestamp,
+            url: `${projectUrl}/events/${encodeURIComponent(event.uuid)}/${encodeURIComponent(event.timestamp)}`,
         },
         person,
         groups,
