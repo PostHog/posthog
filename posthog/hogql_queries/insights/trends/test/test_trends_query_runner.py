@@ -2141,7 +2141,6 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         response = runner.to_actors_query_options()
-
         assert response.day is not None
         assert response.series == [InsightActorsQuerySeries(label="$pageview", value=0)]
         assert response.breakdown == [
@@ -2375,6 +2374,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def test_trends_multiple_event_breakdowns(self):
         self._create_test_events()
+        flush_persons_and_events()
 
         # two breakdowns
         response = self._run_trends_query(
@@ -2451,6 +2451,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def test_trends_event_and_person_breakdowns(self):
         self._create_test_events()
+        flush_persons_and_events()
 
         # two breakdowns
         response = self._run_trends_query(
@@ -2481,6 +2482,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_trends_event_person_group_breakdowns(self):
         self._create_test_groups()
         self._create_test_events_for_groups()
+        flush_persons_and_events()
 
         # two breakdowns
         response = self._run_trends_query(
@@ -2519,6 +2521,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_trends_event_with_two_group_breakdowns(self):
         self._create_test_groups()
         self._create_test_events_for_groups()
+        flush_persons_and_events()
 
         # two breakdowns
         response = self._run_trends_query(
@@ -2557,6 +2560,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_trends_event_with_three_group_breakdowns(self):
         self._create_test_groups()
         self._create_test_events_for_groups()
+        flush_persons_and_events()
 
         # two breakdowns
         response = self._run_trends_query(
@@ -2658,6 +2662,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ),
             ]
         )
+        flush_persons_and_events()
 
         response = self._run_trends_query(
             "2020-01-09",
@@ -2776,6 +2781,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ),
             ]
         )
+        flush_persons_and_events()
 
         response = self._run_trends_query(
             "2020-01-09",
@@ -2883,6 +2889,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ),
             ]
         )
+        flush_persons_and_events()
 
         response = self._run_trends_query(
             "2020-01-09",
@@ -2971,6 +2978,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ),
             ]
         )
+        flush_persons_and_events()
 
         single_breakdown_response = self._run_trends_query(
             "2020-01-09",
@@ -3060,6 +3068,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ),
             ]
         )
+        flush_persons_and_events()
 
         # single
         response = self._run_trends_query(
@@ -3155,3 +3164,134 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert len(breakdown_labels) == 1
         # must return the placeholder value to ensure the frontend doesn't show an empty cell
         assert breakdown_labels == [[BREAKDOWN_NULL_STRING_LABEL]]
+
+    def test_trends_event_math_session_duration_with_breakdowns(self):
+        self._create_test_events()
+        flush_persons_and_events()
+
+        s_response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview", math=PropertyMathType.MEDIAN, math_property="$session_duration")],
+            None,
+            BreakdownFilter(
+                breakdown="$session_duration",
+                breakdown_type="session",
+            ),
+        )
+        m_response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview", math=PropertyMathType.MEDIAN, math_property="$session_duration")],
+            None,
+            BreakdownFilter(
+                breakdowns=[Breakdown(property="$session_duration", type="session")],
+            ),
+        )
+
+        single_breakdown_values = [result["breakdown_value"] for result in s_response.results]
+        multiple_breakdown_values = [result["breakdown_value"][0] for result in m_response.results]
+
+        assert len(s_response.results) == len(m_response.results) == 1
+        assert len(single_breakdown_values) == len(multiple_breakdown_values) == 1
+        assert single_breakdown_values == multiple_breakdown_values == ["0"]
+        assert s_response.results[0]["label"] == m_response.results[0]["label"] == "0"
+        assert s_response.results[0]["count"] == m_response.results[0]["count"] == 0
+
+    def test_trends_event_math_session_duration_with_breakdowns_and_histogram_bins(self):
+        self._create_test_events()
+        flush_persons_and_events()
+
+        s_response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview", math=PropertyMathType.MEDIAN, math_property="$session_duration")],
+            None,
+            BreakdownFilter(breakdown="$session_duration", breakdown_type="session", breakdown_histogram_bin_count=4),
+        )
+        m_response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview", math=PropertyMathType.MEDIAN, math_property="$session_duration")],
+            None,
+            BreakdownFilter(
+                breakdowns=[Breakdown(property="$session_duration", type="session", histogram_bin_count=4)],
+            ),
+        )
+
+        single_breakdown_values = [result["breakdown_value"] for result in s_response.results]
+        multiple_breakdown_values = [result["breakdown_value"][0] for result in m_response.results]
+
+        assert len(s_response.results) == len(m_response.results) == 1
+        assert len(single_breakdown_values) == len(multiple_breakdown_values) == 1
+        assert single_breakdown_values == multiple_breakdown_values == ["[0,0.01]"]
+        assert s_response.results[0]["label"] == m_response.results[0]["label"] == "[0,0.01]"
+        assert s_response.results[0]["count"] == m_response.results[0]["count"] == 0
+
+    def test_trends_event_math_wau_with_breakdowns(self):
+        self._create_test_events()
+        flush_persons_and_events()
+
+        s_response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview", math=BaseMathType.WEEKLY_ACTIVE)],
+            None,
+            BreakdownFilter(breakdown="$session_duration", breakdown_type="session", breakdown_histogram_bin_count=4),
+        )
+        m_response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview", math=BaseMathType.WEEKLY_ACTIVE)],
+            None,
+            BreakdownFilter(
+                breakdowns=[Breakdown(property="$session_duration", type="session", histogram_bin_count=4)],
+            ),
+        )
+
+        single_breakdown_values = [result["breakdown_value"] for result in s_response.results]
+        multiple_breakdown_values = [result["breakdown_value"][0] for result in m_response.results]
+
+        assert len(s_response.results) == len(m_response.results) == 1
+        assert len(single_breakdown_values) == len(multiple_breakdown_values) == 1
+        assert single_breakdown_values == multiple_breakdown_values == ["[0,0.01]"]
+        assert s_response.results[0]["label"] == m_response.results[0]["label"] == "[0,0.01]"
+        assert s_response.results[0]["count"] == m_response.results[0]["count"] == 0
+
+    def test_trends_event_math_mau_with_breakdowns(self):
+        self._create_test_events()
+        flush_persons_and_events()
+
+        s_response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview", math=BaseMathType.WEEKLY_ACTIVE)],
+            None,
+            BreakdownFilter(breakdown="$browser"),
+        )
+        m_response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview", math=BaseMathType.WEEKLY_ACTIVE)],
+            None,
+            BreakdownFilter(
+                breakdowns=[Breakdown(property="$browser", type="event")],
+            ),
+        )
+
+        single_breakdown_values = [result["breakdown_value"] for result in s_response.results]
+        multiple_breakdown_values = [result["breakdown_value"][0] for result in m_response.results]
+
+        assert len(s_response.results) == len(m_response.results) == 1
+        assert len(single_breakdown_values) == len(multiple_breakdown_values) == 1
+        assert single_breakdown_values == multiple_breakdown_values == ["[0,0.01]"]
+        assert s_response.results[0]["label"] == m_response.results[0]["label"] == "[0,0.01]"
+        assert s_response.results[0]["count"] == m_response.results[0]["count"] == 0

@@ -201,12 +201,13 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                     alias="session_duration",
                     expr=ast.Call(name="any", args=[ast.Field(chain=["session", "$session_duration"])]),
                 ),
-                breakdown.column_expr(),
             ]
 
-            default_query.group_by.extend([ast.Field(chain=["$session_id"]), ast.Field(chain=["breakdown_value"])])
+            default_query.group_by.append(ast.Field(chain=["$session_id"]))
 
-            wrapper = self.session_duration_math_property_wrapper(default_query)
+            self._extend_query_with_breakdowns(default_query, breakdown)
+
+            wrapper = self.session_duration_math_property_wrapper(default_query, breakdown)
             assert wrapper.group_by is not None
 
             if not self._trends_display.is_total_value():
@@ -216,23 +217,11 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 wrapper.select.append(ast.Field(chain=["day_start"]))
                 wrapper.group_by.append(ast.Field(chain=["day_start"]))
 
-            wrapper.select.append(ast.Field(chain=["breakdown_value"]))
-            if not breakdown.is_histogram_breakdown:
-                wrapper.group_by.append(ast.Field(chain=["breakdown_value"]))
-
             return wrapper
 
         # Just breakdowns
         elif breakdown.enabled:
-            breakdown_expr = breakdown.column_expr()
-
-            if isinstance(breakdown_expr, list):
-                for expr in breakdown_expr:
-                    default_query.select.append(expr)
-                    default_query.group_by.append(ast.Field(chain=[expr.alias]))
-            else:
-                default_query.select.append(breakdown_expr)
-                default_query.group_by.append(ast.Field(chain=[breakdown_expr.alias]))
+            self._extend_query_with_breakdowns(default_query, breakdown)
 
         # Just session duration math property
         elif self._aggregation_operation.aggregating_on_session_duration():
@@ -244,7 +233,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             ]
             default_query.group_by.append(ast.Field(chain=["$session_id"]))
 
-            wrapper = self.session_duration_math_property_wrapper(default_query)
+            wrapper = self.session_duration_math_property_wrapper(default_query, breakdown)
 
             if not self._trends_display.is_total_value():
                 assert wrapper.group_by is not None
@@ -704,7 +693,9 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
         return ast.RatioExpr(left=ast.Constant(value=self.query.samplingFactor))
 
-    def session_duration_math_property_wrapper(self, default_query: ast.SelectQuery) -> ast.SelectQuery:
+    def session_duration_math_property_wrapper(
+        self, default_query: ast.SelectQuery, breakdown: Breakdown
+    ) -> ast.SelectQuery:
         query = cast(
             ast.SelectQuery,
             parse_select(
@@ -720,6 +711,18 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         )
 
         query.group_by = []
+
+        if breakdown.enabled:
+            if breakdown.is_multiple_breakdown:
+                for breakdown_alias in breakdown.multiple_breakdowns_aliases:
+                    col = ast.Field(chain=[breakdown_alias])
+                    query.select.append(ast.Alias(alias=breakdown_alias, expr=col))
+                    query.group_by.append(col)
+            else:
+                col = ast.Field(chain=[breakdown.breakdown_alias])
+                query.select.append(ast.Alias(alias=breakdown.breakdown_alias, expr=col))
+                query.group_by.append(col)
+
         return query
 
     def _breakdown(self, is_actors_query: bool):
@@ -799,3 +802,15 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 "other": ast.Constant(value=BREAKDOWN_OTHER_STRING_LABEL),
             },
         )
+
+    def _extend_query_with_breakdowns(self, query: ast.SelectQuery, breakdown: Breakdown):
+        assert query.group_by is not None
+
+        breakdown_expr = breakdown.column_expr()
+        if isinstance(breakdown_expr, list):
+            for expr in breakdown_expr:
+                query.select.append(expr)
+                query.group_by.append(ast.Field(chain=[expr.alias]))
+        else:
+            query.select.append(breakdown_expr)
+            query.group_by.append(ast.Field(chain=[breakdown_expr.alias]))
