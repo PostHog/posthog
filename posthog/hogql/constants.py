@@ -27,6 +27,13 @@ KEYWORDS = ["true", "false", "null"]
 # Keywords you can't alias to
 RESERVED_KEYWORDS = [*KEYWORDS, "team_id"]
 
+
+# These are CTEs that are used internally for passing information down the stack.
+# They're not dangerous, but if you override them, behavior can be unexpected
+class ReservedCTE(str, Enum):
+    POSTHOG_PERSON_IDS = "$$posthog_person_ids$$"
+
+
 # Limit applied to SELECT statements without LIMIT clause when queried via the API
 DEFAULT_RETURNED_ROWS = 100
 # Max limit for all SELECT queries, and the default for CSV exports

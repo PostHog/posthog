@@ -2,7 +2,7 @@ import itertools
 from typing import Optional
 from collections.abc import Sequence, Iterator
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLQuerySettings
+from posthog.hogql.constants import HogQLQuerySettings, ReservedCTE
 from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
 from posthog.hogql.property import has_aggregation
 from posthog.hogql_queries.actor_strategies import ActorStrategy, PersonStrategy, GroupStrategy
@@ -273,7 +273,9 @@ class ActorsQueryRunner(QueryRunner):
                 ):
                     s = parse_select("SELECT distinct actor_id as person_id FROM source")
                     # This feels like it adds one extra level of SELECT which is unnecessary
-                    ctes["person_ids"] = ast.CTE(name="person_ids", expr=s, cte_type="subquery")
+                    ctes[ReservedCTE.POSTHOG_PERSON_IDS] = ast.CTE(
+                        name=ReservedCTE.POSTHOG_PERSON_IDS, expr=s, cte_type="subquery"
+                    )
 
         return ast.SelectQuery(
             ctes=ctes,

@@ -3,7 +3,7 @@ import posthoganalytics
 
 from hogql_parser import parse_expr
 from posthog.hogql.ast import SelectQuery, And
-from posthog.hogql.constants import HogQLQuerySettings
+from posthog.hogql.constants import HogQLQuerySettings, ReservedCTE
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.argmax import argmax_select
 from posthog.hogql.database.models import (
@@ -56,21 +56,11 @@ def select_from_persons_table(join_or_table: LazyJoinToAdd | LazyTableToAdd, con
         select = cast(
             ast.SelectQuery,
             parse_select(
-                """
+                f"""
             SELECT id FROM raw_persons WHERE (id, version) IN (
                SELECT id, max(version) as version
                FROM raw_persons
-               WHERE raw_persons.id in (select person_id from person_ids)
-               GROUP BY id
-               HAVING equals(argMax(raw_persons.is_deleted, raw_persons.version), 0)
-               AND argMax(raw_persons.created_at, raw_persons.version) < now() + interval 1 day
-            )
-            """
-                if "person_ids" in node.type.ctes
-                else """
-            SELECT id FROM raw_persons WHERE (id, version) IN (
-               SELECT id, max(version) as version
-               FROM raw_persons
+               {f"WHERE raw_persons.id IN (SELECT person_id FROM {ReservedCTE.POSTHOG_PERSON_IDS})" if ReservedCTE.POSTHOG_PERSON_IDS in node.type.ctes else ""}
                GROUP BY id
                HAVING equals(argMax(raw_persons.is_deleted, raw_persons.version), 0)
                AND argMax(raw_persons.created_at, raw_persons.version) < now() + interval 1 day
