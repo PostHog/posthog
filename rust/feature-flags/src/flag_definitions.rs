@@ -2,11 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::instrument;
 
-use crate::{
-    api::FlagError,
-    database::Client as DatabaseClient,
-    redis::Client as RedisClient,
-};
+use crate::{api::FlagError, database::Client as DatabaseClient, redis::Client as RedisClient};
 
 // TRICKY: This cache data is coming from django-redis. If it ever goes out of sync, we'll bork.
 // TODO: Add integration tests across repos to ensure this doesn't happen.

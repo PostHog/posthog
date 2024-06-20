@@ -85,7 +85,7 @@ impl From<CustomRedisError> for FlagError {
             CustomRedisError::PickleError(e) => {
                 tracing::error!("failed to fetch data: {}", e);
                 FlagError::DataParsingError
-            },
+            }
             CustomRedisError::Timeout(_) => FlagError::TimeoutError,
             CustomRedisError::Other(e) => {
                 tracing::error!("Unknown redis error: {}", e);
@@ -102,7 +102,7 @@ impl From<CustomDatabaseError> for FlagError {
             CustomDatabaseError::Other(_) => {
                 tracing::error!("failed to get connection: {}", e);
                 FlagError::DatabaseUnavailable
-            },
+            }
             CustomDatabaseError::Timeout(_) => FlagError::TimeoutError,
         }
     }
