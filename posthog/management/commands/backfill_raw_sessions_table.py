@@ -72,7 +72,7 @@ AND and(
             count_query = f"SELECT count(), uniq(session_id_v7) FROM ({select_query()})"
             [(events_count, sessions_count)] = sync_execute(count_query, settings=SETTINGS)
             logger.info(f"{events_count} events and {sessions_count} sessions to backfill for")
-            logger.info(f"The first select query would be:\n{select_query(self.start_date)}")
+            logger.info(f"The first select query to run would be:\n{select_query(self.end_date)}")
             return
 
         for i in reversed(range(num_days)):
