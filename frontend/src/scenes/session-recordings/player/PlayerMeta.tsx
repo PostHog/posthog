@@ -171,23 +171,13 @@ export function PlayerMeta(): JSX.Element {
                         <LemonSkeleton className="w-1/3 h-4 my-1" />
                     ) : (
                         <>
-                            <Tooltip
-                                title={
-                                    <>
-                                        Window {currentWindowIndex}.
-                                        <br />
-                                        Each recording window translates to a distinct browser tab or window.
-                                    </>
-                                }
-                            >
-                                <LemonSelect
-                                    size="xsmall"
-                                    options={windowOptions}
-                                    value={trackedWindow}
-                                    disabledReason={windowIds.length <= 1 ? "There's only one window" : undefined}
-                                    onSelect={(value) => setTrackedWindow(value)}
-                                />
-                            </Tooltip>
+                            <LemonSelect
+                                size="xsmall"
+                                options={windowOptions}
+                                value={trackedWindow}
+                                disabledReason={windowIds.length <= 1 ? "There's only one window" : undefined}
+                                onSelect={(value) => setTrackedWindow(value)}
+                            />
 
                             <URLOrScreen lastUrl={lastUrl} />
                             {lastPageviewEvent?.properties?.['$screen_name'] && (
