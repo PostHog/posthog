@@ -153,7 +153,7 @@
         HAVING ifNull(equals(steps, max_steps), isNull(steps)
                       and isNull(max_steps)))
      WHERE ifNull(in(steps, [1, 2, 3]), 0)
-     ORDER BY aggregation_target ASC) AS source
+     ORDER BY aggregation_target ASC SETTINGS use_query_cache=1) AS source
   INNER JOIN
     (SELECT person.id AS id
      FROM person
@@ -341,7 +341,7 @@
         HAVING ifNull(equals(steps, max_steps), isNull(steps)
                       and isNull(max_steps)))
      WHERE ifNull(in(steps, [2, 3]), 0)
-     ORDER BY aggregation_target ASC) AS source
+     ORDER BY aggregation_target ASC SETTINGS use_query_cache=1) AS source
   INNER JOIN
     (SELECT person.id AS id
      FROM person
@@ -529,7 +529,7 @@
         HAVING ifNull(equals(steps, max_steps), isNull(steps)
                       and isNull(max_steps)))
      WHERE ifNull(equals(steps, 2), 0)
-     ORDER BY aggregation_target ASC) AS source
+     ORDER BY aggregation_target ASC SETTINGS use_query_cache=1) AS source
   INNER JOIN
     (SELECT person.id AS id
      FROM person

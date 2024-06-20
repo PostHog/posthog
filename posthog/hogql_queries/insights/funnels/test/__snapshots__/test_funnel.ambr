@@ -183,7 +183,7 @@
         HAVING ifNull(equals(steps, max_steps), isNull(steps)
                       and isNull(max_steps)))
      WHERE ifNull(in(steps, [2, 3]), 0)
-     ORDER BY aggregation_target ASC) AS source
+     ORDER BY aggregation_target ASC SETTINGS use_query_cache=1) AS source
   INNER JOIN
     (SELECT argMax(person.created_at, person.version) AS created_at,
             person.id AS id
@@ -604,7 +604,7 @@
         HAVING ifNull(equals(steps, max_steps), isNull(steps)
                       and isNull(max_steps)))
      WHERE ifNull(in(steps, [1, 2, 3]), 0)
-     ORDER BY aggregation_target ASC) AS source
+     ORDER BY aggregation_target ASC SETTINGS use_query_cache=1) AS source
   INNER JOIN
     (SELECT argMax(person.created_at, person.version) AS created_at,
             person.id AS id
@@ -723,7 +723,7 @@
         HAVING ifNull(equals(steps, max_steps), isNull(steps)
                       and isNull(max_steps)))
      WHERE ifNull(in(steps, [2, 3]), 0)
-     ORDER BY aggregation_target ASC) AS source
+     ORDER BY aggregation_target ASC SETTINGS use_query_cache=1) AS source
   INNER JOIN
     (SELECT argMax(person.created_at, person.version) AS created_at,
             person.id AS id
@@ -842,7 +842,7 @@
         HAVING ifNull(equals(steps, max_steps), isNull(steps)
                       and isNull(max_steps)))
      WHERE ifNull(in(steps, [3]), 0)
-     ORDER BY aggregation_target ASC) AS source
+     ORDER BY aggregation_target ASC SETTINGS use_query_cache=1) AS source
   INNER JOIN
     (SELECT argMax(person.created_at, person.version) AS created_at,
             person.id AS id
