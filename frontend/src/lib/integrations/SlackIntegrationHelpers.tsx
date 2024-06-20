@@ -8,10 +8,7 @@ import { IntegrationType, SlackChannelType } from '~/types'
 
 import { slackIntegrationLogic } from './slackIntegrationLogic'
 
-export const getSlackChannelOptions = (
-    value?: string,
-    slackChannels?: SlackChannelType[] | null
-): LemonInputSelectOption[] => {
+const getSlackChannelOptions = (slackChannels?: SlackChannelType[] | null): LemonInputSelectOption[] | null => {
     return slackChannels
         ? slackChannels.map((x) => ({
               key: `${x.id}|#${x.name}`,
@@ -23,14 +20,7 @@ export const getSlackChannelOptions = (
               ),
               label: `${x.id} #${x.name}`,
           }))
-        : value
-        ? [
-              {
-                  key: value,
-                  label: value?.split('|')?.pop() || value,
-              },
-          ]
-        : []
+        : null
 }
 
 export type SlackChannelPickerProps = {
@@ -47,20 +37,44 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
     const { loadSlackChannels } = useActions(slackIntegrationLogic({ id: integration.id }))
 
     // If slackChannels aren't loaded, make sure we display only the channel name and not the actual underlying value
-    const slackChannelOptions = useMemo(() => getSlackChannelOptions(value, slackChannels), [slackChannels, value])
+    const slackChannelOptions = useMemo(() => getSlackChannelOptions(slackChannels), [slackChannels])
     const showSlackMembershipWarning = value && isMemberOfSlackChannel(value) === false
+
+    // Sometimes the parent will only store the channel ID and not the name, so we need to handle that
+
+    const modifiedValue = useMemo(() => {
+        if (value?.split('|').length === 1) {
+            const channel = slackChannels?.find((x) => x.id === value)
+
+            if (channel) {
+                return `${channel.id}|#${channel.name}`
+            }
+        }
+
+        return value
+    }, [value, slackChannels])
 
     return (
         <>
             <LemonInputSelect
                 onChange={(val) => onChange?.(val[0] ?? null)}
-                value={value ? [value] : []}
+                value={modifiedValue ? [modifiedValue] : []}
                 onFocus={() => !slackChannels && !slackChannelsLoading && loadSlackChannels()}
                 disabled={disabled}
                 mode="single"
                 data-attr="select-slack-channel"
                 placeholder="Select a channel..."
-                options={slackChannelOptions}
+                options={
+                    slackChannelOptions ??
+                    (modifiedValue
+                        ? [
+                              {
+                                  key: modifiedValue,
+                                  label: modifiedValue?.split('|')[1] ?? modifiedValue,
+                              },
+                          ]
+                        : [])
+                }
                 loading={slackChannelsLoading}
             />
 
