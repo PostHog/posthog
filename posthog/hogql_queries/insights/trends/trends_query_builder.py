@@ -142,16 +142,10 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             if breakdown.enabled:
                 if breakdown.is_multiple_breakdown:
                     default_query.order_by.extend(
-                        [
-                            ast.OrderExpr(expr=ast.Field(chain=[alias]), order="DESC")
-                            for alias in breakdown.multiple_breakdowns_aliases
-                        ]
+                        [ast.OrderExpr(expr=field, order="DESC") for field in breakdown.field_exprs]
                     )
                 else:
-                    default_query.order_by.append(
-                        ast.OrderExpr(expr=ast.Field(chain=[breakdown.breakdown_alias]), order="DESC")
-                    )
-
+                    default_query.order_by.append(ast.OrderExpr(expr=breakdown.field_exprs[0], order="DESC"))
         else:
             # For cumulative unique users or groups, we want to count each user or group once per query, not per day
             if (
@@ -387,10 +381,6 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
     def _get_outer_select_query_for_total_value(self, inner_query: ast.SelectQuery, breakdown: Breakdown):
         if breakdown.enabled and breakdown.is_multiple_breakdown:
-            breakdown_fields: list[ast.Expr] = [
-                ast.Field(chain=[alias]) for alias in breakdown.multiple_breakdowns_aliases
-            ]
-
             query = parse_select(
                 """
                 SELECT
@@ -403,12 +393,12 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 """,
                 placeholders={
                     "inner_query": inner_query,
-                    "breakdowns": ast.Array(exprs=breakdown_fields),
+                    "breakdowns": ast.Array(exprs=breakdown.field_exprs),
                     "breakdown_order_by": self._breakdown_query_order_by(breakdown),
                 },
             )
             query.group_by = []
-            query.group_by.extend(breakdown_fields)
+            query.group_by.extend(breakdown.field_exprs)
             return query
 
         return inner_query
@@ -714,8 +704,10 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         )
 
         query.group_by = []
-        query.select.extend(breakdown.alias_exprs)
-        query.group_by.extend(breakdown.field_exprs)
+
+        if breakdown.enabled:
+            query.select.extend(breakdown.alias_exprs)
+            query.group_by.extend(breakdown.field_exprs)
 
         return query
 
