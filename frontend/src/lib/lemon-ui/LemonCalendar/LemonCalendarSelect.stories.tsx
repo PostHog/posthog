@@ -23,7 +23,7 @@ const BasicTemplate: StoryFn<typeof LemonCalendarSelect> = (props: LemonCalendar
     const [granularity, setGranularity] = useState<LemonCalendarSelectProps['granularity']>(props.granularity)
 
     return (
-        <div className="pb-[500px]">
+        <div className="pb-[30rem]">
             <Popover
                 actionable
                 overlay={

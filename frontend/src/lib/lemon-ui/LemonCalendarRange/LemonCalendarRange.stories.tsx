@@ -22,7 +22,7 @@ const BasicTemplate: StoryFn<typeof LemonCalendarRange> = (props: LemonCalendarR
     const [visible, setVisible] = useState(true)
 
     return (
-        <div className="pb-[500px]">
+        <div className="pb-[30rem]">
             <Popover
                 actionable
                 overlay={

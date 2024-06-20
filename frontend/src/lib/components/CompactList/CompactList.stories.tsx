@@ -21,7 +21,7 @@ export default meta
 export function CompactList_({ loading }: { loading: boolean }): JSX.Element {
     return (
         <div className="flex">
-            <div className="w-[350px]">
+            <div className="w-80">
                 <CompactList
                     loading={loading}
                     title="Recent persons"
@@ -43,7 +43,7 @@ export function CompactList_({ loading }: { loading: boolean }): JSX.Element {
                     )}
                 />
             </div>
-            <div className="w-[350px] ml-[30px]">
+            <div className="w-80 ml-8">
                 <CompactList
                     loading={loading}
                     title="Recordings"

@@ -70,7 +70,7 @@ export const InsightCard: Story = (args) => {
     const [wasItemRemoved, setWasItemRemoved] = useState(false)
 
     return (
-        <div className="grid gap-[1rem] grid-cols-2 min-w-[50rem]">
+        <div className="grid gap-4 grid-cols-2 min-w-[50rem]">
             {!wasItemRemoved && (
                 <InsightCardComponent
                     insight={
@@ -193,7 +193,7 @@ export const InsightCard: Story = (args) => {
 
 export const QueryInsightCard: Story = (args) => {
     return (
-        <div className="grid gap-[1rem] grid-cols-2 min-w-[50rem]">
+        <div className="grid gap-4 grid-cols-2 min-w-[50rem]">
             {examples.map((insight) => {
                 // turn into HogQL based insight
                 if (!insight.filters.insight || insight.query) {

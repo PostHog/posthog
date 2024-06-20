@@ -11,7 +11,7 @@ export default meta
 
 export const TheHedgehog: StoryFn<typeof MyHedgehogBuddy> = () => {
     return (
-        <div className="h-[200px]">
+        <div className="h-52">
             <MyHedgehogBuddy
                 onClose={() => {
                     // eslint-disable-next-line no-console

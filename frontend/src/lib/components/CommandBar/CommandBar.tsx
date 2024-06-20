@@ -20,13 +20,8 @@ const CommandBarOverlay = forwardRef<HTMLDivElement, CommandBarOverlayProps>(fun
     ref
 ): JSX.Element {
     return (
-        <div
-            className={`fixed top-0 left-0 w-full h-full flex flex-col items-center justify-center p-3
-                z-[var(--z-command-palette)]
-                background-[var(--modal-backdrop-color)]
-                backdrop-blur-[var(--modal-backdrop-blur)]`}
-        >
-            <div className="w-full h-full max-h-160 max-w-248 overflow-hidden">
+        <div className="CommandBar__overlay">
+            <div className="CommandBar__overlay-content">
                 <div
                     data-attr="command-bar"
                     className={`w-full ${
