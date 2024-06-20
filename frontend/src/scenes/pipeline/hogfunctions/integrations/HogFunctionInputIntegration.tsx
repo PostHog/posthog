@@ -1,7 +1,7 @@
 import { LemonButton, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { SlackIntegrationView } from 'lib/integrations/SlackIntegrationHelpers'
 import { IconSlack } from 'lib/lemon-ui/icons'
 
 import { HogFunctionInputSchemaType } from '~/types'
@@ -60,32 +60,5 @@ export function HogFunctionIntegrationSlackConnection({
         </LemonMenu>
     )
 
-    return (
-        <>
-            {integration ? (
-                <div className="rounded border flex justify-between items-center p-2 bg-bg-light">
-                    <div className="flex items-center gap-4 ml-2">
-                        <IconSlack className="text-2xl" />
-                        <div>
-                            <div>
-                                Connected to <strong>{integration.config.team.name}</strong> workspace
-                            </div>
-                            {integration.created_by ? (
-                                <UserActivityIndicator
-                                    at={integration.created_at}
-                                    by={integration.created_by}
-                                    prefix="Updated"
-                                    className="text-muted"
-                                />
-                            ) : null}
-                        </div>
-                    </div>
-
-                    {button}
-                </div>
-            ) : (
-                button
-            )}
-        </>
-    )
+    return <>{integration ? <SlackIntegrationView integration={integration} suffix={button} /> : button}</>
 }

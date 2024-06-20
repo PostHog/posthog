@@ -2,9 +2,8 @@ import { IconTrash } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { getSlackAppManifest, integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { IconSlack } from 'lib/lemon-ui/icons'
+import { SlackIntegrationView } from 'lib/integrations/SlackIntegrationHelpers'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { useState } from 'react'
 import { urls } from 'scenes/urls'
@@ -50,36 +49,20 @@ export function SlackIntegration(): JSX.Element {
 
             <div className="space-y-2">
                 {slackIntegrations?.map((integration) => (
-                    <div
+                    <SlackIntegrationView
                         key={integration.id}
-                        className="rounded border flex justify-between items-center p-2 bg-bg-light"
-                    >
-                        <div className="flex items-center gap-4 ml-2">
-                            <IconSlack className="text-2xl" />
-                            <div>
-                                <div>
-                                    Connected to <strong>{integration.config.team.name}</strong> workspace
-                                </div>
-                                {integration.created_by ? (
-                                    <UserActivityIndicator
-                                        at={integration.created_at}
-                                        by={integration.created_by}
-                                        prefix="Updated"
-                                        className="text-muted"
-                                    />
-                                ) : null}
-                            </div>
-                        </div>
-
-                        <LemonButton
-                            type="secondary"
-                            status="danger"
-                            onClick={() => onDeleteClick(integration.id)}
-                            icon={<IconTrash />}
-                        >
-                            Disconnect
-                        </LemonButton>
-                    </div>
+                        integration={integration}
+                        suffix={
+                            <LemonButton
+                                type="secondary"
+                                status="danger"
+                                onClick={() => onDeleteClick(integration.id)}
+                                icon={<IconTrash />}
+                            >
+                                Disconnect
+                            </LemonButton>
+                        }
+                    />
                 ))}
 
                 <div>
