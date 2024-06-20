@@ -181,7 +181,7 @@ export const getUpgradeProductLink = ({
     }
 
     if (featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' && subscriptionLevel == 'free') {
-        url += 'products=all_products:'
+        url += `products=all_products:&intent_product=${product.type}`
         return url
     }
     url += `products=${product.type}:${upgradeToPlanKey},`

@@ -2,6 +2,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 import { BillingProductV2AddonType, BillingProductV2Type, BillingV2FeatureType, BillingV2Type } from '~/types'
 
@@ -61,7 +62,9 @@ const getCtaLink = (
         featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' &&
         subscriptionLevel === 'free'
     ) {
-        return `/api/billing/activate?products=all_products:&redirect_path=/`
+        return `/api/billing/activate?products=all_products:&redirect_path=${urls.organizationBilling()}&intent_product=${
+            productWithFeature.type
+        }`
     } else if (gateVariant === 'add-card') {
         return `/organization/billing${scrollToProduct ? `?products=${productWithFeature.type}` : ''}`
     } else if (gateVariant === 'contact-sales') {

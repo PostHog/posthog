@@ -300,7 +300,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                             </div>
                                             <LemonButton
                                                 className="shrink-0"
-                                                to={`/api/billing/activate?products=all_products:&redirect_path=${redirectPath}`}
+                                                to={`/api/billing/activate?products=all_products:&redirect_path=${redirectPath}&intent_product=${product.type}`}
                                                 type="primary"
                                                 status="alt"
                                                 disableClientSideRouting
