@@ -27,6 +27,7 @@ export const productUrlMapping: Partial<Record<ProductKey, string[]>> = {
     [ProductKey.FEATURE_FLAGS]: [urls.featureFlags(), urls.earlyAccessFeatures(), urls.experiments()],
     [ProductKey.SURVEYS]: [urls.surveys()],
     [ProductKey.PRODUCT_ANALYTICS]: [urls.insights(), urls.webAnalytics()],
+    [ProductKey.DATA_WAREHOUSE]: [urls.dataWarehouse()],
 }
 
 export const sceneLogic = kea<sceneLogicType>([

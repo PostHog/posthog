@@ -63,6 +63,14 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
         url: urls.surveys(),
         scene: Scene.Surveys,
     },
+    [ProductKey.DATA_WAREHOUSE]: {
+        name: 'Data Warehouse',
+        icon: 'IconDatabase',
+        iconColor: 'salmon',
+        breadcrumbsName: 'Data Warehouse',
+        url: urls.dataWarehouse(),
+        scene: Scene.DataWarehouse,
+    },
 }
 
 export const stepKeyToTitle = (stepKey?: OnboardingStepKey): undefined | string => {
