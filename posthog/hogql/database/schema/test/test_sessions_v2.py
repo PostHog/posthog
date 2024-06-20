@@ -14,11 +14,11 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _
 
 class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
     def __execute(self, query):
-        modifers = HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V2)
+        modifiers = HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V2)
         return execute_hogql_query(
             query=query,
             team=self.team,
-            modifiers=modifers,
+            modifiers=modifiers,
         )
 
     def test_select_star(self):
