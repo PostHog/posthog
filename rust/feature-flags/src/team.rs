@@ -5,7 +5,7 @@ use tracing::instrument;
 use crate::{
     api::FlagError,
     database::Client as DatabaseClient,
-    redis::{Client as RedisClient, CustomRedisError},
+    redis::Client as RedisClient,
 };
 
 // TRICKY: This cache data is coming from django-redis. If it ever goes out of sync, we'll bork.
@@ -30,18 +30,7 @@ impl Team {
         // TODO: Instead of failing here, i.e. if not in redis, fallback to pg
         let serialized_team = client
             .get(format!("{TEAM_TOKEN_CACHE_PREFIX}{}", token))
-            .await
-            .map_err(|e| match e {
-                CustomRedisError::NotFound => FlagError::TokenValidationError,
-                CustomRedisError::PickleError(_) => {
-                    tracing::error!("failed to fetch data: {}", e);
-                    FlagError::DataParsingError
-                }
-                _ => {
-                    tracing::error!("Unknown redis error: {}", e);
-                    FlagError::RedisUnavailable
-                }
-            })?;
+            .await?;
 
         // TODO: Consider an LRU cache for teams as well, with small TTL to skip redis/pg lookups
         let team: Team = serde_json::from_str(&serialized_team).map_err(|e| {
@@ -56,22 +45,13 @@ impl Team {
         client: Arc<dyn DatabaseClient + Send + Sync>,
         token: String,
     ) -> Result<Team, FlagError> {
-        let mut conn = client.get_connection().await.map_err(|e| {
-            tracing::error!("failed to get connection: {}", e);
-            FlagError::DatabaseUnavailable
-        })?;
-        // TODO: Clean up error handling here
+        let mut conn = client.get_connection().await?;
 
         let query = "SELECT id, name, api_token FROM posthog_team WHERE api_token = $1";
         let row = sqlx::query_as::<_, Team>(query)
             .bind(&token)
             .fetch_one(&mut *conn)
-            .await
-            .map_err(|e| {
-                tracing::error!("failed to fetch data: {}", e);
-                println!("failed to fetch data: {}", e);
-                FlagError::TokenValidationError
-            })?;
+            .await?;
 
         Ok(row)
     }

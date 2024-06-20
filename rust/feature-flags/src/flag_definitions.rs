@@ -5,7 +5,7 @@ use tracing::instrument;
 use crate::{
     api::FlagError,
     database::Client as DatabaseClient,
-    redis::{Client as RedisClient, CustomRedisError},
+    redis::Client as RedisClient,
 };
 
 // TRICKY: This cache data is coming from django-redis. If it ever goes out of sync, we'll bork.
@@ -142,21 +142,7 @@ impl FeatureFlagList {
         // TODO: Instead of failing here, i.e. if not in redis, fallback to pg
         let serialized_flags = client
             .get(format!("{TEAM_FLAGS_CACHE_PREFIX}{}", team_id))
-            .await
-            .map_err(|e| match e {
-                CustomRedisError::NotFound => FlagError::TokenValidationError,
-                CustomRedisError::PickleError(_) => {
-                    // TODO: Implement From trait for FlagError so we don't need to map
-                    // CustomRedisError ourselves
-                    tracing::error!("failed to fetch data: {}", e);
-                    println!("failed to fetch data: {}", e);
-                    FlagError::DataParsingError
-                }
-                _ => {
-                    tracing::error!("Unknown redis error: {}", e);
-                    FlagError::RedisUnavailable
-                }
-            })?;
+            .await?;
 
         let flags_list: Vec<FeatureFlag> =
             serde_json::from_str(&serialized_flags).map_err(|e| {
@@ -175,22 +161,14 @@ impl FeatureFlagList {
         client: Arc<dyn DatabaseClient + Send + Sync>,
         team_id: i32,
     ) -> Result<FeatureFlagList, FlagError> {
-        let mut conn = client.get_connection().await.map_err(|e| {
-            tracing::error!("failed to get connection: {}", e);
-            FlagError::DatabaseUnavailable
-        })?;
+        let mut conn = client.get_connection().await?;
         // TODO: Clean up error handling here
 
         let query = "SELECT id, team_id, name, key, filters, deleted, active, ensure_experience_continuity FROM posthog_featureflag WHERE team_id = $1";
         let flags_row = sqlx::query_as::<_, FeatureFlagRow>(query)
             .bind(&team_id)
             .fetch_all(&mut *conn)
-            .await
-            .map_err(|e| {
-                tracing::error!("failed to fetch data: {}", e);
-                println!("failed to fetch data: {}", e);
-                FlagError::DatabaseUnavailable
-            })?;
+            .await?;
 
         let serialized_flags = serde_json::to_string(&flags_row).map_err(|e| {
             tracing::error!("failed to serialize flags: {}", e);
