@@ -16,6 +16,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
@@ -23,13 +24,10 @@ import { AvailableFeature } from '~/types'
 
 import { proxyLogic, ProxyRecord } from './proxyLogic'
 
-const MAX_PROXY_RECORDS = 3
-
 export function ManagedReverseProxy(): JSX.Element {
     const { formState, proxyRecords, proxyRecordsLoading } = useValues(proxyLogic)
     const { showForm, deleteRecord } = useActions(proxyLogic)
-
-    const maxRecordsReached = proxyRecords.length >= MAX_PROXY_RECORDS
+    const { guardAvailableFeature } = useValues(upgradeModalLogic)
 
     const recordsWithMessages = proxyRecords.filter((record) => !!record.message)
 
@@ -108,8 +106,8 @@ export function ManagedReverseProxy(): JSX.Element {
     ]
 
     return (
-        <PayGateMini feature={AvailableFeature.MANAGED_REVERSE_PROXY}>
-            <div className="space-y-2">
+        <div className="space-y-2">
+            <PayGateMini feature={AvailableFeature.MANAGED_REVERSE_PROXY}>
                 {recordsWithMessages.map((r) => (
                     <LemonBanner type="warning" key={r.id}>
                         <LemonMarkdown>{`**${r.domain}**\n ${r.message}`}</LemonMarkdown>
@@ -124,20 +122,28 @@ export function ManagedReverseProxy(): JSX.Element {
                     }}
                 />
                 {formState === 'collapsed' ? (
-                    maxRecordsReached ? (
-                        <LemonBanner type="info">
-                            There is a maximum of {MAX_PROXY_RECORDS} records allowed per organization
-                        </LemonBanner>
-                    ) : (
-                        <LemonButton onClick={showForm} type="secondary" icon={<IconPlus />}>
-                            New managed proxy
-                        </LemonButton>
-                    )
+                    <LemonButton
+                        onClick={() =>
+                            guardAvailableFeature(
+                                AvailableFeature.MANAGED_REVERSE_PROXY,
+                                () => {
+                                    showForm()
+                                },
+                                {
+                                    currentUsage: proxyRecords.length,
+                                }
+                            )
+                        }
+                        type="secondary"
+                        icon={<IconPlus />}
+                    >
+                        New managed proxy
+                    </LemonButton>
                 ) : (
                     <CreateRecordForm />
                 )}
-            </div>
-        </PayGateMini>
+            </PayGateMini>
+        </div>
     )
 }
 
