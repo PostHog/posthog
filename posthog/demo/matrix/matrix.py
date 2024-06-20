@@ -183,7 +183,7 @@ class Cluster(ABC):
     def roll_uuid_v7(self, at_timestamp: Optional[dt.datetime] = None) -> uuid.UUID:
         if at_timestamp is None:
             at_timestamp = self.simulation_time
-        return uuid7(int(at_timestamp.timestamp() * 1000), seeded_random=self.random)
+        return uuid7(int(at_timestamp.timestamp() * 1000), random=self.random)
 
 
 class Matrix(ABC):

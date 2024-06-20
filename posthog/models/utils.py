@@ -96,9 +96,7 @@ class UUIDT(uuid.UUID):
 
 
 # Delete this when we can use the version from the stdlib directly, see https://github.com/python/cpython/issues/102461
-def uuid7(
-    unix_ms_time: Optional[Union[int, str]] = None, random_component: Optional[Union["Random", int]] = None
-) -> uuid.UUID:
+def uuid7(unix_ms_time: Optional[Union[int, str]] = None, random: Optional[Union["Random", int]] = None) -> uuid.UUID:
     # timestamp part
     unix_ms_time_int: int
     if isinstance(unix_ms_time, str):
@@ -113,14 +111,14 @@ def uuid7(
         unix_ms_time_int = unix_ms_time
 
     # random part
-    if isinstance(random_component, int):
+    if isinstance(random, int):
         # use the integer directly as the random component
-        rand_a = random_component & 0x0FFF
-        rand_b = random_component >> 12 & 0x03FFFFFFFFFFFFFFF
-    elif random_component is not None:
+        rand_a = random & 0x0FFF
+        rand_b = random >> 12 & 0x03FFFFFFFFFFFFFFF
+    elif random is not None:
         # use the provided random generator
-        rand_a = random_component.getrandbits(12)
-        rand_b = random_component.getrandbits(56)
+        rand_a = random.getrandbits(12)
+        rand_b = random.getrandbits(56)
     else:
         # use the system random generator
         rand_bytes = int.from_bytes(secrets.token_bytes(10), byteorder="little")
