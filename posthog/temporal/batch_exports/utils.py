@@ -88,7 +88,7 @@ async def try_set_batch_export_run_to_running(run_id: str | None, logger, timeou
     """
     if run_id is None:
         # Should never land here except in tests of individual activities
-        yield
+        yield None
         return
 
     background_task = asyncio.create_task(
