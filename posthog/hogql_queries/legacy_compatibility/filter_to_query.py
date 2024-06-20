@@ -2,6 +2,7 @@ import copy
 from enum import Enum
 import json
 from typing import Any, Literal
+
 from posthog.hogql_queries.legacy_compatibility.clean_properties import clean_entity_properties, clean_global_properties
 from posthog.models.entity.entity import Entity as LegacyEntity
 from posthog.schema import (
@@ -273,12 +274,29 @@ def _breakdown_filter(_filter: dict):
     if breakdownFilter["breakdown_type"] == "events":
         breakdownFilter["breakdown_type"] = "event"
 
-    if _filter.get("breakdowns") is not None:
-        if len(_filter.get("breakdowns")) == 1:
-            breakdownFilter["breakdown_type"] = _filter.get("breakdowns")[0].get("type", None)
-            breakdownFilter["breakdown"] = _filter.get("breakdowns")[0].get("property", None)
-        else:
-            raise Exception("Could not convert multi-breakdown property `breakdowns` - found more than one breakdown")
+    if _filter.get("breakdowns") is not None and isinstance(_filter["breakdowns"], list):
+        breakdowns = []
+        for breakdown in _filter["breakdowns"]:
+            if isinstance(breakdown, dict) and "property" in breakdown:
+                breakdowns.append(
+                    {
+                        "type": breakdown.get("type", "event"),
+                        "property": breakdown.get("property", None),
+                        "normalize_url": breakdown.get("normalize_url", None),
+                    }
+                )
+            elif isinstance(breakdown, str):
+                breakdowns.append(
+                    {
+                        "type": breakdownFilter["breakdown_type"],
+                        "property": breakdown,
+                        "normalize_url": breakdownFilter["breakdown_normalize_url"],
+                        "histogram_bin_count": breakdownFilter["breakdownbreakdown_histogram_bin_count_normalize_url"],
+                    }
+                )
+
+        if len(breakdowns) > 0:
+            breakdownFilter["breakdowns"] = breakdowns
 
     if breakdownFilter["breakdown"] is not None and breakdownFilter["breakdown_type"] is None:
         breakdownFilter["breakdown_type"] = "event"

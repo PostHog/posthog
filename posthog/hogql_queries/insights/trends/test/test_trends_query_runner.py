@@ -9,6 +9,7 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql_queries.insights.trends.breakdown import BREAKDOWN_NULL_STRING_LABEL
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner, BREAKDOWN_OTHER_DISPLAY
 from posthog.models.cohort.cohort import Cohort
 from posthog.models import GroupTypeMapping
@@ -2792,7 +2793,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert len(response.results) == 6
         assert len(breakdown_labels) == 6
-        assert breakdown_labels == [["4"], ["8"], ["16"], ["32"], ["64"]]
+        assert breakdown_labels == [["4"], ["8"], ["128"], ["16"], ["32"], ["64"]]
 
     def test_trends_event_multiple_numeric_breakdowns_into_bins(self):
         self._create_events(
@@ -2871,6 +2872,15 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={"$bin": 128},
                 ),
+                SeriesTestData(
+                    distinct_id="p7",
+                    events=[
+                        Series(event="$pageview", timestamps=["2020-01-15T12:00:00Z"]),
+                        Series(event="$pageleave", timestamps=["2020-01-16T11:00:00Z"]),
+                        Series(event="$pageleave", timestamps=["2020-01-16T12:00:00Z"]),
+                    ],
+                    properties={},
+                ),
             ]
         )
 
@@ -2882,12 +2892,266 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             None,
             BreakdownFilter(
                 breakdowns=[
-                    Breakdown(property="$bin", histogram_bin_count=2),
+                    Breakdown(property="$bin", histogram_bin_count=5),
                 ],
+            ),
+        )
+        breakdown_labels = [result["breakdown_value"] for result in response.results]
+
+        assert len(response.results) == 5
+        assert len(breakdown_labels) == 5
+        assert breakdown_labels == [
+            ["[4,28.8]"],
+            ["[28.8,53.6]"],
+            ["[103.2,128.01]"],
+            ["[53.6,78.4]"],
+            [BREAKDOWN_NULL_STRING_LABEL],
+        ]
+        assert [9, 1, 1, 1, 1] == [r["count"] for r in response.results]
+
+    def test_trends_event_histogram_breakdowns_return_equal_result(self):
+        self._create_events(
+            [
+                SeriesTestData(
+                    distinct_id="p1",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",
+                                "2020-01-12T12:00:00Z",
+                                "2020-01-13T12:00:00Z",
+                                "2020-01-15T12:00:00Z",
+                                "2020-01-17T12:00:00Z",
+                                "2020-01-19T12:00:00Z",
+                            ],
+                        ),
+                        Series(
+                            event="$pageleave",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",
+                                "2020-01-12T12:00:00Z",
+                                "2020-01-13T12:00:00Z",
+                            ],
+                        ),
+                    ],
+                    properties={"$bin": 4},
+                ),
+                SeriesTestData(
+                    distinct_id="p2",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=["2020-01-09T12:00:00Z", "2020-01-12T12:00:00Z"],
+                        ),
+                        Series(
+                            event="$pageleave",
+                            timestamps=[
+                                "2020-01-13T12:00:00Z",
+                            ],
+                        ),
+                    ],
+                    properties={"$bin": 8},
+                ),
+                SeriesTestData(
+                    distinct_id="p3",
+                    events=[
+                        Series(event="$pageview", timestamps=["2020-01-12T12:00:00Z"]),
+                        Series(event="$pageleave", timestamps=["2020-01-13T12:00:00Z"]),
+                    ],
+                    properties={"$bin": 16},
+                ),
+                SeriesTestData(
+                    distinct_id="p4",
+                    events=[
+                        Series(event="$pageview", timestamps=["2020-01-12T12:00:00Z"]),
+                        Series(event="$pageleave", timestamps=["2020-01-13T12:00:00Z"]),
+                    ],
+                    properties={},
+                ),
+            ]
+        )
+
+        single_breakdown_response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(breakdown="$bin", breakdown_histogram_bin_count=5),
+        )
+        multiple_breakdowns_response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(
+                breakdowns=[
+                    Breakdown(property="$bin", histogram_bin_count=5),
+                ],
+            ),
+        )
+
+        single_breakdown_values = [result["breakdown_value"] for result in single_breakdown_response.results]
+        multiple_breakdown_values = [result["breakdown_value"][0] for result in multiple_breakdowns_response.results]
+
+        assert len(single_breakdown_response.results) == len(multiple_breakdowns_response.results) == 4
+        assert len(single_breakdown_values) == len(multiple_breakdown_values) == 4
+        assert (
+            single_breakdown_values
+            == multiple_breakdown_values
+            == [
+                "[4,6.4]",
+                "[6.4,8.8]",
+                "[13.6,16.01]",
+                BREAKDOWN_NULL_STRING_LABEL,
+            ]
+        )
+        assert (
+            [r["count"] for r in single_breakdown_response.results]
+            == [r["count"] for r in multiple_breakdowns_response.results]
+            == [6, 2, 1, 1]
+        )
+
+    def test_trends_event_breakdowns_handle_null(self):
+        self._create_events(
+            [
+                SeriesTestData(
+                    distinct_id="p1",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",
+                                "2020-01-12T12:00:00Z",
+                                "2020-01-13T12:00:00Z",
+                                "2020-01-15T12:00:00Z",
+                                "2020-01-17T12:00:00Z",
+                                "2020-01-19T12:00:00Z",
+                            ],
+                        ),
+                        Series(
+                            event="$pageleave",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",
+                                "2020-01-12T12:00:00Z",
+                                "2020-01-13T12:00:00Z",
+                            ],
+                        ),
+                    ],
+                    properties={"$bin": 4},
+                ),
+                SeriesTestData(
+                    distinct_id="p2",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=["2020-01-09T12:00:00Z", "2020-01-12T12:00:00Z"],
+                        ),
+                        Series(
+                            event="$pageleave",
+                            timestamps=[
+                                "2020-01-13T12:00:00Z",
+                            ],
+                        ),
+                    ],
+                    properties={"$second_bin": 2},
+                ),
+            ]
+        )
+
+        # single
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(
+                breakdown="$bin",
+                breakdown_histogram_bin_count=10,
             ),
         )
         breakdown_labels = [result["breakdown_value"] for result in response.results]
 
         assert len(response.results) == 2
         assert len(breakdown_labels) == 2
-        assert breakdown_labels == [["4"], ["8"], ["16"], ["32"], ["64"]]
+        assert breakdown_labels == ["[4,4.01]", BREAKDOWN_NULL_STRING_LABEL]
+
+        # single and the property is not included by the date range
+        response = self._run_trends_query(
+            "2020-01-14",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(
+                breakdown="$second_bin",
+                breakdown_histogram_bin_count=10,
+            ),
+        )
+        breakdown_labels = [result["breakdown_value"] for result in response.results]
+
+        assert len(response.results) == 1
+        assert len(breakdown_labels) == 1
+        # must return the placeholder value to ensure the frontend doesn't show an empty cell
+        assert breakdown_labels == [BREAKDOWN_NULL_STRING_LABEL]
+
+        # multiple
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(breakdowns=[Breakdown(property="$bin", histogram_bin_count=10)]),
+        )
+        breakdown_labels = [result["breakdown_value"] for result in response.results]
+
+        assert len(response.results) == 2
+        assert len(breakdown_labels) == 2
+        assert breakdown_labels == [["[4,4.01]"], [BREAKDOWN_NULL_STRING_LABEL]]
+
+        # multiple, two properties
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(
+                breakdowns=[
+                    Breakdown(property="$bin", histogram_bin_count=10),
+                    Breakdown(property="$second_bin", histogram_bin_count=10),
+                ]
+            ),
+        )
+        breakdown_labels = [result["breakdown_value"] for result in response.results]
+
+        assert len(response.results) == 2
+        assert len(breakdown_labels) == 2
+        assert breakdown_labels == [
+            ["[4,4.01]", BREAKDOWN_NULL_STRING_LABEL],
+            [BREAKDOWN_NULL_STRING_LABEL, "[2,2.01]"],
+        ]
+
+        # multiple and the property is not included by the date range
+        response = self._run_trends_query(
+            "2020-01-14",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(
+                breakdowns=[
+                    Breakdown(property="$second_bin", histogram_bin_count=10),
+                ]
+            ),
+        )
+        breakdown_labels = [result["breakdown_value"] for result in response.results]
+
+        assert len(response.results) == 1
+        assert len(breakdown_labels) == 1
+        # must return the placeholder value to ensure the frontend doesn't show an empty cell
+        assert breakdown_labels == [[BREAKDOWN_NULL_STRING_LABEL]]
