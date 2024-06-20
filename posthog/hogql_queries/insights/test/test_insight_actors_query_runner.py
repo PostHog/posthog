@@ -187,6 +187,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual([("p2",)], response.results)
 
+    @snapshot_clickhouse_queries
     def test_insight_persons_stickiness_groups_query(self):
         self._create_test_groups()
         self._create_test_events()
@@ -233,6 +234,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual([("p2",)], response.results)
 
+    @snapshot_clickhouse_queries
     def test_insight_persons_trends_groups_query(self):
         self._create_test_groups()
         self._create_test_events()
@@ -256,6 +258,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual([("org1",)], response.results)
 
+    @snapshot_clickhouse_queries
     def test_insight_persons_funnels_query(self):
         self._create_test_events()
         self.team.timezone = "US/Pacific"

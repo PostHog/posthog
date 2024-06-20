@@ -9,7 +9,14 @@ from posthog.hogql_queries.actor_strategies import ActorStrategy, PersonStrategy
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
-from posthog.schema import ActorsQuery, ActorsQueryResponse, CachedActorsQueryResponse, DashboardFilter
+from posthog.schema import (
+    ActorsQuery,
+    ActorsQueryResponse,
+    CachedActorsQueryResponse,
+    DashboardFilter,
+    LifecycleQuery,
+    StickinessQuery,
+)
 
 
 class ActorsQueryRunner(QueryRunner):
@@ -259,15 +266,19 @@ class ActorsQueryRunner(QueryRunner):
                 ),
             )
 
-            s = parse_select("SELECT distinct actor_id as person_id FROM source")
-            s.select_from.table = source_query
+            ctes = {
+                source_alias: ast.CTE(name=source_alias, expr=source_query, cte_type="subquery"),
+            }
+            if isinstance(self.strategy, ActorStrategy) and any(
+                isinstance(x, C) for x in [self.query.source.source] for C in (LifecycleQuery, StickinessQuery)
+            ):
+                s = parse_select("SELECT distinct actor_id as person_id FROM source")
+                s.select_from.table = source_query
+                # How to get rid of the extra superfluous select
+                ctes["person_ids"] = ast.CTE(name="person_ids", expr=s, cte_type="subquery")
 
             stmt = ast.SelectQuery(
-                ctes={
-                    source_alias: ast.CTE(name=source_alias, expr=source_query, cte_type="subquery"),
-                    # How to get rid of the extra superfluous select
-                    "person_ids": ast.CTE(name="person_ids", expr=s, cte_type="subquery"),
-                },
+                ctes=ctes,
                 select=columns,
                 select_from=join_expr,
                 where=where,
