@@ -2,13 +2,15 @@ import itertools
 from typing import Optional
 from collections.abc import Sequence, Iterator
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr, parse_order_expr
+from posthog.hogql.constants import HogQLQuerySettings
+from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
 from posthog.hogql.property import has_aggregation
 from posthog.hogql_queries.actor_strategies import ActorStrategy, PersonStrategy, GroupStrategy
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
-from posthog.schema import ActorsQuery, ActorsQueryResponse, CachedActorsQueryResponse, DashboardFilter
+from posthog.schema import ActorsQuery, ActorsQueryResponse, CachedActorsQueryResponse, DashboardFilter, TrendsQuery
+from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 
 class ActorsQueryRunner(QueryRunner):
@@ -230,21 +232,58 @@ class ActorsQueryRunner(QueryRunner):
                 order_by = []
 
         with self.timings.measure("select"):
-            if self.query.source:
-                join_expr = self.source_table_join()
-            else:
+            if not self.query.source:
                 join_expr = ast.JoinExpr(table=ast.Field(chain=[self.strategy.origin]))
+            else:
+                assert self.source_query_runner is not None  # For type checking
+                source_query = self.source_query_runner.to_actors_query()
 
-            stmt = ast.SelectQuery(
-                select=columns,
-                select_from=join_expr,
-                where=where,
-                having=having,
-                group_by=group_by if has_any_aggregation else None,
-                order_by=order_by,
-            )
+                # SelectUnionQuery (used by Stickiness) doesn't have settings
+                if hasattr(source_query, "settings"):
+                    if source_query.settings is None:
+                        source_query.settings = HogQLQuerySettings()
+                    source_query.settings.use_query_cache = True
+                    source_query.settings.query_cache_ttl = HOGQL_INCREASED_MAX_EXECUTION_TIME
 
-        return stmt
+                source_id_chain = self.source_id_column(source_query)
+                source_alias = "source"
+
+                join_expr = ast.JoinExpr(
+                    table=ast.Field(chain=[source_alias]),
+                    next_join=ast.JoinExpr(
+                        table=ast.Field(chain=[self.strategy.origin]),
+                        join_type="INNER JOIN",
+                        constraint=ast.JoinConstraint(
+                            expr=ast.CompareOperation(
+                                op=ast.CompareOperationOp.Eq,
+                                left=ast.Field(chain=[self.strategy.origin, self.strategy.origin_id]),
+                                right=ast.Field(chain=[source_alias, *source_id_chain]),
+                            ),
+                            constraint_type="ON",
+                        ),
+                    ),
+                )
+
+                ctes = {
+                    source_alias: ast.CTE(name=source_alias, expr=source_query, cte_type="subquery"),
+                }
+                # For now, only use this CTE optimization in Trends, until we test it with other queries
+                if isinstance(self.strategy, PersonStrategy) and any(
+                    isinstance(x, C) for x in [self.query.source.source] for C in (TrendsQuery,)
+                ):
+                    s = parse_select("SELECT distinct actor_id as person_id FROM source")
+                    # This feels like it adds one extra level of SELECT which is unnecessary
+                    ctes["person_ids"] = ast.CTE(name="person_ids", expr=s, cte_type="subquery")
+
+        return ast.SelectQuery(
+            ctes=ctes,
+            select=columns,
+            select_from=join_expr,
+            where=where,
+            having=having,
+            group_by=group_by if has_any_aggregation else None,
+            order_by=order_by,
+        )
 
     def to_actors_query(self) -> ast.SelectQuery:
         return self.to_query()

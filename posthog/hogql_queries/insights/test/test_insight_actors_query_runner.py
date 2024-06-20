@@ -213,33 +213,6 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([("org1",)], response.results)
 
     @snapshot_clickhouse_queries
-    def test_insight_persons_trends_query_with_argmaxV2(self):
-        self._create_test_events()
-        self.team.timezone = "US/Pacific"
-        self.team.save()
-
-        with self.capture_queries(lambda query: re.match(r"^SELECT\s+name\s+AS\s+name", query)) as queries:
-            response = self.select(
-                """
-                select * from (
-                    <ActorsQuery select={['properties.name']}>
-                        <InsightActorsQuery day='2020-01-09'>
-                            <TrendsQuery
-                                dateRange={<InsightDateRange date_from='2020-01-09' date_to='2020-01-19' />}
-                                series={[<EventsNode event='$pageview' />]}
-                            />
-                        </InsightActorsQuery>
-                    </ActorsQuery>
-                )
-                """,
-                modifiers={"personsArgMaxVersion": PersonsArgMaxVersion.V2},
-            )
-
-        self.assertEqual([("p2",)], response.results)
-        assert "in(distinct_id" in queries[0]
-        assert "in(person.id" in queries[0]
-
-    @snapshot_clickhouse_queries
     def test_insight_persons_trends_query_with_argmaxV1(self):
         self._create_test_events()
         self.team.timezone = "US/Pacific"
@@ -254,6 +227,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                             <TrendsQuery
                                 dateRange={<InsightDateRange date_from='2020-01-09' date_to='2020-01-19' />}
                                 series={[<EventsNode event='$pageview' />]}
+                                properties={[<PersonPropertyFilter type='person' key='email' value='tom@posthog.com' operator='is_not' />]}
                             />
                         </InsightActorsQuery>
                     </ActorsQuery>
@@ -263,7 +237,33 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
 
         self.assertEqual([("p2",)], response.results)
-        assert "in(distinct_id" in queries[0]
+        assert "in(person.id" in queries[0]
+
+    @snapshot_clickhouse_queries
+    def test_insight_persons_trends_query_with_argmaxV2(self):
+        self._create_test_events()
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+
+        with self.capture_queries(lambda query: re.match(r"^SELECT\s+name\s+AS\s+name", query)) as queries:
+            response = self.select(
+                """
+                select * from (
+                    <ActorsQuery select={['properties.name']}>
+                        <InsightActorsQuery day='2020-01-09'>
+                            <TrendsQuery
+                                dateRange={<InsightDateRange date_from='2020-01-09' date_to='2020-01-19' />}
+                                series={[<EventsNode event='$pageview' />]}
+                                properties={[<PersonPropertyFilter type='person' key='email' value='tom@posthog.com' operator='is_not' />]}
+                            />
+                        </InsightActorsQuery>
+                    </ActorsQuery>
+                )
+                """,
+                modifiers={"personsArgMaxVersion": PersonsArgMaxVersion.V2},
+            )
+
+        self.assertEqual([("p2",)], response.results)
         assert "in(person.id" in queries[0]
 
     @snapshot_clickhouse_queries
