@@ -8037,6 +8037,7 @@
                     "type": "number"
                 },
                 "y_axis_scale_type": {
+                    "enum": ["log10", "linear"],
                     "type": "string"
                 }
             },
