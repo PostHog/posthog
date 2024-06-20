@@ -38,13 +38,18 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
             (billing) => {
                 // TODO(@zach): revisit this logic after subscribe to all products is released
                 // There are some features where we want to check the product first
-                const checkProductFirst = [AvailableFeature.ORGANIZATIONS_PROJECTS]
+                const checkProductFirst = [
+                    AvailableFeature.ORGANIZATIONS_PROJECTS,
+                    AvailableFeature.MANAGED_REVERSE_PROXY,
+                ]
 
                 let foundProduct: BillingProductV2Type | BillingProductV2AddonType | undefined = undefined
 
                 if (checkProductFirst.includes(props.featureKey)) {
-                    foundProduct = billing?.products?.find((product) =>
-                        product.features?.some((f) => f.key === props.featureKey)
+                    foundProduct = billing?.products?.find(
+                        (product) =>
+                            product.features?.some((f) => f.key === props.featureKey) &&
+                            !(product.inclusion_only && billing.has_active_subscription)
                     )
                 }
 
