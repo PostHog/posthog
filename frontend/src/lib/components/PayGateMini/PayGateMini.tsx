@@ -261,11 +261,12 @@ const renderUsageLimitMessage = (
                     </>
                 ) : isAddonProduct ? (
                     <p>
-                        Please upgrade to the <b>{productWithFeature.name} addon</b> to create more {featureInfo.name}
+                        Please upgrade to the <b>{productWithFeature.name} addon</b> to create more{' '}
+                        {featureInfoOnNextPlan?.unit}.
                     </p>
                 ) : (
                     <p>
-                        Please upgrade your <b>{productWithFeature.name}</b> plan to create more {featureInfo.name}
+                        Please upgrade your <b>{productWithFeature.name}</b> plan to create more {featureInfo.name}.
                     </p>
                 )}
             </div>
