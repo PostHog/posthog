@@ -66,7 +66,6 @@ def select_from_persons_table(join_or_table: LazyJoinToAdd | LazyTableToAdd, con
                HAVING equals(argMax(raw_persons.is_deleted, raw_persons.version), 0)
                AND argMax(raw_persons.created_at, raw_persons.version) < now() + interval 1 day
             )
-            
             """
                 if "person_ids" in node.type.ctes
                 else """
@@ -76,7 +75,7 @@ def select_from_persons_table(join_or_table: LazyJoinToAdd | LazyTableToAdd, con
                GROUP BY id
                HAVING equals(argMax(raw_persons.is_deleted, raw_persons.version), 0)
                AND argMax(raw_persons.created_at, raw_persons.version) < now() + interval 1 day
-            )            
+            )
             """
             ),
         )

@@ -71,14 +71,14 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ]
         )
 
-    def select(self, query: str, placeholders: Optional[dict[str, Any]] = None, modifiers: dict = {}):
+    def select(self, query: str, placeholders: Optional[dict[str, Any]] = None, modifiers: dict = None):
         if placeholders is None:
             placeholders = {}
         return execute_hogql_query(
             query=query,
             team=self.team,
             placeholders=placeholders,
-            modifiers=HogQLQueryModifiers(**modifiers),
+            modifiers=HogQLQueryModifiers(**modifiers) if modifiers else None,
         )
 
     @snapshot_clickhouse_queries
