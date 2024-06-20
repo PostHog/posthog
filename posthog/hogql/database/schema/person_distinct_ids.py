@@ -32,13 +32,15 @@ def select_from_person_distinct_ids_table(requested_fields: dict[str, list[str |
     # Always include "person_id", as it's the key we use to make further joins, and it'd be great if it's available
     if "person_id" not in requested_fields:
         requested_fields = {**requested_fields, "person_id": ["person_id"]}
-    return argmax_select(
+    select = argmax_select(
         table_name="raw_person_distinct_ids",
         select_fields=requested_fields,
         group_fields=["distinct_id"],
         argmax_field="version",
         deleted_field="is_deleted",
     )
+    select.optimize_aggregation_in_order = True
+    return select
 
 
 def join_with_person_distinct_ids_table(
