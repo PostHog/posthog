@@ -158,7 +158,7 @@ export enum AvailableFeature {
     MANAGED_REVERSE_PROXY = 'managed_reverse_proxy',
 }
 
-type AvailableFeatureUnion = `${AvailableFeature}`
+export type AvailableFeatureUnion = `${AvailableFeature}`
 
 export enum ProductKey {
     COHORTS = 'cohorts',
