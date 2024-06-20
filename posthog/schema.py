@@ -1083,6 +1083,11 @@ class TimelineEntry(BaseModel):
     sessionId: Optional[str] = Field(default=None, description="Session ID. None means out-of-session events")
 
 
+class YAxisScaleType(str, Enum):
+    LOG10 = "log10"
+    LINEAR = "linear"
+
+
 class TrendsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1100,7 +1105,7 @@ class TrendsFilter(BaseModel):
     showPercentStackView: Optional[bool] = False
     showValuesOnSeries: Optional[bool] = False
     smoothingIntervals: Optional[int] = 1
-    yAxisScaleType: Optional[str] = None
+    yAxisScaleType: Optional[YAxisScaleType] = None
 
 
 class TrendsFilterLegacy(BaseModel):
@@ -1122,7 +1127,7 @@ class TrendsFilterLegacy(BaseModel):
     show_percent_stack_view: Optional[bool] = None
     show_values_on_series: Optional[bool] = None
     smoothing_intervals: Optional[float] = None
-    y_axis_scale_type: Optional[str] = None
+    y_axis_scale_type: Optional[YAxisScaleType] = None
 
 
 class TrendsQueryResponse(BaseModel):
