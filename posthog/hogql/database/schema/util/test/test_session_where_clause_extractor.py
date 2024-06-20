@@ -329,14 +329,14 @@ GROUP BY sessions.session_id
 FROM
     events
     JOIN (SELECT
-        sessions.session_id AS session_id
+        raw_sessions.session_id AS session_id
     FROM
-        sessions
+        raw_sessions
     WHERE
         and(equals(sessions.team_id, {self.team.id}), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, %(hogql_val_0)s), toIntervalDay(3)), %(hogql_val_1)s), 0))
     GROUP BY
-        sessions.session_id,
-        sessions.session_id) AS sessions ON equals(events.`$session_id`, sessions.session_id)
+        raw_sessions.session_id,
+        raw_sessions.session_id) AS sessions ON equals(events.`$session_id`, sessions.session_id)
 WHERE
     and(equals(events.team_id, {self.team.id}), greater(toTimeZone(events.timestamp, %(hogql_val_2)s), %(hogql_val_3)s))
 GROUP BY
@@ -363,17 +363,17 @@ SELECT
 FROM
     events
     LEFT JOIN (SELECT
-        dateDiff(%(hogql_val_0)s, min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
-        sessions.session_id AS session_id
+        dateDiff(%(hogql_val_0)s, min(raw_sessions.min_timestamp), max(raw_sessions.max_timestamp)) AS `$session_duration`,
+        raw_sessions.session_id_v7 AS session_id_v7
     FROM
-        sessions
+        raw_sessions
     WHERE
-        and(equals(sessions.team_id, {self.team.id}), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, %(hogql_val_1)s), toIntervalDay(3)), today()), 0))
+        and(equals(raw_sessions.team_id, {self.team.id}), ifNull(lessOrEquals(minus(toTimeZone(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), %(hogql_val_1)s), toIntervalDay(3)), today()), 0))
     GROUP BY
-        sessions.session_id,
-        sessions.session_id) AS events__session ON equals(events.`$session_id`, events__session.session_id)
+        raw_sessions.session_id_v7,
+        raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, %(hogql_val_2)s)), events__session.session_id_v7)
 WHERE
-    and(equals(events.team_id, {self.team.id}), less(toTimeZone(events.timestamp, %(hogql_val_2)s), today()))
+    and(equals(events.team_id, 1785), less(toTimeZone(events.timestamp, %(hogql_val_3)s), today()))
 LIMIT {MAX_SELECT_RETURNED_ROWS}"""
         assert expected == actual
 
