@@ -132,6 +132,8 @@ export class HogWatcherObserver {
             state,
         })
 
+        // TODO: Somehow report this back to PostHog so we can display it in the UI
+
         return state
     }
 
@@ -225,22 +227,12 @@ export class HogWatcher {
         })
     }
 
-    getOverflowedHogFunctionIds(): HogFunctionType['id'][] {
-        // TODO
-        return []
-    }
-
     isHogFunctionOverflowed(hogFunctionId: HogFunctionType['id']): boolean {
-        return this.getOverflowedHogFunctionIds().includes(hogFunctionId)
-    }
-
-    getDisabledHogFunctionIds(): HogFunctionType['id'][] {
-        // TODO
-        return []
+        return this.getObserver(hogFunctionId).currentState() === HogWatcherState.overflowed
     }
 
     isHogFunctionDisabled(hogFunctionId: HogFunctionType['id']): boolean {
-        return this.getDisabledHogFunctionIds().includes(hogFunctionId)
+        return this.getObserver(hogFunctionId).currentState() >= HogWatcherState.disabledForPeriod
     }
 
     private getObserver(id: HogFunctionType['id']): HogWatcherObserver {
