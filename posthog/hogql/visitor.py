@@ -114,7 +114,7 @@ class TraversingVisitor(Visitor[None]):
 
     def visit_select_query(self, node: ast.SelectQuery):
         # :TRICKY: when adding new fields, also add them to visit_select_query of resolver.py
-        # pass the CTEs of the node to its children
+        # pass the CTEs of the node to select_froms (needed for nested joins to have access to CTEs)
         if node.type is not None and node.type.ctes is not None and node.select_from is not None and hasattr(node.select_from.type, "ctes"):
             node.select_from.type.ctes = {**node.type.ctes, **node.select_from.type.ctes}
         self.visit(node.select_from)

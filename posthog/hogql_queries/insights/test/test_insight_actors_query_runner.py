@@ -1,4 +1,5 @@
 from typing import Any, Optional
+import re
 
 from freezegun import freeze_time
 
@@ -217,23 +218,26 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.team.timezone = "US/Pacific"
         self.team.save()
 
-        response = self.select(
-            """
-            select * from (
-                <ActorsQuery select={['properties.name']}>
-                    <InsightActorsQuery day='2020-01-09'>
-                        <TrendsQuery
-                            dateRange={<InsightDateRange date_from='2020-01-09' date_to='2020-01-19' />}
-                            series={[<EventsNode event='$pageview' />]}
-                        />
-                    </InsightActorsQuery>
-                </ActorsQuery>
+        with self.capture_queries(lambda query: re.match("^SELECT\s+name\s+AS\s+name", query)) as queries:
+            response = self.select(
+                """
+                select * from (
+                    <ActorsQuery select={['properties.name']}>
+                        <InsightActorsQuery day='2020-01-09'>
+                            <TrendsQuery
+                                dateRange={<InsightDateRange date_from='2020-01-09' date_to='2020-01-19' />}
+                                series={[<EventsNode event='$pageview' />]}
+                            />
+                        </InsightActorsQuery>
+                    </ActorsQuery>
+                )
+                """,
+                modifiers={"personsArgMaxVersion": PersonsArgMaxVersion.V2},
             )
-            """,
-            modifiers={"personsArgMaxVersion": PersonsArgMaxVersion.V2},
-        )
 
         self.assertEqual([("p2",)], response.results)
+        assert "in(distinct_id" in queries[0]
+        assert "in(person.id" in queries[0]
 
     @snapshot_clickhouse_queries
     def test_insight_persons_trends_query_with_argmaxV1(self):
@@ -241,23 +245,26 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.team.timezone = "US/Pacific"
         self.team.save()
 
-        response = self.select(
-            """
-            select * from (
-                <ActorsQuery select={['properties.name']}>
-                    <InsightActorsQuery day='2020-01-09'>
-                        <TrendsQuery
-                            dateRange={<InsightDateRange date_from='2020-01-09' date_to='2020-01-19' />}
-                            series={[<EventsNode event='$pageview' />]}
-                        />
-                    </InsightActorsQuery>
-                </ActorsQuery>
+        with self.capture_queries(lambda query: re.match("^SELECT\s+name\s+AS\s+name", query)) as queries:
+            response = self.select(
+                """
+                select * from (
+                    <ActorsQuery select={['properties.name']}>
+                        <InsightActorsQuery day='2020-01-09'>
+                            <TrendsQuery
+                                dateRange={<InsightDateRange date_from='2020-01-09' date_to='2020-01-19' />}
+                                series={[<EventsNode event='$pageview' />]}
+                            />
+                        </InsightActorsQuery>
+                    </ActorsQuery>
+                )
+                """,
+                modifiers={"personsArgMaxVersion": PersonsArgMaxVersion.V1},
             )
-            """,
-            modifiers={"personsArgMaxVersion": PersonsArgMaxVersion.V1},
-        )
 
         self.assertEqual([("p2",)], response.results)
+        assert "in(distinct_id" in queries[0]
+        assert "in(person.id" in queries[0]
 
     @snapshot_clickhouse_queries
     def test_insight_persons_trends_groups_query(self):
