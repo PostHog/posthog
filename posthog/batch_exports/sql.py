@@ -1,11 +1,11 @@
 CREATE_PERSONS_BATCH_EXPORT_VIEW = """
 CREATE OR REPLACE VIEW persons_batch_export AS (
     SELECT
-        pd.team_id,
-        pd.distinct_id,
-        p.properties,
-        pd._timestamp AS _timestamp,
-        NOW64() AS _inserted_at
+        pd.team_id AS team_id,
+        pd.distinct_id AS distinct_id,
+        toString(p.id) AS person_id,
+        p.properties AS properties,
+        pd._timestamp AS _inserted_at
     FROM (
         SELECT
             team_id,
@@ -27,6 +27,8 @@ CREATE OR REPLACE VIEW persons_batch_export AS (
         AND p.team_id = {team_id:Int64}
         AND pd._timestamp >= {interval_start:DateTime64}
         AND pd._timestamp < {interval_end:DateTime64}
+    ORDER BY
+        _inserted_at
 )
 """
 
