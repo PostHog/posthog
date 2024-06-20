@@ -7,14 +7,14 @@ import { dayjs } from 'lib/dayjs'
 import { pipelineNodeLogic, PipelineNodeLogicProps } from 'scenes/pipeline/pipelineNodeLogic'
 
 import api from '~/lib/api'
-import { BatchExportLogEntry, PluginLogEntry } from '~/types'
+import { BatchExportLogEntry, LogEntry, PluginLogEntry } from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import type { pipelineNodeLogsLogicType } from './pipelineNodeLogsLogicType'
 import { PipelineBackend } from './types'
 import { LogLevelDisplay, logLevelsToTypeFilters, LogTypeDisplay } from './utils'
 
-export type LogEntry = BatchExportLogEntry | PluginLogEntry
+export type PipelineNodeLogEntry = BatchExportLogEntry | PluginLogEntry | LogEntry
 
 export enum PipelineLogLevel {
     Debug = 'DEBUG',
@@ -42,10 +42,10 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
     }),
     loaders(({ props: { id }, values, actions, cache }) => ({
         logs: [
-            [] as LogEntry[],
+            [] as PipelineNodeLogEntry[],
             {
                 loadLogs: async () => {
-                    let results: LogEntry[]
+                    let results: PipelineNodeLogEntry[]
                     if (values.node.backend === PipelineBackend.BatchExport) {
                         results = await api.batchExportLogs.search(
                             values.node.id,
@@ -76,7 +76,7 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                     return results
                 },
                 loadMoreLogs: async () => {
-                    let results: LogEntry[]
+                    let results: PipelineNodeLogEntry[]
                     if (values.node.backend === PipelineBackend.BatchExport) {
                         results = await api.batchExportLogs.search(
                             id as string,
@@ -116,7 +116,7 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
             },
         ],
         backgroundLogs: [
-            [] as LogEntry[],
+            [] as PipelineNodeLogEntry[],
             {
                 pollBackgroundLogs: async () => {
                     // we fetch new logs in the background and allow the user to expand
@@ -125,7 +125,7 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                         return values.backgroundLogs
                     }
 
-                    let results: LogEntry[]
+                    let results: PipelineNodeLogEntry[]
                     if (values.node.backend === PipelineBackend.BatchExport) {
                         results = await api.batchExportLogs.search(
                             id as string,
@@ -167,7 +167,7 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
             },
         ],
         backgroundLogs: [
-            [] as LogEntry[],
+            [] as PipelineNodeLogEntry[],
             {
                 clearBackgroundLogs: () => [],
             },
@@ -195,7 +195,7 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
     selectors(({ actions }) => ({
         leadingEntry: [
             (s) => [s.logs, s.backgroundLogs],
-            (logs: LogEntry[], backgroundLogs: LogEntry[]): LogEntry | null => {
+            (logs: PipelineNodeLogEntry[], backgroundLogs: PipelineNodeLogEntry[]): PipelineNodeLogEntry | null => {
                 if (backgroundLogs.length) {
                     return backgroundLogs[0]
                 }
@@ -207,7 +207,7 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
         ],
         trailingEntry: [
             (s) => [s.logs, s.backgroundLogs],
-            (logs: LogEntry[], backgroundLogs: LogEntry[]): LogEntry | null => {
+            (logs: PipelineNodeLogEntry[], backgroundLogs: PipelineNodeLogEntry[]): PipelineNodeLogEntry | null => {
                 if (logs.length) {
                     return logs[logs.length - 1]
                 }
@@ -219,13 +219,14 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
         ],
         columns: [
             (s) => [s.node],
-            (node): LemonTableColumns<LogEntry> => {
+            (node): LemonTableColumns<PipelineNodeLogEntry> => {
                 return [
                     {
                         title: 'Timestamp',
                         key: 'timestamp',
                         dataIndex: 'timestamp',
-                        sorter: (a: LogEntry, b: LogEntry) => dayjs(a.timestamp).unix() - dayjs(b.timestamp).unix(),
+                        sorter: (a: PipelineNodeLogEntry, b: PipelineNodeLogEntry) =>
+                            dayjs(a.timestamp).unix() - dayjs(b.timestamp).unix(),
                         render: (timestamp: string) => <TZLabel time={timestamp} />,
                         width: 0,
                     },
@@ -295,7 +296,7 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                         dataIndex: 'message',
                         render: (message: string) => <code className="whitespace-pre-wrap">{message}</code>,
                     },
-                ] as LemonTableColumns<LogEntry>
+                ] as LemonTableColumns<PipelineNodeLogEntry>
             },
         ],
     })),

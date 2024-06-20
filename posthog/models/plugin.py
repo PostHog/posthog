@@ -20,7 +20,7 @@ from posthog.models.organization import Organization
 from posthog.models.signals import mutable_receiver
 from posthog.models.team import Team
 from posthog.plugins.access import can_configure_plugins, can_install_plugins
-from posthog.plugins.reload import populate_plugin_capabilities_on_workers, reload_plugins_on_workers
+from posthog.plugins.plugin_server_api import populate_plugin_capabilities_on_workers, reload_plugins_on_workers
 from posthog.plugins.site import get_decide_site_apps
 from posthog.plugins.utils import (
     download_plugin_archive,

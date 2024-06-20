@@ -52,7 +52,7 @@ class SessionRecordingListFromFilters:
             sum(s.keypress_count),
             sum(s.mouse_activity_count),
             sum(s.active_milliseconds)/1000 as active_seconds,
-            duration-active_seconds as inactive_seconds,
+            (duration - active_seconds) as inactive_seconds,
             sum(s.console_log_count) as console_log_count,
             sum(s.console_warn_count) as console_warn_count,
             sum(s.console_error_count) as console_error_count
@@ -270,6 +270,20 @@ class SessionRecordingListFromFilters:
                     op=op,
                     left=ast.Field(chain=[self._filter.duration_type_filter]),
                     right=ast.Constant(value=self._filter.recording_duration_filter.value),
+                ),
+            )
+
+        if self._filter.snapshot_source_filter:
+            op = (
+                ast.CompareOperationOp.In
+                if self._filter.snapshot_source_filter.operator == "exact"
+                else ast.CompareOperationOp.NotIn
+            )
+            exprs.append(
+                ast.CompareOperation(
+                    op=op,
+                    left=ast.Call(name="argMinMerge", args=[ast.Field(chain=["s", "snapshot_source"])]),
+                    right=ast.Constant(value=self._filter.snapshot_source_filter.value),
                 ),
             )
 

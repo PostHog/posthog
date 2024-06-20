@@ -8,7 +8,7 @@ from django.utils import timezone
 
 from posthog.hogql.errors import BaseHogQLError
 from posthog.models.signals import mutable_receiver
-from posthog.plugins.reload import drop_action_on_workers, reload_action_on_workers
+from posthog.plugins.plugin_server_api import drop_action_on_workers, reload_action_on_workers
 
 
 ActionStepMatching = Literal["contains", "regex", "exact"]
