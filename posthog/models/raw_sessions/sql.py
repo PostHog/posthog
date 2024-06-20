@@ -38,10 +38,27 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
     max_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
 
+    -- urls
     urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
     entry_url AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
     end_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
 
+    -- device
+    initial_browser AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+    initial_browser_version AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+    initial_os AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+    initial_os_version AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+    initial_device_type AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+
+    -- geoip
+    -- only store the properties we actually use, as there's tons, see https://posthog.com/docs/cdp/geoip-enrichment
+    initial_geoip_country_code AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+    initial_geoip_subdivision_1_code AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+    initial_geoip_subdivision_1_name AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+    initial_geoip_subdivision_city_name AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+    initial_geoip_time_zone AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+
+    -- attribution
     initial_referring_domain AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
     initial_utm_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
     initial_utm_campaign AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
@@ -75,6 +92,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     screen_count SimpleAggregateFunction(sum, Int64),
     screen_uniq AggregateFunction(uniq, Nullable(UUID)),
 
+    -- replay
     has_session_replay SimpleAggregateFunction(max, Bool) -- we're not writing True values to this column anywhere yet
 ) ENGINE = {engine}
 """
@@ -137,10 +155,26 @@ SELECT
     timestamp AS min_timestamp,
     timestamp AS max_timestamp,
 
+    -- urls
     [{current_url}] AS urls,
     initializeAggregation('argMinState', {current_url_string}, timestamp) as entry_url,
     initializeAggregation('argMaxState', {current_url_string}, timestamp) as end_url,
 
+    -- device
+    initializeAggregation('argMinState', {browser}, timestamp) as browser,
+    initializeAggregation('argMinState', {browser_version}, timestamp) as browser_version,
+    initializeAggregation('argMinState', {os}, timestamp) as os,
+    initializeAggregation('argMinState', {os_version}, timestamp) as os_version,
+    initializeAggregation('argMinState', {device_type}, timestamp) as device_type,
+
+    -- geo ip
+    initializeAggregation('argMinState', {geoip_country_code}, timestamp) as initial_geoip_country_code,
+    initializeAggregation('argMinState', {geoip_subdivision_1_code}, timestamp) as initial_geoip_subdivision_1_code,
+    initializeAggregation('argMinState', {geoip_subdivision_1_name}, timestamp) as initial_geoip_subdivision_1_name,
+    initializeAggregation('argMinState', {geoip_subdivision_city_name}, timestamp) as initial_geoip_subdivision_city_name,
+    initializeAggregation('argMinState', {geoip_time_zone}, timestamp) as initial_geoip_time_zone,
+
+    -- attribution
     initializeAggregation('argMinState', {referring_domain}, timestamp) as initial_referring_domain,
     initializeAggregation('argMinState', {utm_source}, timestamp) as initial_utm_source,
     initializeAggregation('argMinState', {utm_campaign}, timestamp) as initial_utm_campaign,
@@ -161,6 +195,7 @@ SELECT
     initializeAggregation('argMinState', {igshid}, timestamp) as initial_igshid,
     initializeAggregation('argMinState', {ttclid}, timestamp) as initial_ttclid,
 
+    -- counts
     if(event='$pageview', 1, 0) as pageview_count,
     initializeAggregation('uniqState', if(event='$pageview', uuid, NULL)) as pageview_uniq,
     if(event='$autocapture', 1, 0) as autocapture_count,
@@ -168,6 +203,7 @@ SELECT
     if(event='$screen', 1, 0) as screen_count,
     initializeAggregation('uniqState', if(event='screen', uuid, NULL)) as screen_uniq,
 
+    -- replay
     false as has_session_replay
 FROM {database}.sharded_events
 WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7
@@ -175,6 +211,16 @@ WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')),
         database=settings.CLICKHOUSE_DATABASE,
         current_url=source_url_column("$current_url"),
         current_url_string=source_string_column("$current_url"),
+        browser=source_string_column("$browser"),
+        browser_version=source_string_column("$browser_version"),
+        os=source_string_column("$os"),
+        os_version=source_string_column("$os_version"),
+        device_type=source_string_column("$device_type"),
+        geoip_country_code=source_string_column("$geoip_country_code"),
+        geoip_subdivision_1_code=source_string_column("$geoip_subdivision_1_code"),
+        geoip_subdivision_1_name=source_string_column("$geoip_subdivision_1_name"),
+        geoip_subdivision_city_name=source_string_column("$geoip_subdivision_city_name"),
+        geoip_time_zone=source_string_column("$geoip_time_zone"),
         referring_domain=source_string_column("$referring_domain"),
         utm_source=source_string_column("utm_source"),
         utm_campaign=source_string_column("utm_campaign"),
@@ -209,10 +255,26 @@ SELECT
     min(timestamp) AS min_timestamp,
     max(timestamp) AS max_timestamp,
 
+    -- urls
     groupUniqArray({current_url}) AS urls,
     argMinState({current_url_string}, timestamp) as entry_url,
     argMaxState({current_url_string}, timestamp) as end_url,
 
+    -- device
+    argMinState({browser}, timestamp) as initial_browser,
+    argMinState({browser_version}, timestamp) as initial_browser_version,
+    argMinState({os}, timestamp) as initial_os,
+    argMinState({os_version}, timestamp) as initial_os_version,
+    argMinState({device_type}, timestamp) as initial_device_type,
+
+    -- geoip
+    argMinState({geoip_country_code}, timestamp) as initial_geoip_country_code,
+    argMinState({geoip_subdivision_1_code}, timestamp) as initial_geoip_subdivision_1_code,
+    argMinState({geoip_subdivision_1_name}, timestamp) as initial_geoip_subdivision_1_name,
+    argMinState({geoip_subdivision_city_name}, timestamp) as initial_geoip_subdivision_city_name,
+    argMinState({geoip_time_zone}, timestamp) as initial_geoip_time_zone,
+
+    -- attribution
     argMinState({referring_domain}, timestamp) as initial_referring_domain,
     argMinState({utm_source}, timestamp) as initial_utm_source,
     argMinState({utm_campaign}, timestamp) as initial_utm_campaign,
@@ -233,6 +295,7 @@ SELECT
     argMinState({igshid}, timestamp) as initial_igshid,
     argMinState({ttclid}, timestamp) as initial_ttclid,
 
+    -- count
     sumIf(1, event='$pageview') as pageview_count,
     uniqState(if(event='$pageview', uuid, NULL)) as pageview_uniq,
     sumIf(1, event='$autocapture') as autocapture_count,
@@ -240,6 +303,7 @@ SELECT
     sumIf(1, event='$screen') as screen_count,
     uniqState(if(event='$screen', uuid, NULL)) as screen_uniq,
 
+    -- replay
     false as has_session_replay
 FROM {database}.sharded_events
 WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7
@@ -249,6 +313,16 @@ GROUP BY session_id_v7, team_id
         current_url=source_url_column("$current_url"),
         current_url_string=source_string_column("$current_url"),
         referring_domain=source_string_column("$referring_domain"),
+        browser=source_string_column("$browser"),
+        browser_version=source_string_column("$browser_version"),
+        os=source_string_column("$os"),
+        os_version=source_string_column("$os_version"),
+        device_type=source_string_column("$device_type"),
+        geoip_country_code=source_string_column("$geoip_country_code"),
+        geoip_subdivision_1_code=source_string_column("$geoip_subdivision_1_code"),
+        geoip_subdivision_1_name=source_string_column("$geoip_subdivision_1_name"),
+        geoip_subdivision_city_name=source_string_column("$geoip_subdivision_city_name"),
+        geoip_time_zone=source_string_column("$geoip_time_zone"),
         utm_source=source_string_column("utm_source"),
         utm_campaign=source_string_column("utm_campaign"),
         utm_medium=source_string_column("utm_medium"),
@@ -331,9 +405,27 @@ SELECT
     any(distinct_id) as distinct_id,
     min(min_timestamp) as min_timestamp,
     max(max_timestamp) as max_timestamp,
+
+    -- urls
     arrayDistinct(arrayFlatten(groupArray(urls)) )AS urls,
     argMinMerge(entry_url) as entry_url,
     argMaxMerge(end_url) as end_url,
+
+    -- device
+    argMinMerge(initial_browser) as initial_browser,
+    argMinMerge(initial_browser_version) as initial_browser_version,
+    argMinMerge(initial_os) as initial_os,
+    argMinMerge(initial_os_version) as initial_os_version,
+    argMinMerge(initial_device_type) as initial_device_type,
+
+    -- geoip
+    argMinMerge(initial_geoip_country_code) as initial_geoip_country_code,
+    argMinMerge(initial_geoip_subdivision_1_code) as initial_geoip_subdivision_1_code,
+    argMinMerge(initial_geoip_subdivision_1_name) as initial_geoip_subdivision_1_name,
+    argMinMerge(initial_geoip_subdivision_city_name) as initial_geoip_subdivision_city_name,
+    argMinMerge(initial_geoip_time_zone) as initial_geoip_time_zone,
+
+    -- attribution
     argMinMerge(initial_utm_source) as initial_utm_source,
     argMinMerge(initial_utm_campaign) as initial_utm_campaign,
     argMinMerge(initial_utm_medium) as initial_utm_medium,

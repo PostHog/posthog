@@ -344,6 +344,7 @@ def get_lazy_session_table_properties_v2(search: Optional[str]):
         "distinct_id",
         "session_id",
         "id",
+        "session_id_v7",
         "$event_count_map",
         "$urls",
         "duration",
@@ -412,7 +413,9 @@ SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR_MAP = {
     "$entry_igshid": "finalizeAggregation(initial_igshid)",
     "$entry_ttclid": "finalizeAggregation(initial_ttclid)",
     "$entry_current_url": "finalizeAggregation(entry_url)",
+    "$entry_pathname": "path(finalizeAggregation(entry_url))",
     "$end_current_url": "finalizeAggregation(end_url)",
+    "$end_pathname": "path(finalizeAggregation(end_url))",
 }
 
 
