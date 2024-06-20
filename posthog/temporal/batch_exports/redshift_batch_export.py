@@ -1,9 +1,9 @@
 import collections.abc
 import contextlib
+import dataclasses
 import datetime as dt
 import json
 import typing
-from dataclasses import dataclass
 
 import psycopg
 import pyarrow as pa
@@ -262,7 +262,7 @@ async def async_client_cursor_from_connection(
         psycopg_connection.cursor_factory = current_factory
 
 
-@dataclass
+@dataclasses.dataclass
 class RedshiftInsertInputs(PostgresInsertInputs):
     """Inputs for Redshift insert activity.
 
@@ -307,24 +307,23 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
             if not await client.is_alive():
                 raise ConnectionError("Cannot establish connection to ClickHouse")
 
-            if inputs.batch_export_schema is None:
-                fields = redshift_default_fields()
-                query_parameters = None
+            if inputs.batch_export_schema is None and "batch_export_model" in {
+                field.name for field in dataclasses.fields(input)
+            }:
+                model = inputs.batch_export_model
 
             else:
-                fields = inputs.batch_export_schema["fields"]
-                query_parameters = inputs.batch_export_schema["values"]
+                model = inputs.batch_export_schema
 
             record_iterator = iter_model_records(
                 client=client,
-                model="events",
+                model=model,
                 team_id=inputs.team_id,
                 interval_start=inputs.data_interval_start,
                 interval_end=inputs.data_interval_end,
                 exclude_events=inputs.exclude_events,
                 include_events=inputs.include_events,
-                fields=fields,
-                extra_query_parameters=query_parameters,
+                default_fields=redshift_default_fields(),
                 is_backfill=inputs.is_backfill,
             )
             first_record_batch, record_iterator = await apeek_first_and_rewind(record_iterator)
@@ -462,9 +461,10 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             properties_data_type=inputs.properties_data_type,
-            batch_export_schema=inputs.batch_export_schema,
             run_id=run_id,
             is_backfill=inputs.is_backfill,
+            batch_export_model=inputs.batch_export_model,
+            batch_export_schema=inputs.batch_export_schema,
         )
 
         await execute_batch_export_insert_activity(

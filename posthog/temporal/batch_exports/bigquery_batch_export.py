@@ -150,9 +150,11 @@ class BigQueryInsertInputs:
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
     use_json_type: bool = False
-    batch_export_schema: BatchExportSchema | None = None
     run_id: str | None = None
     is_backfill: bool = False
+    batch_export_model: BatchExportSchema | None = None
+    # TODO: Remove after updating existing batch exports
+    batch_export_schema: BatchExportSchema | None = None
 
 
 @contextlib.contextmanager
@@ -230,24 +232,22 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
             if not await client.is_alive():
                 raise ConnectionError("Cannot establish connection to ClickHouse")
 
-            if inputs.batch_export_schema is None:
-                fields = bigquery_default_fields()
-                query_parameters = None
-
+            if inputs.batch_export_schema is None and "batch_export_model" in {
+                field.name for field in dataclasses.fields(inputs)
+            }:
+                model = inputs.batch_export_model
             else:
-                fields = inputs.batch_export_schema["fields"]
-                query_parameters = inputs.batch_export_schema["values"]
+                model = inputs.batch_export_schema
 
             records_iterator = iter_model_records(
                 client=client,
-                model="events",
+                model=model,
                 team_id=inputs.team_id,
                 interval_start=data_interval_start,
                 interval_end=inputs.data_interval_end,
                 exclude_events=inputs.exclude_events,
                 include_events=inputs.include_events,
-                fields=fields,
-                extra_query_parameters=query_parameters,
+                default_fields=bigquery_default_fields(),
                 is_backfill=inputs.is_backfill,
             )
 
@@ -408,9 +408,11 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             use_json_type=inputs.use_json_type,
-            batch_export_schema=inputs.batch_export_schema,
             run_id=run_id,
             is_backfill=inputs.is_backfill,
+            batch_export_model=inputs.batch_export_model,
+            # TODO: Remove after updating existing batch exports.
+            batch_export_schema=inputs.batch_export_schema,
         )
 
         await execute_batch_export_insert_activity(

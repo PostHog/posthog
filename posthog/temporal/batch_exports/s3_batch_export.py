@@ -1,11 +1,11 @@
 import collections.abc
 import contextlib
+import dataclasses
 import datetime as dt
 import io
 import json
 import posixpath
 import typing
-from dataclasses import dataclass
 
 import aioboto3
 import orjson
@@ -17,6 +17,7 @@ from temporalio.common import RetryPolicy
 from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import (
     BatchExportField,
+    BatchExportModel,
     BatchExportSchema,
     S3BatchExportInputs,
 )
@@ -315,7 +316,7 @@ class HeartbeatDetails(typing.NamedTuple):
         return cls(last_uploaded_part_timestamp, upload_state)
 
 
-@dataclass
+@dataclasses.dataclass
 class S3InsertInputs:
     """Inputs for S3 exports."""
 
@@ -336,12 +337,14 @@ class S3InsertInputs:
     include_events: list[str] | None = None
     encryption: str | None = None
     kms_key_id: str | None = None
-    batch_export_schema: BatchExportSchema | None = None
     endpoint_url: str | None = None
     # TODO: In Python 3.11, this could be a enum.StrEnum.
     file_format: str = "JSONLines"
     run_id: str | None = None
     is_backfill: bool = False
+    batch_export_model: BatchExportModel | None = None
+    # TODO: Remove after updating existing batch exports
+    batch_export_schema: BatchExportSchema | None = None
 
 
 async def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tuple[S3MultiPartUpload, str]:
@@ -444,25 +447,23 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
 
             s3_upload, interval_start = await initialize_and_resume_multipart_upload(inputs)
 
-            if inputs.batch_export_schema is None:
-                fields = s3_default_fields()
-                query_parameters = None
-
+            if inputs.batch_export_schema is None and "batch_export_model" in {
+                field.name for field in dataclasses.fields(inputs)
+            }:
+                model = inputs.batch_export_model
             else:
-                fields = inputs.batch_export_schema["fields"]
-                query_parameters = inputs.batch_export_schema["values"]
+                model = inputs.batch_export_schema
 
             record_iterator = iter_model_records(
-                model="events",
+                model=model,
                 client=client,
                 team_id=inputs.team_id,
                 interval_start=interval_start,
                 interval_end=inputs.data_interval_end,
                 exclude_events=inputs.exclude_events,
                 include_events=inputs.include_events,
-                fields=fields,
-                extra_query_parameters=query_parameters,
                 is_backfill=inputs.is_backfill,
+                default_fields=s3_default_fields(),
             )
 
             first_record_batch, record_iterator = await apeek_first_and_rewind(record_iterator)
@@ -674,10 +675,12 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             include_events=inputs.include_events,
             encryption=inputs.encryption,
             kms_key_id=inputs.kms_key_id,
-            batch_export_schema=inputs.batch_export_schema,
             file_format=inputs.file_format,
             run_id=run_id,
             is_backfill=inputs.is_backfill,
+            batch_export_model=inputs.batch_export_model,
+            # TODO: Remove after updating existing batch exports.
+            batch_export_schema=inputs.batch_export_schema,
         )
 
         await execute_batch_export_insert_activity(
