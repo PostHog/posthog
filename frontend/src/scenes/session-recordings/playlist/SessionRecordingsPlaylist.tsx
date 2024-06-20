@@ -125,16 +125,18 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
             />
         ),
         footer: (
-            <div className="m-4 h-10 flex items-center justify-center gap-2 text-muted-alt">
-                {sessionRecordingsResponseLoading ? (
-                    <>
-                        <Spinner textColored /> Loading older recordings
-                    </>
-                ) : hasNext ? (
-                    <LemonButton onClick={() => maybeLoadSessionRecordings('older')}>Load more</LemonButton>
-                ) : (
-                    'No more results'
-                )}
+            <div className="p-4">
+                <div className="h-10 flex items-center justify-center gap-2 text-muted-alt">
+                    {sessionRecordingsResponseLoading ? (
+                        <>
+                            <Spinner textColored /> Loading older recordings
+                        </>
+                    ) : hasNext ? (
+                        <LemonButton onClick={() => maybeLoadSessionRecordings('older')}>Load more</LemonButton>
+                    ) : (
+                        'No more results'
+                    )}
+                </div>
             </div>
         ),
     })
