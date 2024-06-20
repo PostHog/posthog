@@ -45,7 +45,7 @@ fetch('https://slack.com/api/chat.postMessage', {
             "key": "blocks",
             "type": "json",
             "label": "Blocks",
-            "description": "Blocks Slack (see https://api.slack.com/block-kit/building)",
+            "description": "(see https://api.slack.com/block-kit/building)",
             "default": [
                 {
                     "text": {
@@ -73,6 +73,11 @@ fetch('https://slack.com/api/chat.postMessage', {
             "secret": False,
             "required": False,
         },
-        {"key": "text", "type": "string", "label": "Plain text message", "description": "Optional fallback message."},
+        {
+            "key": "text",
+            "type": "string",
+            "label": "Plain text message",
+            "description": "Optional fallback message if blocks are not provided or supported",
+        },
     ],
 )
