@@ -113,8 +113,8 @@ jobs:
             - name: Setup main repo dependencies for flags
               if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
               run: |
-                  cd ../ && docker compose -f docker-compose.dev.yml down
-                  cd ../ && docker compose -f docker-compose.dev.yml up -d
+                  docker compose -f ../docker-compose.dev.yml down
+                  docker compose -f ../docker-compose.dev.yml up -d
                   echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
 
             - name: Setup dependencies
@@ -153,8 +153,8 @@ jobs:
             - name: Install python dependencies
               if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
               run: |
-                  uv pip install --system -r requirements-dev.txt
-                  uv pip install --system -r requirements.txt
+                  uv pip install --system -r ../requirements-dev.txt
+                  uv pip install --system -r ../requirements.txt
 
             - name: Set up databases
               if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
