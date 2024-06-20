@@ -1,18 +1,13 @@
 import './ErrorTracking.scss'
 
-import { PersonDisplay, TZLabel } from '@posthog/apps-common'
-import { Spinner } from '@posthog/lemon-ui'
-import clsx from 'clsx'
-import { useValues } from 'kea'
-import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
-import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
-import { NotFound } from 'lib/components/NotFound'
-import { Playlist } from 'lib/components/Playlist/Playlist'
+import { LemonTabs } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { SceneExport } from 'scenes/sceneTypes'
-import { PropertyIcons } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 
 import { ErrorTrackingFilters } from './ErrorTrackingFilters'
-import { errorTrackingGroupSceneLogic, ExceptionEventType } from './errorTrackingGroupSceneLogic'
+import { ErrorGroupTab, errorTrackingGroupSceneLogic } from './errorTrackingGroupSceneLogic'
+import { BreakdownsTab } from './groups/BreakdownsTab'
+import { OverviewTab } from './groups/OverviewTab'
 
 export const scene: SceneExport = {
     component: ErrorTrackingGroupScene,
@@ -23,75 +18,28 @@ export const scene: SceneExport = {
 }
 
 export function ErrorTrackingGroupScene(): JSX.Element {
-    const { events, eventsLoading } = useValues(errorTrackingGroupSceneLogic)
+    const { errorGroupTab } = useValues(errorTrackingGroupSceneLogic)
+    const { setErrorGroupTab } = useActions(errorTrackingGroupSceneLogic)
 
-    return eventsLoading ? (
-        <Spinner className="self-align-center justify-self-center" />
-    ) : events && events.length > 0 ? (
+    return (
         <div className="space-y-4">
             <ErrorTrackingFilters showOrder={false} />
 
-            <div className="ErrorTracking__group">
-                <div className="h-full space-y-2">
-                    <Playlist
-                        title="Exceptions"
-                        sections={[
-                            {
-                                key: 'exceptions',
-                                title: 'Exceptions',
-                                items: events,
-                                render: ListItemException,
-                            },
-                        ]}
-                        listEmptyState={<div>Empty</div>}
-                        content={({ activeItem: event }) =>
-                            event ? (
-                                <div className="pl-2">
-                                    <ErrorDisplay eventProperties={event.properties} />
-                                </div>
-                            ) : (
-                                <EmptyMessage
-                                    title="No exception selected"
-                                    description="Please select an exception from the list on the left"
-                                />
-                            )
-                        }
-                    />
-                </div>
-            </div>
-        </div>
-    ) : (
-        <NotFound object="exception" />
-    )
-}
-
-const ListItemException = ({ item: event, isActive }: { item: ExceptionEventType; isActive: boolean }): JSX.Element => {
-    const properties = ['$browser', '$device_type', '$os']
-        .flatMap((property) => {
-            let value = event.properties[property]
-            const label = value
-            if (property === '$device_type') {
-                value = event.properties['$device_type'] || event.properties['$initial_device_type']
-            }
-
-            return { property, value, label }
-        })
-        .filter((property) => !!property.value)
-
-    return (
-        <div className={clsx('cursor-pointer p-2 space-y-1', isActive && 'border-l-4 border-primary-3000')}>
-            <div className="flex justify-between items-center">
-                <PersonDisplay person={event.person} withIcon />
-                <PropertyIcons recordingProperties={properties} iconClassNames="text-muted" />
-            </div>
-            {event.properties.$current_url && (
-                <div className="text-xs text-muted truncate">{event.properties.$current_url}</div>
-            )}
-            <TZLabel
-                className="overflow-hidden text-ellipsis text-xs text-muted shrink-0"
-                time={event.timestamp}
-                placement="right"
-                showPopover={false}
+            <LemonTabs
+                activeKey={errorGroupTab}
+                onChange={setErrorGroupTab}
+                tabs={[
+                    {
+                        key: ErrorGroupTab.Overview,
+                        label: 'Overview',
+                        content: <OverviewTab />,
+                    },
+                    {
+                        key: ErrorGroupTab.Breakdowns,
+                        label: 'Breakdowns',
+                        content: <BreakdownsTab />,
+                    },
+                ]}
             />
         </div>
     )
