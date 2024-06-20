@@ -22,7 +22,7 @@ export enum TimestampFormat {
     Device = 'device',
 }
 
-enum InspectorStacking {
+export enum InspectorStacking {
     Vertical = 'vertical',
     Horizontal = 'horizontal',
 }
