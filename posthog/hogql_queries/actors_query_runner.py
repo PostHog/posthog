@@ -269,7 +269,7 @@ class ActorsQueryRunner(QueryRunner):
                 }
                 # For now, only use this CTE optimization in Trends, until we test it with other queries
                 if isinstance(self.strategy, PersonStrategy) and any(
-                    isinstance(x, C) for x in [self.query.source.source] for C in (TrendsQuery,)
+                    isinstance(x, C) for x in [getattr(self.query.source, "source", None)] for C in (TrendsQuery,)
                 ):
                     s = parse_select("SELECT distinct actor_id as person_id FROM source")
                     # This feels like it adds one extra level of SELECT which is unnecessary

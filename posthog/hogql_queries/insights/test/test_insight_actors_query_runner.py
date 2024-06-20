@@ -218,7 +218,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.team.timezone = "US/Pacific"
         self.team.save()
 
-        with self.capture_queries(lambda query: re.match(r"^SELECT\s+name\s+AS\s+name", query)) as queries:
+        with self.capture_queries(lambda query: re.match(r"^SELECT\s+name\s+AS\s+name", query) is not None) as queries:
             response = self.select(
                 """
                 select * from (
@@ -245,7 +245,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.team.timezone = "US/Pacific"
         self.team.save()
 
-        with self.capture_queries(lambda query: re.match(r"^SELECT\s+name\s+AS\s+name", query)) as queries:
+        with self.capture_queries(lambda query: re.match(r"^SELECT\s+name\s+AS\s+name", query) is not None) as queries:
             response = self.select(
                 """
                 select * from (
