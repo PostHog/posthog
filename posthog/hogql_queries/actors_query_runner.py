@@ -232,6 +232,7 @@ class ActorsQueryRunner(QueryRunner):
                 order_by = []
 
         with self.timings.measure("select"):
+            ctes = {}
             if not self.query.source:
                 join_expr = ast.JoinExpr(table=ast.Field(chain=[self.strategy.origin]))
             else:
@@ -264,9 +265,8 @@ class ActorsQueryRunner(QueryRunner):
                     ),
                 )
 
-                ctes = {
-                    source_alias: ast.CTE(name=source_alias, expr=source_query, cte_type="subquery"),
-                }
+                ctes[source_alias] = ast.CTE(name=source_alias, expr=source_query, cte_type="subquery")
+
                 # For now, only use this CTE optimization in Trends, until we test it with other queries
                 if isinstance(self.strategy, PersonStrategy) and any(
                     isinstance(x, C) for x in [getattr(self.query.source, "source", None)] for C in (TrendsQuery,)
