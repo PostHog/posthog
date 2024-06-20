@@ -246,6 +246,7 @@ def create_hogql_database(
         raw_sessions = RawSessionsTableV2()
         database.raw_sessions = raw_sessions
         sessions = SessionsTableV2()
+        database.sessions = sessions
         events = database.events
         events.fields["session"] = LazyJoin(
             from_field=["$session_id"],
