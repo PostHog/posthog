@@ -3,6 +3,7 @@ import { FEATURE_FLAGS, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/cons
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect, useState } from 'react'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { AndroidInstructions } from 'scenes/onboarding/sdks/session-replay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -93,6 +94,9 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
 const ProductAnalyticsOnboarding = (): JSX.Element => {
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    // mount the logic here so that it stays mounted for the entire onboarding flow
+    // not sure if there is a better way to do this
+    useValues(newDashboardLogic)
 
     const options: ProductConfigOption[] = [
         {

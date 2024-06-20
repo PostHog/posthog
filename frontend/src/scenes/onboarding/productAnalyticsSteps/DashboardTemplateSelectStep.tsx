@@ -1,6 +1,8 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
+import { useEffect } from 'react'
 import { DashboardTemplateChooser } from 'scenes/dashboard/DashboardTemplateChooser'
+import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
 import { onboardingLogic, OnboardingStepKey } from '../onboardingLogic'
 import { OnboardingStep } from '../OnboardingStep'
@@ -11,6 +13,12 @@ export const OnboardingDashboardTemplateSelectStep = ({
     stepKey?: OnboardingStepKey
 }): JSX.Element => {
     const { goToNextStep } = useActions(onboardingLogic)
+    const { clearActiveDashboardTemplate } = useActions(newDashboardLogic)
+
+    // TODO: this is hacky, find a better way to clear the active template when coming back to this screen
+    useEffect(() => {
+        clearActiveDashboardTemplate()
+    }, [])
 
     return (
         <OnboardingStep
