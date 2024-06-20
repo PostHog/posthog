@@ -1,6 +1,7 @@
 import posthoganalytics
 
 from posthog.hogql.ast import SelectQuery
+from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.argmax import argmax_select
 from posthog.hogql.database.models import (
@@ -28,7 +29,7 @@ def persons_pdi_select(requested_fields: dict[str, list[str | int]]):
         argmax_field="version",
         deleted_field="is_deleted",
     )
-    select.optimize_aggregation_in_order = True
+    select.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
     return select
 
 
