@@ -17,6 +17,7 @@ import { convertToHogFunctionFilterGlobal } from './utils'
 
 const MAX_ASYNC_STEPS = 2
 const MAX_HOG_LOGS = 10
+const MAX_LOG_LENGTH = 10000
 const DEFAULT_TIMEOUT_MS = 100
 
 export const formatInput = (bytecode: any, globals: HogFunctionInvocation['globals']): any => {
@@ -264,9 +265,13 @@ export class HogExecutor {
                                 return
                             }
 
-                            const message = args
+                            let message = args
                                 .map((arg) => (typeof arg !== 'string' ? JSON.stringify(arg) : arg))
                                 .join(', ')
+
+                            if (message.length > MAX_LOG_LENGTH) {
+                                message = message.slice(0, MAX_LOG_LENGTH) + '... (truncated)'
+                            }
                             addLog(result, 'info', message)
                         },
                     },
