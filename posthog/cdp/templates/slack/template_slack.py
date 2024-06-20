@@ -19,6 +19,13 @@ fetch(inputs.url, {
 """.strip(),
     inputs_schema=[
         {
+            "key": "integration",
+            "type": "integration",
+            "secret": False,
+            "required": True,
+            "integration": "slack",
+        },
+        {
             "key": "url",
             "type": "string",
             "label": "Slack webhook URL",

@@ -4183,7 +4183,7 @@ export type OnboardingProduct = {
 }
 
 export type HogFunctionInputSchemaType = {
-    type: 'string' | 'boolean' | 'dictionary' | 'choice' | 'json'
+    type: 'string' | 'boolean' | 'dictionary' | 'choice' | 'json' | 'integration'
     key: string
     label: string
     choices?: { value: string; label: string }[]
@@ -4191,6 +4191,7 @@ export type HogFunctionInputSchemaType = {
     default?: any
     secret?: boolean
     description?: string
+    integration?: 'slack' // TODO: Extract to separate types
 }
 
 export type HogFunctionType = {
