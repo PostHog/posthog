@@ -1,9 +1,9 @@
 import json
 from typing import Union
+import requests
 import structlog
-from django.conf import settings
-
 from posthog.redis import get_client
+from posthog.settings import CDP_FUNCTION_EXECUTOR_API_URL, PLUGINS_RELOAD_PUBSUB_CHANNEL, PLUGINS_RELOAD_REDIS_URL
 
 
 logger = structlog.get_logger(__name__)
@@ -13,12 +13,13 @@ logger = structlog.get_logger(__name__)
 
 def publish_message(channel: str, payload: Union[dict, str]):
     message = json.dumps(payload) if not isinstance(payload, str) else payload
-    get_client(settings.PLUGINS_RELOAD_REDIS_URL).publish(channel, message)
+    get_client(PLUGINS_RELOAD_REDIS_URL).publish(channel, message)
 
 
 def reload_plugins_on_workers():
     logger.info("Reloading plugins on workers")
-    publish_message(settings.PLUGINS_RELOAD_PUBSUB_CHANNEL, "reload!")
+
+    publish_message(PLUGINS_RELOAD_PUBSUB_CHANNEL, "reload!")
 
 
 def reload_action_on_workers(team_id: int, action_id: int):
@@ -47,3 +48,21 @@ def reset_available_product_features_cache_on_workers(organization_id: str):
 def populate_plugin_capabilities_on_workers(plugin_id: str):
     logger.info(f"Populating plugin capabilities for plugin {plugin_id} on workers")
     publish_message("populate-plugin-capabilities", {"plugin_id": plugin_id})
+
+
+def create_hog_invocation_test(
+    team_id: int,
+    hog_function_id: str,
+    event: dict,
+    configuration: dict,
+    mock_async_functions: bool,
+) -> requests.Response:
+    logger.info(f"Creating hog invocation test for hog function {hog_function_id} on workers")
+    return requests.post(
+        CDP_FUNCTION_EXECUTOR_API_URL + f"/api/projects/{team_id}/hog_functions/{hog_function_id}/invocations",
+        json={
+            "event": event,
+            "configuration": configuration,
+            "mock_async_functions": mock_async_functions,
+        },
+    )
