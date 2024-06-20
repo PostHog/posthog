@@ -22,6 +22,8 @@ where
             .await
             .expect("failed to create postgres client"),
     );
+    // TODO: Handle errors when creating postgres client, and redis client.
+    // Technically we can work with just one.
 
     let app = router::router(redis_client, postgres_client);
 

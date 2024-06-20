@@ -33,8 +33,6 @@ pub enum OperatorType {
     IsDateBefore,
 }
 
-// TODO: WAT? Is there a better way than just deriving this macro for PgHasArrayType?
-// Maybe I should just extract the json and then serde deserialize it?
 #[derive(Debug, Clone, Deserialize)]
 pub struct PropertyFilter {
     pub key: String,

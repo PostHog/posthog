@@ -1,6 +1,23 @@
 
 # Testing
 
+First, make sure docker compose is running (from main posthog repo), and test database exists:
+
+```
+docker compose -f ../docker-compose.dev.yml up -d
+```
+
+```
+TEST=1 python manage.py setup_test_environment --only-postgres
+```
+
+We only need to run the above once, when the test database is created.
+
+TODO: Would be nice to make the above automatic.
+
+
+Then, run the tests:
+
 ```
 cargo test --package feature-flags
 ```

@@ -139,43 +139,6 @@ pub async fn setup_pg_client(url: Option<String>) -> Arc<PgClient> {
     Arc::new(client)
 }
 
-/// Run the Python migration script
-pub fn run_database_migrations() -> anyhow::Result<()> {
-    // TODO: Make this more efficient by skipping migrations if they have already been run.
-    // TODO: Potentially create a separate db, test_posthog_rs, and use here.
-    // TODO: Running this in every test is too slow, can I create some setup where this runs only once, and all tests run after?
-    // Seems doable easily in CI, how about local dev? Potentially just make it a manual step for now.
-    // "Make sure db exists first by running this fn", and then tests will work.....
-
-    let home_directory = fs::canonicalize("../../").expect("Failed to get home directory");
-    let output = Command::new("python")
-        .current_dir(home_directory)
-        .arg("manage.py")
-        .arg("migrate")
-        .env("DEBUG", "1")
-        .env(
-            "DATABASE_URL",
-            "postgres://posthog:posthog@localhost:5432/test_posthog",
-        )
-        .output()
-        .expect("Failed to execute migration script");
-
-    if !output.status.success() {
-        eprintln!(
-            "Migration script failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        return Err(anyhow::anyhow!("Migration script execution failed"));
-    }
-
-    println!(
-        "Migration script output: {}",
-        String::from_utf8_lossy(&output.stdout)
-    );
-
-    Ok(())
-}
-
 pub async fn insert_new_team_in_pg(client: Arc<PgClient>) -> Result<Team, Error> {
     const ORG_ID: &str = "019026a4be8000005bf3171d00629163";
 
