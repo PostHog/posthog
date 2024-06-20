@@ -24,6 +24,7 @@ from posthog.warehouse.models import (
     aget_schema_by_id,
 )
 
+from posthog.temporal.data_imports.pipelines.schemas import PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 from clickhouse_driver.errors import ServerException
@@ -124,7 +125,7 @@ async def validate_schema_and_update_table(
 
     _schema_id = external_data_schema.id
     _schema_name: str = external_data_schema.name
-    incremental = external_data_schema.is_incremental
+    incremental = _schema_name in PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING[job.pipeline.source_type]
 
     table_name = f"{job.pipeline.prefix or ''}{job.pipeline.source_type}_{_schema_name}".lower()
     normalized_schema_name = NamingConvention().normalize_identifier(_schema_name)
