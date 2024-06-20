@@ -208,7 +208,7 @@ const renderUsageLimitMessage = (
     ) {
         return (
             <div>
-                {featureAvailableOnOrg && (
+                {featureAvailableOnOrg ? (
                     <>
                         <p>
                             You've reached your usage limit for{' '}
@@ -227,8 +227,7 @@ const renderUsageLimitMessage = (
                             </span>
                         </p>
                     </>
-                )}
-                {featuresWithLimitOnPaidUnlimitedOnTeams.includes(featureInfo.key) && !isAddonProduct ? (
+                ) : featuresWithLimitOnPaidUnlimitedOnTeams.includes(featureInfo.key) && !isAddonProduct ? (
                     <>
                         <p>
                             <Tooltip title={featureInfo.description}>
@@ -239,11 +238,16 @@ const renderUsageLimitMessage = (
                             </Tooltip>{' '}
                             is only available on paid plans.
                         </p>
+                    </>
+                ) : null}
+                {(featureAvailableOnOrg || featuresWithLimitOnPaidUnlimitedOnTeams.includes(featureInfo.key)) &&
+                !isAddonProduct ? (
+                    <>
                         <p>
                             Please enter your credit card details by subscribing to any product (eg. Product analytics
                             or Session replay) to create up to{' '}
                             <b>
-                                {featureInfoOnNextPlan?.limit} {featureInfoOnNextPlan?.unit}
+                                {featureInfoOnNextPlan?.limit || 'unlimited'} {featureInfoOnNextPlan?.unit}
                             </b>
                             . You can set billing limits as low as $0 to control your spend.
                         </p>
@@ -255,6 +259,10 @@ const renderUsageLimitMessage = (
                             .
                         </p>
                     </>
+                ) : isAddonProduct ? (
+                    <p>
+                        Please upgrade to the <b>{productWithFeature.name} addon</b> to create more {featureInfo.name}
+                    </p>
                 ) : (
                     <p>
                         Please upgrade your <b>{productWithFeature.name}</b> plan to create more {featureInfo.name}
