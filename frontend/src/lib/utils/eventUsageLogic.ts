@@ -16,7 +16,7 @@ import {
 } from 'scenes/insights/sharedUtils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { EventIndex } from 'scenes/session-recordings/player/eventIndex'
-import { SurveyTemplateType } from 'scenes/surveys/constants'
+import { NewSurvey, SurveyTemplateType } from 'scenes/surveys/constants'
 import { userLogic } from 'scenes/userLogic'
 
 import {
@@ -511,6 +511,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportSurveyResumed: (survey: Survey) => ({ survey }),
         reportSurveyArchived: (survey: Survey) => ({ survey }),
         reportSurveyTemplateClicked: (template: SurveyTemplateType) => ({ template }),
+        reportSurveyCycleDetected: (survey: Survey | NewSurvey) => ({ survey }),
         reportProductUnsubscribed: (product: string) => ({ product }),
         // onboarding
         reportOnboardingProductSelected: (
@@ -1296,6 +1297,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportSurveyTemplateClicked: ({ template }) => {
             posthog.capture('survey template clicked', {
                 template,
+            })
+        },
+        reportSurveyCycleDetected: ({ survey }) => {
+            posthog.capture('survey cycle detected', {
+                name: survey.name,
+                id: survey.id,
+                start_date: survey.start_date,
+                end_date: survey.end_date,
             })
         },
         reportProductUnsubscribed: ({ product }) => {

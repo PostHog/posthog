@@ -7090,6 +7090,10 @@
                         {
                             "const": "console_log_query",
                             "type": "string"
+                        },
+                        {
+                            "const": "snapshot_source",
+                            "type": "string"
                         }
                     ]
                 },
@@ -8287,6 +8291,7 @@
                     "type": "object"
                 },
                 "useSessionsTable": {
+                    "deprecated": "ignored, always treated as enabled *",
                     "type": "boolean"
                 }
             },
@@ -8403,6 +8408,7 @@
                     "type": "object"
                 },
                 "useSessionsTable": {
+                    "deprecated": "ignored, always treated as enabled *",
                     "type": "boolean"
                 }
             },
@@ -8492,6 +8498,7 @@
                     "type": "object"
                 },
                 "useSessionsTable": {
+                    "deprecated": "ignored, always treated as enabled *",
                     "type": "boolean"
                 }
             },

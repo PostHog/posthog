@@ -20,34 +20,41 @@ export function ReplayTaxonomicFilters({ onChange }: ReplayTaxonomicFiltersProps
         filterGroup: { values: filters },
     } = useValues(universalFiltersLogic)
 
-    const hasConsoleLogLevelFilter = filters.find(
-        (f) => f.type === PropertyFilterType.Recording && f.key === 'console_log_level'
-    )
-    const hasConsoleLogQueryFilter = filters.find(
-        (f) => f.type === PropertyFilterType.Recording && f.key === 'console_log_query'
-    )
+    const hasFilter = (key: string): boolean => {
+        return !!filters.find((f) => f.type === PropertyFilterType.Recording && f.key === key)
+    }
+
+    const sessionProperties = [
+        {
+            label: 'Platform',
+            key: 'snapshot_source',
+        },
+        {
+            label: 'Console log level',
+            key: 'console_log_level',
+        },
+        {
+            label: 'Console log text',
+            key: 'console_log_query',
+        },
+    ]
 
     return (
         <div className="grid grid-cols-2 gap-4 px-1 pt-1.5 pb-2.5">
             <section>
                 <h5 className="mx-2 my-1">Session properties</h5>
                 <ul className="space-y-px">
-                    <LemonButton
-                        size="small"
-                        fullWidth
-                        onClick={() => onChange('console_log_level', {})}
-                        disabledReason={hasConsoleLogLevelFilter ? 'Log level filter already added' : undefined}
-                    >
-                        Console log level
-                    </LemonButton>
-                    <LemonButton
-                        size="small"
-                        fullWidth
-                        onClick={() => onChange('console_log_query', {})}
-                        disabledReason={hasConsoleLogQueryFilter ? 'Log text filter already added' : undefined}
-                    >
-                        Console log text
-                    </LemonButton>
+                    {sessionProperties.map(({ key, label }) => (
+                        <LemonButton
+                            key={key}
+                            size="small"
+                            fullWidth
+                            onClick={() => onChange(key, {})}
+                            disabledReason={hasFilter(key) ? `${label} filter already added` : undefined}
+                        >
+                            {label}
+                        </LemonButton>
+                    ))}
                 </ul>
             </section>
 

@@ -273,27 +273,15 @@ def get_query_runner(
             limit_context=limit_context,
         )
     if kind == "WebOverviewQuery":
-        use_session_table = get_from_dict_or_attr(query, "useSessionsTable")
-        if use_session_table:
-            from .web_analytics.web_overview import WebOverviewQueryRunner
+        from .web_analytics.web_overview import WebOverviewQueryRunner
 
-            return WebOverviewQueryRunner(
-                query=query,
-                team=team,
-                timings=timings,
-                modifiers=modifiers,
-                limit_context=limit_context,
-            )
-        else:
-            from .web_analytics.web_overview_legacy import LegacyWebOverviewQueryRunner
-
-            return LegacyWebOverviewQueryRunner(
-                query=query,
-                team=team,
-                timings=timings,
-                modifiers=modifiers,
-                limit_context=limit_context,
-            )
+        return WebOverviewQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
     if kind == "WebTopClicksQuery":
         from .web_analytics.top_clicks import WebTopClicksQueryRunner
 
@@ -305,27 +293,15 @@ def get_query_runner(
             limit_context=limit_context,
         )
     if kind == "WebStatsTableQuery":
-        use_session_table = get_from_dict_or_attr(query, "useSessionsTable")
-        if use_session_table:
-            from .web_analytics.stats_table import WebStatsTableQueryRunner
+        from .web_analytics.stats_table import WebStatsTableQueryRunner
 
-            return WebStatsTableQueryRunner(
-                query=query,
-                team=team,
-                timings=timings,
-                modifiers=modifiers,
-                limit_context=limit_context,
-            )
-        else:
-            from .web_analytics.stats_table_legacy import LegacyWebStatsTableQueryRunner
-
-            return LegacyWebStatsTableQueryRunner(
-                query=query,
-                team=team,
-                timings=timings,
-                modifiers=modifiers,
-                limit_context=limit_context,
-            )
+        return WebStatsTableQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
 
     raise ValueError(f"Can't get a runner for an unknown query kind: {kind}")
 
