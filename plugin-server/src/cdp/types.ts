@@ -154,8 +154,6 @@ export type HogFunctionInvocation = {
 export type HogFunctionInvocationResult = HogFunctionInvocation & {
     finished: boolean
     error?: any
-    logs: HogFunctionLogEntry[]
-    timings: HogFunctionTiming[]
     asyncFunctionRequest?: {
         name: string
         args: any[]
