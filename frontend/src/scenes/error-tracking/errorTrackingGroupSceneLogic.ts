@@ -14,7 +14,7 @@ export interface ErrorTrackingGroupSceneLogicProps {
     id: string
 }
 
-export type ExceptionEventType = Pick<EventType, 'properties' | 'timestamp' | 'person'>
+export type ExceptionEventType = Pick<EventType, 'id' | 'properties' | 'timestamp' | 'person'>
 
 export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType>([
     path((key) => ['scenes', 'error-tracking', 'errorTrackingGroupSceneLogic', key]),
@@ -39,9 +39,10 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
                     )
 
                     return response.results.map((r) => ({
-                        properties: JSON.parse(r[0]),
-                        timestamp: r[1],
-                        person: r[2],
+                        id: r[0],
+                        properties: JSON.parse(r[1]),
+                        timestamp: r[2],
+                        person: r[3],
                     }))
                 },
             },
