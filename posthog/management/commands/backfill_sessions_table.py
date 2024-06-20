@@ -65,7 +65,7 @@ class BackfillQuery:
         igshid_property = source_column("igshid")
         ttclid_property = source_column("ttclid")
 
-        def select_query(select_date: Optional[datetime] = None, team_id = None) -> str:
+        def select_query(select_date: Optional[datetime] = None, team_id=None) -> str:
             if select_date:
                 where = f"toStartOfDay(timestamp) = '{select_date.strftime('%Y-%m-%d')}'"
             else:
@@ -134,7 +134,9 @@ WHERE `$session_id` IS NOT NULL AND `$session_id` != '' AND {where} AND {team_wh
         for i in range(num_days):
             date = self.start_date + timedelta(days=i)
             logging.info("Writing the sessions for day %s", date.strftime("%Y-%m-%d"))
-            insert_query = f"""INSERT INTO writable_sessions {select_query(select_date=date)} SETTINGS max_execution_time=3600"""
+            insert_query = (
+                f"""INSERT INTO writable_sessions {select_query(select_date=date)} SETTINGS max_execution_time=3600"""
+            )
             sync_execute(
                 query=insert_query,
                 workload=Workload.OFFLINE if self.use_offline_workload else Workload.DEFAULT,
@@ -167,9 +169,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--print-counts", action="store_true", help="print events and session count beforehand and afterwards"
         )
-        parser.add_argument(
-            "--team-id", type=int, help="Team id (will do all teams if not set)"
-        )
+        parser.add_argument("--team-id", type=int, help="Team id (will do all teams if not set)")
 
     def handle(
         self,
@@ -188,5 +188,6 @@ class Command(BaseCommand):
         end_datetime = datetime.strptime(end_date, "%Y-%m-%d")
 
         BackfillQuery(start_datetime, end_datetime, use_offline_workload, team_id=team_id).execute(
-            dry_run=not live_run, print_counts=print_counts,
+            dry_run=not live_run,
+            print_counts=print_counts,
         )
