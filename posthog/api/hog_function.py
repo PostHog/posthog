@@ -18,6 +18,7 @@ from posthog.cdp.services.icons import CDPIconsService
 from posthog.cdp.validation import compile_hog, validate_inputs, validate_inputs_schema
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.permissions import PostHogFeatureFlagPermission
+from posthog.plugins.plugin_server_api import create_hog_invocation_test
 
 
 logger = structlog.get_logger(__name__)
@@ -105,6 +106,14 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         return super().create(validated_data=validated_data)
 
 
+class HogFunctionInvocationSerializer(serializers.Serializer):
+    configuration = HogFunctionSerializer(write_only=True)
+    event = serializers.DictField(write_only=True)
+    mock_async_functions = serializers.BooleanField(default=True, write_only=True)
+    status = serializers.CharField(read_only=True)
+    logs = serializers.ListField(read_only=True)
+
+
 class HogFunctionViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "INTERNAL"  # Keep internal until we are happy to release this GA
     queryset = HogFunction.objects.all()
@@ -143,3 +152,30 @@ class HogFunctionViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, ForbidDestroyMod
         icon_service = CDPIconsService()
 
         return icon_service.get_icon_http_response(id)
+
+    @action(detail=True, methods=["POST"])
+    def invocations(self, request: Request, *args, **kwargs):
+        hog_function = self.get_object()
+        serializer = HogFunctionInvocationSerializer(data=request.data, context=self.get_serializer_context())
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=400)
+
+        configuration = serializer.validated_data["configuration"]
+        # Remove the team from the config
+        configuration.pop("team")
+
+        event = serializer.validated_data["event"]
+        mock_async_functions = serializer.validated_data["mock_async_functions"]
+
+        res = create_hog_invocation_test(
+            team_id=hog_function.team_id,
+            hog_function_id=hog_function.id,
+            event=event,
+            configuration=configuration,
+            mock_async_functions=mock_async_functions,
+        )
+
+        if res.status_code != 200:
+            return Response({"status": "error"}, status=res.status_code)
+
+        return Response(res.json())

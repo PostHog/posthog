@@ -409,6 +409,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                             value: 600,
                             operator: PropertyOperator.LessThan,
                         },
+                        snapshot_source: null,
                         operand: FilterLogicalOperator.And,
                     },
                 })
@@ -437,6 +438,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                         events: [],
                         properties: [],
                         operand: FilterLogicalOperator.And,
+                        snapshot_source: null,
                     },
                 })
         })

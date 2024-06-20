@@ -66,6 +66,7 @@ from posthog.schema import (
     HogQLQueryModifiers,
     DataWarehouseEventsModifier,
     BreakdownType,
+    IntervalType,
 )
 from posthog.warehouse.models import DataWarehouseTable
 from posthog.utils import format_label_date, multisort
@@ -574,10 +575,11 @@ class TrendsQueryRunner(QueryRunner):
 
     @cached_property
     def query_date_range(self):
+        interval = IntervalType.DAY if self._trends_display.is_total_value() else self.query.interval
         return QueryDateRange(
             date_range=self.query.dateRange,
             team=self.team,
-            interval=self.query.interval,
+            interval=interval,
             now=datetime.now(),
         )
 

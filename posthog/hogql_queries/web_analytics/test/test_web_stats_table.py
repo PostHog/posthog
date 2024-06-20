@@ -1,11 +1,9 @@
 import uuid
-from typing import Union
 
 from freezegun import freeze_time
 from parameterized import parameterized
 
 from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
-from posthog.hogql_queries.web_analytics.stats_table_legacy import LegacyWebStatsTableQueryRunner
 from posthog.schema import DateRange, WebStatsTableQuery, WebStatsBreakdown, EventPropertyFilter, PropertyOperator
 from posthog.test.base import (
     APIBaseTest,
@@ -96,7 +94,6 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         breakdown_by=WebStatsBreakdown.PAGE,
         limit=None,
         path_cleaning_filters=None,
-        use_sessions_table=True,
         include_bounce_rate=False,
         include_scroll_depth=False,
         properties=None,
@@ -111,23 +108,17 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             includeScrollDepth=include_scroll_depth,
         )
         self.team.path_cleaning_filters = path_cleaning_filters or []
-        if use_sessions_table:
-            runner: Union[WebStatsTableQueryRunner, LegacyWebStatsTableQueryRunner] = WebStatsTableQueryRunner(
-                team=self.team, query=query
-            )
-        else:
-            runner = LegacyWebStatsTableQueryRunner(team=self.team, query=query)
+        runner = WebStatsTableQueryRunner(team=self.team, query=query)
         return runner.calculate()
 
-    @parameterized.expand([(True,), (False,)])
-    def test_no_crash_when_no_data(self, use_sessions_table):
+    def test_no_crash_when_no_data(self):
         results = self._run_web_stats_table_query(
-            "2023-12-08", "2023-12-15", use_sessions_table=use_sessions_table
+            "2023-12-08",
+            "2023-12-15",
         ).results
         self.assertEqual([], results)
 
-    @parameterized.expand([(True,), (False,)])
-    def test_increase_in_users(self, use_sessions_table):
+    def test_increase_in_users(self):
         self._create_events(
             [
                 ("p1", [("2023-12-02", "s1a", "/"), ("2023-12-03", "s1a", "/login"), ("2023-12-13", "s1b", "/docs")]),
@@ -145,8 +136,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             results,
         )
 
-    @parameterized.expand([(True,), (False,)])
-    def test_all_time(self, use_sessions_table):
+    def test_all_time(self):
         self._create_events(
             [
                 ("p1", [("2023-12-02", "s1a", "/"), ("2023-12-03", "s1a", "/login"), ("2023-12-13", "s1b", "/docs")]),
@@ -154,7 +144,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ]
         )
 
-        results = self._run_web_stats_table_query("all", "2023-12-15", use_sessions_table=use_sessions_table).results
+        results = self._run_web_stats_table_query("all", "2023-12-15").results
 
         self.assertEqual(
             [
@@ -165,22 +155,18 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             results,
         )
 
-    @parameterized.expand([(True,), (False,)])
-    def test_filter_test_accounts(self, use_sessions_table):
+    def test_filter_test_accounts(self):
         # Create 1 test account
         self._create_events([("test", [("2023-12-02", "s1", "/"), ("2023-12-03", "s1", "/login")])])
 
-        results = self._run_web_stats_table_query(
-            "2023-12-01", "2023-12-03", use_sessions_table=use_sessions_table
-        ).results
+        results = self._run_web_stats_table_query("2023-12-01", "2023-12-03").results
 
         self.assertEqual(
             [],
             results,
         )
 
-    @parameterized.expand([(True,), (False,)])
-    def test_breakdown_channel_type_doesnt_throw(self, use_sessions_table):
+    def test_breakdown_channel_type_doesnt_throw(self):
         # not really testing the functionality yet, which is tested elsewhere, just that it runs
         self._create_events(
             [
@@ -193,7 +179,6 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2023-12-01",
             "2023-12-03",
             breakdown_by=WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
-            use_sessions_table=use_sessions_table,
         ).results
 
         self.assertEqual(
@@ -201,8 +186,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             len(results),
         )
 
-    @parameterized.expand([(True,), (False,)])
-    def test_limit(self, use_sessions_table):
+    def test_limit(self):
         self._create_events(
             [
                 ("p1", [("2023-12-02", "s1", "/"), ("2023-12-03", "s1", "/login")]),
@@ -211,7 +195,9 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         response_1 = self._run_web_stats_table_query(
-            "all", "2023-12-15", limit=1, use_sessions_table=use_sessions_table
+            "all",
+            "2023-12-15",
+            limit=1,
         )
         self.assertEqual(
             [
@@ -252,7 +238,6 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 {"regex": "thing_a", "alias": "thing_b"},
                 {"regex": "thing_b", "alias": "thing_c"},
             ],
-            use_sessions_table=use_sessions_table,
         ).results
 
         self.assertEqual(
@@ -278,7 +263,6 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._run_web_stats_table_query(
             "all",
             "2023-12-15",
-            use_sessions_table=True,
             breakdown_by=WebStatsBreakdown.PAGE,
             include_scroll_depth=True,
             include_bounce_rate=True,
@@ -321,7 +305,6 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._run_web_stats_table_query(
             "all",
             "2023-12-15",
-            use_sessions_table=True,
             breakdown_by=WebStatsBreakdown.PAGE,
             include_scroll_depth=True,
             include_bounce_rate=True,
@@ -364,7 +347,6 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._run_web_stats_table_query(
             "all",
             "2023-12-15",
-            use_sessions_table=True,
             breakdown_by=WebStatsBreakdown.PAGE,
             include_scroll_depth=True,
             include_bounce_rate=True,
@@ -391,7 +373,6 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._run_web_stats_table_query(
             "all",
             "2023-12-15",
-            use_sessions_table=True,
             breakdown_by=WebStatsBreakdown.PAGE,
             include_scroll_depth=True,
             include_bounce_rate=True,
@@ -424,7 +405,6 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._run_web_stats_table_query(
             "all",
             "2023-12-15",
-            use_sessions_table=True,
             breakdown_by=WebStatsBreakdown.PAGE,
             include_bounce_rate=True,
         ).results
@@ -466,7 +446,6 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._run_web_stats_table_query(
             "all",
             "2023-12-15",
-            use_sessions_table=True,
             breakdown_by=WebStatsBreakdown.PAGE,
             include_bounce_rate=True,
         ).results
@@ -508,7 +487,6 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._run_web_stats_table_query(
             "all",
             "2023-12-15",
-            use_sessions_table=True,
             breakdown_by=WebStatsBreakdown.PAGE,
             include_bounce_rate=True,
             properties=[EventPropertyFilter(key="$pathname", operator=PropertyOperator.EXACT, value="/a")],
@@ -534,7 +512,6 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._run_web_stats_table_query(
             "all",
             "2023-12-15",
-            use_sessions_table=True,
             breakdown_by=WebStatsBreakdown.PAGE,
             include_bounce_rate=True,
             path_cleaning_filters=[
@@ -566,7 +543,6 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._run_web_stats_table_query(
             "all",
             "2023-12-15",
-            use_sessions_table=True,
             breakdown_by=WebStatsBreakdown.INITIAL_PAGE,
             include_bounce_rate=True,
         ).results
@@ -606,7 +582,6 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._run_web_stats_table_query(
             "all",
             "2023-12-15",
-            use_sessions_table=True,
             breakdown_by=WebStatsBreakdown.INITIAL_PAGE,
             include_bounce_rate=True,
         ).results
@@ -646,7 +621,6 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._run_web_stats_table_query(
             "all",
             "2023-12-15",
-            use_sessions_table=True,
             breakdown_by=WebStatsBreakdown.INITIAL_PAGE,
             include_bounce_rate=True,
             properties=[EventPropertyFilter(key="$pathname", operator=PropertyOperator.EXACT, value="/a")],
@@ -672,7 +646,6 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._run_web_stats_table_query(
             "all",
             "2023-12-15",
-            use_sessions_table=True,
             breakdown_by=WebStatsBreakdown.INITIAL_PAGE,
             include_bounce_rate=True,
             path_cleaning_filters=[

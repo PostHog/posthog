@@ -19,22 +19,25 @@ from hogql_parser import (
     parse_order_expr as _parse_order_expr_cpp,
     parse_select as _parse_select_cpp,
     parse_full_template_string as _parse_full_template_string_cpp,
+    parse_program as _parse_program_cpp,
 )
 
 RULE_TO_PARSE_FUNCTION: dict[
-    Literal["python", "cpp"], dict[Literal["expr", "order_expr", "select", "full_template_string"], Callable]
+    Literal["python", "cpp"], dict[Literal["expr", "order_expr", "select", "full_template_string", "program"], Callable]
 ] = {
     "python": {
         "expr": lambda string, start: HogQLParseTreeConverter(start=start).visit(get_parser(string).expr()),
         "order_expr": lambda string: HogQLParseTreeConverter().visit(get_parser(string).orderExpr()),
         "select": lambda string: HogQLParseTreeConverter().visit(get_parser(string).select()),
         "full_template_string": lambda string: HogQLParseTreeConverter().visit(get_parser(string).fullTemplateString()),
+        "program": lambda string: HogQLParseTreeConverter().visit(get_parser(string).program()),
     },
     "cpp": {
         "expr": lambda string, start: _parse_expr_cpp(string, is_internal=start is None),
         "order_expr": lambda string: _parse_order_expr_cpp(string),
         "select": lambda string: _parse_select_cpp(string),
         "full_template_string": lambda string: _parse_full_template_string_cpp(string),
+        "program": lambda string: _parse_program_cpp(string),
     },
 }
 
@@ -46,16 +49,6 @@ RULE_TO_HISTOGRAM: dict[Literal["expr", "order_expr", "select", "full_template_s
     )
     for rule in ("expr", "order_expr", "select", "full_template_string")
 }
-
-
-def parse_program(
-    program: str, placeholders: Optional[dict[str, ast.Expr]] = None, start: Optional[int] = 0
-) -> ast.Program:
-    parse_tree = get_parser(program).program()
-    node = HogQLParseTreeConverter(start=start).visit(parse_tree)
-    if placeholders:
-        return cast(ast.Program, replace_placeholders(node, placeholders))
-    return node
 
 
 def parse_string_template(
@@ -129,6 +122,20 @@ def parse_select(
         if placeholders:
             with timings.measure("replace_placeholders"):
                 node = replace_placeholders(node, placeholders)
+    return node
+
+
+def parse_program(
+    source: str,
+    timings: Optional[HogQLTimings] = None,
+    *,
+    backend: Literal["python", "cpp"] = "cpp",
+) -> ast.Program:
+    if timings is None:
+        timings = HogQLTimings()
+    with timings.measure(f"parse_expr_{backend}"):
+        with RULE_TO_HISTOGRAM["expr"].labels(backend=backend).time():
+            node = RULE_TO_PARSE_FUNCTION[backend]["program"](source)
     return node
 
 
@@ -270,6 +277,8 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
                 statement = self.visit(declaration)
                 declarations.append(cast(ast.Declaration, statement))
         return ast.Block(declarations=declarations)
+
+    ##### HogQL rules
 
     def visitSelect(self, ctx: HogQLParser.SelectContext):
         return self.visit(ctx.selectUnionStmt() or ctx.selectStmt() or ctx.hogqlxTagElement())

@@ -20,7 +20,7 @@ from posthog.models.utils import (
     create_with_slug,
     sane_repr,
 )
-from posthog.plugins.reload import reset_available_product_features_cache_on_workers
+from posthog.plugins.plugin_server_api import reset_available_product_features_cache_on_workers
 from posthog.utils import absolute_uri
 
 if TYPE_CHECKING:

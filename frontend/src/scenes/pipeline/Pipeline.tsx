@@ -5,7 +5,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { DataWarehouseSourcesTable } from 'scenes/data-warehouse/settings/DataWarehouseSourcesTable'
+import { DataWarehouseManagedSourcesTable } from 'scenes/data-warehouse/settings/DataWarehouseManagedSourcesTable'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -39,7 +39,7 @@ export function Pipeline(): JSX.Element {
     if (featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE]) {
         tabToContent = {
             ...tabToContent,
-            [PipelineTab.DataImport]: <DataWarehouseSourcesTable />,
+            [PipelineTab.DataImport]: <DataWarehouseManagedSourcesTable />,
         }
     }
     // Import apps are deprecated, we only show the tab if there are some still enabled

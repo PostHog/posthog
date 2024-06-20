@@ -2400,6 +2400,29 @@
             "required": ["key", "operator", "type"],
             "type": "object"
         },
+        "DatabaseSchemaBatchExportTable": {
+            "additionalProperties": false,
+            "properties": {
+                "fields": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/DatabaseSchemaField"
+                    },
+                    "type": "object"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "type": {
+                    "const": "batch_export",
+                    "type": "string"
+                }
+            },
+            "required": ["fields", "id", "name", "type"],
+            "type": "object"
+        },
         "DatabaseSchemaDataWarehouseTable": {
             "additionalProperties": false,
             "properties": {
@@ -2587,6 +2610,9 @@
                 },
                 {
                     "$ref": "#/definitions/DatabaseSchemaViewTable"
+                },
+                {
+                    "$ref": "#/definitions/DatabaseSchemaBatchExportTable"
                 }
             ]
         },
@@ -2606,7 +2632,7 @@
                     "type": "string"
                 },
                 "type": {
-                    "enum": ["posthog", "data_warehouse", "view"],
+                    "enum": ["posthog", "data_warehouse", "view", "batch_export"],
                     "type": "string"
                 }
             },
@@ -7068,6 +7094,10 @@
                         {
                             "const": "console_log_query",
                             "type": "string"
+                        },
+                        {
+                            "const": "snapshot_source",
+                            "type": "string"
                         }
                     ]
                 },
@@ -8265,6 +8295,7 @@
                     "type": "object"
                 },
                 "useSessionsTable": {
+                    "deprecated": "ignored, always treated as enabled *",
                     "type": "boolean"
                 }
             },
@@ -8381,6 +8412,7 @@
                     "type": "object"
                 },
                 "useSessionsTable": {
+                    "deprecated": "ignored, always treated as enabled *",
                     "type": "boolean"
                 }
             },
@@ -8470,6 +8502,7 @@
                     "type": "object"
                 },
                 "useSessionsTable": {
+                    "deprecated": "ignored, always treated as enabled *",
                     "type": "boolean"
                 }
             },
