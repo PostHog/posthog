@@ -87,6 +87,8 @@ async def try_set_batch_export_run_to_running(run_id: str | None, logger, timeou
     the status. This means that, worse case, the batch export status won't be displayed as 'RUNNING' while running.
     """
     if run_id is None:
+        # Should never land here except in tests of individual activities
+        yield
         return
 
     background_task = asyncio.create_task(
