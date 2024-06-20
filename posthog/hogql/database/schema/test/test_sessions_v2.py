@@ -290,7 +290,7 @@ class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
 class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
     def test_all(self):
         results = get_lazy_session_table_properties_v2(None)
-        self.assertEqual(len(results), 21)
+        self.assertEqual(len(results), 20)
         self.assertEqual(
             results[0],
             {

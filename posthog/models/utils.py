@@ -96,22 +96,33 @@ class UUIDT(uuid.UUID):
 
 
 # Delete this when we can use the version from the stdlib directly, see https://github.com/python/cpython/issues/102461
-def uuid7(unix_ms_time: Optional[Union[int, str]] = None, seeded_random: Optional["Random"] = None) -> uuid.UUID:
+def uuid7(
+    unix_ms_time: Optional[Union[int, str]] = None, random_component: Optional[Union["Random", int]] = None
+) -> uuid.UUID:
     # timestamp part
     unix_ms_time_int: int
     if isinstance(unix_ms_time, str):
+        # parse the ISO format string, use the timestamp from that
         date = datetime.datetime.fromisoformat(unix_ms_time)
         unix_ms_time_int = int(date.timestamp() * 1000)
     elif unix_ms_time is None:
+        # use the current system time
         unix_ms_time_int = time_ns() // (10**6)
     else:
+        # use the provided timestamp directly
         unix_ms_time_int = unix_ms_time
 
     # random part
-    if seeded_random is not None:
-        rand_a = seeded_random.getrandbits(12)
-        rand_b = seeded_random.getrandbits(56)
+    if isinstance(random_component, int):
+        # use the integer directly as the random component
+        rand_a = random_component & 0x0FFF
+        rand_b = random_component >> 12 & 0x03FFFFFFFFFFFFFFF
+    elif random_component is not None:
+        # use the provided random generator
+        rand_a = random_component.getrandbits(12)
+        rand_b = random_component.getrandbits(56)
     else:
+        # use the system random generator
         rand_bytes = int.from_bytes(secrets.token_bytes(10), byteorder="little")
         rand_a = rand_bytes & 0x0FFF
         rand_b = (rand_bytes >> 12) & 0x03FFFFFFFFFFFFFFF
