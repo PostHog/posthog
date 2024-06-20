@@ -162,11 +162,11 @@ SELECT
     initializeAggregation('argMinState', {ttclid}, timestamp) as initial_ttclid,
 
     if(event='$pageview', 1, 0) as pageview_count,
-    initializeAggregation('uniqIfState', uuid, event='$pageview') as pageview_uniq,
+    initializeAggregation('uniqState', if(event='$pageview', uuid, NULL)) as pageview_uniq,
     if(event='$autocapture', 1, 0) as autocapture_count,
-    initializeAggregation('uniqIfState', uuid, event='$autocapture') as autocapture_uniq,
+    initializeAggregation('uniqState', if(event='autocapture', uuid, NULL)) as autocapture_uniq,
     if(event='$screen', 1, 0) as screen_count,
-    initializeAggregation('uniqIfState', uuid, event='$screen') as screen_uniq,
+    initializeAggregation('uniqState', if(event='screen', uuid, NULL)) as screen_uniq,
 
     false as has_session_replay
 FROM {database}.sharded_events
