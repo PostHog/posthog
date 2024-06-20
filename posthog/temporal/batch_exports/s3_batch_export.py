@@ -62,7 +62,7 @@ def get_allowed_template_variables(inputs) -> dict[str, str]:
         "year": f"{export_datetime:%Y}",
         "data_interval_start": inputs.data_interval_start,
         "data_interval_end": inputs.data_interval_end,
-        "table": "events",
+        "table": inputs.batch_export_model.name if inputs.batch_export_model is not None else "events",
     }
 
 
