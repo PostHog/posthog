@@ -57,7 +57,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             )
 
         def _program(self, program: str) -> ast.Program:
-            return parse_program(program)
+            return cast(ast.Program, clear_locations(cast(ast.Expr, parse_program(program))))
 
         def test_numbers(self):
             self.assertEqual(self._expr("1"), ast.Constant(value=1))
@@ -2175,6 +2175,22 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                         ),
                     )
                 ],
+            )
+            self.assertEqual(program, expected)
+
+        def test_program_simple_return(self):
+            code = "return"
+            program = self._program(code)
+            expected = Program(
+                declarations=[ast.ReturnStatement(expr=None)],
+            )
+            self.assertEqual(program, expected)
+
+        def test_program_simple_return_twice(self):
+            code = "return;return"
+            program = self._program(code)
+            expected = Program(
+                declarations=[ast.ReturnStatement(expr=None), ast.ReturnStatement(expr=None)],
             )
             self.assertEqual(program, expected)
 
