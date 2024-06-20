@@ -245,8 +245,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 wrapper.group_by.append(ast.Field(chain=["day_start"]))
 
             wrapper.select.append(ast.Field(chain=["breakdown_value"]))
-            if not breakdown.is_histogram_breakdown:
-                wrapper.group_by.append(ast.Field(chain=["breakdown_value"]))
+            wrapper.group_by.append(ast.Field(chain=["breakdown_value"]))
 
             return wrapper
 
