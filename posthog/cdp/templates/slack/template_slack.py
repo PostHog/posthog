@@ -1,12 +1,10 @@
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 
-# NOTE: Slack template is essentially just a webhook template with limited options
-
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
     id="template-slack",
-    name="Slack webhook",
-    description="Sends a webhook templated by the incoming event data",
+    name="Post a Slack message",
+    description="Sends a message to a slack channel",
     icon_url="/api/projects/@current/hog_functions/icon/?id=slack.com",
     hog="""
 fetch("https://slack.com/api/chat.postMessage", {
