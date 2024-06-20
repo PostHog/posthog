@@ -134,11 +134,7 @@ export function PlayerMeta(): JSX.Element {
         {
             label: <IconWindow value={currentWindowIndex} className="text-muted-alt" />,
             value: null,
-            labelInMenu: (
-                <div className="flex flex-row gap-2 space-between items-center">
-                    Follow the user: <IconWindow value={currentWindowIndex} className="text-muted-alt" />
-                </div>
-            ),
+            labelInMenu: <>Follow the user</>,
         },
     ]
     windowIds.forEach((windowId, index) => {
