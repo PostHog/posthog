@@ -70,13 +70,7 @@ jobs:
         steps:
             - uses: actions/checkout@v4
 
-            - if: ${{ !endsWith(matrix.os, '-arm') }}
-              uses: actions/setup-python@v4
-              with:
-                  python-version: '3.11'
-
-            - if: ${{ endsWith(matrix.os, '-arm') }}
-              uses: deadsnakes/action@v3.1.0 # Unfortunately actions/setup-python@v4 just doesn't work on ARM! This does
+            - uses: actions/setup-python@v4
               with:
                   python-version: '3.11'
 
