@@ -81,6 +81,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             modifiers=HogQLQueryModifiers(optimizeJoinedFilters=True),
         )
 
+    @snapshot_clickhouse_queries
     def test_insight_persons_lifecycle_query(self):
         self._create_test_events()
         self.team.timezone = "US/Pacific"
@@ -163,6 +164,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual([("p1",), ("p2",)], response.results)
 
+    @snapshot_clickhouse_queries
     def test_insight_persons_stickiness_query(self):
         self._create_test_events()
         self.team.timezone = "US/Pacific"

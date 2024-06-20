@@ -231,12 +231,14 @@ class ActorsQueryRunner(QueryRunner):
                 order_by = []
 
         with self.timings.measure("select"):
-            # Insert CTE here
             assert self.source_query_runner is not None  # For type checking
             source_query = self.source_query_runner.to_actors_query()
-            if source_query.settings is None:
-                source_query.settings = HogQLQuerySettings()
-            source_query.settings.use_query_cache = True
+
+            # SelectUnionQuery (used by Stickiness) doesn't have settings
+            if hasattr(source_query, "settings"):
+                if source_query.settings is None:
+                    source_query.settings = HogQLQuerySettings()
+                source_query.settings.use_query_cache = True
 
             source_id_chain = self.source_id_column(source_query)
             source_alias = "source"
