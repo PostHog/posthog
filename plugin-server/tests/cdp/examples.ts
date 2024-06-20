@@ -116,14 +116,20 @@ export const HOG_EXAMPLES: Record<string, Pick<HogFunctionType, 'hog' | 'bytecod
             35,
         ],
     },
-    long_function: {
-        hog: "fn fibonacci(number) {\n    if (number < 2) {\n        return number;\n    } else {\n        return fibonacci(number - 1) + fibonacci(number - 2);\n    }\n}\nprint(f'fib {fibonacci(30)}');",
+    malicious_function: {
+        hog: "fn fibonacci(number) {\n    print('I AM FIBONACCI')\n    if (number < 2) {\n        return number;\n    } else {\n        return fibonacci(number - 1) + fibonacci(number - 2);\n    }\n}\nprint(f'fib {fibonacci(30)}');",
         bytecode: [
             '_h',
             41,
             'fibonacci',
             1,
+            38,
             32,
+            'I AM FIBONACCI',
+            2,
+            'print',
+            1,
+            35,
             33,
             2,
             36,

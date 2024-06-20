@@ -16,7 +16,7 @@ import {
 import { convertToHogFunctionFilterGlobal } from './utils'
 
 const MAX_ASYNC_STEPS = 2
-
+const MAX_HOG_LOGS = 10
 const DEFAULT_TIMEOUT_MS = 100
 
 export const formatInput = (bytecode: any, globals: HogFunctionInvocation['globals']): any => {
@@ -240,6 +240,7 @@ export class HogExecutor {
             }
 
             try {
+                let hogLogs = 0
                 execRes = exec(state ?? hogFunction.bytecode, {
                     globals,
                     timeout: DEFAULT_TIMEOUT_MS, // TODO: Swap this to milliseconds when the package is updated
@@ -250,6 +251,19 @@ export class HogExecutor {
                     },
                     functions: {
                         print: (...args) => {
+                            hogLogs++
+                            if (hogLogs == MAX_HOG_LOGS) {
+                                addLog(
+                                    result,
+                                    'warn',
+                                    `Function exceeded maximum log entries. No more logs will be collected.`
+                                )
+                            }
+
+                            if (hogLogs >= MAX_HOG_LOGS) {
+                                return
+                            }
+
                             const message = args
                                 .map((arg) => (typeof arg !== 'string' ? JSON.stringify(arg) : arg))
                                 .join(', ')

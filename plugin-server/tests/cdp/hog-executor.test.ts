@@ -43,6 +43,7 @@ describe('Hog Executor', () => {
     const mockFunctionManager = {
         reloadAllHogFunctions: jest.fn(),
         getTeamHogFunctions: jest.fn(),
+        getTeamHogFunction: jest.fn(),
     }
 
     beforeEach(() => {
@@ -61,9 +62,8 @@ describe('Hog Executor', () => {
                 ...HOG_FILTERS_EXAMPLES.no_filters,
             })
 
-            mockFunctionManager.getTeamHogFunctions.mockReturnValue({
-                [hogFunction.id]: hogFunction,
-            })
+            mockFunctionManager.getTeamHogFunctions.mockReturnValue([hogFunction])
+            mockFunctionManager.getTeamHogFunction.mockReturnValue(hogFunction)
         })
 
         it('can parse incoming messages correctly', () => {
@@ -191,9 +191,7 @@ describe('Hog Executor', () => {
                 ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
             })
 
-            mockFunctionManager.getTeamHogFunctions.mockReturnValue({
-                [fn.id]: fn,
-            })
+            mockFunctionManager.getTeamHogFunctions.mockReturnValue([fn])
 
             const resultsShouldntMatch = executor.executeMatchingFunctions(createHogExecutionGlobals())
             expect(resultsShouldntMatch).toHaveLength(0)
@@ -220,9 +218,7 @@ describe('Hog Executor', () => {
                 ...HOG_FILTERS_EXAMPLES.no_filters,
             })
 
-            mockFunctionManager.getTeamHogFunctions.mockReturnValue({
-                [fn.id]: fn,
-            })
+            mockFunctionManager.getTeamHogFunctions.mockReturnValue([fn])
 
             // Simulate the recusive loop
             const results = executor.executeMatchingFunctions(createHogExecutionGlobals())
@@ -250,18 +246,33 @@ describe('Hog Executor', () => {
         })
         it('limits the execution time and exits appropriately', () => {
             const fn = createHogFunction({
-                ...HOG_EXAMPLES.long_function,
+                ...HOG_EXAMPLES.malicious_function,
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
                 ...HOG_FILTERS_EXAMPLES.no_filters,
             })
 
-            mockFunctionManager.getTeamHogFunctions.mockReturnValue({
-                [fn.id]: fn,
-            })
+            mockFunctionManager.getTeamHogFunctions.mockReturnValue([fn])
 
             const results = executor.executeMatchingFunctions(createHogExecutionGlobals())
             expect(results).toHaveLength(1)
             expect(results[0].error).toContain('Execution timed out after 0.1 seconds. Performed ')
+
+            expect(results[0].logs.map((log) => log.message)).toEqual([
+                'Executing function',
+                'I AM FIBONACCI',
+                'I AM FIBONACCI',
+                'I AM FIBONACCI',
+                'I AM FIBONACCI',
+                'I AM FIBONACCI',
+                'I AM FIBONACCI',
+                'I AM FIBONACCI',
+                'I AM FIBONACCI',
+                'I AM FIBONACCI',
+                'Function exceeded maximum log entries. No more logs will be collected.',
+                expect.stringContaining(
+                    'Error executing function: Error: Execution timed out after 0.1 seconds. Performed'
+                ),
+            ])
         })
     })
 })
