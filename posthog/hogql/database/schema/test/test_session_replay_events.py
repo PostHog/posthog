@@ -24,9 +24,9 @@ from posthog.test.base import (
 
 @freeze_time("2021-01-01T13:46:23")
 class TestFilterSessionReplaysBySessions(ClickhouseTestMixin, APIBaseTest):
-    session_with_one_hour = str(uuid7())
-    session_with_different_session_and_replay_duration = str(uuid7())
-    session_with_no_events = str(uuid7())
+    session_with_one_hour = str(uuid7("2021-01-01T10"))
+    session_with_different_session_and_replay_duration = str(uuid7("2021-01-01T11"))
+    session_with_no_events = str(uuid7("2021-01-01T12"))
 
     def setUp(self):
         super().setUp()
@@ -105,9 +105,9 @@ class TestFilterSessionReplaysBySessions(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert response.results == [
+            (self.session_with_one_hour,),
             (self.session_with_different_session_and_replay_duration,),
             (self.session_with_no_events,),
-            (self.session_with_one_hour,),
         ]
 
     @snapshot_clickhouse_queries
