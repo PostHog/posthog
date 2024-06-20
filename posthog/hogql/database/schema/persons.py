@@ -1,6 +1,7 @@
 from typing import cast
 import posthoganalytics
 
+from hogql_parser import parse_expr
 from posthog.hogql.ast import SelectQuery, And
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
@@ -60,10 +61,22 @@ def select_from_persons_table(join_or_table: LazyJoinToAdd | LazyTableToAdd, con
             SELECT id FROM raw_persons WHERE (id, version) IN (
                SELECT id, max(version) as version
                FROM raw_persons
+               WHERE raw_persons.id in (select person_id from person_ids)
                GROUP BY id
                HAVING equals(argMax(raw_persons.is_deleted, raw_persons.version), 0)
                AND argMax(raw_persons.created_at, raw_persons.version) < now() + interval 1 day
             )
+            
+            """
+                if "person_ids" in node.type.ctes
+                else """
+            SELECT id FROM raw_persons WHERE (id, version) IN (
+               SELECT id, max(version) as version
+               FROM raw_persons
+               GROUP BY id
+               HAVING equals(argMax(raw_persons.is_deleted, raw_persons.version), 0)
+               AND argMax(raw_persons.created_at, raw_persons.version) < now() + interval 1 day
+            )            
             """
             ),
         )
@@ -89,6 +102,12 @@ def select_from_persons_table(join_or_table: LazyJoinToAdd | LazyTableToAdd, con
             timestamp_field_to_clamp="created_at",
         )
         select.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
+        if "person_ids" in node.type.ctes:
+            expr = parse_expr("raw_persons.id in (select person_id from person_ids)")
+            if select.where:
+                select.where = And(exprs=[select.where, expr])
+            else:
+                select.where = expr
 
     if context.modifiers.optimizeJoinedFilters:
         extractor = WhereClauseExtractor(context)
@@ -98,24 +117,6 @@ def select_from_persons_table(join_or_table: LazyJoinToAdd | LazyTableToAdd, con
             select.where = And(exprs=[select.where, where])
         elif where:
             select.where = where
-
-    if "person_ids" in node.type.ctes:
-        comparison = clone_expr(
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.In,
-                left=ast.Field(chain=["id"], type=ast.FieldType(name="id", table_type=PersonsTable)),
-                right=ast.SelectQuery(
-                    select=[ast.Field(chain=["person_id"])],
-                    select_from=ast.JoinExpr(table=ast.Field(chain=["person_ids"])),
-                ),
-            ),
-            clear_types=True,
-            clear_locations=True,
-        )
-        if select.where:
-            select.where = And(exprs=[comparison, select.where])
-        else:
-            select.where = comparison
 
     return select
 

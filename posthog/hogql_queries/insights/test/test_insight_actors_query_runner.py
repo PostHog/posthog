@@ -7,7 +7,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team import WeekStartDay
-from posthog.schema import HogQLQueryModifiers
+from posthog.schema import HogQLQueryModifiers, PersonsArgMaxVersion
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -71,14 +71,14 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ]
         )
 
-    def select(self, query: str, placeholders: Optional[dict[str, Any]] = None):
+    def select(self, query: str, placeholders: Optional[dict[str, Any]] = None, modifiers: dict = {}):
         if placeholders is None:
             placeholders = {}
         return execute_hogql_query(
             query=query,
             team=self.team,
             placeholders=placeholders,
-            modifiers=HogQLQueryModifiers(optimizeJoinedFilters=True),
+            modifiers=HogQLQueryModifiers(**modifiers),
         )
 
     @snapshot_clickhouse_queries
@@ -106,7 +106,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             {"date_from": ast.Constant(value=date_from), "date_to": ast.Constant(value=date_to)},
         )
 
-        # self.assertEqual([("p1",)], response.results)
+        self.assertEqual([("p1",)], response.results)
 
     def test_insight_persons_lifecycle_query_week_monday(self):
         self._create_test_events()
@@ -212,7 +212,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([("org1",)], response.results)
 
     @snapshot_clickhouse_queries
-    def test_insight_persons_trends_query(self):
+    def test_insight_persons_trends_query_with_argmaxV2(self):
         self._create_test_events()
         self.team.timezone = "US/Pacific"
         self.team.save()
@@ -229,7 +229,32 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     </InsightActorsQuery>
                 </ActorsQuery>
             )
+            """,
+            modifiers={"personsArgMaxVersion": PersonsArgMaxVersion.V2},
+        )
+
+        self.assertEqual([("p2",)], response.results)
+
+    @snapshot_clickhouse_queries
+    def test_insight_persons_trends_query_with_argmaxV1(self):
+        self._create_test_events()
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+
+        response = self.select(
             """
+            select * from (
+                <ActorsQuery select={['properties.name']}>
+                    <InsightActorsQuery day='2020-01-09'>
+                        <TrendsQuery
+                            dateRange={<InsightDateRange date_from='2020-01-09' date_to='2020-01-19' />}
+                            series={[<EventsNode event='$pageview' />]}
+                        />
+                    </InsightActorsQuery>
+                </ActorsQuery>
+            )
+            """,
+            modifiers={"personsArgMaxVersion": PersonsArgMaxVersion.V1},
         )
 
         self.assertEqual([("p2",)], response.results)

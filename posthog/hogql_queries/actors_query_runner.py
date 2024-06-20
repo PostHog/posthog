@@ -18,6 +18,7 @@ from posthog.schema import (
     StickinessQuery,
     TrendsQuery,
 )
+from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 
 class ActorsQueryRunner(QueryRunner):
@@ -247,6 +248,7 @@ class ActorsQueryRunner(QueryRunner):
                 if source_query.settings is None:
                     source_query.settings = HogQLQuerySettings()
                 source_query.settings.use_query_cache = True
+                source_query.settings.query_cache_ttl = HOGQL_INCREASED_MAX_EXECUTION_TIME
 
             source_id_chain = self.source_id_column(source_query)
             source_alias = "source"

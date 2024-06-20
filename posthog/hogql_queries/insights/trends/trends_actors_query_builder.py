@@ -29,6 +29,7 @@ from posthog.schema import (
     TrendsQuery,
     CompareFilter,
 )
+from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 
 class TrendsActorsQueryBuilder:
@@ -170,6 +171,10 @@ class TrendsActorsQueryBuilder:
         if cte_events_query.settings is None:
             cte_events_query.settings = HogQLQuerySettings()
         cte_events_query.settings.use_query_cache = True
+        # Cache these specific queries for as long as we allow queries to run for
+        # This means that a refresh of this query won't change data more than once every 10 minutes
+        # But we shouldn't be allowing refreshing that often anyways
+        cte_events_query.settings.query_cache_ttl = HOGQL_INCREASED_MAX_EXECUTION_TIME
 
         # need to modify events query to ask for correct things only
         s = parse_select("SELECT distinct distinct_id as distinct_id FROM e")

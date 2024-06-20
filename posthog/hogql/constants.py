@@ -93,6 +93,7 @@ class HogQLQuerySettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
     optimize_aggregation_in_order: Optional[bool] = None
     use_query_cache: Optional[bool] = None
+    query_cache_ttl: Optional[int] = None
 
 
 # Settings applied on top of all HogQL queries.
