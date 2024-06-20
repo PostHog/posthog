@@ -3,7 +3,10 @@ from time import time_ns
 import pytest
 
 from posthog.hogql import ast
-from posthog.hogql.database.schema.sessions_v2 import get_lazy_session_table_properties
+from posthog.hogql.database.schema.sessions_v2 import (
+    get_lazy_session_table_properties_v2,
+    get_lazy_session_table_values_v2,
+)
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 from posthog.models.property_definition import PropertyType
@@ -286,8 +289,8 @@ class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
 
 class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
     def test_all(self):
-        results = get_lazy_session_table_properties(None)
-        self.assertEqual(len(results), 19)
+        results = get_lazy_session_table_properties_v2(None)
+        self.assertEqual(len(results), 21)
         self.assertEqual(
             results[0],
             {
@@ -301,7 +304,7 @@ class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_source(self):
-        results = get_lazy_session_table_properties("source")
+        results = get_lazy_session_table_properties_v2("source")
         self.assertEqual(
             results,
             [
@@ -325,8 +328,13 @@ class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_entry_utm(self):
-        results = get_lazy_session_table_properties("entry utm")
+        results = get_lazy_session_table_properties_v2("entry utm")
         self.assertEqual(
             [result["name"] for result in results],
             ["$entry_utm_source", "$entry_utm_campaign", "$entry_utm_medium", "$entry_utm_term", "$entry_utm_content"],
         )
+
+    def test_can_get_values_for_all(self):
+        results = get_lazy_session_table_properties_v2(None)
+        for prop in results:
+            get_lazy_session_table_values_v2(key=prop["id"], team=self.team, search_term=None)

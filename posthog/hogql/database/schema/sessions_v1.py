@@ -307,7 +307,7 @@ def join_events_table_to_sessions_table(
     return join_expr
 
 
-def get_lazy_session_table_properties(search: Optional[str]):
+def get_lazy_session_table_properties_v1(search: Optional[str]):
     # some fields shouldn't appear as properties
     hidden_fields = {
         "team_id",
@@ -386,7 +386,7 @@ SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR_MAP = {
 }
 
 
-def get_lazy_session_table_values(key: str, search_term: Optional[str], team: "Team"):
+def get_lazy_session_table_values_v1(key: str, search_term: Optional[str], team: "Team"):
     # the sessions table does not have a properties json object like the events and person tables
 
     if key == "$channel_type":

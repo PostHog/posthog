@@ -21,9 +21,9 @@ from posthog.hogql.database.schema.channel_type import create_channel_type_expr,
 from posthog.hogql.database.schema.util.where_clause_extractor import SessionMinTimestampWhereClauseExtractorV2
 from posthog.hogql.errors import ResolutionError
 from posthog.models.property_definition import PropertyType
-from posthog.models.sessions.sql import (
-    SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER,
-    SELECT_SESSION_PROP_STRING_VALUES_SQL,
+from posthog.models.raw_sessions.sql import (
+    RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL,
+    RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER,
 )
 from posthog.queries.insight import insight_sync_execute
 
@@ -337,7 +337,7 @@ def join_events_table_to_sessions_table_v2(
     return join_expr
 
 
-def get_lazy_session_table_properties(search: Optional[str]):
+def get_lazy_session_table_properties_v2(search: Optional[str]):
     # some fields shouldn't appear as properties
     hidden_fields = {
         "team_id",
@@ -416,7 +416,7 @@ SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR_MAP = {
 }
 
 
-def get_lazy_session_table_values(key: str, search_term: Optional[str], team: "Team"):
+def get_lazy_session_table_values_v2(key: str, search_term: Optional[str], team: "Team"):
     # the sessions table does not have a properties json object like the events and person tables
 
     if key == "$channel_type":
@@ -434,13 +434,13 @@ def get_lazy_session_table_values(key: str, search_term: Optional[str], team: "T
 
         if search_term:
             return insight_sync_execute(
-                SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER.format(property_expr=expr),
+                RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER.format(property_expr=expr),
                 {"team_id": team.pk, "key": key, "value": "%{}%".format(search_term)},
                 query_type="get_session_property_values_with_value",
                 team_id=team.pk,
             )
         return insight_sync_execute(
-            SELECT_SESSION_PROP_STRING_VALUES_SQL.format(property_expr=expr),
+            RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL.format(property_expr=expr),
             {"team_id": team.pk, "key": key},
             query_type="get_session_property_values",
             team_id=team.pk,

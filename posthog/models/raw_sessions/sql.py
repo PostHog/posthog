@@ -375,12 +375,12 @@ FROM (
     SELECT
         {property_expr} as value
     FROM
-        sessions
+        raw_sessions
     WHERE
         team_id = %(team_id)s AND
         {property_expr} IS NOT NULL AND
         {property_expr} != ''
-    ORDER BY session_id DESC
+    ORDER BY session_id_v7 DESC
     LIMIT 100000
 )
 GROUP BY value
@@ -396,11 +396,11 @@ FROM (
     SELECT
         {property_expr} as value
     FROM
-        sessions
+        raw_sessions
     WHERE
         team_id = %(team_id)s AND
         {property_expr} ILIKE %(value)s
-    ORDER BY session_id DESC
+    ORDER BY session_id_v7 DESC
     LIMIT 100000
 )
 GROUP BY value
