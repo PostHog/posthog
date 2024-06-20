@@ -148,6 +148,12 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 return integrations?.find((x) => x.kind == 'slack')
             },
         ],
+        slackIntegrations: [
+            (s) => [s.integrations],
+            (integrations) => {
+                return integrations?.filter((x) => x.kind == 'slack')
+            },
+        ],
 
         isMemberOfSlackChannel: [
             (s) => [s.slackChannels],
