@@ -14,6 +14,7 @@ from temporalio.common import RetryPolicy
 from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import (
     BatchExportField,
+    BatchExportModel,
     BatchExportSchema,
     BigQueryBatchExportInputs,
 )
@@ -152,7 +153,7 @@ class BigQueryInsertInputs:
     use_json_type: bool = False
     run_id: str | None = None
     is_backfill: bool = False
-    batch_export_model: BatchExportSchema | None = None
+    batch_export_model: BatchExportModel | None = None
     # TODO: Remove after updating existing batch exports
     batch_export_schema: BatchExportSchema | None = None
 
@@ -232,6 +233,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
             if not await client.is_alive():
                 raise ConnectionError("Cannot establish connection to ClickHouse")
 
+            model: BatchExportModel | BatchExportSchema | None = None
             if inputs.batch_export_schema is None and "batch_export_model" in {
                 field.name for field in dataclasses.fields(inputs)
             }:
@@ -247,7 +249,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                 interval_end=inputs.data_interval_end,
                 exclude_events=inputs.exclude_events,
                 include_events=inputs.include_events,
-                default_fields=bigquery_default_fields(),
+                destination_default_fields=bigquery_default_fields(),
                 is_backfill=inputs.is_backfill,
             )
 

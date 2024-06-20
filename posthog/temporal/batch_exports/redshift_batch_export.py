@@ -12,7 +12,12 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.models import BatchExportRun
-from posthog.batch_exports.service import BatchExportField, RedshiftBatchExportInputs
+from posthog.batch_exports.service import (
+    BatchExportField,
+    BatchExportModel,
+    BatchExportSchema,
+    RedshiftBatchExportInputs,
+)
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
     FinishBatchExportRunInputs,
@@ -307,8 +312,9 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
             if not await client.is_alive():
                 raise ConnectionError("Cannot establish connection to ClickHouse")
 
+            model: BatchExportModel | BatchExportSchema | None = None
             if inputs.batch_export_schema is None and "batch_export_model" in {
-                field.name for field in dataclasses.fields(input)
+                field.name for field in dataclasses.fields(inputs)
             }:
                 model = inputs.batch_export_model
 
@@ -323,7 +329,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
                 interval_end=inputs.data_interval_end,
                 exclude_events=inputs.exclude_events,
                 include_events=inputs.include_events,
-                default_fields=redshift_default_fields(),
+                destination_default_fields=redshift_default_fields(),
                 is_backfill=inputs.is_backfill,
             )
             first_record_batch, record_iterator = await apeek_first_and_rewind(record_iterator)

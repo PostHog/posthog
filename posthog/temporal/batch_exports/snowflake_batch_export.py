@@ -450,6 +450,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
                 rows_exported.add(file.records_since_last_reset)
                 bytes_exported.add(file.bytes_since_last_reset)
 
+            model: BatchExportModel | BatchExportSchema | None = None
             if inputs.batch_export_schema is None and "batch_export_model" in {
                 field.name for field in dataclasses.fields(inputs)
             }:
@@ -465,7 +466,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
                 interval_end=inputs.data_interval_end,
                 exclude_events=inputs.exclude_events,
                 include_events=inputs.include_events,
-                default_fields=snowflake_default_fields(),
+                destination_destination_default_fields=snowflake_default_fields(),
                 is_backfill=inputs.is_backfill,
             )
             first_record_batch, record_iterator = await apeek_first_and_rewind(record_iterator)

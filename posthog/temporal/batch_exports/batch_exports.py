@@ -118,16 +118,21 @@ async def iter_model_records(
     model: BatchExportModel | BatchExportSchema | None,
     team_id: int,
     is_backfill: bool,
-    default_fields: list[BatchExportField],
+    destination_default_fields: list[BatchExportField] | None = None,
     **parameters,
 ) -> AsyncRecordsGenerator:
+    if destination_default_fields is None:
+        batch_export_default_fields = default_fields()
+    else:
+        batch_export_default_fields = destination_default_fields
+
     if isinstance(model, BatchExportModel):
         async for record in iter_records_from_model_view(
             client=client,
             model_name=model.name,
             team_id=team_id,
             is_backfill=is_backfill,
-            fields=model.schema["fields"] if model.schema is not None else default_fields,
+            fields=model.schema["fields"] if model.schema is not None else batch_export_default_fields,
             extra_query_parameters=model.schema["values"] if model.schema is not None else None,
             **parameters,
         ):
@@ -138,7 +143,7 @@ async def iter_model_records(
             client,
             team_id=team_id,
             is_backfill=is_backfill,
-            fields=model["fields"] if model is not None else default_fields,
+            fields=model["fields"] if model is not None else batch_export_default_fields,
             extra_query_parameters=model["values"] if model is not None else None,
             **parameters,
         ):

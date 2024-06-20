@@ -447,6 +447,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
 
             s3_upload, interval_start = await initialize_and_resume_multipart_upload(inputs)
 
+            model: BatchExportModel | BatchExportSchema | None = None
             if inputs.batch_export_schema is None and "batch_export_model" in {
                 field.name for field in dataclasses.fields(inputs)
             }:
@@ -463,7 +464,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
                 exclude_events=inputs.exclude_events,
                 include_events=inputs.include_events,
                 is_backfill=inputs.is_backfill,
-                default_fields=s3_default_fields(),
+                destination_default_fields=s3_default_fields(),
             )
 
             first_record_batch, record_iterator = await apeek_first_and_rewind(record_iterator)

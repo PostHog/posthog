@@ -176,7 +176,7 @@ class BigQueryBatchExportInputs:
     use_json_type: bool = False
     is_backfill: bool = False
     batch_export_model: BatchExportModel | None = None
-    batch_export_model: BatchExportModel | None = None
+    batch_export_schema: BatchExportSchema | None = None
 
 
 @dataclass
@@ -622,7 +622,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
                     batch_export_id=str(batch_export.id),
                     interval=str(batch_export.interval),
                     batch_export_model=BatchExportModel(
-                        name=batch_export.model,
+                        name=batch_export.model or "events",
                         schema=batch_export.schema,
                     ),
                     # TODO: This field is deprecated, but we still set it for backwards compatibility.
