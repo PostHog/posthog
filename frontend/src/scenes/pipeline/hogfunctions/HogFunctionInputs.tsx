@@ -24,6 +24,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { HogFunctionInputSchemaType } from '~/types'
 
 import { HogFunctionInputIntegration } from './integrations/HogFunctionInputIntegration'
+import { HogFunctionInputIntegrationField } from './integrations/HogFunctionInputIntegrationField'
 import { pipelineHogFunctionConfigurationLogic } from './pipelineHogFunctionConfigurationLogic'
 
 export type HogFunctionInputProps = {
@@ -260,6 +261,8 @@ export function HogFunctionInputRenderer({ value, onChange, schema, disabled }: 
             return <LemonCheckbox checked={value} onChange={(checked) => onChange?.(checked)} disabled={disabled} />
         case 'integration':
             return <HogFunctionInputIntegration schema={schema} value={value} onChange={onChange} />
+        case 'integration-field':
+            return <HogFunctionInputIntegrationField schema={schema} value={value} onChange={onChange} />
         default:
             return (
                 <strong className="text-danger">

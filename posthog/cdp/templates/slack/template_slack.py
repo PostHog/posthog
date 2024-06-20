@@ -17,23 +17,25 @@ fetch('https://slack.com/api/chat.postMessage', {
   },
   'method': 'POST',
   'headers': {
-    'Authorization': f'Bearer {inputs.integration.access_token}',
+    'Authorization': f'Bearer {inputs.slack_workspace.access_token}',
     'Content-Type': 'application/json'
   }
 });
 """.strip(),
     inputs_schema=[
         {
-            "key": "integration",
+            "key": "slack_workspace",
             "type": "integration",
+            "integration": "slack",
             "label": "Slack workspace",
             "secret": False,
             "required": True,
-            "integration": "slack",
         },
         {
             "key": "channel",
-            "type": "string",
+            "type": "integration-field",
+            "integration_key": "slack_workspace",
+            "integration_field": "slack_channel",
             "label": "Channel to post to",
             "description": "Select the channel to post to (e.g. #general). The PostHog app must be installed in the workspace.",
             "secret": False,
