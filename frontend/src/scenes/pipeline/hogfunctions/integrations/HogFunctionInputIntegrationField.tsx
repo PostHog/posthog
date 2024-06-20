@@ -40,8 +40,8 @@ export function HogFunctionInputIntegrationField({
 
     if (!integration) {
         return (
-            <div className="text-danger">
-                <p>Please configure {relatedSchemaIntegration.label} first</p>
+            <div className="border border-dashed h-10 rounded p-2 text-muted-alt italic">
+                Configure {relatedSchemaIntegration.label} to continue
             </div>
         )
     }
