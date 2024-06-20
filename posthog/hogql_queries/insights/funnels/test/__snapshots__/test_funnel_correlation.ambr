@@ -431,7 +431,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source
+     ORDER BY funnel_actors.actor_id ASC SETTINGS use_query_cache=1) AS source
   INNER JOIN
     (SELECT person.id AS id
      FROM person
@@ -580,7 +580,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source
+     ORDER BY funnel_actors.actor_id ASC SETTINGS use_query_cache=1) AS source
   INNER JOIN
     (SELECT person.id AS id
      FROM person
@@ -729,7 +729,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source
+     ORDER BY funnel_actors.actor_id ASC SETTINGS use_query_cache=1) AS source
   INNER JOIN
     (SELECT person.id AS id
      FROM person
@@ -878,7 +878,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source
+     ORDER BY funnel_actors.actor_id ASC SETTINGS use_query_cache=1) AS source
   INNER JOIN
     (SELECT person.id AS id
      FROM person
@@ -1190,7 +1190,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source
+     ORDER BY funnel_actors.actor_id ASC SETTINGS use_query_cache=1) AS source
   INNER JOIN
     (SELECT person.id AS id
      FROM person
@@ -1339,7 +1339,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source
+     ORDER BY funnel_actors.actor_id ASC SETTINGS use_query_cache=1) AS source
   INNER JOIN
     (SELECT person.id AS id
      FROM person
@@ -1488,7 +1488,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source
+     ORDER BY funnel_actors.actor_id ASC SETTINGS use_query_cache=1) AS source
   INNER JOIN
     (SELECT person.id AS id
      FROM person
@@ -1637,7 +1637,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source
+     ORDER BY funnel_actors.actor_id ASC SETTINGS use_query_cache=1) AS source
   INNER JOIN
     (SELECT person.id AS id
      FROM person
@@ -2178,7 +2178,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
      WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'positively_related'), ifNull(equals(funnel_actors.steps, 2), 0))
      GROUP BY actor_id
-     ORDER BY actor_id ASC) AS source
+     ORDER BY actor_id ASC SETTINGS use_query_cache=1) AS source
   INNER JOIN
     (SELECT groups.group_type_index AS index,
             groups.group_key AS key
@@ -2294,7 +2294,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
      WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'positively_related'), ifNull(notEquals(funnel_actors.steps, 2), 1))
      GROUP BY actor_id
-     ORDER BY actor_id ASC) AS source
+     ORDER BY actor_id ASC SETTINGS use_query_cache=1) AS source
   INNER JOIN
     (SELECT groups.group_type_index AS index,
             groups.group_key AS key
@@ -2410,7 +2410,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
      WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(equals(funnel_actors.steps, 2), 0))
      GROUP BY actor_id
-     ORDER BY actor_id ASC) AS source
+     ORDER BY actor_id ASC SETTINGS use_query_cache=1) AS source
   INNER JOIN
     (SELECT groups.group_type_index AS index,
             groups.group_key AS key
@@ -2526,7 +2526,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
      WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(notEquals(funnel_actors.steps, 2), 1))
      GROUP BY actor_id
-     ORDER BY actor_id ASC) AS source
+     ORDER BY actor_id ASC SETTINGS use_query_cache=1) AS source
   INNER JOIN
     (SELECT groups.group_type_index AS index,
             groups.group_key AS key
@@ -2791,7 +2791,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
      WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(equals(funnel_actors.steps, 2), 0))
      GROUP BY actor_id
-     ORDER BY actor_id ASC) AS source
+     ORDER BY actor_id ASC SETTINGS use_query_cache=1) AS source
   INNER JOIN
     (SELECT groups.group_type_index AS index,
             groups.group_key AS key
@@ -2907,7 +2907,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
      WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(notEquals(funnel_actors.steps, 2), 1))
      GROUP BY actor_id
-     ORDER BY actor_id ASC) AS source
+     ORDER BY actor_id ASC SETTINGS use_query_cache=1) AS source
   INNER JOIN
     (SELECT groups.group_type_index AS index,
             groups.group_key AS key
@@ -3156,7 +3156,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
      WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'positively_related'), ifNull(equals(funnel_actors.steps, 2), 0))
      GROUP BY actor_id
-     ORDER BY actor_id ASC) AS source
+     ORDER BY actor_id ASC SETTINGS use_query_cache=1) AS source
   INNER JOIN
     (SELECT groups.group_type_index AS index,
             groups.group_key AS key
@@ -3272,7 +3272,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
      WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'positively_related'), ifNull(notEquals(funnel_actors.steps, 2), 1))
      GROUP BY actor_id
-     ORDER BY actor_id ASC) AS source
+     ORDER BY actor_id ASC SETTINGS use_query_cache=1) AS source
   INNER JOIN
     (SELECT groups.group_type_index AS index,
             groups.group_key AS key
@@ -3388,7 +3388,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
      WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(equals(funnel_actors.steps, 2), 0))
      GROUP BY actor_id
-     ORDER BY actor_id ASC) AS source
+     ORDER BY actor_id ASC SETTINGS use_query_cache=1) AS source
   INNER JOIN
     (SELECT groups.group_type_index AS index,
             groups.group_key AS key
@@ -3504,7 +3504,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
      WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(notEquals(funnel_actors.steps, 2), 1))
      GROUP BY actor_id
-     ORDER BY actor_id ASC) AS source
+     ORDER BY actor_id ASC SETTINGS use_query_cache=1) AS source
   INNER JOIN
     (SELECT groups.group_type_index AS index,
             groups.group_key AS key
@@ -3769,7 +3769,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
      WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(equals(funnel_actors.steps, 2), 0))
      GROUP BY actor_id
-     ORDER BY actor_id ASC) AS source
+     ORDER BY actor_id ASC SETTINGS use_query_cache=1) AS source
   INNER JOIN
     (SELECT groups.group_type_index AS index,
             groups.group_key AS key
@@ -3885,7 +3885,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
      WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(notEquals(funnel_actors.steps, 2), 1))
      GROUP BY actor_id
-     ORDER BY actor_id ASC) AS source
+     ORDER BY actor_id ASC SETTINGS use_query_cache=1) AS source
   INNER JOIN
     (SELECT groups.group_type_index AS index,
             groups.group_key AS key
@@ -4156,7 +4156,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source
+     ORDER BY funnel_actors.actor_id ASC SETTINGS use_query_cache=1) AS source
   INNER JOIN
     (SELECT groups.group_type_index AS index,
             groups.group_key AS key
@@ -4279,7 +4279,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source
+     ORDER BY funnel_actors.actor_id ASC SETTINGS use_query_cache=1) AS source
   INNER JOIN
     (SELECT groups.group_type_index AS index,
             groups.group_key AS key
@@ -4402,7 +4402,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source
+     ORDER BY funnel_actors.actor_id ASC SETTINGS use_query_cache=1) AS source
   INNER JOIN
     (SELECT groups.group_type_index AS index,
             groups.group_key AS key
@@ -4525,7 +4525,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source
+     ORDER BY funnel_actors.actor_id ASC SETTINGS use_query_cache=1) AS source
   INNER JOIN
     (SELECT groups.group_type_index AS index,
             groups.group_key AS key
@@ -4944,7 +4944,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source
+     ORDER BY funnel_actors.actor_id ASC SETTINGS use_query_cache=1) AS source
   INNER JOIN
     (SELECT groups.group_type_index AS index,
             groups.group_key AS key
@@ -5067,7 +5067,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source
+     ORDER BY funnel_actors.actor_id ASC SETTINGS use_query_cache=1) AS source
   INNER JOIN
     (SELECT groups.group_type_index AS index,
             groups.group_key AS key
@@ -5190,7 +5190,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source
+     ORDER BY funnel_actors.actor_id ASC SETTINGS use_query_cache=1) AS source
   INNER JOIN
     (SELECT groups.group_type_index AS index,
             groups.group_key AS key
@@ -5313,7 +5313,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source
+     ORDER BY funnel_actors.actor_id ASC SETTINGS use_query_cache=1) AS source
   INNER JOIN
     (SELECT groups.group_type_index AS index,
             groups.group_key AS key
@@ -5732,7 +5732,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source
+     ORDER BY funnel_actors.actor_id ASC SETTINGS use_query_cache=1) AS source
   INNER JOIN
     (SELECT groups.group_type_index AS index,
             groups.group_key AS key
@@ -5855,7 +5855,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source
+     ORDER BY funnel_actors.actor_id ASC SETTINGS use_query_cache=1) AS source
   INNER JOIN
     (SELECT groups.group_type_index AS index,
             groups.group_key AS key
@@ -5978,7 +5978,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source
+     ORDER BY funnel_actors.actor_id ASC SETTINGS use_query_cache=1) AS source
   INNER JOIN
     (SELECT groups.group_type_index AS index,
             groups.group_key AS key
@@ -6101,7 +6101,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source
+     ORDER BY funnel_actors.actor_id ASC SETTINGS use_query_cache=1) AS source
   INNER JOIN
     (SELECT groups.group_type_index AS index,
             groups.group_key AS key
@@ -6520,7 +6520,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source
+     ORDER BY funnel_actors.actor_id ASC SETTINGS use_query_cache=1) AS source
   INNER JOIN
     (SELECT groups.group_type_index AS index,
             groups.group_key AS key
@@ -6643,7 +6643,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source
+     ORDER BY funnel_actors.actor_id ASC SETTINGS use_query_cache=1) AS source
   INNER JOIN
     (SELECT groups.group_type_index AS index,
             groups.group_key AS key
@@ -6766,7 +6766,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source
+     ORDER BY funnel_actors.actor_id ASC SETTINGS use_query_cache=1) AS source
   INNER JOIN
     (SELECT groups.group_type_index AS index,
             groups.group_key AS key
@@ -6889,7 +6889,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source
+     ORDER BY funnel_actors.actor_id ASC SETTINGS use_query_cache=1) AS source
   INNER JOIN
     (SELECT groups.group_type_index AS index,
             groups.group_key AS key
@@ -7308,7 +7308,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source
+     ORDER BY funnel_actors.actor_id ASC SETTINGS use_query_cache=1) AS source
   INNER JOIN
     (SELECT groups.group_type_index AS index,
             groups.group_key AS key
@@ -7431,7 +7431,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source
+     ORDER BY funnel_actors.actor_id ASC SETTINGS use_query_cache=1) AS source
   INNER JOIN
     (SELECT groups.group_type_index AS index,
             groups.group_key AS key
@@ -7554,7 +7554,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source
+     ORDER BY funnel_actors.actor_id ASC SETTINGS use_query_cache=1) AS source
   INNER JOIN
     (SELECT groups.group_type_index AS index,
             groups.group_key AS key
@@ -7677,7 +7677,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source
+     ORDER BY funnel_actors.actor_id ASC SETTINGS use_query_cache=1) AS source
   INNER JOIN
     (SELECT groups.group_type_index AS index,
             groups.group_key AS key

@@ -139,7 +139,7 @@
         GROUP BY aggregation_target,
                  entrance_period_start)
      WHERE ifNull(greaterOrEquals(steps_completed, 2), 0)
-     ORDER BY aggregation_target ASC) AS source
+     ORDER BY aggregation_target ASC SETTINGS use_query_cache=1) AS source
   INNER JOIN
     (SELECT person.id AS id
      FROM person
@@ -313,7 +313,7 @@
         GROUP BY aggregation_target,
                  entrance_period_start)
      WHERE and(ifNull(greaterOrEquals(steps_completed, 1), 0), ifNull(less(steps_completed, 3), 0))
-     ORDER BY aggregation_target ASC) AS source
+     ORDER BY aggregation_target ASC SETTINGS use_query_cache=1) AS source
   INNER JOIN
     (SELECT person.id AS id
      FROM person
@@ -487,7 +487,7 @@
         GROUP BY aggregation_target,
                  entrance_period_start)
      WHERE ifNull(greaterOrEquals(steps_completed, 3), 0)
-     ORDER BY aggregation_target ASC) AS source
+     ORDER BY aggregation_target ASC SETTINGS use_query_cache=1) AS source
   INNER JOIN
     (SELECT person.id AS id
      FROM person
