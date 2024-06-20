@@ -7,13 +7,13 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Sends a message to a slack channel",
     icon_url="/api/projects/@current/hog_functions/icon/?id=slack.com",
     hog="""
-fetch("https://slack.com/api/chat.postMessage", {
+fetch('https://slack.com/api/chat.postMessage', {
   'body': {
     'channel': inputs.channel,
     'icon_emoji': inputs.icon_emoji,
     'username': inputs.username,
     'blocks': inputs.blocks,
-    'text': inputs.text,
+    'text': inputs.text
   },
   'method': 'POST',
   'headers': {
