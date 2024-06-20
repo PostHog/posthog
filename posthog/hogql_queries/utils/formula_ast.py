@@ -63,7 +63,7 @@ class FormulaAST:
                 return -operand
             elif isinstance(unary_op, ast.UAdd):
                 return operand
-            raise ValueError(f"Operator {op.__class__.__name__} not supported")
+            raise ValueError(f"Operator {unary_op.__class__.__name__} not supported")
 
         elif isinstance(node, ast.Num):
             return node.n
