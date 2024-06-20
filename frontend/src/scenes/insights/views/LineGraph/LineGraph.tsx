@@ -672,7 +672,7 @@ export function LineGraph_({
                     ticks: {
                         ...tickOptions,
                         display: !hideYAxis,
-                        precision, // Note that `precision` has no effect on the log scale
+                        ...(yAxisScaleType !== 'log10' && { precision }), // Precision is not supported for the log scale
                         callback: (value) => {
                             return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView)
                         },
