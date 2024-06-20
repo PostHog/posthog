@@ -1623,6 +1623,8 @@
       initial_os AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_os_version AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_device_type AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_viewport_width AggregateFunction(argMin, Int64, DateTime64(6, 'UTC')),
+      initial_viewport_height AggregateFunction(argMin, Int64, DateTime64(6, 'UTC')),
   
       -- geoip
       -- only store the properties we actually use, as there's tons, see https://posthog.com/docs/cdp/geoip-enrichment
@@ -1667,7 +1669,7 @@
       screen_uniq AggregateFunction(uniq, Nullable(UUID)),
   
       -- replay
-      has_session_replay SimpleAggregateFunction(max, Bool) -- we're not writing True values to this column anywhere yet
+      maybe_has_session_replay SimpleAggregateFunction(max, Bool) -- will be written False to by the events table mv and True to by the replay table mv
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_raw_sessions', cityHash64(session_id_v7))
   
   '''
@@ -1699,6 +1701,8 @@
       argMinState(JSONExtractString(properties, '$os'), timestamp) as initial_os,
       argMinState(JSONExtractString(properties, '$os_version'), timestamp) as initial_os_version,
       argMinState(JSONExtractString(properties, '$device_type'), timestamp) as initial_device_type,
+      argMinState(JSONExtractInt(properties, '$viewport_width'), timestamp) as initial_viewport_width,
+      argMinState(JSONExtractInt(properties, '$viewport_height'), timestamp) as initial_viewport_height,
   
       -- geoip
       argMinState(JSONExtractString(properties, '$geoip_country_code'), timestamp) as initial_geoip_country_code,
@@ -1723,7 +1727,7 @@
       argMinState(JSONExtractString(properties, 'fbclid'), timestamp) as initial_fbclid,
       argMinState(JSONExtractString(properties, 'msclkid'), timestamp) as initial_msclkid,
       argMinState(JSONExtractString(properties, 'twclid'), timestamp) as initial_twclid,
-      argMinState(JSONExtractString(properties, 'la_fat_id'), timestamp) as initial_li_fat_id,
+      argMinState(JSONExtractString(properties, 'li_fat_id'), timestamp) as initial_li_fat_id,
       argMinState(JSONExtractString(properties, 'mc_cid'), timestamp) as initial_mc_cid,
       argMinState(JSONExtractString(properties, 'igshid'), timestamp) as initial_igshid,
       argMinState(JSONExtractString(properties, 'ttclid'), timestamp) as initial_ttclid,
@@ -1737,7 +1741,7 @@
       uniqState(if(event='$screen', uuid, NULL)) as screen_uniq,
   
       -- replay
-      false as has_session_replay
+      false as maybe_has_session_replay
   FROM posthog_test.sharded_events
   WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7
   GROUP BY session_id_v7, team_id
@@ -2224,6 +2228,8 @@
       initial_os AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_os_version AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_device_type AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_viewport_width AggregateFunction(argMin, Int64, DateTime64(6, 'UTC')),
+      initial_viewport_height AggregateFunction(argMin, Int64, DateTime64(6, 'UTC')),
   
       -- geoip
       -- only store the properties we actually use, as there's tons, see https://posthog.com/docs/cdp/geoip-enrichment
@@ -2268,7 +2274,7 @@
       screen_uniq AggregateFunction(uniq, Nullable(UUID)),
   
       -- replay
-      has_session_replay SimpleAggregateFunction(max, Bool) -- we're not writing True values to this column anywhere yet
+      maybe_has_session_replay SimpleAggregateFunction(max, Bool) -- will be written False to by the events table mv and True to by the replay table mv
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.raw_sessions', '{replica}')
   
   PARTITION BY toYYYYMM(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)))
@@ -2520,6 +2526,8 @@
       initial_os AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_os_version AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_device_type AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_viewport_width AggregateFunction(argMin, Int64, DateTime64(6, 'UTC')),
+      initial_viewport_height AggregateFunction(argMin, Int64, DateTime64(6, 'UTC')),
   
       -- geoip
       -- only store the properties we actually use, as there's tons, see https://posthog.com/docs/cdp/geoip-enrichment
@@ -2564,7 +2572,7 @@
       screen_uniq AggregateFunction(uniq, Nullable(UUID)),
   
       -- replay
-      has_session_replay SimpleAggregateFunction(max, Bool) -- we're not writing True values to this column anywhere yet
+      maybe_has_session_replay SimpleAggregateFunction(max, Bool) -- will be written False to by the events table mv and True to by the replay table mv
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_raw_sessions', cityHash64(session_id_v7))
   
   '''
@@ -3275,6 +3283,8 @@
       initial_os AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_os_version AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_device_type AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_viewport_width AggregateFunction(argMin, Int64, DateTime64(6, 'UTC')),
+      initial_viewport_height AggregateFunction(argMin, Int64, DateTime64(6, 'UTC')),
   
       -- geoip
       -- only store the properties we actually use, as there's tons, see https://posthog.com/docs/cdp/geoip-enrichment
@@ -3319,7 +3329,7 @@
       screen_uniq AggregateFunction(uniq, Nullable(UUID)),
   
       -- replay
-      has_session_replay SimpleAggregateFunction(max, Bool) -- we're not writing True values to this column anywhere yet
+      maybe_has_session_replay SimpleAggregateFunction(max, Bool) -- will be written False to by the events table mv and True to by the replay table mv
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.raw_sessions', '{replica}')
   
   PARTITION BY toYYYYMM(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)))
