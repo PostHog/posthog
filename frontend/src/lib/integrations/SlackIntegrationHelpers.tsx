@@ -36,7 +36,7 @@ export const getSlackChannelOptions = (
 export type SlackChannelPickerProps = {
     integration: IntegrationType
     value?: string
-    onChange?: (value: string) => void
+    onChange?: (value: string | null) => void
     disabled?: boolean
 }
 

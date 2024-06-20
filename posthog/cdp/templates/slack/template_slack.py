@@ -7,7 +7,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Sends a message to a slack channel",
     icon_url="/api/projects/@current/hog_functions/icon/?id=slack.com",
     hog="""
-fetch('https://slack.com/api/chat.postMessage', {
+let res := fetch('https://slack.com/api/chat.postMessage', {
   'body': {
     'channel': inputs.channel,
     'icon_emoji': inputs.icon_emoji,
@@ -21,6 +21,10 @@ fetch('https://slack.com/api/chat.postMessage', {
     'Content-Type': 'application/json'
   }
 });
+
+if (res.status != 200 or not res.body.ok) {
+  print('Non-ok response:', res)
+}
 """.strip(),
     inputs_schema=[
         {

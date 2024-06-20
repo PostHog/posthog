@@ -36,7 +36,7 @@ export function HogFunctionInputIntegrationField({
     }
 
     const integrationId = configuration.inputs?.[relatedSchemaIntegration.key]?.value
-    const integration = integrations?.find((integration) => `${integration.id}` === integrationId)
+    const integration = integrations?.find((integration) => integration.id === integrationId)
 
     if (!integration) {
         return (
@@ -46,7 +46,13 @@ export function HogFunctionInputIntegrationField({
         )
     }
     if (schema.integration_field === 'slack_channel') {
-        return <SlackChannelPicker value={value} onChange={onChange} integration={integration} />
+        return (
+            <SlackChannelPicker
+                value={value}
+                onChange={(x) => onChange?.(x?.split('|')[0])}
+                integration={integration}
+            />
+        )
     }
     return (
         <div className="text-danger">

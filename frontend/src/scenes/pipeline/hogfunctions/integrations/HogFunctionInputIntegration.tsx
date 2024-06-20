@@ -7,8 +7,8 @@ import { IconSlack } from 'lib/lemon-ui/icons'
 import { HogFunctionInputSchemaType } from '~/types'
 
 export type HogFunctionInputIntegrationConfigureProps = {
-    value?: any
-    onChange?: (value: string | null) => void
+    value?: number
+    onChange?: (value: number | null) => void
 }
 
 export type HogFunctionInputIntegrationProps = HogFunctionInputIntegrationConfigureProps & {
@@ -32,7 +32,7 @@ export function HogFunctionIntegrationSlackConnection({
 }: HogFunctionInputIntegrationConfigureProps): JSX.Element {
     const { integrationsLoading, slackIntegrations, addToSlackButtonUrl } = useValues(integrationsLogic)
 
-    const integration = slackIntegrations?.find((integration) => `${integration.id}` === value)
+    const integration = slackIntegrations?.find((integration) => integration.id === value)
 
     if (integrationsLoading) {
         return <LemonSkeleton className="h-10" />
@@ -43,7 +43,7 @@ export function HogFunctionIntegrationSlackConnection({
             items={[
                 ...(slackIntegrations?.map((integration) => ({
                     icon: <IconSlack />,
-                    onClick: () => onChange?.(`${integration.id}`),
+                    onClick: () => onChange?.(integration.id),
                     label: integration.config.team.name,
                 })) || []),
                 {

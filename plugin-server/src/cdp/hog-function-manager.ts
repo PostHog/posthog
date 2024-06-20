@@ -4,7 +4,7 @@ import { PluginsServerConfig, Team } from '../types'
 import { PostgresRouter, PostgresUse } from '../utils/db/postgres'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
-import { HogFunctionInputType, HogFunctionType, IntegrationType } from './types'
+import { HogFunctionType, IntegrationType } from './types'
 
 export type HogFunctionMap = Record<HogFunctionType['id'], HogFunctionType>
 export type HogFunctionCache = Record<Team['id'], HogFunctionMap>
@@ -142,7 +142,7 @@ export class HogFunctionManager {
         return items[0] ?? null
     }
 
-    private async enrichWithIntegrations(items: HogFunctionType[]): Promise<void> {
+    public async enrichWithIntegrations(items: HogFunctionType[]): Promise<void> {
         const integrationIds: number[] = []
 
         items.forEach((item) => {
@@ -155,6 +155,10 @@ export class HogFunctionManager {
                 }
             })
         })
+
+        if (!items.length) {
+            return
+        }
 
         const integrations: IntegrationType[] = (
             await this.postgres.query(
