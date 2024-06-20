@@ -3262,7 +3262,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert len(single_breakdown_values) == len(multiple_breakdown_values) == 1
         assert single_breakdown_values == multiple_breakdown_values == ["[0,0.01]"]
         assert s_response.results[0]["label"] == m_response.results[0]["label"] == "[0,0.01]"
-        assert s_response.results[0]["count"] == m_response.results[0]["count"] == 0
+        assert s_response.results[0]["count"] == m_response.results[0]["count"] == 33
 
     def test_trends_event_math_mau_with_breakdowns(self):
         self._create_test_events()
@@ -3270,17 +3270,17 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         s_response = self._run_trends_query(
             "2020-01-09",
-            "2020-01-20",
+            "2020-02-10",
             IntervalType.DAY,
-            [EventsNode(event="$pageview", math=BaseMathType.WEEKLY_ACTIVE)],
+            [EventsNode(event="$pageview", math=BaseMathType.MONTHLY_ACTIVE)],
             None,
             BreakdownFilter(breakdown="$browser"),
         )
         m_response = self._run_trends_query(
             "2020-01-09",
-            "2020-01-20",
+            "2020-02-10",
             IntervalType.DAY,
-            [EventsNode(event="$pageview", math=BaseMathType.WEEKLY_ACTIVE)],
+            [EventsNode(event="$pageview", math=BaseMathType.MONTHLY_ACTIVE)],
             None,
             BreakdownFilter(
                 breakdowns=[Breakdown(property="$browser", type="event")],
@@ -3290,8 +3290,10 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         single_breakdown_values = [result["breakdown_value"] for result in s_response.results]
         multiple_breakdown_values = [result["breakdown_value"][0] for result in m_response.results]
 
-        assert len(s_response.results) == len(m_response.results) == 1
-        assert len(single_breakdown_values) == len(multiple_breakdown_values) == 1
-        assert single_breakdown_values == multiple_breakdown_values == ["[0,0.01]"]
-        assert s_response.results[0]["label"] == m_response.results[0]["label"] == "[0,0.01]"
-        assert s_response.results[0]["count"] == m_response.results[0]["count"] == 0
+        assert len(s_response.results) == len(m_response.results) == 4
+        assert len(single_breakdown_values) == len(multiple_breakdown_values) == 4
+        assert single_breakdown_values == multiple_breakdown_values == ["Firefox", "Chrome", "Edge", "Safari"]
+        assert s_response.results[0]["count"] == m_response.results[0]["count"] == 33
+        assert s_response.results[1]["count"] == m_response.results[1]["count"] == 31
+        assert s_response.results[2]["count"] == m_response.results[2]["count"] == 30
+        assert s_response.results[3]["count"] == m_response.results[3]["count"] == 27

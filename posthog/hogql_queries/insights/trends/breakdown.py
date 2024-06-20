@@ -87,7 +87,26 @@ class Breakdown:
     def is_multiple_breakdown(self) -> bool:
         return self.enabled and self.query.breakdownFilter.breakdowns is not None
 
-    def column_expr(self) -> list[ast.Alias] | ast.Alias:
+    @cached_property
+    def column_exprs(self) -> list[ast.Alias]:
+        breakdown_expr = self._column_expr()
+        if isinstance(breakdown_expr, list):
+            return breakdown_expr
+        return [breakdown_expr]
+
+    @cached_property
+    def field_exprs(self) -> list[ast.Field]:
+        if self.is_multiple_breakdown:
+            return [ast.Field(chain=[alias]) for alias in self.multiple_breakdowns_aliases]
+        return [ast.Field(chain=[self.breakdown_alias])]
+
+    @cached_property
+    def alias_exprs(self) -> list[ast.Alias]:
+        if self.is_multiple_breakdown:
+            return [ast.Alias(alias=alias, expr=ast.Field(chain=[alias])) for alias in self.multiple_breakdowns_aliases]
+        return [ast.Alias(alias=self.breakdown_alias, expr=ast.Field(chain=[self.breakdown_alias]))]
+
+    def _column_expr(self) -> list[ast.Alias] | ast.Alias:
         if self.query.breakdownFilter.breakdown_type == "cohort":
             if self.modifiers.inCohortVia == InCohortVia.LEFTJOIN_CONJOINED:
                 return ast.Alias(
