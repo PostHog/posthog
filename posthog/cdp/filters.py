@@ -1,7 +1,7 @@
-from typing import Any
+from typing import Optional
 from posthog.models.action.action import Action
 from posthog.hogql.bytecode import create_bytecode
-from posthog.hogql.parser import parse_expr, parse_string_template
+from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, property_to_expr, ast
 from posthog.models.team.team import Team
 
@@ -51,16 +51,35 @@ def hog_function_filters_to_expr(filters: dict, team: Team, actions: dict[int, A
         return ast.Constant(value=True)
 
 
-def generate_template_bytecode(obj: Any) -> Any:
-    """
-    Clones an object, compiling any string values to bytecode templates
-    """
+def filter_action_ids(filters: Optional[dict]) -> list[int]:
+    if not filters:
+        return []
+    try:
+        return [int(action["id"]) for action in filters.get("actions", [])]
+    except KeyError:
+        return []
 
-    if isinstance(obj, dict):
-        return {key: generate_template_bytecode(value) for key, value in obj.items()}
-    elif isinstance(obj, list):
-        return [generate_template_bytecode(item) for item in obj]
-    elif isinstance(obj, str):
-        return create_bytecode(parse_string_template(obj))
-    else:
-        return obj
+
+def compile_filters_expr(filters: Optional[dict], team: Team, actions: Optional[dict[int, Action]] = None) -> ast.Expr:
+    filters = filters or {}
+
+    if actions is None:
+        # If not provided as an optimization we fetch all actions
+        actions_list = (
+            Action.objects.select_related("team").filter(team_id=team.id).filter(id__in=filter_action_ids(filters))
+        )
+        actions = {action.id: action for action in actions_list}
+
+    return hog_function_filters_to_expr(filters, team, actions)
+
+
+def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optional[dict[int, Action]] = None) -> dict:
+    filters = filters or {}
+    try:
+        filters["bytecode"] = create_bytecode(compile_filters_expr(filters, team, actions))
+    except Exception as e:
+        # TODO: Better reporting of this issue
+        filters["bytecode"] = None
+        filters["bytecode_error"] = str(e)
+
+    return filters
