@@ -408,9 +408,11 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
         inputs.table_name,
     )
 
-    async with Heartbeater() as heartbeater:
-        await try_set_batch_export_run_to_running(run_id=inputs.run_id, logger=logger)
-
+    async with (
+        Heartbeater() as heartbeater,
+        get_client(team_id=inputs.team_id) as client,
+        set_status_to_running_task(run_id=inputs.run_id, logger=logger),
+    ):
         should_resume, details = await should_resume_from_activity_heartbeat(
             activity, SnowflakeHeartbeatDetails, logger
         )
@@ -424,12 +426,11 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
             last_inserted_at = None
             file_no = 0
 
-        async with get_client(team_id=inputs.team_id) as client:
-            if not await client.is_alive():
-                raise ConnectionError("Cannot establish connection to ClickHouse")
+        if not await client.is_alive():
+            raise ConnectionError("Cannot establish connection to ClickHouse")
 
-            rows_exported = get_rows_exported_metric()
-            bytes_exported = get_bytes_exported_metric()
+        rows_exported = get_rows_exported_metric()
+        bytes_exported = get_bytes_exported_metric()
 
             async def flush_to_snowflake(
                 connection: SnowflakeConnection,
@@ -471,68 +472,82 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
             )
             first_record_batch, record_iterator = await apeek_first_and_rewind(record_iterator)
 
-            if first_record_batch is None:
-                return 0
+            await put_file_to_snowflake_table(connection, file, table_name, file_no)
+            rows_exported.add(file.records_since_last_reset)
+            bytes_exported.add(file.bytes_since_last_reset)
 
-            known_variant_columns = ["properties", "people_set", "people_set_once", "person_properties"]
-            if inputs.batch_export_schema is None:
-                table_fields = [
-                    ("uuid", "STRING"),
-                    ("event", "STRING"),
-                    ("properties", "VARIANT"),
-                    ("elements", "VARIANT"),
-                    ("people_set", "VARIANT"),
-                    ("people_set_once", "VARIANT"),
-                    ("distinct_id", "STRING"),
-                    ("team_id", "INTEGER"),
-                    ("ip", "STRING"),
-                    ("site_url", "STRING"),
-                    ("timestamp", "TIMESTAMP"),
-                ]
+        if inputs.batch_export_schema is None:
+            fields = snowflake_default_fields()
+            query_parameters = None
 
-            else:
-                column_names = [column for column in first_record_batch.schema.names if column != "_inserted_at"]
-                record_schema = first_record_batch.select(column_names).schema
-                table_fields = get_snowflake_fields_from_record_schema(
-                    record_schema,
-                    known_variant_columns=known_variant_columns,
-                )
+        else:
+            fields = inputs.batch_export_schema["fields"]
+            query_parameters = inputs.batch_export_schema["values"]
 
-            with snowflake_connection(inputs) as connection:
-                await create_table_in_snowflake(connection, inputs.table_name, table_fields)
+        record_iterator = iter_records(
+            client=client,
+            team_id=inputs.team_id,
+            interval_start=data_interval_start,
+            interval_end=inputs.data_interval_end,
+            exclude_events=inputs.exclude_events,
+            include_events=inputs.include_events,
+            fields=fields,
+            extra_query_parameters=query_parameters,
+            is_backfill=inputs.is_backfill,
+        )
+        first_record_batch, record_iterator = peek_first_and_rewind(record_iterator)
 
-                record_columns = [field[0] for field in table_fields] + ["_inserted_at"]
-                record = None
-                inserted_at = None
+        if first_record_batch is None:
+            return 0
 
                 with BatchExportTemporaryFile() as local_results_file:
                     async for record_batch in record_iterator:
                         for record in record_batch.select(record_columns).to_pylist():
                             inserted_at = record.pop("_inserted_at")
 
-                            for variant_column in known_variant_columns:
-                                if (json_str := record.get(variant_column, None)) is not None:
-                                    record[variant_column] = json.loads(json_str)
+        else:
+            column_names = [column for column in first_record_batch.schema.names if column != "_inserted_at"]
+            record_schema = first_record_batch.select(column_names).schema
+            table_fields = get_snowflake_fields_from_record_schema(
+                record_schema,
+                known_variant_columns=known_variant_columns,
+            )
 
-                            local_results_file.write_records_to_jsonl([record])
+        with snowflake_connection(inputs) as connection:
+            await create_table_in_snowflake(connection, inputs.table_name, table_fields)
 
-                            if local_results_file.tell() > settings.BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES:
-                                await flush_to_snowflake(connection, local_results_file, inputs.table_name, file_no)
+            record_columns = [field[0] for field in table_fields] + ["_inserted_at"]
+            record = None
+            inserted_at = None
 
-                                last_inserted_at = inserted_at
-                                file_no += 1
+            with BatchExportTemporaryFile() as local_results_file:
+                for record_batch in record_iterator:
+                    for record in record_batch.select(record_columns).to_pylist():
+                        inserted_at = record.pop("_inserted_at")
 
-                                heartbeater.details = (str(last_inserted_at), file_no)
+                        for variant_column in known_variant_columns:
+                            if (json_str := record.get(variant_column, None)) is not None:
+                                record[variant_column] = json.loads(json_str)
 
-                                local_results_file.reset()
+                        local_results_file.write_records_to_jsonl([record])
 
-                    if local_results_file.tell() > 0 and record is not None and inserted_at is not None:
-                        await flush_to_snowflake(connection, local_results_file, inputs.table_name, file_no, last=True)
+                        if local_results_file.tell() > settings.BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES:
+                            await flush_to_snowflake(connection, local_results_file, inputs.table_name, file_no)
 
-                        last_inserted_at = inserted_at
-                        file_no += 1
+                            last_inserted_at = inserted_at
+                            file_no += 1
 
-                        heartbeater.details = (str(last_inserted_at), file_no)
+                            heartbeater.details = (str(last_inserted_at), file_no)
+
+                            local_results_file.reset()
+
+                if local_results_file.tell() > 0 and record is not None and inserted_at is not None:
+                    await flush_to_snowflake(connection, local_results_file, inputs.table_name, file_no, last=True)
+
+                    last_inserted_at = inserted_at
+                    file_no += 1
+
+                    heartbeater.details = (str(last_inserted_at), file_no)
 
                 await copy_loaded_files_to_snowflake_table(connection, inputs.table_name)
 

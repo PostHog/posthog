@@ -321,9 +321,11 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
         inputs.table_id,
     )
 
-    async with Heartbeater() as heartbeater:
-        await try_set_batch_export_run_to_running(run_id=inputs.run_id, logger=logger)
-
+    async with (
+        Heartbeater() as heartbeater,
+        get_client(team_id=inputs.team_id) as client,
+        set_status_to_running_task(run_id=inputs.run_id, logger=logger),
+    ):
         should_resume, details = await should_resume_from_activity_heartbeat(activity, BigQueryHeartbeatDetails, logger)
 
         if should_resume is True and details is not None:
@@ -331,9 +333,57 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
         else:
             data_interval_start = inputs.data_interval_start
 
-        async with get_client(team_id=inputs.team_id) as client:
-            if not await client.is_alive():
-                raise ConnectionError("Cannot establish connection to ClickHouse")
+        if not await client.is_alive():
+            raise ConnectionError("Cannot establish connection to ClickHouse")
+
+        if inputs.batch_export_schema is None:
+            fields = bigquery_default_fields()
+            query_parameters = None
+
+        else:
+            fields = inputs.batch_export_schema["fields"]
+            query_parameters = inputs.batch_export_schema["values"]
+
+        records_iterator = iter_records(
+            client=client,
+            team_id=inputs.team_id,
+            interval_start=data_interval_start,
+            interval_end=inputs.data_interval_end,
+            exclude_events=inputs.exclude_events,
+            include_events=inputs.include_events,
+            fields=fields,
+            extra_query_parameters=query_parameters,
+            is_backfill=inputs.is_backfill,
+        )
+
+        first_record_batch, records_iterator = peek_first_and_rewind(records_iterator)
+        if first_record_batch is None:
+            return 0
+
+        bigquery_table = None
+        inserted_at = None
+
+        with bigquery_client(inputs) as bq_client, BatchExportTemporaryFile() as jsonl_file:
+            rows_exported = get_rows_exported_metric()
+            bytes_exported = get_bytes_exported_metric()
+
+            async def flush_to_bigquery(bigquery_table, table_schema):
+                logger.debug(
+                    "Loading %s records of size %s bytes",
+                    jsonl_file.records_since_last_reset,
+                    jsonl_file.bytes_since_last_reset,
+                )
+                await load_jsonl_file_to_bigquery_table(jsonl_file, bigquery_table, table_schema, bq_client)
+
+                rows_exported.add(jsonl_file.records_since_last_reset)
+                bytes_exported.add(jsonl_file.bytes_since_last_reset)
+
+            if inputs.use_json_type is True:
+                json_type = "JSON"
+                json_columns = ["properties", "set", "set_once", "person_properties"]
+            else:
+                json_type = "STRING"
+                json_columns = []
 
             model: BatchExportModel | BatchExportSchema | None = None
             if inputs.batch_export_schema is None and "batch_export_model" in {

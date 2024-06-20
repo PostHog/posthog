@@ -8,7 +8,7 @@ import orjson
 import pyarrow as pa
 
 from posthog.batch_exports.models import BatchExportRun
-from posthog.batch_exports.service import update_batch_export_run
+from posthog.batch_exports.service import aupdate_batch_export_run
 
 T = typing.TypeVar("T")
 
@@ -88,6 +88,19 @@ async def try_set_batch_export_run_to_running(run_id: str | None, logger, timeou
     """
     if run_id is None:
         return
+
+    background_task = asyncio.create_task(
+        aupdate_batch_export_run(uuid.UUID(run_id), status=BatchExportRun.Status.RUNNING)
+    )
+
+    def done_callback(task):
+        if task.exception() is not None:
+            logger.warn(
+                "Unexpected error trying to set batch export to 'RUNNING' status. Run will continue but displayed status may not be accurate until run finishes",
+                exc_info=task.exception(),
+            )
+
+    background_task.add_done_callback(done_callback)
 
     try:
         await asyncio.wait_for(

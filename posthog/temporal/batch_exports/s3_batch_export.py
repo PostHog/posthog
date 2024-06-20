@@ -440,14 +440,19 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
         get_s3_key(inputs),
     )
 
-    async with Heartbeater() as heartbeater:
-        await try_set_batch_export_run_to_running(run_id=inputs.run_id, logger=logger)
+    async with (
+        Heartbeater() as heartbeater,
+        get_client(team_id=inputs.team_id) as client,
+        set_status_to_running_task(run_id=inputs.run_id, logger=logger),
+    ):
+        if not await client.is_alive():
+            raise ConnectionError("Cannot establish connection to ClickHouse")
 
-        async with get_client(team_id=inputs.team_id) as client:
-            if not await client.is_alive():
-                raise ConnectionError("Cannot establish connection to ClickHouse")
+        s3_upload, interval_start = await initialize_and_resume_multipart_upload(inputs)
 
-            s3_upload, interval_start = await initialize_and_resume_multipart_upload(inputs)
+        if inputs.batch_export_schema is None:
+            fields = s3_default_fields()
+            query_parameters = None
 
             model: BatchExportModel | BatchExportSchema | None = None
             if inputs.batch_export_schema is None and "batch_export_model" in {
@@ -475,26 +480,12 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
             if first_record_batch is None:
                 return records_completed
 
-            async with s3_upload as s3_upload:
+                for record_batch in record_iterator:
+                    record_batch = cast_record_batch_json_columns(record_batch)
 
-                async def flush_to_s3(
-                    local_results_file,
-                    records_since_last_flush: int,
-                    bytes_since_last_flush: int,
-                    last_inserted_at: dt.datetime,
-                    last: bool,
-                ):
-                    logger.debug(
-                        "Uploading %s part %s containing %s records with size %s bytes",
-                        "last " if last else "",
-                        s3_upload.part_number + 1,
-                        records_since_last_flush,
-                        bytes_since_last_flush,
-                    )
+                    await writer.write_record_batch(record_batch)
 
-                    await s3_upload.upload_part(local_results_file)
-                    rows_exported.add(records_since_last_flush)
-                    bytes_exported.add(bytes_since_last_flush)
+            await s3_upload.complete()
 
                     heartbeater.details = (str(last_inserted_at), s3_upload.to_state())
 
