@@ -8,7 +8,7 @@ class TestTemplateSlack(BaseHogFunctionTemplateTest):
     def test_function_works(self):
         res = self.run_function(
             inputs={
-                "integration": {
+                "slack_workspace": {
                     "access_token": "xoxb-1234",
                 },
                 "icon_emoji": ":hedgehog:",
