@@ -49,11 +49,15 @@ export type HogWatcherStatePeriod = {
     state: HogWatcherState
 }
 
-const TIMESTAMP_PERIOD = 10000 // Adjust this for more or less granular checking
-const EVALUATION_PERIOD = TIMESTAMP_PERIOD * 100 // Essentially how many periods to keep in memory
-const DISABLED_PERIOD = 1000 * 60 * 10 // 10 minutes
-const MAX_RECORDED_STATES = 10
-const MAX_ALLOWED_TEMPORARY_DISABLES = MAX_RECORDED_STATES / 2
+export const OBSERVATION_PERIOD = 10000 // Adjust this for more or less granular checking
+export const EVALUATION_PERIOD = OBSERVATION_PERIOD * 100 // Essentially how many periods to keep in memory
+export const DISABLED_PERIOD = 1000 * 60 * 10 // 10 minutes
+export const MAX_RECORDED_STATES = 10
+export const MAX_ALLOWED_TEMPORARY_DISABLES = MAX_RECORDED_STATES / 2
+export const MIN_OBSERVATIONS = 3
+
+export const OVERFLOW_THRESHOLD = 0.8
+export const DISABLE_THRESHOLD = 0.5
 
 export class HogWatcherObserver {
     observations: HogWatcherObservationPeriod[] = []
@@ -87,31 +91,36 @@ export class HogWatcherObserver {
             if (Date.now() - currentState.timestamp > DISABLED_PERIOD) {
                 return this.moveToState(HogWatcherState.overflowed)
             }
-            return HogWatcherState.overflowed
         }
 
-        if (this.observations.length < 2) {
+        if (this.observations.length < MIN_OBSERVATIONS) {
             // We need to give the function a chance to run before we can evaluate it
             return currentState.state
         }
 
         if (currentState.state === HogWatcherState.overflowed) {
-            if (averageRating > 0.5) {
+            if (averageRating > OVERFLOW_THRESHOLD) {
                 // The function is behaving well again - move it to healthy
                 return this.moveToState(HogWatcherState.healthy)
             }
-            const disabledStates = this.states.filter((x) => x.state === HogWatcherState.disabledForPeriod)
 
-            if (disabledStates.length > MAX_ALLOWED_TEMPORARY_DISABLES) {
-                // this function has spent half of the time in temporary disabled so we disable it indefinitely
-                return this.moveToState(HogWatcherState.disabledIndefinitely)
+            if (averageRating < DISABLE_THRESHOLD) {
+                // The function is behaving worse than overflow can accept - disable it
+                const disabledStates = this.states.filter((x) => x.state === HogWatcherState.disabledForPeriod)
+
+                if (disabledStates.length >= MAX_ALLOWED_TEMPORARY_DISABLES) {
+                    // this function has spent half of the time in temporary disabled so we disable it indefinitely
+                    return this.moveToState(HogWatcherState.disabledIndefinitely)
+                }
+
+                return this.moveToState(HogWatcherState.disabledForPeriod)
             }
-
-            return this.moveToState(HogWatcherState.disabledForPeriod)
         }
 
-        if (averageRating < 0.5) {
-            return this.moveToState(HogWatcherState.overflowed)
+        if (currentState.state === HogWatcherState.healthy) {
+            if (averageRating < OVERFLOW_THRESHOLD) {
+                return this.moveToState(HogWatcherState.overflowed)
+            }
         }
 
         return currentState.state
@@ -145,7 +154,7 @@ export class HogWatcherObserver {
 
     private periodTimestamp(): number {
         // Returns the timestamp but rounded to the nearest period (e.g. 1 minute)
-        return Math.floor(Date.now() / TIMESTAMP_PERIOD) * TIMESTAMP_PERIOD
+        return Math.floor(Date.now() / OBSERVATION_PERIOD) * OBSERVATION_PERIOD
     }
 
     private getObservation(): HogWatcherObservationPeriod {
@@ -181,7 +190,7 @@ export class HogWatcherObserver {
         return Math.min(1, successRate, asyncSuccessRate)
     }
 
-    private averageRating(): number {
+    public averageRating(): number {
         return this.observations.reduce((acc, x) => acc + x.rating, 0) / this.observations.length
     }
 }
