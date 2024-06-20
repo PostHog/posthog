@@ -674,7 +674,6 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     }
     PyObject* ret = PyTuple_Pack(2, k, v);
     if (!ret) {
-      // TODO: here or out?
       Py_DECREF(k);
       Py_DECREF(v);
       throw PyInternalError();
