@@ -2,6 +2,7 @@
 #include <Python.h>
 #include <boost/algorithm/string.hpp>
 #include <string>
+#include <iostream>
 
 #include "HogQLLexer.h"
 #include "HogQLParser.h"
@@ -290,6 +291,543 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     }
     return ret;
   }
+
+  // def visitProgram(self, ctx: HogQLParser.ProgramContext):
+  //     declarations: list[ast.Declaration] = []
+  //     for declaration in ctx.declaration():
+  //         if not declaration.statement() or not declaration.statement().emptyStmt():
+  //             statement = self.visit(declaration)
+  //             declarations.append(cast(ast.Declaration, statement))
+  //     return ast.Program(declarations=declarations)
+  VISIT(Program) {
+    cout << "Hello" << endl;
+    PyObject* declarations = PyList_New(0);
+    if (!declarations) {
+      throw PyInternalError();
+    }
+    cout << "Hello" << endl;
+    auto declaration_ctxs = ctx->declaration();
+    for (auto declaration_ctx : declaration_ctxs) {
+      cout << "Hello2" << endl;
+      if (!declaration_ctx->statement() || !declaration_ctx->statement()->emptyStmt()) {
+        cout << "Hello2.1" << endl;
+        PyObject* statement;
+        try {
+          statement = visitAsPyObject(declaration_ctx);
+          cout << "Hello2.2" << endl;
+        } catch (...) {
+          Py_DECREF(declarations);
+          cout << "Hello2.3" << endl;
+          throw;
+        }
+        cout << "Hello2.4" << endl;
+        int append_code = PyList_Append(declarations, statement);
+        Py_DECREF(statement);
+        cout << "Hello2.5" << endl;
+        if (append_code == -1) {
+          cout << "Hello2.6" << endl;
+          Py_DECREF(declarations);
+          throw PyInternalError();
+        }
+      }
+    }
+    cout << "Hello3" << endl;
+    PyObject* ret = build_ast_node("Program", "{s:N}", "declarations", declarations);
+    Py_DECREF(declarations);
+    if (!ret) {
+      throw PyInternalError();
+    }
+    return ret;
+  }
+
+  VISIT(Declaration) {
+    cout << "Hello Declaration" << endl;
+    auto var_decl_ctx = ctx->varDecl();
+    if (var_decl_ctx) {
+      return visit(var_decl_ctx);
+    }
+    auto statement_ctx = ctx->statement();
+    if (statement_ctx) {
+      return visit(statement_ctx);
+    }
+    throw ParsingError("Declaration must be either a varDecl or a statement");
+  }
+
+//  VISIT(Expression) {
+//    cout << "Hello Expression" << endl;
+//    return visitAsPyObject(ctx->columnExpr());
+//  }
+  VISIT(Expression) {
+    cout << "Hello Expression" << endl;
+    cout << ctx->columnExpr() << endl;
+    return visit(ctx->columnExpr());
+  }
+
+  // def visitVarDecl(self, ctx: HogQLParser.VarDeclContext):
+  //     return ast.VariableDeclaration(
+  //         name=ctx.identifier().getText(),
+  //         expr=self.visit(ctx.expression()) if ctx.expression() else None,
+  //     )
+  VISIT(VarDecl) {
+    cout << "Hello VarDecl" << endl;
+
+    string name = visitAsString(ctx->identifier());
+    PyObject* expr;
+    try {
+      expr = visitAsPyObjectOrNone(ctx->expression());
+    } catch (...) {
+      throw;
+    }
+    PyObject* ret = build_ast_node("VariableDeclaration", "{s:s#,s:N}", "name", name.data(), name.size(), "expr", expr);
+    Py_DECREF(expr);
+    if (!ret) {
+      throw PyInternalError();
+    }
+    return ret;
+  }
+
+  // def visitVarAssignment(self, ctx: HogQLParser.VarAssignmentContext):
+  //     return ast.VariableAssignment(
+  //         left=self.visit(ctx.expression(0)),
+  //         right=self.visit(ctx.expression(1)),
+  //     )
+  VISIT(VarAssignment) {
+    cout << "Hello VarAssignment" << endl;
+    PyObject* left;
+    try {
+      left = visitAsPyObject(ctx->expression(0));
+    } catch (...) {
+      throw;
+    }
+    PyObject* right;
+    try {
+      right = visitAsPyObject(ctx->expression(1));
+    } catch (...) {
+      Py_DECREF(left);
+      throw;
+    }
+    PyObject* ret = build_ast_node("VariableAssignment", "{s:N,s:N}", "left", left, "right", right);
+    Py_DECREF(left);
+    Py_DECREF(right);
+    if (!ret) {
+      throw PyInternalError();
+    }
+    return ret;
+  }
+
+  VISIT(Statement) {
+    cout << "Hello Statement" << endl;
+    auto return_stmt_ctx = ctx->returnStmt();
+    if (return_stmt_ctx) {
+      return visit(return_stmt_ctx);
+    }
+
+    auto if_stmt_ctx = ctx->ifStmt();
+    if (if_stmt_ctx) {
+      return visit(if_stmt_ctx);
+    }
+
+    auto while_stmt_ctx = ctx->whileStmt();
+    if (while_stmt_ctx) {
+      return visit(while_stmt_ctx);
+    }
+
+    auto for_stmt_ctx = ctx->forStmt();
+    if (for_stmt_ctx) {
+      return visit(for_stmt_ctx);
+    }
+
+    auto func_stmt_ctx = ctx->funcStmt();
+    if (func_stmt_ctx) {
+      return visit(func_stmt_ctx);
+    }
+
+    auto var_assignment_ctx = ctx->varAssignment();
+    if (var_assignment_ctx) {
+      return visit(var_assignment_ctx);
+    }
+
+    auto block_ctx = ctx->block();
+    if (block_ctx) {
+      return visit(block_ctx);
+    }
+
+    auto expr_stmt_ctx = ctx->exprStmt();
+    if (expr_stmt_ctx) {
+      return visit(expr_stmt_ctx);
+    }
+
+    auto empty_stmt_ctx = ctx->emptyStmt();
+    if (empty_stmt_ctx) {
+      return visit(empty_stmt_ctx);
+    }
+
+    throw ParsingError("Statement must be one of returnStmt, ifStmt, whileStmt, forStmt, funcStmt, varAssignment, "
+                       "block, exprStmt, or emptyStmt");
+  }
+
+  // def visitExprStmt(self, ctx: HogQLParser.ExprStmtContext):
+  //     return ast.ExprStatement(expr=self.visit(ctx.expression()))
+  VISIT(ExprStmt) {
+    cout << "Hello ExprStmt" << endl;
+    PyObject* expr;
+    try {
+      expr = visitAsPyObject(ctx->expression());
+    } catch (...) {
+      throw;
+    }
+    PyObject* ret = build_ast_node("ExprStatement", "{s:N}", "expr", expr);
+    Py_DECREF(expr);
+    if (!ret) {
+      throw PyInternalError();
+    }
+    return ret;
+  }
+
+  // def visitReturnStmt(self, ctx: HogQLParser.ReturnStmtContext):
+  //     return ast.ReturnStatement(expr=self.visit(ctx.expression()) if ctx.expression() else None)
+  VISIT(ReturnStmt) {
+    cout << "Hello ReturnStmt" << endl;
+    PyObject* expr;
+    try {
+      expr = visitAsPyObjectOrNone(ctx->expression());
+    } catch (...) {
+      throw;
+    }
+    PyObject* ret = build_ast_node("ReturnStatement", "{s:N}", "expr", expr);
+    Py_DECREF(expr);
+    if (!ret) {
+      throw PyInternalError();
+    }
+    return ret;
+  }
+
+  // def visitIfStmt(self, ctx: HogQLParser.IfStmtContext):
+  //     return ast.IfStatement(
+  //         expr=self.visit(ctx.expression()),
+  //         then=self.visit(ctx.statement(0)),
+  //         else_=self.visit(ctx.statement(1)) if ctx.statement(1) else None,
+  //     )
+  VISIT(IfStmt) {
+    cout << "Hello IfStmt" << endl;
+    PyObject* expr;
+    try {
+      expr = visitAsPyObject(ctx->expression());
+    } catch (...) {
+      throw;
+    }
+    PyObject* then_stmt;
+    try {
+      then_stmt = visitAsPyObject(ctx->statement(0));
+    } catch (...) {
+      Py_DECREF(expr);
+      throw;
+    }
+    PyObject* else_stmt;
+    try {
+      else_stmt = visitAsPyObjectOrNone(ctx->statement(1));
+    } catch (...) {
+      Py_DECREF(expr);
+      Py_DECREF(then_stmt);
+      throw;
+    }
+    PyObject* ret = build_ast_node("IfStatement", "{s:N,s:N,s:N}", "expr", expr, "then", then_stmt, "else_", else_stmt);
+    Py_DECREF(expr);
+    Py_DECREF(then_stmt);
+    Py_DECREF(else_stmt);
+    if (!ret) {
+      throw PyInternalError();
+    }
+    return ret;
+  }
+
+  // def visitWhileStmt(self, ctx: HogQLParser.WhileStmtContext):
+  //     return ast.WhileStatement(
+  //         expr=self.visit(ctx.expression()),
+  //         body=self.visit(ctx.statement()) if ctx.statement() else None,
+  //     )
+  VISIT(WhileStmt) {
+    cout << "Hello WhileStmt" << endl;
+    PyObject* expr;
+    try {
+      expr = visitAsPyObject(ctx->expression());
+    } catch (...) {
+      throw;
+    }
+    PyObject* body;
+    try {
+      body = visitAsPyObjectOrNone(ctx->statement());
+    } catch (...) {
+      Py_DECREF(expr);
+      throw;
+    }
+    PyObject* ret = build_ast_node("WhileStatement", "{s:N,s:N}", "expr", expr, "body", body);
+    Py_DECREF(expr);
+    Py_DECREF(body);
+    if (!ret) {
+      throw PyInternalError();
+    }
+    return ret;
+  }
+
+  // def visitForStmt(self, ctx: HogQLParser.ForStmtContext):
+  //     initializer = ctx.initializerVarDeclr or ctx.initializerVarAssignment or ctx.initializerExpression
+  //     increment = ctx.incrementVarDeclr or ctx.incrementVarAssignment or ctx.incrementExpression
+  //
+  //     return ast.ForStatement(
+  //         initializer=self.visit(initializer) if initializer else None,
+  //         condition=self.visit(ctx.condition) if ctx.condition else None,
+  //         increment=self.visit(increment) if increment else None,
+  //         body=self.visit(ctx.statement()),
+  //     )
+  VISIT(ForStmt) {
+    cout << "Hello ForStmt" << endl;
+    PyObject* initializer;
+    auto initializer_var_declr_ctx = ctx->initializerVarDeclr;
+    auto initializer_var_assignment_ctx = ctx->initializerVarAssignment;
+    auto initializer_expression_ctx = ctx->initializerExpression;
+    if (initializer_var_declr_ctx) {
+      try {
+        initializer = visitAsPyObject(initializer_var_declr_ctx);
+      } catch (...) {
+        throw;
+      }
+    } else if (initializer_var_assignment_ctx) {
+      try {
+        initializer = visitAsPyObject(initializer_var_assignment_ctx);
+      } catch (...) {
+        throw;
+      }
+    } else if (initializer_expression_ctx) {
+      try {
+        initializer = visitAsPyObject(initializer_expression_ctx);
+      } catch (...) {
+        throw;
+      }
+    } else {
+      initializer = Py_None;
+      Py_INCREF(initializer);
+    }
+
+    PyObject* condition;
+    try {
+      condition = visitAsPyObjectOrNone(ctx->condition);
+    } catch (...) {
+      Py_DECREF(initializer);
+      throw;
+    }
+
+    PyObject* increment;
+    auto increment_var_declr_ctx = ctx->incrementVarDeclr;
+    auto increment_var_assignment_ctx = ctx->incrementVarAssignment;
+    auto increment_expression_ctx = ctx->incrementExpression;
+    if (increment_var_declr_ctx) {
+      try {
+        increment = visitAsPyObject(increment_var_declr_ctx);
+      } catch (...) {
+        Py_DECREF(initializer);
+        Py_DECREF(condition);
+        throw;
+      }
+    } else if (increment_var_assignment_ctx) {
+      try {
+        increment = visitAsPyObject(increment_var_assignment_ctx);
+      } catch (...) {
+        Py_DECREF(initializer);
+        Py_DECREF(condition);
+        throw;
+      }
+    } else if (increment_expression_ctx) {
+      try {
+        increment = visitAsPyObject(increment_expression_ctx);
+      } catch (...) {
+        Py_DECREF(initializer);
+        Py_DECREF(condition);
+        throw;
+      }
+    } else {
+      increment = Py_None;
+      Py_INCREF(increment);
+    }
+
+    PyObject* body;
+    try {
+      body = visitAsPyObject(ctx->statement());
+    } catch (...) {
+      Py_DECREF(initializer);
+      Py_DECREF(condition);
+      Py_DECREF(increment);
+      throw;
+    }
+
+    PyObject* ret = build_ast_node(
+        "ForStatement", "{s:N,s:N,s:N,s:N}", "initializer", initializer, "condition", condition, "increment", increment,
+        "body", body
+    );
+    Py_DECREF(initializer);
+    Py_DECREF(condition);
+    Py_DECREF(increment);
+    Py_DECREF(body);
+    if (!ret) {
+      throw PyInternalError();
+    }
+    return ret;
+  }
+
+  // def visitFuncStmt(self, ctx: HogQLParser.FuncStmtContext):
+  //     return ast.Function(
+  //         name=ctx.identifier().getText(),
+  //         params=self.visit(ctx.identifierList()) if ctx.identifierList() else [],
+  //         body=self.visit(ctx.block()),
+  //     )
+  VISIT(FuncStmt) {
+    cout << "Hello FuncStmt" << endl;
+    string name = visitAsString(ctx->identifier());
+    PyObject* params;
+    auto identifier_list_ctx = ctx->identifierList();
+    if (identifier_list_ctx) {
+      try {
+        params = visitAsPyObject(identifier_list_ctx);
+      } catch (...) {
+        throw;
+      }
+    } else {
+      params = PyList_New(0);
+      if (!params) {
+        throw PyInternalError();
+      }
+    }
+
+    PyObject* body;
+    try {
+      body = visitAsPyObject(ctx->block());
+    } catch (...) {
+      Py_DECREF(params);
+      throw;
+    }
+
+    PyObject* ret = build_ast_node("Function", "{s:s#,s:N,s:N}", "name", name.data(), name.size(), "params", params, "body", body);
+    Py_DECREF(params);
+    Py_DECREF(body);
+    if (!ret) {
+      throw PyInternalError();
+    }
+    return ret;
+  }
+
+  // def visitKvPairList(self, ctx: HogQLParser.KvPairListContext):
+  //     return [self.visit(kv) for kv in ctx.kvPair()]
+  VISIT(KvPairList) {
+    cout << "Hello KvPairList" << endl;
+    PyObject* ret = PyList_New(0);
+    if (!ret) {
+      throw PyInternalError();
+    }
+    auto kv_pair_ctxs = ctx->kvPair();
+    for (auto kv_pair_ctx : kv_pair_ctxs) {
+      PyObject* kv;
+      try {
+        kv = visitAsPyObject(kv_pair_ctx);
+      } catch (...) {
+        Py_DECREF(ret);
+        throw;
+      }
+      int append_code = PyList_Append(ret, kv);
+      Py_DECREF(kv);
+      if (append_code == -1) {
+        Py_DECREF(ret);
+        throw PyInternalError();
+      }
+    }
+    return ret;
+  }
+
+  // def visitKvPair(self, ctx: HogQLParser.KvPairContext):
+  //     k, v = ctx.expression()
+  //     return (self.visit(k), self.visit(v))
+  VISIT(KvPair) {
+    cout << "Hello KvPair" << endl;
+    PyObject* k;
+    PyObject* v;
+    try {
+      k = visitAsPyObject(ctx->expression(0));
+      v = visitAsPyObject(ctx->expression(1));
+    } catch (...) {
+      throw;
+    }
+    PyObject* ret = PyTuple_Pack(2, k, v);
+    Py_DECREF(k);
+    Py_DECREF(v);
+    if (!ret) {
+      throw PyInternalError();
+    }
+    return ret;
+  }
+
+  // def visitIdentifierList(self, ctx: HogQLParser.IdentifierListContext):
+  //     return [ident.getText() for ident in ctx.identifier()]
+  VISIT(IdentifierList) {
+    cout << "Hello IdentifierList" << endl;
+    vector<string> identifiers;
+    auto identifier_ctxs = ctx->identifier();
+    identifiers.reserve(identifier_ctxs.size());
+    for (auto identifier_ctx : identifier_ctxs) {
+      identifiers.push_back(visitAsString(identifier_ctx));
+    }
+    return X_PyList_FromStrings(identifiers);
+  }
+
+  // def visitEmptyStmt(self, ctx: HogQLParser.EmptyStmtContext):
+  //     return ast.ExprStatement(expr=None)
+  VISIT(EmptyStmt) {
+    cout << "Hello EmptyStmt" << endl;
+    PyObject* ret = build_ast_node("ExprStatement", "{s:O}", "expr", Py_None);
+    if (!ret) {
+      throw PyInternalError();
+    }
+    return ret;
+  }
+
+  // def visitBlock(self, ctx: HogQLParser.BlockContext):
+  //     declarations: list[ast.Declaration] = []
+  //     for declaration in ctx.declaration():
+  //         if not declaration.statement() or not declaration.statement().emptyStmt():
+  //             statement = self.visit(declaration)
+  //             declarations.append(cast(ast.Declaration, statement))
+  //     return ast.Block(declarations=declarations)
+  VISIT(Block) {
+    cout << "Hello Block" << endl;
+    PyObject* declarations = PyList_New(0);
+    if (!declarations) {
+      throw PyInternalError();
+    }
+    auto declaration_ctxs = ctx->declaration();
+    for (auto declaration_ctx : declaration_ctxs) {
+      if (!declaration_ctx->statement() || !declaration_ctx->statement()->emptyStmt()) {
+        PyObject* statement;
+        try {
+          statement = visitAsPyObject(declaration_ctx);
+        } catch (...) {
+          Py_DECREF(declarations);
+          throw;
+        }
+        int append_code = PyList_Append(declarations, statement);
+        Py_DECREF(statement);
+        if (append_code == -1) {
+          Py_DECREF(declarations);
+          throw PyInternalError();
+        }
+      }
+    }
+    PyObject* ret = build_ast_node("Block", "{s:N}", "declarations", declarations);
+    Py_DECREF(declarations);
+    if (!ret) {
+      throw PyInternalError();
+    }
+    return ret;
+  }
+
+  // HogQL rules
 
   VISIT(Select) {
     auto select_union_stmt_ctx = ctx->selectUnionStmt();
@@ -2176,6 +2714,7 @@ METHOD_PARSE_NODE(Expr, expr, expr)
 METHOD_PARSE_NODE(OrderExpr, orderExpr, order_expr)
 METHOD_PARSE_NODE(Select, select, select)
 METHOD_PARSE_NODE(FullTemplateString, fullTemplateString, full_template_string)
+METHOD_PARSE_NODE(Program, program, program)
 
 #undef METHOD_PARSE_NODE
 
@@ -2211,6 +2750,10 @@ static PyMethodDef parser_methods[] = {
      .ml_meth = (PyCFunction)method_parse_full_template_string,
      .ml_flags = METH_VARARGS | METH_KEYWORDS,
      .ml_doc = "Parse a Hog template string into an AST"},
+    {.ml_name = "parse_program",
+     .ml_meth = (PyCFunction)method_parse_program,
+     .ml_flags = METH_VARARGS | METH_KEYWORDS,
+     .ml_doc = "Parse a Hog program into an AST"},
     {.ml_name = "parse_string_literal_text",
      .ml_meth = method_parse_string_literal_text,
      .ml_flags = METH_VARARGS,
