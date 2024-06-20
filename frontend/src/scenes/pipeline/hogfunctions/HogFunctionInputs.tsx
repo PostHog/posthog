@@ -1,3 +1,6 @@
+import { closestCenter, DndContext } from '@dnd-kit/core'
+import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { Monaco } from '@monaco-editor/react'
 import { IconGear, IconPlus, IconTrash, IconX } from '@posthog/icons'
 import {
@@ -362,6 +365,7 @@ function HogFunctionInputSchemaControls({ value, onChange, onDone }: HogFunction
 }
 
 export function HogFunctionInputWithSchema({ schema }: HogFunctionInputWithSchemaProps): JSX.Element {
+    const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: schema.key })
     const { showSource, configuration } = useValues(pipelineHogFunctionConfigurationLogic)
     const { setConfigurationValue } = useActions(pipelineHogFunctionConfigurationLogic)
     const [editing, setEditing] = useState(showSource)
@@ -394,38 +398,90 @@ export function HogFunctionInputWithSchema({ schema }: HogFunctionInputWithSchem
         }
     }, [showSource])
 
-    if (!editing) {
-        return (
-            <LemonField name={`inputs.${schema.key}`} help={schema.description}>
-                {({ value, onChange }) => {
-                    return (
-                        <>
-                            <div className="flex items-center justify-between">
-                                <LemonLabel showOptional={!schema.required}>{schema.label || schema.key}</LemonLabel>
-                                {showSource ? (
-                                    <LemonButton
-                                        size="small"
-                                        noPadding
-                                        icon={<IconGear />}
-                                        onClick={() => setEditing(true)}
-                                    />
-                                ) : null}
-                            </div>
-                            <HogFunctionInputRenderer
-                                schema={schema}
-                                value={value?.value}
-                                onChange={(val) => onChange({ value: val })}
-                            />
-                        </>
-                    )
-                }}
-            </LemonField>
-        )
+    return (
+        <div
+            ref={setNodeRef}
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{
+                transform: CSS.Transform.toString(transform),
+                transition,
+            }}
+        >
+            {!editing ? (
+                <LemonField name={`inputs.${schema.key}`} help={schema.description}>
+                    {({ value, onChange }) => {
+                        return (
+                            <>
+                                <div className="flex items-center justify-between">
+                                    <LemonLabel
+                                        className={showSource ? 'cursor-grab' : ''}
+                                        showOptional={!schema.required}
+                                        {...attributes}
+                                        {...listeners}
+                                    >
+                                        {schema.label || schema.key}
+                                    </LemonLabel>
+                                    {showSource ? (
+                                        <LemonButton
+                                            size="small"
+                                            noPadding
+                                            icon={<IconGear />}
+                                            onClick={() => setEditing(true)}
+                                        />
+                                    ) : null}
+                                </div>
+                                <HogFunctionInputRenderer
+                                    schema={schema}
+                                    value={value?.value}
+                                    onChange={(val) => onChange({ value: val })}
+                                />
+                            </>
+                        )
+                    }}
+                </LemonField>
+            ) : (
+                <div className="border rounded p-2 border-dashed space-y-4">
+                    <HogFunctionInputSchemaControls
+                        value={schema}
+                        onChange={onSchemaChange}
+                        onDone={() => setEditing(false)}
+                    />
+                </div>
+            )}
+        </div>
+    )
+}
+
+export function HogFunctionInputs(): JSX.Element {
+    const { showSource, configuration } = useValues(pipelineHogFunctionConfigurationLogic)
+    const { setConfigurationValue } = useActions(pipelineHogFunctionConfigurationLogic)
+
+    if (!configuration?.inputs_schema?.length) {
+        return <span className="italic text-muted-alt">This function does not require any input variables.</span>
     }
 
+    const inputSchemas = configuration.inputs_schema
+    const inputSchemaIds = inputSchemas.map((schema) => schema.key)
+
     return (
-        <div className="border rounded p-2 border-dashed space-y-4">
-            <HogFunctionInputSchemaControls value={schema} onChange={onSchemaChange} onDone={() => setEditing(false)} />
-        </div>
+        <>
+            <DndContext
+                collisionDetection={closestCenter}
+                onDragEnd={({ active, over }) => {
+                    if (over && active.id !== over.id) {
+                        const oldIndex = inputSchemaIds.indexOf(active.id as string)
+                        const newIndex = inputSchemaIds.indexOf(over.id as string)
+
+                        setConfigurationValue('inputs_schema', arrayMove(inputSchemas, oldIndex, newIndex))
+                    }
+                }}
+            >
+                <SortableContext disabled={!showSource} items={inputSchemaIds} strategy={verticalListSortingStrategy}>
+                    {configuration.inputs_schema?.map((schema) => {
+                        return <HogFunctionInputWithSchema key={schema.key} schema={schema} />
+                    })}
+                </SortableContext>
+            </DndContext>
+        </>
     )
 }
