@@ -10,6 +10,7 @@ import {
     LemonInputSelect,
     LemonLabel,
     LemonSelect,
+    LemonTag,
     LemonTextArea,
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
@@ -424,7 +425,7 @@ export function HogFunctionInputWithSchema({ schema }: HogFunctionInputWithSchem
                     {({ value, onChange }) => {
                         return (
                             <>
-                                <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
                                     <LemonLabel
                                         className={showSource ? 'cursor-grab' : ''}
                                         showOptional={!schema.required}
@@ -434,12 +435,18 @@ export function HogFunctionInputWithSchema({ schema }: HogFunctionInputWithSchem
                                         {schema.label || schema.key}
                                     </LemonLabel>
                                     {showSource ? (
-                                        <LemonButton
-                                            size="small"
-                                            noPadding
-                                            icon={<IconGear />}
-                                            onClick={() => setEditing(true)}
-                                        />
+                                        <>
+                                            <LemonTag type="muted" className="font-mono">
+                                                inputs.{schema.key}
+                                            </LemonTag>
+                                            <div className="flex-1" />
+                                            <LemonButton
+                                                size="small"
+                                                noPadding
+                                                icon={<IconGear />}
+                                                onClick={() => setEditing(true)}
+                                            />
+                                        </>
                                     ) : null}
                                 </div>
                                 <HogFunctionInputRenderer
