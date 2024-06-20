@@ -1,3 +1,4 @@
+import collections.abc
 import dataclasses
 import datetime as dt
 import enum
@@ -116,6 +117,45 @@ class BatchExportRun(UUIDModel):
     )
 
 
+def fetch_batch_export_run_count(
+    *,
+    team_id: int,
+    data_interval_start: dt.datetime,
+    data_interval_end: dt.datetime,
+    exclude_events: collections.abc.Iterable[str] | None = None,
+    include_events: collections.abc.Iterable[str] | None = None,
+) -> int:
+    """Fetch a list of batch export log entries from ClickHouse."""
+    if exclude_events:
+        exclude_events_statement = f"AND event NOT IN ({','.join(exclude_events)})"
+    else:
+        exclude_events_statement = ""
+
+    if include_events:
+        include_events_statement = f"AND event IN ({','.join(include_events)})"
+    else:
+        include_events_statement = ""
+
+    data_interval_start_ch = data_interval_start.strftime("%Y-%m-%d %H:%M:%S")
+    data_interval_end_ch = data_interval_end.strftime("%Y-%m-%d %H:%M:%S")
+
+    clickhouse_query = f"""
+        SELECT count(*)
+        FROM events
+        WHERE
+            team_id = {team_id}
+            AND timestamp >= toDateTime64('{data_interval_start_ch}', 6, 'UTC')
+            AND timestamp < toDateTime64('{data_interval_end_ch}', 6, 'UTC')
+            {exclude_events_statement}
+            {include_events_statement}
+    """
+
+    try:
+        return sync_execute(clickhouse_query)[0][0]
+    except Exception:
+        return 0
+
+
 BATCH_EXPORT_INTERVALS = [
     ("hour", "hour"),
     ("day", "day"),
@@ -131,6 +171,12 @@ class BatchExport(UUIDModel):
     "backfill". Specific instances of a unit process of exporting data is called
     a BatchExportRun.
     """
+
+    class Model(models.TextChoices):
+        """Possible models that this BatchExport can export."""
+
+        EVENTS = "events"
+        PERSONS = "persons"
 
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE, help_text="The team this belongs to.")
     name: models.TextField = models.TextField(help_text="A human-readable name for this BatchExport.")
@@ -176,6 +222,15 @@ class BatchExport(UUIDModel):
         null=True,
         default=None,
         help_text="A schema of custom fields to select when exporting data.",
+    )
+
+    model = models.CharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        choices=Model.choices,
+        default=Model.EVENTS,
+        help_text="Which model this BatchExport is exporting.",
     )
 
     @property

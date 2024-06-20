@@ -29,7 +29,6 @@ import { addLog, HogExecutor } from './hog-executor'
 import { HogFunctionManager } from './hog-function-manager'
 import { HogWatcher } from './hog-watcher'
 import {
-    CdpOverflowMessage,
     HogFunctionInvocation,
     HogFunctionInvocationAsyncResponse,
     HogFunctionInvocationGlobals,

@@ -15,6 +15,7 @@ on:
             - master
         paths-ignore:
             - 'rust/**'
+            - 'livestream/**'
     workflow_dispatch:
 
 jobs:

@@ -149,6 +149,8 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
                         data_interval_start=last_updated_at - dt.timedelta(hours=1),
                         status=BatchExportRun.Status.COMPLETED,
                     )
+                    for _ in range(3):
+                        insert_event(team_id=self.team.pk, timestamp=last_updated_at - dt.timedelta(minutes=1))
 
                     BatchExportRun.objects.create(
                         batch_export_id=batch_export_id,
@@ -162,6 +164,9 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
                         data_interval_start=last_updated_at - dt.timedelta(hours=3),
                         status=BatchExportRun.Status.FAILED_RETRYABLE,
                     )
+                    for _ in range(5):
+                        timestamp = last_updated_at - dt.timedelta(hours=2, minutes=1)
+                        insert_event(team_id=self.team.pk, timestamp=timestamp)
 
             response = self.client.get(f"/api/projects/@current/app_metrics/{batch_export_id}?date_from=-7d")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -230,6 +235,7 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
                         data_interval_start=last_updated_at - dt.timedelta(hours=1),
                         status=BatchExportRun.Status.COMPLETED,
                     )
+                    insert_event(team_id=self.team.pk, timestamp=last_updated_at - dt.timedelta(minutes=1))
 
             response = self.client.get(f"/api/projects/@current/app_metrics/{batch_export_id}?date_from=-7d")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
