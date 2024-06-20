@@ -265,7 +265,7 @@ async def assert_clickhouse_records_in_s3(
     assert s3_data == expected_records
 
 
-TEST_S3_MODELS: list[BatchExportModel, BatchExportSchema | None] = [
+TEST_S3_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
     BatchExportModel(
         name="a-custom-model",
         schema={
@@ -886,7 +886,7 @@ async def test_s3_export_workflow_with_minio_bucket_and_custom_key_prefix(
     assert run.records_completed == events_to_export_created or run.records_completed == persons_to_export_created
 
     expected_key_prefix = s3_key_prefix.format(
-        table=model.name if model is not None else "events",
+        table=batch_export_model.name if batch_export_model is not None else "events",
         year=data_interval_end.year,
         # All of these must include leading 0s.
         month=data_interval_end.strftime("%m"),

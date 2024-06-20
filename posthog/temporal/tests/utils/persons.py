@@ -44,7 +44,7 @@ def generate_test_persons(
     persons: list[PersonValues] = []
     for _ in range(start, count + start):
         timestamp = timestamps.pop()
-        person = {
+        person: PersonValues = {
             "id": str(person_id) if person_id else str(uuid.uuid4()),
             "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
             "team_id": team_id,
@@ -160,7 +160,7 @@ def generate_test_person_distinct_id2(
     person_id: uuid.UUID | None = None,
     version: int = 1,
     is_deleted: bool = False,
-) -> list[PersonDistinctId2Values]:
+) -> PersonDistinctId2Values:
     """Generate a row of person_distinct_id2 values for testing."""
     person: PersonDistinctId2Values = {
         "team_id": team_id,
@@ -212,7 +212,7 @@ async def generate_test_person_distinct_id2_in_clickhouse(
     person_id: uuid.UUID | None = None,
     version: int = 1,
     is_deleted: bool = False,
-) -> tuple[list[PersonDistinctId2Values], list[PersonDistinctId2Values]]:
+) -> tuple[PersonDistinctId2Values, PersonDistinctId2Values]:
     person = generate_test_person_distinct_id2(
         count=1,
         team_id=team_id,
