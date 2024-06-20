@@ -621,7 +621,6 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
         throw PyInternalError();
       }
     }
-
     PyObject* body;
     try {
       body = visitAsPyObject(ctx->block());
