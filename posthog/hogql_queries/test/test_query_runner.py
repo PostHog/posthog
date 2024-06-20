@@ -90,6 +90,7 @@ class TestQueryRunner(BaseTest):
                     "optimizeJoinedFilters": False,
                     "personsOnEventsMode": "disabled",
                     "bounceRatePageViewMode": "count_pageviews",
+                    "sessionTableVersion": "auto",
                 },
                 "limit_context": "query",
                 "query": {"kind": "TestQuery", "some_attr": "bla"},
