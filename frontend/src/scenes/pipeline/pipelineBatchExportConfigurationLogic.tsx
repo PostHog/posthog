@@ -7,6 +7,7 @@ import api from 'lib/api'
 import { BatchExportConfigurationForm } from 'scenes/batch_exports/batchExportEditLogic'
 import { urls } from 'scenes/urls'
 
+import { DatabaseSchemaBatchExportTable } from '~/queries/schema'
 import { BatchExportConfiguration, BatchExportService, PipelineNodeTab, PipelineStage } from '~/types'
 
 import { pipelineDestinationsLogic } from './destinationsLogic'
@@ -24,6 +25,7 @@ function getConfigurationFromBatchExportConfig(batchExportConfig: BatchExportCon
         destination: batchExportConfig.destination.type,
         paused: batchExportConfig.paused,
         interval: batchExportConfig.interval,
+        model: batchExportConfig.model,
         ...batchExportConfig.destination.config,
     }
 }
@@ -32,8 +34,149 @@ function getDefaultConfiguration(service: BatchExportService['type']): Record<st
     return {
         name: service,
         destination: service,
+        model: 'events',
         paused: true,
     }
+}
+
+function getEventTable(service: BatchExportService['type']): DatabaseSchemaBatchExportTable {
+    const eventsTable: DatabaseSchemaBatchExportTable = {
+        type: 'batch_export',
+        id: 'Events',
+        name: 'events',
+        fields: {
+            uuid: {
+                name: 'uuid',
+                hogql_value: 'toString(uuid)',
+                type: 'string',
+                schema_valid: true,
+            },
+            timestamp: {
+                name: 'timestamp',
+                hogql_value: 'timestamp',
+                type: 'datetime',
+                schema_valid: true,
+            },
+            event: {
+                name: 'event',
+                hogql_value: 'event',
+                type: 'string',
+                schema_valid: true,
+            },
+            distinct_id: {
+                name: 'distinct_id',
+                hogql_value: 'toString(distinct_id)',
+                type: 'string',
+                schema_valid: true,
+            },
+            properties: {
+                name: 'properties',
+                hogql_value: 'properties',
+                type: 'json',
+                schema_valid: true,
+            },
+            ...(service == 'S3' && {
+                person_id: {
+                    name: 'person_id',
+                    hogql_value: 'toString(person_id)',
+                    type: 'string',
+                    schema_valid: true,
+                },
+                person_properties: {
+                    name: 'person_properties',
+                    hogql_value: "nullIf(person_properties, '')",
+                    type: 'string',
+                    schema_valid: true,
+                },
+                created_at: {
+                    name: 'created_at',
+                    hogql_value: 'created_at',
+                    type: 'datetime',
+                    schema_valid: true,
+                },
+            }),
+            ...(service != 'S3' && {
+                team_id: {
+                    name: 'team_id',
+                    hogql_value: service == 'Postgres' || service == 'Redshift' ? 'toInt32(team_id)' : 'team_id',
+                    type: 'string',
+                    schema_valid: true,
+                },
+                set: {
+                    name: service == 'Snowflake' ? 'people_set' : 'set',
+                    hogql_value: "nullIf(JSONExtractString(properties, '$set'), '')",
+                    type: 'string',
+                    schema_valid: true,
+                },
+                set_once: {
+                    name: service == 'Snowflake' ? 'people_set_once' : 'set_once',
+                    hogql_value: "nullIf(JSONExtractString(properties, '$set_once'), '')",
+                    type: 'string',
+                    schema_valid: true,
+                },
+                site_url: {
+                    name: 'site_url',
+                    hogql_value: "''",
+                    type: 'string',
+                    schema_valid: true,
+                },
+                ip: {
+                    name: 'ip',
+                    hogql_value: "nullIf(JSONExtractString(properties, '$ip'), '')",
+                    type: 'string',
+                    schema_valid: true,
+                },
+                elements_chain: {
+                    name: 'elements',
+                    hogql_value: 'toJSONString(elements_chain)',
+                    type: 'string',
+                    schema_valid: true,
+                },
+            }),
+            ...(service == 'BigQuery' && {
+                bq_ingested_timestamp: {
+                    name: 'bq_ingested_timestamp',
+                    hogql_value: 'NOW64()',
+                    type: 'datetime',
+                    schema_valid: true,
+                },
+            }),
+        },
+    }
+
+    return eventsTable
+}
+
+const personsTable: DatabaseSchemaBatchExportTable = {
+    type: 'batch_export',
+    id: 'Persons',
+    name: 'persons',
+    fields: {
+        team_id: {
+            name: 'team_id',
+            hogql_value: 'team_id',
+            type: 'string',
+            schema_valid: true,
+        },
+        distinct_id: {
+            name: 'distinct_id',
+            hogql_value: 'distinct_id',
+            type: 'string',
+            schema_valid: true,
+        },
+        person_id: {
+            name: 'person_id',
+            hogql_value: 'person_id',
+            type: 'string',
+            schema_valid: true,
+        },
+        properties: {
+            name: 'properties',
+            hogql_value: 'properties',
+            type: 'json',
+            schema_valid: true,
+        },
+    },
 }
 
 // Should likely be somewhat similar to pipelinePluginConfigurationLogic
@@ -51,6 +194,7 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
     })),
     actions({
         setSavedConfiguration: (configuration: Record<string, any>) => ({ configuration }),
+        setSelectedModel: (model: string) => ({ model }),
     }),
     loaders(({ props, values }) => ({
         batchExportConfig: [
@@ -70,7 +214,8 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
                         lemonToast.error('Data pipelines add-on is required for enabling new destinations.')
                         return null
                     }
-                    const { name, destination, interval, paused, created_at, start_at, end_at, ...config } = formdata
+                    const { name, destination, interval, paused, created_at, start_at, end_at, model, ...config } =
+                        formdata
                     const destinationObj = {
                         type: destination,
                         config: config,
@@ -82,6 +227,7 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
                         paused,
                         name,
                         interval,
+                        model,
                         destination: destinationObj,
                     }
                     if (props.id) {
@@ -98,6 +244,44 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
         ],
     })),
     reducers(({ props }) => ({
+        tables: [
+            props.service ? [getEventTable(props.service), personsTable] : ([] as DatabaseSchemaBatchExportTable[]),
+            {
+                loadBatchExportConfigSuccess: (state, { batchExportConfig }) => {
+                    if (!batchExportConfig) {
+                        return state
+                    }
+
+                    return [getEventTable(batchExportConfig.destination.type), personsTable]
+                },
+                updateBatchExportConfigSuccess: (state, { batchExportConfig }) => {
+                    if (!batchExportConfig) {
+                        return state
+                    }
+
+                    return [getEventTable(batchExportConfig.destination.type), personsTable]
+                },
+            },
+        ],
+        selectedModel: [
+            'events',
+            {
+                setSelectedModel: (_, { model }) => model,
+                loadBatchExportConfigSuccess: (state, { batchExportConfig }) => {
+                    if (!batchExportConfig) {
+                        return state
+                    }
+
+                    return batchExportConfig.model
+                },
+                updateBatchExportConfigSuccess: (state, { batchExportConfig }) => {
+                    if (!batchExportConfig) {
+                        return state
+                    }
+                    return batchExportConfig.model
+                },
+            },
+        ],
         configuration: [
             props.service ? getDefaultConfiguration(props.service) : ({} as BatchExportConfigurationForm),
             {
@@ -105,6 +289,7 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
                     if (!batchExportConfig) {
                         return state
                     }
+
                     return getConfigurationFromBatchExportConfig(batchExportConfig)
                 },
                 updateBatchExportConfigSuccess: (state, { batchExportConfig }) => {
@@ -137,7 +322,7 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
         requiredFields: [
             (s) => [s.service],
             (service): string[] => {
-                const generalRequiredFields = ['interval', 'name']
+                const generalRequiredFields = ['interval', 'name', 'model']
                 if (service === 'Postgres') {
                     return [
                         ...generalRequiredFields,

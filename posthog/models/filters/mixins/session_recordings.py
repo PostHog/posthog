@@ -63,6 +63,14 @@ class SessionRecordingsMixin(BaseParamMixin):
         return None
 
     @cached_property
+    def snapshot_source_filter(self) -> Optional[Property]:
+        snapshot_source_data_str = self._data.get("snapshot_source", None)
+        if isinstance(snapshot_source_data_str, str):
+            filter_data = json.loads(snapshot_source_data_str)
+            return Property(**filter_data)
+        return None
+
+    @cached_property
     def session_ids(self) -> Optional[list[str]]:
         # Can be ['a', 'b'] or "['a', 'b']" or "a,b"
         session_ids_str = self._data.get(SESSION_RECORDINGS_FILTER_IDS, None)

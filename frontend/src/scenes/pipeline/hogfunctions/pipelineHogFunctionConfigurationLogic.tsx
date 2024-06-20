@@ -177,7 +177,7 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
                     }
 
                     const res = props.id
-                        ? await api.hogFunctions.create(payload)
+                        ? await api.hogFunctions.update(props.id, payload)
                         : await api.hogFunctions.create(payload)
 
                     lemonToast.success('Configuration saved')
