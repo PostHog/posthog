@@ -1,4 +1,5 @@
 import dataclasses
+from datetime import timedelta
 from typing import Any, Optional, cast, TYPE_CHECKING
 from collections.abc import Callable
 
@@ -388,7 +389,7 @@ def execute_hog(
     team: Optional["Team"] = None,
     globals: Optional[dict[str, Any]] = None,
     functions: Optional[dict[str, Callable[..., Any]]] = None,
-    timeout=10,
+    timeout=timedelta(seconds=10),
 ) -> BytecodeResult:
     source_code = source_code.strip()
     if source_code.count("\n") == 0:

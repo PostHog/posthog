@@ -1,12 +1,10 @@
-from typing import Optional, Union
+from typing import Optional
 from unittest.mock import MagicMock, patch
 from freezegun import freeze_time
-from parameterized import parameterized
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql.constants import LimitContext
 from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
-from posthog.hogql_queries.web_analytics.web_overview_legacy import LegacyWebOverviewQueryRunner
 from posthog.schema import WebOverviewQuery, DateRange
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.base import (
@@ -54,25 +52,18 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             dateRange=DateRange(date_from=date_from, date_to=date_to),
             properties=[],
             compare=compare,
-            useSessionsTable=use_sessions_table,
         )
-        if use_sessions_table:
-            runner: Union[WebOverviewQueryRunner, LegacyWebOverviewQueryRunner] = WebOverviewQueryRunner(
-                team=self.team, query=query, limit_context=limit_context
-            )
-        else:
-            runner = LegacyWebOverviewQueryRunner(team=self.team, query=query, limit_context=limit_context)
+        runner = WebOverviewQueryRunner(team=self.team, query=query, limit_context=limit_context)
         return runner.calculate()
 
-    @parameterized.expand([(True,), (False,)])
-    def test_no_crash_when_no_data(self, use_sessions_table):
+    def test_no_crash_when_no_data(self):
         results = self._run_web_overview_query(
-            "2023-12-08", "2023-12-15", use_sessions_table=use_sessions_table
+            "2023-12-08",
+            "2023-12-15",
         ).results
         self.assertEqual(5, len(results))
 
-    @parameterized.expand([(True,), (False,)])
-    def test_increase_in_users(self, use_sessions_table):
+    def test_increase_in_users(self):
         self._create_events(
             [
                 ("p1", [("2023-12-02", "s1a"), ("2023-12-03", "s1a"), ("2023-12-12", "s1b")]),
@@ -80,9 +71,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ]
         )
 
-        results = self._run_web_overview_query(
-            "2023-12-08", "2023-12-15", use_sessions_table=use_sessions_table
-        ).results
+        results = self._run_web_overview_query("2023-12-08", "2023-12-15").results
 
         visitors = results[0]
         self.assertEqual("visitors", visitors.key)
@@ -114,8 +103,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(0, bounce.previous)
         self.assertEqual(None, bounce.changeFromPreviousPct)
 
-    @parameterized.expand([(True,), (False,)])
-    def test_all_time(self, use_sessions_table):
+    def test_all_time(self):
         self._create_events(
             [
                 ("p1", [("2023-12-02", "s1a"), ("2023-12-03", "s1a"), ("2023-12-12", "s1b")]),
@@ -123,9 +111,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ]
         )
 
-        results = self._run_web_overview_query(
-            "all", "2023-12-15", compare=False, use_sessions_table=use_sessions_table
-        ).results
+        results = self._run_web_overview_query("all", "2023-12-15", compare=False).results
 
         visitors = results[0]
         self.assertEqual("visitors", visitors.key)
@@ -157,14 +143,11 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(None, bounce.previous)
         self.assertEqual(None, bounce.changeFromPreviousPct)
 
-    @parameterized.expand([(True,), (False,)])
-    def test_filter_test_accounts(self, use_sessions_table):
+    def test_filter_test_accounts(self):
         # Create 1 test account
         self._create_events([("test", [("2023-12-02", "s1"), ("2023-12-03", "s1")])])
 
-        results = self._run_web_overview_query(
-            "2023-12-01", "2023-12-03", use_sessions_table=use_sessions_table
-        ).results
+        results = self._run_web_overview_query("2023-12-01", "2023-12-03").results
 
         visitors = results[0]
         self.assertEqual(0, visitors.value)
@@ -182,8 +165,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual("bounce rate", bounce.key)
         self.assertEqual(None, bounce.value)
 
-    @parameterized.expand([(True,), (False,)])
-    def test_correctly_counts_pageviews_in_long_running_session(self, use_sessions_table):
+    def test_correctly_counts_pageviews_in_long_running_session(self):
         # this test is important when using the sessions table as the raw sessions table will have 3 entries, one per day
         self._create_events(
             [
@@ -191,9 +173,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ]
         )
 
-        results = self._run_web_overview_query(
-            "2023-12-01", "2023-12-03", use_sessions_table=use_sessions_table
-        ).results
+        results = self._run_web_overview_query("2023-12-01", "2023-12-03").results
 
         visitors = results[0]
         self.assertEqual(1, visitors.value)
