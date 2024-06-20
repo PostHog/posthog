@@ -12,7 +12,7 @@ export function ScalePicker(): JSX.Element | null {
     return (
         <LemonSegmentedButton
             className="pb-2 px-2"
-            onChange={(value) => updateInsightFilter({ yAxisScaleType: (value as 'linear') || 'log10' })}
+            onChange={(value) => updateInsightFilter({ yAxisScaleType: value as 'linear' | 'log10' })}
             value={yAxisScaleType || 'linear'}
             options={[
                 { value: 'linear', label: 'Linear' },
