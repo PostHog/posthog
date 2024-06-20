@@ -261,7 +261,7 @@ export function HogFunctionInputRenderer({ value, onChange, schema, disabled }: 
             return <LemonCheckbox checked={value} onChange={(checked) => onChange?.(checked)} disabled={disabled} />
         case 'integration':
             return <HogFunctionInputIntegration schema={schema} value={value} onChange={onChange} />
-        case 'integration-field':
+        case 'integration_field':
             return <HogFunctionInputIntegrationField schema={schema} value={value} onChange={onChange} />
         default:
             return (

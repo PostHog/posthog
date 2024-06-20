@@ -33,7 +33,7 @@ fetch('https://slack.com/api/chat.postMessage', {
         },
         {
             "key": "channel",
-            "type": "integration-field",
+            "type": "integration_field",
             "integration_key": "slack_workspace",
             "integration_field": "slack_channel",
             "label": "Channel to post to",
