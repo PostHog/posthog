@@ -344,7 +344,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                     if (temp > MAX_ARGS_LENGTH) {
                         throw new Error('Too many arguments')
                     }
-                    const args = Array(next())
+                    const args = Array(temp)
                         .fill(null)
                         .map(() => popStack())
                     if (options?.functions && options.functions.hasOwnProperty(name) && options.functions[name]) {
