@@ -17,7 +17,7 @@ import { convertToHogFunctionFilterGlobal } from './utils'
 
 const MAX_ASYNC_STEPS = 2
 
-const DEFAULT_TIMEOUT = 0.1 // TODO: Change to 100 when the package is updated
+const DEFAULT_TIMEOUT_MS = 100
 
 export const formatInput = (bytecode: any, globals: HogFunctionInvocation['globals']): any => {
     // Similar to how we generate the bytecode by iterating over the values,
@@ -27,7 +27,7 @@ export const formatInput = (bytecode: any, globals: HogFunctionInvocation['globa
     if (Array.isArray(bytecode) && bytecode[0] === '_h') {
         const res = exec(bytecode, {
             globals,
-            timeout: DEFAULT_TIMEOUT,
+            timeout: DEFAULT_TIMEOUT_MS,
             maxAsyncSteps: 0,
         })
 
@@ -91,7 +91,7 @@ export class HogExecutor {
 
                 const filterResult = exec(filters.bytecode, {
                     globals: filtersGlobals,
-                    timeout: DEFAULT_TIMEOUT,
+                    timeout: DEFAULT_TIMEOUT_MS,
                     maxAsyncSteps: 0,
                 })
 
@@ -242,7 +242,7 @@ export class HogExecutor {
             try {
                 execRes = exec(state ?? hogFunction.bytecode, {
                     globals,
-                    timeout: DEFAULT_TIMEOUT, // TODO: Swap this to milliseconds when the package is updated
+                    timeout: DEFAULT_TIMEOUT_MS, // TODO: Swap this to milliseconds when the package is updated
                     maxAsyncSteps: MAX_ASYNC_STEPS, // NOTE: This will likely be configurable in the future
                     asyncFunctions: {
                         // We need to pass these in but they don't actually do anything as it is a sync exec
