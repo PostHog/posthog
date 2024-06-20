@@ -289,7 +289,7 @@ export const language: languages.IMonarchLanguage = {
         'age',
         'dateDiff',
         'dateTrunc',
-        'dateAdd',
+        'date_add',
         'dateSub',
         'timeStampAdd',
         'timeStampSub',
