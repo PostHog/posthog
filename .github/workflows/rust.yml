@@ -150,17 +150,17 @@ jobs:
             - run: pip install uv
               if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
 
-            - name: Install python dependencies
-              if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
-              run: |
-                  uv pip install --system -r ../requirements-dev.txt
-                  uv pip install --system -r ../requirements.txt
-
             - name: Install SAML (python3-saml) dependencies
               if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
               run: |
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+
+            - name: Install python dependencies
+              if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
+              run: |
+                  uv pip install --system -r ../requirements-dev.txt
+                  uv pip install --system -r ../requirements.txt
 
             - name: Set up databases
               if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
