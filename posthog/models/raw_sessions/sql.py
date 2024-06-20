@@ -49,6 +49,8 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     initial_os AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
     initial_os_version AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
     initial_device_type AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+    initial_viewport_width AggregateFunction(argMin, Int64, DateTime64(6, 'UTC')),
+    initial_viewport_height AggregateFunction(argMin, Int64, DateTime64(6, 'UTC')),
 
     -- geoip
     -- only store the properties we actually use, as there's tons, see https://posthog.com/docs/cdp/geoip-enrichment
@@ -93,7 +95,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     screen_uniq AggregateFunction(uniq, Nullable(UUID)),
 
     -- replay
-    has_session_replay SimpleAggregateFunction(max, Bool) -- we're not writing True values to this column anywhere yet
+    maybe_has_session_replay SimpleAggregateFunction(max, Bool) -- will be written False to by the events table mv and True to by the replay table mv
 ) ENGINE = {engine}
 """
 
@@ -144,6 +146,10 @@ def source_string_column(column_name: str) -> str:
     return f"JSONExtractString(properties, '{column_name}')"
 
 
+def source_int_column(column_name: str) -> str:
+    return f"JSONExtractInt(properties, '{column_name}')"
+
+
 RAW_SESSION_TABLE_BACKFILL_SELECT_SQL = (
     lambda: """
 SELECT
@@ -166,6 +172,8 @@ SELECT
     initializeAggregation('argMinState', {os}, timestamp) as os,
     initializeAggregation('argMinState', {os_version}, timestamp) as os_version,
     initializeAggregation('argMinState', {device_type}, timestamp) as device_type,
+    initializeAggregation('argMinState', {viewport_width}, timestamp) as viewport_width,
+    initializeAggregation('argMinState', {viewport_height}, timestamp) as viewport_height,
 
     -- geo ip
     initializeAggregation('argMinState', {geoip_country_code}, timestamp) as initial_geoip_country_code,
@@ -190,7 +198,7 @@ SELECT
     initializeAggregation('argMinState', {fbclid}, timestamp) as initial_fbclid,
     initializeAggregation('argMinState', {msclkid}, timestamp) as initial_msclkid,
     initializeAggregation('argMinState', {twclid}, timestamp) as initial_twclid,
-    initializeAggregation('argMinState', {la_fat_id}, timestamp) as initial_li_fat_id,
+    initializeAggregation('argMinState', {li_fat_id}, timestamp) as initial_li_fat_id,
     initializeAggregation('argMinState', {mc_cid}, timestamp) as initial_mc_cid,
     initializeAggregation('argMinState', {igshid}, timestamp) as initial_igshid,
     initializeAggregation('argMinState', {ttclid}, timestamp) as initial_ttclid,
@@ -204,7 +212,7 @@ SELECT
     initializeAggregation('uniqState', if(event='screen', uuid, NULL)) as screen_uniq,
 
     -- replay
-    false as has_session_replay
+    false as maybe_has_session_replay
 FROM {database}.sharded_events
 WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7
 """.format(
@@ -216,6 +224,8 @@ WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')),
         os=source_string_column("$os"),
         os_version=source_string_column("$os_version"),
         device_type=source_string_column("$device_type"),
+        viewport_width=source_int_column("$viewport_width"),
+        viewport_height=source_int_column("$viewport_height"),
         geoip_country_code=source_string_column("$geoip_country_code"),
         geoip_subdivision_1_code=source_string_column("$geoip_subdivision_1_code"),
         geoip_subdivision_1_name=source_string_column("$geoip_subdivision_1_name"),
@@ -236,7 +246,7 @@ WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')),
         fbclid=source_string_column("fbclid"),
         msclkid=source_string_column("msclkid"),
         twclid=source_string_column("twclid"),
-        la_fat_id=source_string_column("la_fat_id"),
+        li_fat_id=source_string_column("li_fat_id"),
         mc_cid=source_string_column("mc_cid"),
         igshid=source_string_column("igshid"),
         ttclid=source_string_column("ttclid"),
@@ -266,6 +276,8 @@ SELECT
     argMinState({os}, timestamp) as initial_os,
     argMinState({os_version}, timestamp) as initial_os_version,
     argMinState({device_type}, timestamp) as initial_device_type,
+    argMinState({viewport_width}, timestamp) as initial_viewport_width,
+    argMinState({viewport_height}, timestamp) as initial_viewport_height,
 
     -- geoip
     argMinState({geoip_country_code}, timestamp) as initial_geoip_country_code,
@@ -290,7 +302,7 @@ SELECT
     argMinState({fbclid}, timestamp) as initial_fbclid,
     argMinState({msclkid}, timestamp) as initial_msclkid,
     argMinState({twclid}, timestamp) as initial_twclid,
-    argMinState({la_fat_id}, timestamp) as initial_li_fat_id,
+    argMinState({li_fat_id}, timestamp) as initial_li_fat_id,
     argMinState({mc_cid}, timestamp) as initial_mc_cid,
     argMinState({igshid}, timestamp) as initial_igshid,
     argMinState({ttclid}, timestamp) as initial_ttclid,
@@ -304,7 +316,7 @@ SELECT
     uniqState(if(event='$screen', uuid, NULL)) as screen_uniq,
 
     -- replay
-    false as has_session_replay
+    false as maybe_has_session_replay
 FROM {database}.sharded_events
 WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7
 GROUP BY session_id_v7, team_id
@@ -318,6 +330,8 @@ GROUP BY session_id_v7, team_id
         os=source_string_column("$os"),
         os_version=source_string_column("$os_version"),
         device_type=source_string_column("$device_type"),
+        viewport_width=source_int_column("$viewport_width"),
+        viewport_height=source_int_column("$viewport_height"),
         geoip_country_code=source_string_column("$geoip_country_code"),
         geoip_subdivision_1_code=source_string_column("$geoip_subdivision_1_code"),
         geoip_subdivision_1_name=source_string_column("$geoip_subdivision_1_name"),
@@ -337,7 +351,7 @@ GROUP BY session_id_v7, team_id
         fbclid=source_string_column("fbclid"),
         msclkid=source_string_column("msclkid"),
         twclid=source_string_column("twclid"),
-        la_fat_id=source_string_column("la_fat_id"),
+        li_fat_id=source_string_column("li_fat_id"),
         mc_cid=source_string_column("mc_cid"),
         igshid=source_string_column("igshid"),
         ttclid=source_string_column("ttclid"),
@@ -417,6 +431,8 @@ SELECT
     argMinMerge(initial_os) as initial_os,
     argMinMerge(initial_os_version) as initial_os_version,
     argMinMerge(initial_device_type) as initial_device_type,
+    argMinMerge(initial_viewport_width) as initial_viewport_width,
+    argMinMerge(initial_viewport_height) as initial_viewport_height,
 
     -- geoip
     argMinMerge(initial_geoip_country_code) as initial_geoip_country_code,
@@ -453,7 +469,7 @@ SELECT
     sum(screen_count) as screen_count,
     uniqMerge(screen_uniq) as screen_uniq,
 
-    max(has_session_replay) as has_session_replay
+    max(maybe_has_session_replay) as maybe_has_session_replay
 FROM {TABLE_BASE_NAME}
 GROUP BY session_id_v7, team_id
 """
