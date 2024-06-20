@@ -16,6 +16,7 @@ from posthog.schema import (
     DashboardFilter,
     LifecycleQuery,
     StickinessQuery,
+    TrendsQuery,
 )
 
 
@@ -269,13 +270,14 @@ class ActorsQueryRunner(QueryRunner):
             ctes = {
                 source_alias: ast.CTE(name=source_alias, expr=source_query, cte_type="subquery"),
             }
-            if isinstance(self.strategy, ActorStrategy) and any(
-                isinstance(x, C) for x in [self.query.source.source] for C in (LifecycleQuery, StickinessQuery)
-            ):
-                s = parse_select("SELECT distinct actor_id as person_id FROM source")
-                s.select_from.table = source_query
-                # How to get rid of the extra superfluous select
-                ctes["person_ids"] = ast.CTE(name="person_ids", expr=s, cte_type="subquery")
+            if True:
+                if isinstance(self.strategy, PersonStrategy) and any(
+                    isinstance(x, C) for x in [self.query.source.source] for C in (TrendsQuery,)
+                ):
+                    s = parse_select("SELECT distinct actor_id as person_id FROM source")
+                    s.select_from.table = source_query
+                    # How to get rid of the extra superfluous select
+                    ctes["person_ids"] = ast.CTE(name="person_ids", expr=s, cte_type="subquery")
 
             stmt = ast.SelectQuery(
                 ctes=ctes,
