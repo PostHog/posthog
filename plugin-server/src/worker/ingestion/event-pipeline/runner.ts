@@ -10,7 +10,7 @@ import { normalizeProcessPerson } from '../../../utils/event'
 import { status } from '../../../utils/status'
 import { captureIngestionWarning, generateEventDeadLetterQueueMessage } from '../utils'
 import { createEventStep } from './createEventStep'
-import { enrichExceptionEvent } from './enrichExceptionEvents'
+import { enrichExceptionEventStep } from './enrichExceptionEventStep'
 import { extractHeatmapDataStep } from './extractHeatmapDataStep'
 import {
     eventProcessedAndIngestedCounter,
@@ -228,7 +228,7 @@ export class EventPipelineRunner {
         }
 
         const enrichedIfErrorEvent = await this.runStep(
-            enrichExceptionEvent,
+            enrichExceptionEventStep,
             [this, preparedEventWithoutHeatmaps],
             event.team_id
         )

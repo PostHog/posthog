@@ -1,6 +1,6 @@
 import { ISOTimestamp, PreIngestionEvent } from '../../../../src/types'
 import { cloneObject } from '../../../../src/utils/utils'
-import { enrichExceptionEvent } from '../../../../src/worker/ingestion/event-pipeline/enrichExceptionEvents'
+import { enrichExceptionEventStep } from '../../../../src/worker/ingestion/event-pipeline/enrichExceptionEventStep'
 
 jest.mock('../../../../src/worker/plugins/run')
 
@@ -46,7 +46,7 @@ describe('enrichExceptionEvent()', () => {
         event.properties['$exception_stack_trace_raw'] = '[{"some": "data"}]'
         expect(event.properties['$exception_fingerprint']).toBeUndefined()
 
-        const response = await enrichExceptionEvent(runner, event)
+        const response = await enrichExceptionEventStep(runner, event)
         expect(response).toBe(event)
     })
 
@@ -55,7 +55,7 @@ describe('enrichExceptionEvent()', () => {
         event.properties['$exception_stack_trace_raw'] = '[{"some": "data"}]'
         event.properties['$exception_fingerprint'] = 'some-fingerprint'
 
-        const response = await enrichExceptionEvent(runner, event)
+        const response = await enrichExceptionEventStep(runner, event)
 
         expect(response.properties['$exception_fingerprint']).toBe('some-fingerprint')
     })
@@ -65,7 +65,7 @@ describe('enrichExceptionEvent()', () => {
         event.properties['$exception_message'] = 'some-message'
         event.properties['$exception_stack_trace_raw'] = aStackTrace
 
-        const response = await enrichExceptionEvent(runner, event)
+        const response = await enrichExceptionEventStep(runner, event)
 
         expect(response.properties['$exception_fingerprint']).toBe(
             'no-type-provided__some-message__dependenciesChecker'
@@ -78,7 +78,7 @@ describe('enrichExceptionEvent()', () => {
         event.properties['$exception_stack_trace_raw'] = aStackTrace
         event.properties['$exception_type'] = 'UnhandledRejection'
 
-        const response = await enrichExceptionEvent(runner, event)
+        const response = await enrichExceptionEventStep(runner, event)
 
         expect(response.properties['$exception_fingerprint']).toBe(
             'UnhandledRejection__some-message__dependenciesChecker'
@@ -91,7 +91,7 @@ describe('enrichExceptionEvent()', () => {
         event.properties['$exception_stack_trace_raw'] = null
         event.properties['$exception_type'] = 'UnhandledRejection'
 
-        const response = await enrichExceptionEvent(runner, event)
+        const response = await enrichExceptionEventStep(runner, event)
 
         expect(response.properties['$exception_fingerprint']).toBe('UnhandledRejection__some-message')
     })
@@ -102,7 +102,7 @@ describe('enrichExceptionEvent()', () => {
         event.properties['$exception_stack_trace_raw'] = null
         event.properties['$exception_type'] = null
 
-        const response = await enrichExceptionEvent(runner, event)
+        const response = await enrichExceptionEventStep(runner, event)
 
         expect(response.properties['$exception_fingerprint']).toBeUndefined()
     })

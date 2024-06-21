@@ -18,7 +18,7 @@ const EXCEPTIONS_ENRICHED_COUNTER = new Counter({
     help: 'Counter for exceptions that have been enriched',
 })
 
-export function enrichExceptionEvent(
+export function enrichExceptionEventStep(
     _runner: EventPipelineRunner,
     event: PreIngestionEvent
 ): Promise<PreIngestionEvent> {
