@@ -112,21 +112,22 @@ describe('HogQL Bytecode', () => {
     test('error handling', async () => {
         const globals = { properties: { foo: 'bar' } }
         const options = { globals }
-        expect(() => execSync([], options)).toThrowError("Invalid HogQL bytecode, must start with '_h'")
-        await expect(execAsync([], options)).rejects.toThrowError("Invalid HogQL bytecode, must start with '_h'")
-        expect(() => execSync(['_h', op.INTEGER, 2, op.INTEGER, 1, 'InvalidOp'], options)).toThrowError(
+        expect(() => execSync([], options)).toThrow("Invalid HogQL bytecode, must start with '_h'")
+        await expect(execAsync([], options)).rejects.toThrow("Invalid HogQL bytecode, must start with '_h'")
+        expect(() => execSync(['_h', op.INTEGER, 2, op.INTEGER, 1, 'InvalidOp'], options)).toThrow(
             'Unexpected node while running bytecode: InvalidOp'
         )
         expect(() =>
             execSync(['_h', op.STRING, 'another', op.STRING, 'arg', op.CALL, 'invalidFunc', 2], options)
-        ).toThrowError('Unsupported function call: invalidFunc')
-        expect(() => execSync(['_h', op.INTEGER], options)).toThrowError('Unexpected end of bytecode')
-        expect(() => execSync(['_h', op.CALL, 'match', 1], options)).toThrowError(
-            'Invalid HogQL bytecode, stack is empty'
-        )
-        expect(() => execSync(['_h', op.TRUE, op.TRUE, op.NOT], options)).toThrowError(
+        ).toThrow('Unsupported function call: invalidFunc')
+        expect(() => execSync(['_h', op.INTEGER], options)).toThrow('Unexpected end of bytecode')
+        expect(() => execSync(['_h', op.CALL, 'match', 1], options)).toThrow('Not enough arguments on the stack')
+        expect(() => execSync(['_h', op.TRUE, op.TRUE, op.NOT], options)).toThrow(
             'Invalid bytecode. More than one value left on stack'
         )
+    })
+
+    test('async limits', async () => {
         const callSleep = [
             33,
             0.002, // seconds to sleep
@@ -138,10 +139,22 @@ describe('HogQL Bytecode', () => {
         for (let i = 0; i < 200; i++) {
             bytecode.push(...callSleep)
         }
-        await expect(execAsync(bytecode, options)).rejects.toThrowError('Exceeded maximum number of async steps: 100')
-        await expect(execAsync(bytecode, { ...options, maxAsyncSteps: 55 })).rejects.toThrowError(
+        await expect(execAsync(bytecode)).rejects.toThrow('Exceeded maximum number of async steps: 100')
+        await expect(execAsync(bytecode, { maxAsyncSteps: 55 })).rejects.toThrow(
             'Exceeded maximum number of async steps: 55'
         )
+    })
+
+    test('call arg limits', async () => {
+        const bytecode = ['_h', 33, 0.002, 2, 'sleep', 301]
+        expect(() => execSync(bytecode)).toThrow('Not enough arguments on the stack')
+
+        const bytecode2: any[] = ['_h']
+        for (let i = 0; i < 301; i++) {
+            bytecode2.push(33, 0.002)
+        }
+        bytecode2.push(2, 'sleep', 301)
+        expect(() => execSync(bytecode2)).toThrow('Too many arguments')
     })
 
     test('should execute user-defined stringify function correctly', async () => {

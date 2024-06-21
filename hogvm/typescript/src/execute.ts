@@ -43,6 +43,9 @@ export interface ExecResult {
     state?: VMState
 }
 
+/** Maximum function arguments allowed */
+const MAX_ARGS_LENGTH = 300
+
 export function execSync(bytecode: any[], options?: ExecOptions): any {
     const response = exec(bytecode, options)
     if (response.finished) {
@@ -334,14 +337,24 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                     callStack.push([ip + 1, stack.length - argLen, argLen])
                     ip = funcIp
                 } else {
-                    const args = Array(next())
+                    temp = next() // args.length
+                    if (temp > stack.length) {
+                        throw new Error('Not enough arguments on the stack')
+                    }
+                    if (temp > MAX_ARGS_LENGTH) {
+                        throw new Error('Too many arguments')
+                    }
+                    const args = Array(temp)
                         .fill(null)
                         .map(() => popStack())
-                    if (options?.functions && options.functions[name] && name !== 'toString') {
+                    if (options?.functions && options.functions.hasOwnProperty(name) && options.functions[name]) {
                         stack.push(convertJSToHog(options.functions[name](...args.map(convertHogToJS))))
                     } else if (
                         name !== 'toString' &&
-                        ((options?.asyncFunctions && options.asyncFunctions[name]) || name in ASYNC_STL)
+                        ((options?.asyncFunctions &&
+                            options.asyncFunctions.hasOwnProperty(name) &&
+                            options.asyncFunctions[name]) ||
+                            name in ASYNC_STL)
                     ) {
                         if (asyncSteps >= maxAsyncSteps) {
                             throw new Error(`Exceeded maximum number of async steps: ${maxAsyncSteps}`)
