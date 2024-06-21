@@ -11,7 +11,14 @@ from posthog.hogql_queries.actor_strategies import ActorStrategy, PersonStrategy
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
-from posthog.schema import ActorsQuery, ActorsQueryResponse, CachedActorsQueryResponse, DashboardFilter, TrendsQuery
+from posthog.schema import (
+    ActorsQuery,
+    ActorsQueryResponse,
+    CachedActorsQueryResponse,
+    DashboardFilter,
+    TrendsQuery,
+    BreakdownType,
+)
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 
@@ -245,17 +252,22 @@ class ActorsQueryRunner(QueryRunner):
                 source_id_chain = self.source_id_column(source_query)
                 source_alias = "source"
 
-                ctes[source_alias] = ast.CTE(name=source_alias, expr=source_query, cte_type="subquery")
-
                 origin = self.strategy.origin
-                if isinstance(self.strategy, PersonStrategy) and any(
-                    isinstance(x, C) for x in [getattr(self.query.source, "source", None)] for C in (TrendsQuery,)
+                if (
+                    isinstance(self.strategy, PersonStrategy)
+                    and any(
+                        isinstance(x, C) for x in [getattr(self.query.source, "source", None)] for C in (TrendsQuery,)
+                    )
+                    and self.query.source.source.breakdownFilter is None
+                    or self.query.source.source.breakdownFilter.breakdown_type != BreakdownType.COHORT
                 ):
+                    # ctes[source_alias] = ast.CTE(name=source_alias, expr=clone_expr(source_query), cte_type="subquery")
                     tag_queries(superhot="id IN (SELECT actor_id FROM source)")
                     origin = "superhot_persons"
 
-                join_expr = ast.JoinExpr(
-                    table=ast.Field(chain=[source_alias]),
+                ast.JoinExpr(
+                    table=source_query,
+                    alias=source_alias,
                     next_join=ast.JoinExpr(
                         table=ast.Field(chain=[origin]),
                         join_type="INNER JOIN",
