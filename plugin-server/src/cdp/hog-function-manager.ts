@@ -73,7 +73,7 @@ export class HogFunctionManager {
 
     public async reloadHogFunctions(teamId: Team['id'], ids: HogFunctionType['id'][]): Promise<void> {
         status.info('🍿', `Reloading hog functions ${ids} from DB`)
-        const items = await fetchHogFunctions(this.postgres, ids)
+        const items = await fetchEnabledHogFunctions(this.postgres, ids)
 
         if (!this.cache[teamId]) {
             this.cache[teamId] = {}
@@ -88,11 +88,15 @@ export class HogFunctionManager {
             this.cache[teamId][item.id] = item
         }
     }
+
+    public fetchHogFunction(id: HogFunctionType['id']): Promise<HogFunctionType | null> {
+        return fetchHogFunction(this.postgres, id)
+    }
 }
 
 const HOG_FUNCTION_FIELDS = ['id', 'team_id', 'name', 'enabled', 'inputs', 'filters', 'bytecode']
 
-export async function fetchAllHogFunctionsGroupedByTeam(client: PostgresRouter): Promise<HogFunctionCache> {
+async function fetchAllHogFunctionsGroupedByTeam(client: PostgresRouter): Promise<HogFunctionCache> {
     const items = (
         await client.query<HogFunctionType>(
             PostgresUse.COMMON_READ,
@@ -118,7 +122,7 @@ export async function fetchAllHogFunctionsGroupedByTeam(client: PostgresRouter):
     return cache
 }
 
-export async function fetchHogFunctions(
+async function fetchEnabledHogFunctions(
     client: PostgresRouter,
     ids: HogFunctionType['id'][]
 ): Promise<HogFunctionType[]> {
@@ -129,8 +133,22 @@ export async function fetchHogFunctions(
                 FROM posthog_hogfunction
                 WHERE id = ANY($1) AND deleted = FALSE AND enabled = TRUE`,
             [ids],
-            'fetchHogFunctions'
+            'fetchEnabledHogFunctions'
         )
     ).rows
     return items
+}
+
+async function fetchHogFunction(client: PostgresRouter, id: HogFunctionType['id']): Promise<HogFunctionType | null> {
+    const items: HogFunctionType[] = (
+        await client.query(
+            PostgresUse.COMMON_READ,
+            `SELECT ${HOG_FUNCTION_FIELDS.join(', ')}
+                FROM posthog_hogfunction
+                WHERE id = $1 AND deleted = FALSE`,
+            [id],
+            'fetchHogFunction'
+        )
+    ).rows
+    return items[0] ?? null
 }

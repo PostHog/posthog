@@ -992,6 +992,32 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[2]["data"] == [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0]
         assert response.results[3]["data"] == [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0]
 
+    def test_trends_breakdowns_session_duration_histogram(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview", math=PropertyMathType.AVG, math_property="$session_duration")],
+            None,
+            BreakdownFilter(
+                breakdown_type=BreakdownType.EVENT,
+                breakdown="prop",
+                breakdown_histogram_bin_count=4,
+            ),
+        )
+
+        breakdown_labels = [result["breakdown_value"] for result in response.results]
+
+        assert len(response.results) == 4
+        assert breakdown_labels == ["[10,17.5]", "[17.5,25]", "[25,32.5]", "[32.5,40.01]"]
+
+        assert response.results[0]["label"] == "[10,17.5]"
+        assert response.results[1]["label"] == "[17.5,25]"
+        assert response.results[2]["label"] == "[25,32.5]"
+        assert response.results[3]["label"] == "[32.5,40.01]"
+
     def test_trends_breakdowns_cohort(self):
         self._create_test_events()
         cohort = Cohort.objects.create(
