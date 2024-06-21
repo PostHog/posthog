@@ -1148,6 +1148,7 @@ interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<
         enabled?: boolean
         forceSamplingRate?: SamplingRate
     }
+    /** @deprecated ignored, always treated as enabled **/
     useSessionsTable?: boolean
 }
 
@@ -1188,6 +1189,8 @@ export interface WebTopClicksQueryResponse extends AnalyticsQueryResponseBase<un
 }
 
 export type CachedWebTopClicksQueryResponse = CachedQueryResponse<WebTopClicksQueryResponse>
+
+export type ErrorTrackingOrder = 'last_seen' | 'first_seen' | 'unique_occurrences' | 'unique_users' | 'unique_sessions'
 
 export enum WebStatsBreakdown {
     Page = 'Page',
@@ -1446,7 +1449,7 @@ export interface DatabaseSchemaField {
 }
 
 export interface DatabaseSchemaTableCommon {
-    type: 'posthog' | 'data_warehouse' | 'view'
+    type: 'posthog' | 'data_warehouse' | 'view' | 'batch_export'
     id: string
     name: string
     fields: Record<string, DatabaseSchemaField>
@@ -1469,10 +1472,15 @@ export interface DatabaseSchemaDataWarehouseTable extends DatabaseSchemaTableCom
     source?: DatabaseSchemaSource
 }
 
+export interface DatabaseSchemaBatchExportTable extends DatabaseSchemaTableCommon {
+    type: 'batch_export'
+}
+
 export type DatabaseSchemaTable =
     | DatabaseSchemaPostHogTable
     | DatabaseSchemaDataWarehouseTable
     | DatabaseSchemaViewTable
+    | DatabaseSchemaBatchExportTable
 
 export interface DatabaseSchemaQueryResponse {
     tables: Record<string, DatabaseSchemaTable>

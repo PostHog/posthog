@@ -7,7 +7,7 @@ print({key: 'value'})
 let key := 3
 print({key: 'value'})
 
-print({'key': 'value'}.key)
+print({'key': 'value', }.key)
 print({'key': 'value'}['key'])
 print({'key': {'otherKey': 'value'}}.key.otherKey)
-print({'key': {'otherKey': 'value'}}['key'].otherKey)
+print({'key': {'otherKey': 'value', } , }['key'].otherKey)

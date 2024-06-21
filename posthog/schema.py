@@ -259,6 +259,7 @@ class Type(str, Enum):
     POSTHOG = "posthog"
     DATA_WAREHOUSE = "data_warehouse"
     VIEW = "view"
+    BATCH_EXPORT = "batch_export"
 
 
 class DatabaseSerializedFieldType(str, Enum):
@@ -340,6 +341,14 @@ class EntityType(str, Enum):
     EVENTS = "events"
     DATA_WAREHOUSE = "data_warehouse"
     NEW_ENTITY = "new_entity"
+
+
+class ErrorTrackingOrder(str, Enum):
+    LAST_SEEN = "last_seen"
+    FIRST_SEEN = "first_seen"
+    UNIQUE_OCCURRENCES = "unique_occurrences"
+    UNIQUE_USERS = "unique_users"
+    UNIQUE_SESSIONS = "unique_sessions"
 
 
 class EventDefinition(BaseModel):
@@ -2928,6 +2937,16 @@ class DataWarehouseNode(BaseModel):
     timestamp_field: str
 
 
+class DatabaseSchemaBatchExportTable(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    fields: dict[str, DatabaseSchemaField]
+    id: str
+    name: str
+    type: Literal["batch_export"] = "batch_export"
+
+
 class DatabaseSchemaDataWarehouseTable(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4030,7 +4049,15 @@ class QueryResponseAlternative27(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    tables: dict[str, Union[DatabaseSchemaPostHogTable, DatabaseSchemaDataWarehouseTable, DatabaseSchemaViewTable]]
+    tables: dict[
+        str,
+        Union[
+            DatabaseSchemaPostHogTable,
+            DatabaseSchemaDataWarehouseTable,
+            DatabaseSchemaViewTable,
+            DatabaseSchemaBatchExportTable,
+        ],
+    ]
 
 
 class QueryResponseAlternative(
@@ -4101,7 +4128,15 @@ class DatabaseSchemaQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    tables: dict[str, Union[DatabaseSchemaPostHogTable, DatabaseSchemaDataWarehouseTable, DatabaseSchemaViewTable]]
+    tables: dict[
+        str,
+        Union[
+            DatabaseSchemaPostHogTable,
+            DatabaseSchemaDataWarehouseTable,
+            DatabaseSchemaViewTable,
+            DatabaseSchemaBatchExportTable,
+        ],
+    ]
 
 
 class FunnelPathsFilter(BaseModel):

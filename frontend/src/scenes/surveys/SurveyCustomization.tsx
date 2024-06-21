@@ -1,7 +1,8 @@
-import { LemonButton, LemonCheckbox, LemonInput, LemonSelect } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { LemonButton, LemonCheckbox, LemonDialog, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
+import { surveyLogic } from 'scenes/surveys/surveyLogic'
 
 import {
     AvailableFeature,
@@ -25,6 +26,11 @@ interface WidgetCustomizationProps extends Omit<CustomizationProps, 'surveyQuest
 
 export function Customization({ appearance, surveyQuestionItem, onAppearanceChange }: CustomizationProps): JSX.Element {
     const { surveysStylingAvailable } = useValues(surveysLogic)
+    const { surveyShufflingQuestionsAvailable, hasBranchingLogic } = useValues(surveyLogic)
+    const { deleteBranchingLogic } = useActions(surveyLogic)
+    const surveyShufflingQuestionsDisabledReason = surveyShufflingQuestionsAvailable
+        ? ''
+        : 'Please add more than one question to the survey to enable shuffling questions'
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     return (
         <>
@@ -117,15 +123,42 @@ export function Customization({ appearance, surveyQuestionItem, onAppearanceChan
                         checked={appearance?.whiteLabel}
                     />
                 </div>
-
                 <div className="mt-2">
                     <LemonCheckbox
+                        disabledReason={surveyShufflingQuestionsDisabledReason}
                         label={
                             <div className="flex items-center">
                                 <span>Shuffle questions</span>
                             </div>
                         }
-                        onChange={(checked) => onAppearanceChange({ ...appearance, shuffleQuestions: checked })}
+                        onChange={(checked) => {
+                            if (checked && hasBranchingLogic) {
+                                onAppearanceChange({ ...appearance, shuffleQuestions: false })
+
+                                LemonDialog.open({
+                                    title: 'Your survey has active branching logic',
+                                    description: (
+                                        <p className="py-2">
+                                            Enabling this option will remove your branching logic. Are you sure you want
+                                            to continue?
+                                        </p>
+                                    ),
+                                    primaryButton: {
+                                        children: 'Continue',
+                                        status: 'danger',
+                                        onClick: () => {
+                                            deleteBranchingLogic()
+                                            onAppearanceChange({ ...appearance, shuffleQuestions: true })
+                                        },
+                                    },
+                                    secondaryButton: {
+                                        children: 'Cancel',
+                                    },
+                                })
+                            } else {
+                                onAppearanceChange({ ...appearance, shuffleQuestions: checked })
+                            }
+                        }}
                         checked={appearance?.shuffleQuestions}
                     />
                 </div>

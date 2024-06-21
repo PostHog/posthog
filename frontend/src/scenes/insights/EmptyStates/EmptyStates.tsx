@@ -142,7 +142,7 @@ export function InsightLoadingStateWithLoadingBar({
                         </>
                     )}
                 </p>
-                <div className="p-4 rounded bg-mid flex gap-x-2 max-w-120">
+                <div className="p-4 rounded bg-bg-3000 flex gap-x-2 max-w-120">
                     <div className="flex">
                         <IconInfo className="w-4 h-4" />
                     </div>
@@ -190,7 +190,7 @@ export function InsightLoadingState({
             <Animation type={AnimationType.LaptopHog} />
             <div className="empty-state-inner">
                 <p className="mx-auto text-center">Crunching through hogloads of data...</p>
-                <div className="p-4 rounded bg-mid flex gap-x-2 max-w-120">
+                <div className="p-4 rounded bg-bg-3000 flex gap-x-2 max-w-120">
                     <div className="flex">
                         <IconInfo className="w-4 h-4" />
                     </div>
@@ -231,7 +231,7 @@ export function InsightTimeoutState({ queryId }: { queryId?: string | null }): J
                     </div>
                     <h2 className="text-xl leading-tight mb-6">Your query took too long to complete</h2>
                 </>
-                <div className="p-4 rounded bg-mid flex gap-x-2 max-w-120">
+                <div className="p-4 rounded bg-bg-3000 flex gap-x-2 max-w-120">
                     <div className="flex">
                         <IconInfo className="w-4 h-4" />
                     </div>

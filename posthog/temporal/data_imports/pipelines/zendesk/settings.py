@@ -11,6 +11,7 @@ CUSTOM_FIELDS_STATE_KEY = "ticket_custom_fields_v2"
 
 # Resources that will always get pulled
 BASE_ENDPOINTS = ["ticket_fields", "ticket_events", "tickets", "ticket_metric_events"]
+INCREMENTAL_ENDPOINTS = ["tickets"]
 
 # Tuples of (Resource name, endpoint URL, data_key, supports pagination)
 # data_key is the key which data list is nested under in responses

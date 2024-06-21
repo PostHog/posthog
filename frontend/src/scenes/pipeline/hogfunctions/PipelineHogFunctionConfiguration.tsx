@@ -25,7 +25,8 @@ import { groupsModel } from '~/models/groupsModel'
 import { EntityTypes } from '~/types'
 
 import { HogFunctionIconEditable } from './HogFunctionIcon'
-import { HogFunctionInputWithSchema } from './HogFunctionInputs'
+import { HogFunctionInputs } from './HogFunctionInputs'
+import { HogFunctionTest, HogFunctionTestPlaceholder } from './HogFunctionTest'
 import { pipelineHogFunctionConfigurationLogic } from './pipelineHogFunctionConfigurationLogic'
 
 export function PipelineHogFunctionConfiguration({
@@ -262,14 +263,76 @@ export function PipelineHogFunctionConfiguration({
                         <div className="flex-2 min-w-100 space-y-4">
                             <div className="border bg-bg-light rounded p-3 space-y-2">
                                 <div className="space-y-2">
-                                    {configuration?.inputs_schema?.length ? (
-                                        configuration?.inputs_schema.map((schema, index) => {
-                                            return <HogFunctionInputWithSchema key={index} schema={schema} />
-                                        })
+                                    <HogFunctionInputs />
+
+                                    {showSource ? (
+                                        <>
+                                            <LemonButton
+                                                icon={<IconPlus />}
+                                                size="small"
+                                                type="secondary"
+                                                className="my-4"
+                                                onClick={() => {
+                                                    setConfigurationValue('inputs_schema', [
+                                                        ...(configuration.inputs_schema ?? []),
+                                                        {
+                                                            type: 'string',
+                                                            key: `input_${
+                                                                (configuration.inputs_schema?.length ?? 0) + 1
+                                                            }`,
+                                                            label: '',
+                                                            required: false,
+                                                        },
+                                                    ])
+                                                }}
+                                            >
+                                                Add input variable
+                                            </LemonButton>
+                                            <LemonField name="hog">
+                                                {({ value, onChange }) => (
+                                                    <>
+                                                        <div className="flex justify-between gap-2">
+                                                            <LemonLabel>Function source code</LemonLabel>
+                                                            <LemonButton
+                                                                size="xsmall"
+                                                                type="secondary"
+                                                                onClick={() => setShowSource(false)}
+                                                            >
+                                                                Hide source code
+                                                            </LemonButton>
+                                                        </div>
+                                                        <CodeEditorResizeable
+                                                            language="hog"
+                                                            value={value ?? ''}
+                                                            onChange={(v) => onChange(v ?? '')}
+                                                            options={{
+                                                                minimap: {
+                                                                    enabled: false,
+                                                                },
+                                                                wordWrap: 'on',
+                                                                scrollBeyondLastLine: false,
+                                                                automaticLayout: true,
+                                                                fixedOverflowWidgets: true,
+                                                                suggest: {
+                                                                    showInlineDetails: true,
+                                                                },
+                                                                quickSuggestionsDelay: 300,
+                                                            }}
+                                                        />
+                                                    </>
+                                                )}
+                                            </LemonField>
+                                        </>
                                     ) : (
-                                        <span className="italic text-muted-alt">
-                                            This function does not require any input variables.
-                                        </span>
+                                        <div className="flex justify-end mt-2">
+                                            <LemonButton
+                                                size="xsmall"
+                                                type="secondary"
+                                                onClick={() => setShowSource(true)}
+                                            >
+                                                Show function source code
+                                            </LemonButton>
+                                        </div>
                                     )}
 
                                     {showSource ? (
@@ -343,6 +406,8 @@ export function PipelineHogFunctionConfiguration({
                                     )}
                                 </div>
                             </div>
+
+                            {id ? <HogFunctionTest id={id} /> : <HogFunctionTestPlaceholder />}
                             <div className="flex gap-2 justify-end">{saveButtons}</div>
                         </div>
                     </div>

@@ -21,7 +21,7 @@ class TestTemplateWebhook(BaseHogFunctionTemplateTest):
             "https://posthog.com",
             {
                 "headers": {},
-                "body": '{"hello": "world"}',
+                "body": {"hello": "world"},
                 "method": "GET",
             },
         )

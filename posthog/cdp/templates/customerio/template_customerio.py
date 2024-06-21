@@ -10,12 +10,11 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     icon_url="/api/projects/@current/hog_functions/icon/?id=customer.io",
     hog="""
 fn callCustomerIoApi(method, path, body) {
-    // TODO: Base64 encode the site_id and token
     fetch(f'https://{inputs.host}{path}', {
         'method': 'POST',
         'headers': {
             'User-Agent': 'PostHog Customer.io App',
-            'Authorization': f'Basic {inputs.site_id}:{inputs.token}',
+            'Authorization': f'Basic {base64Encode(f'{inputs.site_id}:{inputs.token}')}',
             'Content-Type': 'application/json'
         },
         'body': body
