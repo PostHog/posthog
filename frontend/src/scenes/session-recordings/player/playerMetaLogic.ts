@@ -26,6 +26,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 'sessionPlayerMetaData',
                 'sessionPlayerMetaDataLoading',
                 'windowIds',
+                'trackedWindow',
             ],
             sessionRecordingPlayerLogic(props),
             ['scale', 'currentTimestamp', 'currentPlayerTime', 'currentSegment'],
@@ -34,7 +35,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
         ],
         actions: [
             sessionRecordingDataLogic(props),
-            ['loadRecordingMetaSuccess'],
+            ['loadRecordingMetaSuccess', 'setTrackedWindow'],
             sessionRecordingsListPropertiesLogic,
             ['maybeLoadPropertiesForSessions'],
         ],
@@ -89,7 +90,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 const index = windowIds.findIndex((windowId) =>
                     currentSegment?.windowId ? windowId === currentSegment?.windowId : -1
                 )
-                return index === -1 ? 0 : index
+                return index === -1 ? 1 : index + 1
             },
         ],
         lastUrl: [
