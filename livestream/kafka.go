@@ -116,7 +116,7 @@ func (c *KafkaConsumer) Consume() {
 
 		if ipStr != "" {
 			phEvent.Lat, phEvent.Lng, err = c.geolocator.Lookup(ipStr)
-			if err != nil {
+			if err != nil && err.Error() != "invalid IP address" { // An invalid IP address is not an error on our side
 				sentry.CaptureException(err)
 			}
 		}

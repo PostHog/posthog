@@ -63,7 +63,6 @@ posthog/redis.py:0: error: Import cycle from Django settings module prevents typ
 posthog/plugins/utils.py:0: error: Subclass of "str" and "bytes" cannot exist: would have incompatible method signatures  [unreachable]
 posthog/plugins/utils.py:0: error: Statement is unreachable  [unreachable]
 posthog/clickhouse/kafka_engine.py:0: error: Import cycle from Django settings module prevents type inference for 'KAFKA_HOSTS_FOR_CLICKHOUSE'  [misc]
-posthog/plugins/reload.py:0: error: Import cycle from Django settings module prevents type inference for 'PLUGINS_RELOAD_REDIS_URL'  [misc]
 posthog/models/project.py:0: error: Incompatible type for "project" of "Team" (got "_T", expected "Project | Combinable")  [misc]
 posthog/models/project.py:0: error: "_T" has no attribute "organization"  [attr-defined]
 posthog/models/project.py:0: error: Incompatible return value type (got "tuple[_T, Team]", expected "tuple[Project, Team]")  [return-value]

@@ -170,6 +170,7 @@ export const surveyLogic = kea<surveyLogicType>([
             specificQuestionIndex,
         }),
         resetBranchingForQuestion: (questionIndex) => ({ questionIndex }),
+        deleteBranchingLogic: true,
         archiveSurvey: true,
         setWritingHTMLDescription: (writingHTML: boolean) => ({ writingHTML }),
         setSurveyTemplateValues: (template: any) => ({ template }),
@@ -760,6 +761,17 @@ export const surveyLogic = kea<surveyLogicType>([
                         questions: newQuestions,
                     }
                 },
+                deleteBranchingLogic: (state) => {
+                    const newQuestions = [...state.questions]
+                    newQuestions.forEach((question) => {
+                        delete question.branching
+                    })
+
+                    return {
+                        ...state,
+                        questions: newQuestions,
+                    }
+                },
             },
         ],
         selectedPageIndex: [
@@ -1093,6 +1105,11 @@ export const surveyLogic = kea<surveyLogicType>([
 
                 return cycleDetected
             },
+        ],
+        hasBranchingLogic: [
+            (s) => [s.survey],
+            (survey) =>
+                survey.questions.some((question) => question.branching && Object.keys(question.branching).length > 0),
         ],
     }),
     forms(({ actions, props, values }) => ({

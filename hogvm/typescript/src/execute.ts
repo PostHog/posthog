@@ -3,7 +3,7 @@ import { ASYNC_STL, STL } from './stl/stl'
 import { convertHogToJS, convertJSToHog, getNestedValue, like, setNestedValue } from './utils'
 
 const DEFAULT_MAX_ASYNC_STEPS = 100
-const DEFAULT_TIMEOUT = 5 // seconds
+const DEFAULT_TIMEOUT_MS = 5000 // ms
 
 export interface VMState {
     /** Bytecode running in the VM */
@@ -25,10 +25,13 @@ export interface VMState {
 }
 
 export interface ExecOptions {
+    /** Global variables to be passed into the function */
     globals?: Record<string, any>
     functions?: Record<string, (...args: any[]) => any>
     asyncFunctions?: Record<string, (...args: any[]) => Promise<any>>
+    /** Timeout in milliseconds */
     timeout?: number
+    /** Max number of async function that can happen. When reached the function will throw */
     maxAsyncSteps?: number
 }
 
@@ -66,7 +69,7 @@ export async function execAsync(bytecode: any[], options?: ExecOptions): Promise
                 const result = await ASYNC_STL[response.asyncFunctionName](
                     response.asyncFunctionArgs,
                     response.asyncFunctionName,
-                    options?.timeout ?? DEFAULT_TIMEOUT
+                    options?.timeout ?? DEFAULT_TIMEOUT_MS
                 )
                 vmState.stack.push(result)
             } else {
@@ -105,7 +108,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
     const declaredFunctions: Record<string, [number, number]> = vmState ? vmState.declaredFunctions : {}
     let ip = vmState ? vmState.ip : 1
     let ops = vmState ? vmState.ops : 0
-    const timeout = options?.timeout ?? DEFAULT_TIMEOUT
+    const timeout = options?.timeout ?? DEFAULT_TIMEOUT_MS
     const maxAsyncSteps = options?.maxAsyncSteps ?? DEFAULT_MAX_ASYNC_STEPS
 
     function popStack(): any {
@@ -122,8 +125,8 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
         return bytecode![++ip]
     }
     function checkTimeout(): void {
-        if (syncDuration + Date.now() - startTime > timeout * 1000) {
-            throw new Error(`Execution timed out after ${timeout} seconds. Performed ${ops} ops.`)
+        if (syncDuration + Date.now() - startTime > timeout) {
+            throw new Error(`Execution timed out after ${timeout / 1000} seconds. Performed ${ops} ops.`)
         }
     }
 

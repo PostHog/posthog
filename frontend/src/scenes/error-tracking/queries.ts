@@ -1,7 +1,7 @@
 import { UniversalFiltersGroup } from 'lib/components/UniversalFilters/UniversalFilters'
 
-import { DataTableNode, DateRange, ErrorTrackingOrder, EventsQuery, NodeKind } from '~/queries/schema'
-import { AnyPropertyFilter } from '~/types'
+import { DataTableNode, DateRange, ErrorTrackingOrder, EventsQuery, InsightVizNode, NodeKind } from '~/queries/schema'
+import { AnyPropertyFilter, BaseMathType, ChartDisplayType } from '~/types'
 
 export const errorTrackingQuery = ({
     order,
@@ -54,9 +54,48 @@ export const errorTrackingGroupQuery = ({
 }): EventsQuery => {
     return {
         kind: NodeKind.EventsQuery,
-        select: ['properties', 'timestamp', 'person'],
+        select: ['uuid', 'properties', 'timestamp', 'person'],
         where: [`properties.$exception_type = '${group}'`],
         ...defaultProperties({ dateRange, filterTestAccounts, filterGroup }),
+    }
+}
+
+export const errorTrackingGroupBreakdownQuery = ({
+    breakdownProperty,
+    dateRange,
+    filterTestAccounts,
+    filterGroup,
+}: {
+    breakdownProperty: string
+    dateRange: DateRange
+    filterTestAccounts: boolean
+    filterGroup: UniversalFiltersGroup
+}): InsightVizNode => {
+    return {
+        kind: NodeKind.InsightVizNode,
+        source: {
+            kind: NodeKind.TrendsQuery,
+            trendsFilter: {
+                display: ChartDisplayType.ActionsBarValue,
+            },
+            breakdownFilter: {
+                breakdown_type: 'event',
+                breakdown: breakdownProperty,
+                breakdown_limit: 10,
+            },
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    event: '$exception',
+                    math: BaseMathType.TotalCount,
+                    name: 'This is the series name',
+                    custom_name: 'Boomer',
+                },
+            ],
+            dateRange: dateRange,
+            properties: filterGroup.values as AnyPropertyFilter[],
+            filterTestAccounts,
+        },
     }
 }
 
