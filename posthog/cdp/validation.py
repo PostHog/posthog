@@ -23,9 +23,6 @@ def generate_template_bytecode(obj: Any) -> Any:
         return obj
 
 
-logger = logging.getLogger(__name__)
-
-
 class InputsSchemaItemSerializer(serializers.Serializer):
     type = serializers.ChoiceField(
         choices=["string", "boolean", "dictionary", "choice", "json", "integration", "integration_field"]
