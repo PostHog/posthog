@@ -1,5 +1,5 @@
 use anyhow::Error;
-use serde_json::json;
+use serde_json::{json, Value};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -229,4 +229,48 @@ pub async fn insert_flags_for_team_in_pg(
     assert_eq!(res.rows_affected(), 1);
 
     Ok(payload_flag)
+}
+
+pub async fn insert_person_for_team_in_pg(
+    client: Arc<PgClient>,
+    team_id: i32,
+    distinct_id: String,
+    properties: Option<Value>,
+) -> Result<(), Error> {
+    let payload = match properties {
+        Some(value) => value,
+        None => json!({
+            "email": "a@b.com",
+            "name": "Alice",
+        }),
+    };
+
+    let uuid = Uuid::now_v7();
+
+    let mut conn = client.get_connection().await?;
+    let res = sqlx::query(
+        r#"
+        WITH inserted_person AS (
+            INSERT INTO posthog_person (
+                created_at, properties, properties_last_updated_at,
+                properties_last_operation, team_id, is_user_id, is_identified, uuid, version
+            )
+            VALUES ('2023-04-05', $1, '{}', '{}', $2, NULL, true, $3, 0)
+            RETURNING *
+        )
+        INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
+        VALUES ($4, (SELECT id FROM inserted_person), $5, 0)
+        "#,
+    )
+    .bind(&payload)
+    .bind(team_id)
+    .bind(uuid)
+    .bind(&distinct_id)
+    .bind(team_id)
+    .execute(&mut *conn)
+    .await?;
+
+    assert_eq!(res.rows_affected(), 1);
+
+    Ok(())
 }

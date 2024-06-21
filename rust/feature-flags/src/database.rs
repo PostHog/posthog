@@ -44,8 +44,11 @@ pub struct PgClient {
 
 impl PgClient {
     pub async fn new(addr: String) -> Result<PgClient, CustomDatabaseError> {
+        // TODO: Get these vals from config
         let pool = PgPoolOptions::new()
             .max_connections(5)
+            .acquire_timeout(Duration::from_secs(1))
+            .test_before_acquire(true)
             .connect(&addr)
             .await?;
 
