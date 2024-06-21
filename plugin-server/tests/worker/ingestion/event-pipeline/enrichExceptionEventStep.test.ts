@@ -68,7 +68,7 @@ describe('enrichExceptionEvent()', () => {
         const response = await enrichExceptionEventStep(runner, event)
 
         expect(response.properties['$exception_fingerprint']).toBe(
-            'no-type-provided__some-message__dependenciesChecker'
+            'RAW_MESSAGE__some-message__FIRST_STACK_FUNCTION__dependenciesChecker'
         )
     })
 
@@ -81,7 +81,7 @@ describe('enrichExceptionEvent()', () => {
         const response = await enrichExceptionEventStep(runner, event)
 
         expect(response.properties['$exception_fingerprint']).toBe(
-            'UnhandledRejection__some-message__dependenciesChecker'
+            'TYPE__UnhandledRejection__RAW_MESSAGE__some-message__FIRST_STACK_FUNCTION__dependenciesChecker'
         )
     })
 
@@ -93,7 +93,9 @@ describe('enrichExceptionEvent()', () => {
 
         const response = await enrichExceptionEventStep(runner, event)
 
-        expect(response.properties['$exception_fingerprint']).toBe('UnhandledRejection__some-message')
+        expect(response.properties['$exception_fingerprint']).toBe(
+            'TYPE__UnhandledRejection__RAW_MESSAGE__some-message'
+        )
     })
 
     it('adds no fingerprint if no qualifying properties', async () => {
