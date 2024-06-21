@@ -53,6 +53,7 @@ RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "pageview_count": IntegerDatabaseField(name="pageview_count"),
     "autocapture_count": IntegerDatabaseField(name="autocapture_count"),
     "screen_count": IntegerDatabaseField(name="screen_count"),
+    "last_external_click_url": StringDatabaseField(name="last_external_click_url"),
 }
 
 LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
@@ -87,6 +88,7 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
         name="duration"
     ),  # alias of $session_duration, deprecated but included for backwards compatibility
     "$is_bounce": BooleanDatabaseField(name="$is_bounce"),
+    "$last_external_click_url": StringDatabaseField(name="$last_external_click_url"),
 }
 
 
@@ -196,6 +198,7 @@ def select_from_sessions_table_v2(
         "$pageview_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "pageview_count"])]),
         "$screen_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "screen_count"])]),
         "$autocapture_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "autocapture_count"])]),
+        "$last_external_click_url": arg_max_merge_field("last_external_click_url"),
     }
     # Alias
     aggregate_fields["id"] = aggregate_fields["session_id"]

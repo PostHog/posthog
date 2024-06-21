@@ -286,6 +286,32 @@ class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
             response.results or [],
         )
 
+    def test_last_external_click_url(self):
+        s1 = str(uuid7())
+
+        _create_event(
+            event="$autocapture",
+            team=self.team,
+            distinct_id="d1",
+            properties={"$session_id": s1, "$external_click_url": "https://example.com/1"},
+        )
+        _create_event(
+            event="$autocapture",
+            team=self.team,
+            distinct_id="d1",
+            properties={"$session_id": s1, "$external_click_url": "https://example.com/2"},
+        )
+
+        response = self.__execute(
+            parse_select(
+                "select $last_external_click_url from sessions where session_id = {session_id}",
+                placeholders={"session_id": ast.Constant(value=s1)},
+            ),
+        )
+
+        [row1] = response.results or []
+        self.assertEqual(row1, ("https://example.com/2",))
+
 
 class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
     def test_all(self):

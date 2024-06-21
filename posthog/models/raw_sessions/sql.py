@@ -429,7 +429,7 @@ SELECT
     arrayDistinct(arrayFlatten(groupArray(urls)) )AS urls,
     argMinMerge(entry_url) as entry_url,
     argMaxMerge(end_url) as end_url,
-    argMaxMerge(external_click_url) as external_click_url,
+    argMaxMerge(last_external_click_url) as last_external_click_url,
 
     -- device
     argMinMerge(initial_browser) as initial_browser,
