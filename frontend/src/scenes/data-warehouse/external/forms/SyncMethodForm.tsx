@@ -55,6 +55,19 @@ const hasInputChanged = (
     return false
 }
 
+const getSaveDisabledReason = (
+    syncType: 'full_refresh' | 'incremental' | undefined,
+    incrementalField: string | null
+): string | undefined => {
+    if (!syncType) {
+        return 'You must select a sync method before saving'
+    }
+
+    if (syncType === 'incremental' && !incrementalField) {
+        return 'You must select an incremental field'
+    }
+}
+
 export const SyncMethodForm = ({
     schema,
     onClose,
@@ -159,7 +172,7 @@ export const SyncMethodForm = ({
                 <LemonButton
                     type="primary"
                     loading={saveButtonIsLoading}
-                    disabledReason={!radioValue && 'You must select a sync method before saving'}
+                    disabledReason={getSaveDisabledReason(radioValue, incrementalFieldValue)}
                     onClick={() => {
                         if (radioValue === 'incremental') {
                             const fieldSelected = schema.incremental_fields.find(
