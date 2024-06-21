@@ -222,7 +222,64 @@ describe('PersonState.update()', () => {
             expect(distinctIds).toEqual(expect.arrayContaining([]))
         })
 
-        it('merging creates an override and force_upgrade works', async () => {
+        it('overrides are created only when distinct_id is in posthog_personlessdistinctid', async () => {
+            // oldUserDistinctId exists, and 'old2' will merge into it, but not create an override
+            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, oldUserUuid, [oldUserDistinctId])
+
+            // newUserDistinctId exists, and 'new2' will merge into it, and will create an override
+            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, newUserUuid, [newUserDistinctId])
+            await hub.db.addPersonlessDistinctId(teamId, 'new2')
+
+            const hubParam = undefined
+            const processPerson = true
+            const [_person, kafkaAcks] = await personState(
+                {
+                    event: '$identify',
+                    distinct_id: oldUserDistinctId,
+                    properties: {
+                        $anon_distinct_id: 'old2',
+                    },
+                },
+                hubParam,
+                processPerson
+            ).update()
+
+            const [_person2, kafkaAcks2] = await personState(
+                {
+                    event: '$identify',
+                    distinct_id: newUserDistinctId,
+                    properties: {
+                        $anon_distinct_id: 'new2',
+                    },
+                },
+                hubParam,
+                processPerson
+            ).update()
+
+            await hub.db.kafkaProducer.flush()
+            await kafkaAcks
+            await kafkaAcks2
+
+            // new2 has an override, because it was in posthog_personlessdistinctid
+            await delayUntilEventIngested(() => fetchOverridesForDistinctId('new2'))
+            const chOverrides = await fetchOverridesForDistinctId('new2')
+            expect(chOverrides.length).toEqual(1)
+            expect(chOverrides).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        distinct_id: 'new2',
+                        person_id: newUserUuid,
+                        version: 1,
+                    }),
+                ])
+            )
+
+            // old2 has no override, because it wasn't in posthog_personlessdistinctid
+            const chOverridesOld = await fetchOverridesForDistinctId('old2')
+            expect(chOverridesOld.length).toEqual(0)
+        })
+
+        it('force_upgrade works', async () => {
             await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, oldUserUuid, [oldUserDistinctId])
 
             const hubParam = undefined
@@ -240,21 +297,6 @@ describe('PersonState.update()', () => {
             ).update()
             await hub.db.kafkaProducer.flush()
             await kafkaAcks
-
-            await delayUntilEventIngested(() => fetchOverridesForDistinctId(newUserDistinctId))
-            const chOverrides = await fetchOverridesForDistinctId(newUserDistinctId)
-            expect(chOverrides.length).toEqual(1)
-
-            // Override created for Person that never existed in the DB
-            expect(chOverrides).toEqual(
-                expect.arrayContaining([
-                    expect.objectContaining({
-                        distinct_id: newUserDistinctId,
-                        person_id: oldUserUuid,
-                        version: 1,
-                    }),
-                ])
-            )
 
             // Using the `distinct_id` again with `processPerson=false` results in
             // `force_upgrade=true` and real Person `uuid` and `created_at`
@@ -901,7 +943,7 @@ describe('PersonState.update()', () => {
                         uuid: newUserUuid,
                         properties: { foo: 'bar' },
                         created_at: timestamp,
-                        version: 1,
+                        version: 0,
                         is_identified: true,
                     })
                 )

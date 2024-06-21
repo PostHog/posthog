@@ -110,7 +110,24 @@ export class PersonState {
 
     async update(): Promise<[Person, Promise<void>]> {
         if (!this.processPerson) {
-            const existingPerson = await this.db.fetchPerson(this.teamId, this.distinctId, { useReadReplica: true })
+            let existingPerson = await this.db.fetchPerson(this.teamId, this.distinctId, { useReadReplica: true })
+
+            if (!existingPerson) {
+                // See the comment in `mergeDistinctIds`. We are inserting a row into `posthog_personlessdistinctid`
+                // to note that this Distinct ID has been used in "personless" mode. This is necessary
+                // so that later, during a merge, we can decide whether we need to write out an override
+                // or not.
+                // TODO(perf): Add a cache that tells us we can skip doing the insert
+                const personIsMerged = await this.db.addPersonlessDistinctId(this.teamId, this.distinctId)
+                if (personIsMerged) {
+                    // If `personIsMerged` comes back `true`, it means the `posthog_personlessdistinctid`
+                    // has been updated by a merge (either since we called `fetchPerson` above, plus
+                    // replication lag). We need to check `fetchPerson` again (this time using the leader)
+                    // so that we properly associate this event with the Person we got merged into.
+                    existingPerson = await this.db.fetchPerson(this.teamId, this.distinctId, { useReadReplica: false })
+                }
+            }
+
             if (existingPerson) {
                 const person = existingPerson as Person
 
@@ -218,7 +235,7 @@ export class PersonState {
         isIdentified: boolean,
         creatorEventUuid: string,
         distinctIds: string[],
-        version = 0
+        distinctIdVersions?: number[]
     ): Promise<InternalPerson> {
         if (distinctIds.length < 1) {
             throw new Error('at least 1 distinctId is required in `createPerson`')
@@ -247,7 +264,7 @@ export class PersonState {
             isIdentified,
             uuid,
             distinctIds,
-            version
+            distinctIdVersions
         )
     }
 
@@ -450,57 +467,141 @@ export class PersonState {
         const otherPerson = await this.db.fetchPerson(teamId, otherPersonDistinctId)
         const mergeIntoPerson = await this.db.fetchPerson(teamId, mergeIntoDistinctId)
 
+        // A note about the `distinctIdVersion` logic you'll find below:
+        //
         // Historically, we always INSERT-ed new `posthog_persondistinctid` rows with `version=0`.
         // Overrides are only created when the version is > 0, see:
         //   https://github.com/PostHog/posthog/blob/92e17ce307a577c4233d4ab252eebc6c2207a5ee/posthog/models/person/sql.py#L269-L287
         //
-        // With the addition of optional person processing, we are no longer creating
+        // With the addition of optional person profile processing, we are no longer creating
         // `posthog_persondistinctid` and `posthog_person` rows when $process_person_profile=false.
-        // This means that:
-        // 1. At merge time, it's possible this `distinct_id` and its deterministically generated
-        //    `person.uuid` has already been used for events in ClickHouse, but they have no
-        //    corresponding rows in the `posthog_persondistinctid` or `posthog_person` tables
-        // 2. We need to assume the `distinct_id`/`person.uuid` have been used before (by
-        //    `$process_person_profile=false` events) and create an override row for this
-        //    `distinct_id` even though we're just now INSERT-ing it into Postgres/ClickHouse. We do
-        //    this by starting with `version=1`, as if we had just deleted the old user and were
-        //    updating the `distinct_id` row as part of the merge
-        const addDistinctIdVersion = 1
+        // This means that at merge time, it's possible this `distinct_id` and its deterministically
+        // generated `person.uuid` has already been used for events in ClickHouse, but they have no
+        // corresponding rows in the `posthog_persondistinctid` or `posthog_person` tables.
+        //
+        // For this reason, $process_person_profile=false write to the `posthog_personlessdistinctid`
+        // table just to note that a given Distinct ID was used for "personless" mode. Then, during
+        // our merges transactions below, we do two things:
+        //   1. We check whether a row exists in `posthog_personlessdistinctid` for that Distinct ID,
+        //      if so, we need to write out `posthog_persondistinctid` rows with `version=1` so that
+        //      an override is created in ClickHouse which will associate the old "personless" events
+        //      with the Person UUID they were merged into.
+        //   2. We insert and/or update the `posthog_personlessdistinctid` ourselves, to mark that
+        //      the Distinct ID has been merged. This is important so that an event being processed
+        //      concurrently for that Distinct ID doesn't emit an event and _miss_ that a different
+        //      Person UUID needs to be used now. (See the `processPerson` code in `update` for more.)
 
-        if (otherPerson && !mergeIntoPerson) {
-            await this.db.addDistinctId(otherPerson, mergeIntoDistinctId, addDistinctIdVersion)
-            return [otherPerson, Promise.resolve()]
-        } else if (!otherPerson && mergeIntoPerson) {
-            await this.db.addDistinctId(mergeIntoPerson, otherPersonDistinctId, addDistinctIdVersion)
-            return [mergeIntoPerson, Promise.resolve()]
+        if ((otherPerson && !mergeIntoPerson) || (!otherPerson && mergeIntoPerson)) {
+            // Only one of the two Distinct IDs points at an existing Person
+
+            const [existingPerson, distinctIdToAdd] = (() => {
+                if (otherPerson) {
+                    return [otherPerson!, mergeIntoDistinctId]
+                } else {
+                    return [mergeIntoPerson!, otherPersonDistinctId]
+                }
+            })()
+
+            return await this.db.postgres.transaction(
+                PostgresUse.COMMON_WRITE,
+                'mergeDistinctIds-OneExists',
+                async (tx) => {
+                    // See comment above about `distinctIdVersion`
+                    const insertedDistinctId = await this.db.addPersonlessDistinctIdForMerge(
+                        this.teamId,
+                        distinctIdToAdd,
+                        tx
+                    )
+                    const distinctIdVersion = insertedDistinctId ? 0 : 1
+
+                    await this.db.addDistinctId(existingPerson, distinctIdToAdd, distinctIdVersion, tx)
+                    return [existingPerson, Promise.resolve()]
+                }
+            )
         } else if (otherPerson && mergeIntoPerson) {
+            // Both Distinct IDs point at an existing Person
+
             if (otherPerson.id == mergeIntoPerson.id) {
+                // Nothing to do, they are the same Person
                 return [mergeIntoPerson, Promise.resolve()]
             }
+
             return await this.mergePeople({
                 mergeInto: mergeIntoPerson,
                 mergeIntoDistinctId: mergeIntoDistinctId,
                 otherPerson: otherPerson,
                 otherPersonDistinctId: otherPersonDistinctId,
             })
-        }
+        } else {
+            // Neither Distinct ID points at an existing Person
 
-        //  The last case: (!oldPerson && !newPerson)
-        return [
-            await this.createPerson(
-                // TODO: in this case we could skip the properties updates later
-                timestamp,
-                this.eventProperties['$set'] || {},
-                this.eventProperties['$set_once'] || {},
-                teamId,
-                null,
-                true,
-                this.event.uuid,
-                [mergeIntoDistinctId, otherPersonDistinctId],
-                addDistinctIdVersion
-            ),
-            Promise.resolve(),
-        ]
+            let distinctId1 = mergeIntoDistinctId
+            let distinctId2 = otherPersonDistinctId
+
+            return await this.db.postgres.transaction(
+                PostgresUse.COMMON_WRITE,
+                'mergeDistinctIds-NeitherExist',
+                async (tx) => {
+                    // See comment above about `distinctIdVersion`
+                    const insertedDistinctId1 = await this.db.addPersonlessDistinctIdForMerge(
+                        this.teamId,
+                        distinctId1,
+                        tx
+                    )
+
+                    // See comment above about `distinctIdVersion`
+                    const insertedDistinctId2 = await this.db.addPersonlessDistinctIdForMerge(
+                        this.teamId,
+                        distinctId2,
+                        tx
+                    )
+
+                    // `createPerson` uses the first Distinct ID provided to generate the Person
+                    // UUID. That means the first Distinct ID definitely doesn't need an override,
+                    // and can always use version 0. Below, we exhaust all of the options to decide
+                    // whether we can optimize away an override by doing a swap, or whether we
+                    // need to actually write an override. (But mostly we're being verbose for
+                    // documentation purposes)
+                    let distinctId2Version = 0
+                    if (insertedDistinctId1 && insertedDistinctId2) {
+                        // We were the first to insert both (neither was used for Personless), so we
+                        // can use either as the primary Person UUID and create no overrides.
+                    } else if (insertedDistinctId1 && !insertedDistinctId2) {
+                        // We created 1, but 2 was already used for Personless. Let's swap so
+                        // that 2 can be the primary Person UUID and no override is needed.
+                        ;[distinctId1, distinctId2] = [distinctId2, distinctId1]
+                    } else if (!insertedDistinctId1 && insertedDistinctId2) {
+                        // We created 2, but 1 was already used for Personless, so we want to
+                        // use 1 as the primary Person UUID so that no override is needed.
+                    } else if (!insertedDistinctId1 && !insertedDistinctId2) {
+                        // Both were used in Personless mode, so there is no more-correct choice of
+                        // primary Person UUID to make here, and we need to drop an override by
+                        // using version = 1 for Distinct ID 2.
+                        distinctId2Version = 1
+                    }
+
+                    // The first Distinct ID is used to create the new Person's UUID, and so it
+                    // never needs an override.
+                    const distinctId1Version = 0
+
+                    return [
+                        await this.createPerson(
+                            // TODO: in this case we could skip the properties updates later
+                            timestamp,
+                            this.eventProperties['$set'] || {},
+                            this.eventProperties['$set_once'] || {},
+                            teamId,
+                            null,
+                            true,
+                            this.event.uuid,
+                            [distinctId1, distinctId2],
+                            [distinctId1Version, distinctId2Version]
+                        ),
+                        Promise.resolve(),
+                    ]
+                }
+            )
+        }
     }
 
     public async mergePeople({
