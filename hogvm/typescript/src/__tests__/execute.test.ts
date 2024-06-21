@@ -139,8 +139,8 @@ describe('HogQL Bytecode', () => {
         for (let i = 0; i < 200; i++) {
             bytecode.push(...callSleep)
         }
-        await expect(execAsync(bytecode, options)).rejects.toThrow('Exceeded maximum number of async steps: 100')
-        await expect(execAsync(bytecode, { ...options, maxAsyncSteps: 55 })).rejects.toThrow(
+        await expect(execAsync(bytecode)).rejects.toThrow('Exceeded maximum number of async steps: 100')
+        await expect(execAsync(bytecode, { maxAsyncSteps: 55 })).rejects.toThrow(
             'Exceeded maximum number of async steps: 55'
         )
     })
