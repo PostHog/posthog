@@ -15,6 +15,7 @@ from dlt.sources import DltSource
 from collections import Counter
 
 from posthog.warehouse.data_load.validate_schema import validate_schema_and_update_table
+from posthog.warehouse.models.external_data_source import ExternalDataSource
 
 
 @dataclass
@@ -23,7 +24,7 @@ class PipelineInputs:
     run_id: str
     schema_id: UUID
     dataset_name: str
-    job_type: str
+    job_type: ExternalDataSource.Type
     team_id: int
 
 
@@ -31,7 +32,12 @@ class DataImportPipeline:
     loader_file_format: Literal["parquet"] = "parquet"
 
     def __init__(
-        self, inputs: PipelineInputs, source: DltSource, logger: FilteringBoundLogger, incremental: bool = False
+        self,
+        inputs: PipelineInputs,
+        source: DltSource,
+        logger: FilteringBoundLogger,
+        reset_pipeline: bool,
+        incremental: bool = False,
     ):
         self.inputs = inputs
         self.logger = logger
@@ -42,6 +48,7 @@ class DataImportPipeline:
             self.source = source
 
         self._incremental = incremental
+        self.refresh_dlt = reset_pipeline
 
     @property
     def _get_pipeline_name_base(self):
@@ -99,16 +106,31 @@ class DataImportPipeline:
         )
 
     def _run(self) -> dict[str, int]:
+        if self.refresh_dlt:
+            self.logger.info("Pipeline getting a full refresh due to reset_pipeline being set")
+
         pipeline = self._create_pipeline()
 
         total_counts: Counter[str] = Counter({})
 
-        if self._incremental:
+        # Do chunking for incremental syncing on API based endpoints (e.g. not sql databases)
+        if (
+            self._incremental
+            and self.inputs.job_type != ExternalDataSource.Type.POSTGRES
+            and self.inputs.job_type != ExternalDataSource.Type.SNOWFLAKE
+        ):
             # will get overwritten
             counts: Counter[str] = Counter({"start": 1})
+            pipeline_runs = 0
 
             while counts:
-                pipeline.run(self.source, loader_file_format=self.loader_file_format)
+                self.logger.info(f"Running incremental (non-sql) pipeline, run ${pipeline_runs}")
+
+                pipeline.run(
+                    self.source,
+                    loader_file_format=self.loader_file_format,
+                    refresh="drop_sources" if self.refresh_dlt and pipeline_runs == 0 else None,
+                )
 
                 row_counts = pipeline.last_trace.last_normalize_info.row_counts
                 # Remove any DLT tables from the counts
@@ -123,8 +145,16 @@ class DataImportPipeline:
                     table_schema=self.source.schema.tables,
                     row_count=total_counts.total(),
                 )
+
+                pipeline_runs = pipeline_runs + 1
         else:
-            pipeline.run(self.source, loader_file_format=self.loader_file_format)
+            self.logger.info("Running standard pipeline")
+
+            pipeline.run(
+                self.source,
+                loader_file_format=self.loader_file_format,
+                refresh="drop_sources" if self.refresh_dlt else None,
+            )
             row_counts = pipeline.last_trace.last_normalize_info.row_counts
             filtered_rows = dict(filter(lambda pair: not pair[0].startswith("_dlt"), row_counts.items()))
             counts = Counter(filtered_rows)

@@ -207,7 +207,7 @@ djangorestframework-csv==2.1.1
     # via -r requirements.in
 djangorestframework-dataclasses==1.2.0
     # via -r requirements.in
-dlt==0.4.12
+dlt==0.4.13a0
     # via -r requirements.in
 dnspython==2.2.1
     # via -r requirements.in

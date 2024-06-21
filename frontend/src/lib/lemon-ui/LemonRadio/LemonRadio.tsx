@@ -14,6 +14,7 @@ export interface LemonRadioProps<T extends React.Key> {
     onChange: (newValue: T) => void
     options: LemonRadioOption<T>[]
     className?: string
+    radioPosition?: 'center' | 'top'
 }
 
 /** Single choice radio. */
@@ -22,6 +23,7 @@ export function LemonRadio<T extends React.Key>({
     onChange,
     options,
     className,
+    radioPosition,
 }: LemonRadioProps<T>): JSX.Element {
     return (
         <div className={clsx('flex flex-col gap-2 font-medium', className)}>
@@ -30,8 +32,12 @@ export function LemonRadio<T extends React.Key>({
                     <label
                         key={value}
                         className={clsx(
-                            'flex items-center space-x-2',
-                            disabledReason ? 'text-muted cursor-not-allowed' : 'cursor-pointer'
+                            'flex space-x-2',
+                            disabledReason ? 'text-muted cursor-not-allowed' : 'cursor-pointer',
+                            {
+                                'items-baseline': radioPosition === 'top',
+                                'items-center': radioPosition === 'center' || !radioPosition,
+                            }
                         )}
                     >
                         <input

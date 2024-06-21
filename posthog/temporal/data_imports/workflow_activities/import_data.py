@@ -5,9 +5,7 @@ import uuid
 from dlt.common.schema.typing import TSchemaTables
 from temporalio import activity
 
-# TODO: remove dependency
-from posthog.temporal.data_imports.pipelines.helpers import aupdate_job_count
-from posthog.temporal.data_imports.pipelines.zendesk.credentials import ZendeskCredentialsToken
+from posthog.temporal.data_imports.pipelines.helpers import aremove_reset_pipeline, aupdate_job_count
 
 from posthog.temporal.data_imports.pipelines.pipeline import DataImportPipeline, PipelineInputs
 from posthog.warehouse.models import (
@@ -47,6 +45,8 @@ async def import_data_activity(inputs: ImportDataActivityInputs) -> tuple[TSchem
         dataset_name=model.folder_path,
     )
 
+    reset_pipeline = model.pipeline.job_inputs.get("reset_pipeline", False)
+
     schema: ExternalDataSchema = await aget_schema_by_id(inputs.schema_id, inputs.team_id)
 
     endpoints = [schema.name]
@@ -71,7 +71,14 @@ async def import_data_activity(inputs: ImportDataActivityInputs) -> tuple[TSchem
             is_incremental=schema.is_incremental,
         )
 
-        return await _run(job_inputs=job_inputs, source=source, logger=logger, inputs=inputs, schema=schema)
+        return await _run(
+            job_inputs=job_inputs,
+            source=source,
+            logger=logger,
+            inputs=inputs,
+            schema=schema,
+            reset_pipeline=reset_pipeline,
+        )
     elif model.pipeline.source_type == ExternalDataSource.Type.HUBSPOT:
         from posthog.temporal.data_imports.pipelines.hubspot.auth import refresh_access_token
         from posthog.temporal.data_imports.pipelines.hubspot import hubspot
@@ -90,7 +97,14 @@ async def import_data_activity(inputs: ImportDataActivityInputs) -> tuple[TSchem
             endpoints=tuple(endpoints),
         )
 
-        return await _run(job_inputs=job_inputs, source=source, logger=logger, inputs=inputs, schema=schema)
+        return await _run(
+            job_inputs=job_inputs,
+            source=source,
+            logger=logger,
+            inputs=inputs,
+            schema=schema,
+            reset_pipeline=reset_pipeline,
+        )
     elif model.pipeline.source_type == ExternalDataSource.Type.POSTGRES:
         from posthog.temporal.data_imports.pipelines.sql_database import postgres_source
 
@@ -135,9 +149,22 @@ async def import_data_activity(inputs: ImportDataActivityInputs) -> tuple[TSchem
                     sslmode="prefer",
                     schema=pg_schema,
                     table_names=endpoints,
+                    incremental_field=schema.sync_type_payload.get("incremental_field")
+                    if schema.is_incremental
+                    else None,
+                    incremental_field_type=schema.sync_type_payload.get("incremental_field_type")
+                    if schema.is_incremental
+                    else None,
                 )
 
-                return await _run(job_inputs=job_inputs, source=source, logger=logger, inputs=inputs, schema=schema)
+                return await _run(
+                    job_inputs=job_inputs,
+                    source=source,
+                    logger=logger,
+                    inputs=inputs,
+                    schema=schema,
+                    reset_pipeline=reset_pipeline,
+                )
 
         source = postgres_source(
             host=host,
@@ -148,9 +175,20 @@ async def import_data_activity(inputs: ImportDataActivityInputs) -> tuple[TSchem
             sslmode="prefer",
             schema=pg_schema,
             table_names=endpoints,
+            incremental_field=schema.sync_type_payload.get("incremental_field") if schema.is_incremental else None,
+            incremental_field_type=schema.sync_type_payload.get("incremental_field_type")
+            if schema.is_incremental
+            else None,
         )
 
-        return await _run(job_inputs=job_inputs, source=source, logger=logger, inputs=inputs, schema=schema)
+        return await _run(
+            job_inputs=job_inputs,
+            source=source,
+            logger=logger,
+            inputs=inputs,
+            schema=schema,
+            reset_pipeline=reset_pipeline,
+        )
     elif model.pipeline.source_type == ExternalDataSource.Type.SNOWFLAKE:
         from posthog.temporal.data_imports.pipelines.sql_database import snowflake_source
 
@@ -173,26 +211,24 @@ async def import_data_activity(inputs: ImportDataActivityInputs) -> tuple[TSchem
             table_names=endpoints,
         )
 
-        return await _run(job_inputs=job_inputs, source=source, logger=logger, inputs=inputs, schema=schema)
-
-    elif model.pipeline.source_type == ExternalDataSource.Type.ZENDESK:
-        from posthog.temporal.data_imports.pipelines.zendesk.helpers import zendesk_support
-
-        # NOTE: this line errors on CI mypy but not locally. Putting arguments within the function causes the opposite error
-        credentials = ZendeskCredentialsToken(
-            token=model.pipeline.job_inputs.get("zendesk_api_key"),
-            subdomain=model.pipeline.job_inputs.get("zendesk_subdomain"),
-            email=model.pipeline.job_inputs.get("zendesk_email_address"),
+        return await _run(
+            job_inputs=job_inputs,
+            source=source,
+            logger=logger,
+            inputs=inputs,
+            schema=schema,
+            reset_pipeline=reset_pipeline,
         )
 
-        data_support = zendesk_support(credentials=credentials, endpoints=tuple(endpoints), team_id=inputs.team_id)
-        # Uncomment to support zendesk chat and talk
-        # data_chat = zendesk_chat()
-        # data_talk = zendesk_talk()
-
-        source = data_support
-
-        return await _run(job_inputs=job_inputs, source=source, logger=logger, inputs=inputs, schema=schema)
+    elif model.pipeline.source_type == ExternalDataSource.Type.ZENDESK:
+        return await _run(
+            job_inputs=job_inputs,
+            source=source,
+            logger=logger,
+            inputs=inputs,
+            schema=schema,
+            reset_pipeline=reset_pipeline,
+        )
     else:
         raise ValueError(f"Source type {model.pipeline.source_type} not supported")
 
@@ -203,6 +239,7 @@ async def _run(
     logger: FilteringBoundLogger,
     inputs: ImportDataActivityInputs,
     schema: ExternalDataSchema,
+    reset_pipeline: bool,
 ) -> tuple[TSchemaTables, dict[str, int]]:
     # Temp background heartbeat for now
     async def heartbeat() -> None:
@@ -213,10 +250,13 @@ async def _run(
     heartbeat_task = asyncio.create_task(heartbeat())
 
     try:
-        table_row_counts = await DataImportPipeline(job_inputs, source, logger, schema.is_incremental).run()
+        table_row_counts = await DataImportPipeline(
+            job_inputs, source, logger, reset_pipeline, schema.is_incremental
+        ).run()
         total_rows_synced = sum(table_row_counts.values())
 
         await aupdate_job_count(inputs.run_id, inputs.team_id, total_rows_synced)
+        await aremove_reset_pipeline(inputs.source_id)
     finally:
         heartbeat_task.cancel()
         await asyncio.wait([heartbeat_task])
