@@ -2566,11 +2566,11 @@ class HogQLErrorListener : public antlr4::BaseErrorListener {
   size_t getPosition(size_t line, size_t column) {
     size_t linePosition = 0;
     for (size_t i = 0; i < line - 1; i++) {
-      size_t increment = input.find("\n", linePosition) + 1;
-      if (increment == string::npos) {
+      size_t endOfLine = input.find("\n", linePosition);
+      if (endOfLine == string::npos) {
         return string::npos;
       }
-      linePosition += increment;
+      linePosition = endOfLine + 1;
     }
     return linePosition + column;
   }
