@@ -100,13 +100,17 @@ def prepare_ast_for_printing(
 
     context.modifiers = set_default_in_cohort_via(context.modifiers)
 
+    if context.modifiers.inCohortVia == InCohortVia.LEFTJOIN_CONJOINED:
+        with context.timings.measure("resolve_in_cohorts_conjoined"):
+            resolve_in_cohorts_conjoined(node, dialect, context, stack)
     with context.timings.measure("resolve_types"):
         node = resolve_types(node, context, dialect=dialect, scopes=[node.type for node in stack] if stack else None)
-
+    if context.modifiers.inCohortVia == InCohortVia.LEFTJOIN:
+        with context.timings.measure("resolve_in_cohorts"):
+            resolve_in_cohorts(node, dialect, stack, context)
     if dialect == "clickhouse":
         with context.timings.measure("resolve_property_types"):
             node = resolve_property_types(node, context)
-
         with context.timings.measure("resolve_lazy_tables"):
             resolve_lazy_tables(node, dialect, stack, context)
 
@@ -117,15 +121,6 @@ def prepare_ast_for_printing(
                 if value is not None:
                     settings.__setattr__(key, value)
             node.settings = None
-
-    # If these don't come after "resolve_lazy_tables", cohorts can't resolve in them
-    if context.modifiers.inCohortVia == InCohortVia.LEFTJOIN_CONJOINED:
-        with context.timings.measure("resolve_in_cohorts_conjoined"):
-            resolve_in_cohorts_conjoined(node, dialect, context, stack)
-
-    if context.modifiers.inCohortVia == InCohortVia.LEFTJOIN:
-        with context.timings.measure("resolve_in_cohorts"):
-            resolve_in_cohorts(node, dialect, stack, context)
 
     # We add a team_id guard right before printing. It's not a separate step here.
     return node

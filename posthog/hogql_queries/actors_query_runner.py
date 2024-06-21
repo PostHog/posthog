@@ -2,8 +2,11 @@ import itertools
 from typing import Optional
 from collections.abc import Sequence, Iterator
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLQuerySettings, ReservedCTE
-from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
+from posthog.hogql.constants import HogQLQuerySettings
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.models import LazyTableToAdd
+from posthog.hogql.database.schema.persons import select_from_persons_table
+from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import has_aggregation
 from posthog.hogql_queries.actor_strategies import ActorStrategy, PersonStrategy, GroupStrategy
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
@@ -239,8 +242,11 @@ class ActorsQueryRunner(QueryRunner):
                 assert self.source_query_runner is not None  # For type checking
                 source_query = self.source_query_runner.to_actors_query()
 
+                # Source Query has "Select actor_id as actor_id, count() as event_count) "source"
                 source_id_chain = self.source_id_column(source_query)
                 source_alias = "source"
+
+                ctes[source_alias] = ast.CTE(name=source_alias, expr=source_query, cte_type="subquery")
 
                 join_expr = ast.JoinExpr(
                     table=ast.Field(chain=[source_alias]),
@@ -258,8 +264,6 @@ class ActorsQueryRunner(QueryRunner):
                     ),
                 )
 
-                ctes[source_alias] = ast.CTE(name=source_alias, expr=source_query, cte_type="subquery")
-
                 # For now, only use this CTE optimization in Trends, until we test it with other queries
                 if isinstance(self.strategy, PersonStrategy) and any(
                     isinstance(x, C) for x in [getattr(self.query.source, "source", None)] for C in (TrendsQuery,)
@@ -270,10 +274,27 @@ class ActorsQueryRunner(QueryRunner):
                             source_query.settings = HogQLQuerySettings()
                         source_query.settings.use_query_cache = True
                         source_query.settings.query_cache_ttl = HOGQL_INCREASED_MAX_EXECUTION_TIME
-                    s = parse_select("SELECT distinct actor_id as person_id FROM source")
+
                     # This feels like it adds one extra level of SELECT which is unnecessary
-                    ctes[ReservedCTE.POSTHOG_PERSON_IDS.value] = ast.CTE(
-                        name=ReservedCTE.POSTHOG_PERSON_IDS.value, expr=s, cte_type="subquery"
+                    select = select_from_persons_table(
+                        LazyTableToAdd(
+                            lazy_table=None, fields_accessed={"id": ["id"], "properties___name": ["properties", "name"]}
+                        ),
+                        HogQLContext(team_id=self.team.pk, team=self.team, modifiers=self.modifiers),
+                        None,
+                    )
+                    join_expr.next_join = ast.JoinExpr(
+                        table=select,
+                        join_type="INNER JOIN",
+                        alias="persons",
+                        constraint=ast.JoinConstraint(
+                            expr=ast.CompareOperation(
+                                op=ast.CompareOperationOp.Eq,
+                                left=ast.Field(chain=["persons", "id"]),
+                                right=ast.Field(chain=["source", "actor_id"]),
+                            ),
+                            constraint_type="ON",
+                        ),
                     )
 
         return ast.SelectQuery(

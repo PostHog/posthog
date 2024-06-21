@@ -30,7 +30,7 @@ RESERVED_KEYWORDS = [*KEYWORDS, "team_id"]
 
 # These are CTEs that are used internally for passing information down the stack.
 # They're not dangerous, but if you override them, behavior can be unexpected
-class ReservedCTE(str, Enum):
+class ReservedCTE(StrEnum):
     POSTHOG_PERSON_IDS = "$$posthog_person_ids$$"
 
 
