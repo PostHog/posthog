@@ -2834,14 +2834,14 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             event="sign up",
             distinct_id="blabla",
-            properties={"$session_id": s1},
+            properties={"$session_id": s1, "x": 1},
             timestamp="2020-01-01 00:06:30",
         )
         self._create_event(
             team=self.team,
             event="sign up",
             distinct_id="blabla",
-            properties={"$session_id": s5},
+            properties={"$session_id": s5, "x": 5},
             timestamp="2020-01-02 00:06:45",
         )
 
@@ -2855,7 +2855,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                             {
                                 "id": "sign up",
                                 "math": "hogql",
-                                "math_hogql": "avg(properties.$session_id) + 1000",
+                                "math_hogql": "avg(properties.x) + 1000",
                             }
                         ],
                     },
