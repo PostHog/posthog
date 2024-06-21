@@ -1578,6 +1578,7 @@ export interface BillingProductV2AddonType {
 export interface BillingV2Type {
     customer_id: string
     has_active_subscription: boolean
+    subscription_level: 'free' | 'paid' | 'custom'
     free_trial_until?: Dayjs
     stripe_portal_url?: string
     deactivated?: boolean
@@ -2720,7 +2721,7 @@ export enum SurveyQuestionType {
 
 export enum SurveyQuestionBranchingType {
     NextQuestion = 'next_question',
-    ConfirmationMessage = 'confirmation_message',
+    End = 'end',
     ResponseBased = 'response_based',
     SpecificQuestion = 'specific_question',
 }
@@ -2730,7 +2731,7 @@ interface NextQuestionBranching {
 }
 
 interface ConfirmationMessageBranching {
-    type: SurveyQuestionBranchingType.ConfirmationMessage
+    type: SurveyQuestionBranchingType.End
 }
 
 interface ResponseBasedBranching {
@@ -4183,7 +4184,7 @@ export type OnboardingProduct = {
 }
 
 export type HogFunctionInputSchemaType = {
-    type: 'string' | 'boolean' | 'dictionary' | 'choice' | 'json'
+    type: 'string' | 'boolean' | 'dictionary' | 'choice' | 'json' | 'integration' | 'integration_field'
     key: string
     label: string
     choices?: { value: string; label: string }[]
@@ -4191,6 +4192,9 @@ export type HogFunctionInputSchemaType = {
     default?: any
     secret?: boolean
     description?: string
+    integration?: string
+    integration_key?: string
+    integration_field?: 'slack_channel'
 }
 
 export type HogFunctionType = {
