@@ -5,6 +5,7 @@ go 1.22.2
 require (
 	github.com/confluentinc/confluent-kafka-go/v2 v2.4.0
 	github.com/fsnotify/fsnotify v1.7.0
+	github.com/getsentry/sentry-go v0.28.1
 	github.com/gofrs/uuid/v5 v5.2.0
 	github.com/golang-jwt/jwt v3.2.2+incompatible
 	github.com/hashicorp/golang-lru/v2 v2.0.7

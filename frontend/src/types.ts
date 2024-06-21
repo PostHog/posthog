@@ -1942,6 +1942,15 @@ export interface PluginErrorType {
     event?: Record<string, any>
 }
 
+// The general log entry format that eventually everything should match
+export type LogEntry = {
+    log_source_id: string
+    instance_id: string
+    timestamp: string
+    level: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
+    message: string
+}
+
 export enum PluginLogEntryType {
     Debug = 'DEBUG',
     Log = 'LOG',
@@ -4206,6 +4215,8 @@ export type HogFunctionType = {
     filters?: PluginConfigFilters | null
     template?: HogFunctionTemplateType
 }
+
+export type HogFunctionConfigurationType = Omit<HogFunctionType, 'created_at' | 'created_by' | 'updated_at'>
 
 export type HogFunctionTemplateType = Pick<
     HogFunctionType,

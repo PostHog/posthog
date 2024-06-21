@@ -5,7 +5,6 @@ import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { objectClean, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
-import { LogEntry } from 'scenes/pipeline/pipelineNodeLogsLogic'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
@@ -50,6 +49,7 @@ import {
     InsightModel,
     IntegrationType,
     ListOrganizationMembersParams,
+    LogEntry,
     MediaUploadResponse,
     NewEarlyAccessFeatureType,
     NotebookListItemType,
@@ -1684,6 +1684,17 @@ const api = {
 
         async listIcons(params: { query?: string } = {}): Promise<HogFunctionIconResponse[]> {
             return await new ApiRequest().hogFunctions().withAction('icons').withQueryString(params).get()
+        },
+
+        async createTestInvocation(
+            id: HogFunctionType['id'],
+            data: {
+                configuration: Partial<HogFunctionType>
+                mock_async_functions: boolean
+                event: any
+            }
+        ): Promise<any> {
+            return await new ApiRequest().hogFunction(id).withAction('invocations').create({ data })
         },
     },
 

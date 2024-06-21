@@ -12,7 +12,7 @@ export function SessionRecordingsPlaylistSettings(): JSX.Element {
     const { orderBy } = useValues(sessionRecordingsPlaylistLogic)
 
     return (
-        <div className="relative flex flex-col gap-2 p-3 bg-bg-3000 border-b">
+        <div className="relative flex flex-col gap-2 p-3 border-b">
             <Tooltip
                 title={
                     <div className="text-center">
