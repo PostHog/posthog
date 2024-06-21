@@ -885,10 +885,13 @@ class ClickhouseTestMixin(QueryMatchingTest):
     snapshot: Any
 
     def capture_select_queries(self):
-        return self.capture_queries(("SELECT", "WITH", "select", "with"))
+        return self.capture_queries_startswith(("SELECT", "WITH", "select", "with"))
+
+    def capture_queries_startswith(self, query_prefixes: Union[str, tuple[str, ...]]):
+        return self.capture_queries(lambda x: x.startswith(query_prefixes))
 
     @contextmanager
-    def capture_queries(self, query_prefixes: Union[str, tuple[str, ...]]):
+    def capture_queries(self, query_filter: Callable[[str], bool]):
         queries = []
         original_get_client = ch_pool.get_client
 
@@ -901,7 +904,7 @@ class ClickhouseTestMixin(QueryMatchingTest):
                 original_client_execute = client.execute
 
                 def execute_wrapper(query, *args, **kwargs):
-                    if sqlparse.format(query, strip_comments=True).strip().startswith(query_prefixes):
+                    if query_filter(sqlparse.format(query, strip_comments=True).strip()):
                         queries.append(query)
                     return original_client_execute(query, *args, **kwargs)
 

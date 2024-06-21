@@ -7,8 +7,8 @@ from dateutil.parser import parse
 from dateutil.relativedelta import relativedelta
 
 from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.parser import parse_expr
+from posthog.hogql.constants import LimitContext, HogQLQuerySettings
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.trends.aggregation_operations import AggregationOperations
@@ -28,7 +28,10 @@ from posthog.schema import (
     TrendsFilter,
     TrendsQuery,
     CompareFilter,
+    BreakdownType,
+    PersonPropertyFilter,
 )
+from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 
 class TrendsActorsQueryBuilder:
@@ -165,7 +168,24 @@ class TrendsActorsQueryBuilder:
         return self.trends_display.is_total_value()
 
     def build_actors_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+        cte_events_query = self._cte_events_query()
+        if cte_events_query.settings is None:
+            cte_events_query.settings = HogQLQuerySettings()
+        cte_events_query.settings.use_query_cache = True
+        # Cache these specific queries for as long as we allow queries to run for
+        # This means that a refresh of this query won't change data more than once every 10 minutes
+        # But we shouldn't be allowing refreshing that often anyways
+        cte_events_query.settings.query_cache_ttl = HOGQL_INCREASED_MAX_EXECUTION_TIME
+
+        # need to modify events query to ask for correct things only
+        s = parse_select("SELECT distinct distinct_id as distinct_id FROM e")
+        s.select_from.table = cte_events_query
+
         return ast.SelectQuery(
+            ctes={
+                "e": ast.CTE(name="e", expr=cte_events_query, cte_type="subquery"),
+                "distinct_ids": ast.CTE(name="distinct_ids", expr=s, cte_type="subquery"),
+            },
             select=[
                 ast.Field(chain=["actor_id"]),
                 ast.Alias(alias="event_count", expr=self._get_actor_value_expr()),
@@ -179,6 +199,7 @@ class TrendsActorsQueryBuilder:
         query = ast.SelectQuery(
             select=[
                 ast.Alias(alias="actor_id", expr=self._actor_id_expr()),
+                ast.Field(chain=["e", "distinct_id"]),
                 ast.Field(chain=["e", "timestamp"]),
                 ast.Field(chain=["e", "uuid"]),
                 *([ast.Field(chain=["e", "$session_id"])] if self.include_recordings else []),
@@ -192,6 +213,18 @@ class TrendsActorsQueryBuilder:
             where=self._events_where_expr(),
         )
         return query
+
+    def _cte_events_query(self) -> ast.SelectQuery:
+        return ast.SelectQuery(
+            # Could filter this down to what we actually use to save memory
+            select=[ast.Field(chain=["*"])],
+            select_from=ast.JoinExpr(
+                table=ast.Field(chain=["events"]),
+                alias="e",
+                sample=self._sample_expr(),
+            ),
+            where=self._persons_cte_events_where_expr(),
+        )
 
     def _get_actor_value_expr(self) -> ast.Expr:
         return parse_expr("count()")
@@ -213,6 +246,21 @@ class TrendsActorsQueryBuilder:
                 *self._prop_where_expr(),
                 *self._date_where_expr(),
                 *(self._breakdown_where_expr() if with_breakdown_expr else []),
+                *self._filter_empty_actors_expr(),
+            ]
+        )
+
+    def _persons_cte_events_where_expr(self, with_breakdown_expr: bool = True) -> ast.And:
+        return ast.And(
+            exprs=[
+                *self._entity_where_expr(),
+                # *self._prop_where_expr(),
+                *self._date_where_expr(),
+                *(
+                    self._breakdown_where_expr()
+                    if with_breakdown_expr and self.trends_query.breakdownFilter.breakdown_type != BreakdownType.PERSON
+                    else []
+                ),
                 *self._filter_empty_actors_expr(),
             ]
         )
@@ -252,12 +300,13 @@ class TrendsActorsQueryBuilder:
 
         return conditions
 
-    def _prop_where_expr(self) -> list[ast.Expr]:
+    def _prop_where_expr(self, exclude_person_props=False) -> list[ast.Expr]:
         conditions: list[ast.Expr] = []
 
         # Filter Test Accounts
         if (
-            self.trends_query.filterTestAccounts
+            not exclude_person_props
+            and self.trends_query.filterTestAccounts
             and isinstance(self.team.test_account_filters, list)
             and len(self.team.test_account_filters) > 0
         ):
@@ -266,7 +315,10 @@ class TrendsActorsQueryBuilder:
 
         # Properties
         if self.trends_query.properties is not None and self.trends_query.properties != []:
-            conditions.append(property_to_expr(self.trends_query.properties, self.team))
+            properties = self.trends_query.properties
+            if exclude_person_props:
+                properties = [x for x in properties if isinstance(x, PersonPropertyFilter)]
+            conditions.append(property_to_expr(properties, self.team))
 
         return conditions
 
