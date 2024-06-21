@@ -492,9 +492,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         ).all()
         for job in all_jobs:
             try:
-                delete_data_import_folder(job.folder_path)
+                delete_data_import_folder(job.folder_path())
             except Exception as e:
-                logger.exception(f"Could not clean up data import folder: {job.folder_path}", exc_info=e)
+                logger.exception(f"Could not clean up data import folder: {job.folder_path()}", exc_info=e)
                 pass
 
         for schema in ExternalDataSchema.objects.filter(

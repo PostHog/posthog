@@ -42,10 +42,10 @@ async def import_data_activity(inputs: ImportDataActivityInputs) -> tuple[TSchem
         run_id=inputs.run_id,
         team_id=inputs.team_id,
         job_type=model.pipeline.source_type,
-        dataset_name=model.folder_path,
+        dataset_name=model.folder_path(),
     )
 
-    reset_pipeline = model.pipeline.job_inputs.get("reset_pipeline", False)
+    reset_pipeline = model.pipeline.job_inputs.get("reset_pipeline", "False") == "True"
 
     schema: ExternalDataSchema = await aget_schema_by_id(inputs.schema_id, inputs.team_id)
 

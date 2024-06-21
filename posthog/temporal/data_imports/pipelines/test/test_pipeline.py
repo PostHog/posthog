@@ -45,7 +45,7 @@ class TestDataImportPipeline(APIBaseTest):
                 source_id=source.pk,
                 run_id=str(job.pk),
                 schema_id=schema.pk,
-                dataset_name=job.folder_path,
+                dataset_name=job.folder_path(),
                 job_type="Stripe",
                 team_id=self.team.pk,
             ),

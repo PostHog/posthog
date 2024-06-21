@@ -95,13 +95,28 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         sync_type = data.get("sync_type")
 
         if (
-            sync_type != ExternalDataSchema.SyncType.FULL_REFRESH
+            sync_type is not None
+            and sync_type != ExternalDataSchema.SyncType.FULL_REFRESH
             and sync_type != ExternalDataSchema.SyncType.INCREMENTAL
         ):
             raise ValidationError("Invalid sync type")
 
         validated_data["sync_type"] = sync_type
 
+        # Check whether we need a full table refresh
+        trigger_refresh = False
+        if instance.sync_type is not None and sync_type is not None:
+            # If sync type changes
+            if instance.sync_type != sync_type:
+                trigger_refresh = True
+
+            # If sync type is incremental and the incremental field changes
+            if sync_type == ExternalDataSchema.SyncType.INCREMENTAL and instance.sync_type_payload.get(
+                "incremental_field"
+            ) != data.get("incremental_field"):
+                trigger_refresh = True
+
+        # Update the validated_data with incremental fields
         if sync_type == "incremental":
             payload = instance.sync_type_payload
             payload["incremental_field"] = data.get("incremental_field")
@@ -117,7 +132,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
         should_sync = validated_data.get("should_sync", None)
 
-        if should_sync is True and sync_type is None:
+        if should_sync is True and sync_type is None and instance.sync_type is None:
             raise ValidationError("Sync type must be set up first before enabling schema")
 
         schedule_exists = external_data_workflow_exists(str(instance.id))
@@ -130,19 +145,6 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         else:
             if should_sync is True:
                 sync_external_data_job_workflow(instance, create=True)
-
-        # Check whether we need a full table refresh
-        trigger_refresh = False
-        if instance.sync_type is not None:
-            # If sync type changes
-            if instance.sync_type != sync_type:
-                trigger_refresh = True
-
-            # If sync type is incremental and the incremental field changes
-            if sync_type == ExternalDataSchema.SyncType.INCREMENTAL and instance.sync_type_payload.get(
-                "incremental_field"
-            ) != data.get("incremental_field"):
-                trigger_refresh = True
 
         if trigger_refresh:
             source: ExternalDataSource = instance.source
@@ -224,9 +226,9 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Unnecessary to iterate for incremental jobs since they'll all by identified by the schema_id. Be over eager just to clear remnants
         for job in all_jobs:
             try:
-                delete_data_import_folder(job.folder_path)
+                delete_data_import_folder(job.folder_path())
             except Exception as e:
-                logger.exception(f"Could not clean up data import folder: {job.folder_path}", exc_info=e)
+                logger.exception(f"Could not clean up data import folder: {job.folder_path()}", exc_info=e)
                 pass
 
         try:
