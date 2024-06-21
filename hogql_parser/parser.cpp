@@ -582,15 +582,10 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
   VISIT(FuncStmt) {
     string name = visitAsString(ctx->identifier());
-    PyObject* params;
-    auto identifier_list_ctx = ctx->identifierList();
-    if (identifier_list_ctx) {
-      params = visitAsPyObject(identifier_list_ctx);
-    } else {
-      params = PyList_New(0);
-      if (!params) {
+    vector<string> paramList = any_cast<vector<string>>(visit(ctx->identifierList()));
+    PyObject* params = X_PyList_FromStrings(paramList);
+    if (!params) {
         throw PyInternalError();
-      }
     }
 
     PyObject* body;
@@ -633,12 +628,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   }
 
   VISIT(IdentifierList) {
-	vector<string> identifiers = visitAsVectorOfStrings(ctx->identifier());
-    PyObject* ret = X_PyList_FromStrings(identifiers);
-    if (!ret) {
-        throw PyInternalError();
-    }
-    return ret;
+    return visitAsVectorOfStrings(ctx->identifier());
   }
 
   VISIT(EmptyStmt) {
