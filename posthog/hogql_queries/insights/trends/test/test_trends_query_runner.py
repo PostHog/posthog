@@ -992,6 +992,32 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[2]["data"] == [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0]
         assert response.results[3]["data"] == [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0]
 
+    def test_trends_breakdowns_session_duration_histogram(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview", math=PropertyMathType.AVG, math_property="$session_duration")],
+            None,
+            BreakdownFilter(
+                breakdown_type=BreakdownType.EVENT,
+                breakdown="prop",
+                breakdown_histogram_bin_count=4,
+            ),
+        )
+
+        breakdown_labels = [result["breakdown_value"] for result in response.results]
+
+        assert len(response.results) == 4
+        assert breakdown_labels == ["[10,17.5]", "[17.5,25]", "[25,32.5]", "[32.5,40.01]"]
+
+        assert response.results[0]["label"] == "[10,17.5]"
+        assert response.results[1]["label"] == "[17.5,25]"
+        assert response.results[2]["label"] == "[25,32.5]"
+        assert response.results[3]["label"] == "[32.5,40.01]"
+
     def test_trends_breakdowns_cohort(self):
         self._create_test_events()
         cohort = Cohort.objects.create(
@@ -1429,6 +1455,24 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[0]["count"] == 0
         assert response.results[0]["aggregated_value"] == 10
 
+    def test_trends_display_aggregate_interval(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.MONTH,  # E.g. UI sets interval to month, but we need the total value across all days
+            [EventsNode(event="$pageview")],
+            TrendsFilter(display=ChartDisplayType.BOLD_NUMBER),
+            None,
+        )
+
+        assert len(response.results) == 1
+        assert response.results[0]["data"] == []
+        assert response.results[0]["days"] == []
+        assert response.results[0]["count"] == 0
+        assert response.results[0]["aggregated_value"] == 10
+
     def test_trends_display_cumulative(self):
         self._create_test_events()
 
@@ -1491,6 +1535,22 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(len(response.results), 11)
 
+        # Now hide other aggregation
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+            BreakdownFilter(
+                breakdown="breakdown_value",
+                breakdown_type=BreakdownType.EVENT,
+                breakdown_limit=10,
+                breakdown_hide_other_aggregation=True,
+            ),
+        )
+        self.assertEqual(len(response.results), 10)
+
         response = self._run_trends_query(
             "2020-01-09",
             "2020-01-20",
@@ -1501,6 +1561,34 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             limit_context=LimitContext.EXPORT,
         )
         self.assertEqual(len(response.results), 30)
+
+        # Test actions table - it shows total values
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_TABLE),
+            BreakdownFilter(breakdown="breakdown_value", breakdown_type=BreakdownType.EVENT, breakdown_limit=10),
+        )
+        self.assertEqual(len(response.results), 11)
+
+        # Now hide other aggregation
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_TABLE),
+            BreakdownFilter(
+                breakdown="breakdown_value",
+                breakdown_type=BreakdownType.EVENT,
+                breakdown_limit=10,
+                breakdown_hide_other_aggregation=True,
+            ),
+        )
+        self.assertEqual(len(response.results), 10)
 
     def test_breakdown_values_unknown_property(self):
         # same as above test, just without creating the property definition
@@ -2128,8 +2216,8 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.breakdown == [
             BreakdownItem(label="Chrome", value="Chrome"),
             BreakdownItem(label="Firefox", value="Firefox"),
-            BreakdownItem(label="Safari", value="Safari"),
             BreakdownItem(label="Edge", value="Edge"),
+            BreakdownItem(label="Safari", value="Safari"),
         ]
 
     @patch("posthog.hogql.query.sync_execute", wraps=sync_execute)

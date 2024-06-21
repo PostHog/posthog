@@ -2,8 +2,8 @@
 # name: TestTrendsDataWarehouseQuery.test_trends_breakdown
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayMap(i -> arraySum(arrayMap(x -> arrayElement(x, i), groupArray(total))), arrayEnumerate(date)) AS total,
-                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', toString(breakdown_value)) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-01 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-07 23:59:59', 6, 'UTC'))))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -15,7 +15,7 @@
                day_start AS day_start,
                breakdown_value AS breakdown_value
         FROM
-          (SELECT count(e.id) AS total,
+          (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.created, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(e.prop_1), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS e
@@ -27,6 +27,7 @@
         ORDER BY day_start ASC, breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY arraySum(total) DESC, breakdown_value ASC)
+  WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -35,47 +36,15 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=1000000,
                      max_expanded_ast_elements=1000000,
-                     max_query_size=524288
-  '''
-# ---
-# name: TestTrendsDataWarehouseQuery.test_trends_breakdown.1
-  '''
-  SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-01 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-07 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
-         ifNull(toString(breakdown_value), '$$_posthog_breakdown_null_$$') AS breakdown_value
-  FROM
-    (SELECT sum(total) AS count,
-            day_start AS day_start,
-            breakdown_value AS breakdown_value
-     FROM
-       (SELECT count(e.id) AS total,
-               toStartOfDay(toTimeZone(e.created, 'UTC')) AS day_start,
-               transform(ifNull(nullIf(toString(e.prop_1), ''), '$$_posthog_breakdown_null_$$'), ['d', 'c', 'b', 'a'], ['d', 'c', 'b', 'a'], '$$_posthog_breakdown_other_$$') AS breakdown_value
-        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS e
-        WHERE and(ifNull(greaterOrEquals(toTimeZone(e.created, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-01 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(toTimeZone(e.created, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-07 23:59:59', 6, 'UTC'))), 0), true)
-        GROUP BY day_start,
-                 breakdown_value)
-     GROUP BY day_start,
-              breakdown_value
-     ORDER BY day_start ASC, breakdown_value ASC)
-  GROUP BY breakdown_value
-  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
-           arraySum(total) DESC, breakdown_value ASC
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288
+                     max_query_size=524288,
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrendsDataWarehouseQuery.test_trends_breakdown_with_property
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayMap(i -> arraySum(arrayMap(x -> arrayElement(x, i), groupArray(total))), arrayEnumerate(date)) AS total,
-                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', toString(breakdown_value)) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-01 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-07 23:59:59', 6, 'UTC'))))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -87,7 +56,7 @@
                day_start AS day_start,
                breakdown_value AS breakdown_value
         FROM
-          (SELECT count(e.id) AS total,
+          (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.created, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(e.prop_1), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS e
@@ -99,6 +68,7 @@
         ORDER BY day_start ASC, breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY arraySum(total) DESC, breakdown_value ASC)
+  WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -107,40 +77,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=1000000,
                      max_expanded_ast_elements=1000000,
-                     max_query_size=524288
-  '''
-# ---
-# name: TestTrendsDataWarehouseQuery.test_trends_breakdown_with_property.1
-  '''
-  SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-01 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-07 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
-         ifNull(toString(breakdown_value), '$$_posthog_breakdown_null_$$') AS breakdown_value
-  FROM
-    (SELECT sum(total) AS count,
-            day_start AS day_start,
-            breakdown_value AS breakdown_value
-     FROM
-       (SELECT count(e.id) AS total,
-               toStartOfDay(toTimeZone(e.created, 'UTC')) AS day_start,
-               transform(ifNull(nullIf(toString(e.prop_1), ''), '$$_posthog_breakdown_null_$$'), ['a'], ['a'], '$$_posthog_breakdown_other_$$') AS breakdown_value
-        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS e
-        WHERE and(ifNull(greaterOrEquals(toTimeZone(e.created, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-01 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(toTimeZone(e.created, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-07 23:59:59', 6, 'UTC'))), 0), equals(e.prop_1, 'a'), true)
-        GROUP BY day_start,
-                 breakdown_value)
-     GROUP BY day_start,
-              breakdown_value
-     ORDER BY day_start ASC, breakdown_value ASC)
-  GROUP BY breakdown_value
-  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
-           arraySum(total) DESC, breakdown_value ASC
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288
+                     max_query_size=524288,
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrendsDataWarehouseQuery.test_trends_data_warehouse
@@ -152,7 +90,7 @@
     (SELECT sum(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT count(e.id) AS total,
+       (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.created, 'UTC')) AS day_start
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS e
         WHERE and(ifNull(greaterOrEquals(toTimeZone(e.created, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-01 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(toTimeZone(e.created, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-07 23:59:59', 6, 'UTC'))), 0))
@@ -166,7 +104,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=1000000,
                      max_expanded_ast_elements=1000000,
-                     max_query_size=524288
+                     max_query_size=524288,
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrendsDataWarehouseQuery.test_trends_entity_property
@@ -178,7 +117,7 @@
     (SELECT sum(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT count(e.id) AS total,
+       (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.created, 'UTC')) AS day_start
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS e
         WHERE and(ifNull(greaterOrEquals(toTimeZone(e.created, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-01 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(toTimeZone(e.created, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-07 23:59:59', 6, 'UTC'))), 0), equals(e.prop_1, 'a'))
@@ -192,7 +131,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=1000000,
                      max_expanded_ast_elements=1000000,
-                     max_query_size=524288
+                     max_query_size=524288,
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrendsDataWarehouseQuery.test_trends_property
@@ -204,7 +144,7 @@
     (SELECT sum(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT count(e.id) AS total,
+       (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.created, 'UTC')) AS day_start
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS e
         WHERE and(ifNull(greaterOrEquals(toTimeZone(e.created, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-01 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(toTimeZone(e.created, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-07 23:59:59', 6, 'UTC'))), 0), equals(e.prop_1, 'a'))
@@ -218,6 +158,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=1000000,
                      max_expanded_ast_elements=1000000,
-                     max_query_size=524288
+                     max_query_size=524288,
+                     max_bytes_before_external_group_by=0
   '''
 # ---

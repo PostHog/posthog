@@ -55,7 +55,7 @@ export const insertHogFunction = async (
     postgres: PostgresRouter,
     team_id: Team['id'],
     hogFunction: Partial<HogFunctionType> = {}
-) => {
+): Promise<HogFunctionType> => {
     const res = await insertRow(
         postgres,
         'posthog_hogfunction',

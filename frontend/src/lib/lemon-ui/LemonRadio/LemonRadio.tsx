@@ -3,6 +3,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 export interface LemonRadioOption<T extends React.Key> {
     label: string | JSX.Element
+    description?: string | JSX.Element
     value: T
     disabledReason?: string
     'data-attr'?: string
@@ -27,12 +28,12 @@ export function LemonRadio<T extends React.Key>({
 }: LemonRadioProps<T>): JSX.Element {
     return (
         <div className={clsx('flex flex-col gap-2 font-medium', className)}>
-            {options.map(({ value, label, disabledReason, ...optionProps }) => {
+            {options.map(({ value, label, disabledReason, description, ...optionProps }) => {
                 const content = (
                     <label
                         key={value}
                         className={clsx(
-                            'flex space-x-2',
+                            'grid items-center gap-x-2 grid-cols-[min-content_auto] text-sm',
                             disabledReason ? 'text-muted cursor-not-allowed' : 'cursor-pointer',
                             {
                                 'items-baseline': radioPosition === 'top',
@@ -54,6 +55,9 @@ export function LemonRadio<T extends React.Key>({
                             {...optionProps}
                         />
                         <span>{label}</span>
+                        {description && (
+                            <div className="text-muted row-start-2 col-start-2 text-pretty">{description}</div>
+                        )}
                     </label>
                 )
 

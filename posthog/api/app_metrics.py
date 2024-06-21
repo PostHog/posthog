@@ -1,7 +1,8 @@
 import datetime as dt
 import uuid
 from typing import Any
-from django.db.models import Q, Count
+
+from django.db.models import Count, Q
 from django.db.models.functions import TruncDay
 from rest_framework import mixins, request, response, viewsets
 from rest_framework.decorators import action

@@ -221,6 +221,18 @@ async def import_data_activity(inputs: ImportDataActivityInputs) -> tuple[TSchem
         )
 
     elif model.pipeline.source_type == ExternalDataSource.Type.ZENDESK:
+        from posthog.temporal.data_imports.pipelines.zendesk import zendesk_source
+
+        source = zendesk_source(
+            subdomain=model.pipeline.job_inputs.get("zendesk_subdomain"),
+            api_key=model.pipeline.job_inputs.get("zendesk_api_key"),
+            email_address=model.pipeline.job_inputs.get("zendesk_email_address"),
+            endpoint=schema.name,
+            team_id=inputs.team_id,
+            job_id=inputs.run_id,
+            is_incremental=schema.is_incremental,
+        )
+
         return await _run(
             job_inputs=job_inputs,
             source=source,

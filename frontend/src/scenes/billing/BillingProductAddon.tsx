@@ -70,7 +70,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
         addon.plans?.find((plan) => plan.plan_key === 'addon-20240404-og-customers')
 
     return (
-        <div className="bg-side rounded p-6 flex flex-col" ref={productRef}>
+        <div className="bg-bg-3000 rounded p-6 flex flex-col" ref={productRef}>
             <div className="flex justify-between gap-x-4">
                 <div className="flex gap-x-4">
                     <div className="w-8">{getProductIcon(addon.name, addon.icon_key, 'text-2xl')}</div>
