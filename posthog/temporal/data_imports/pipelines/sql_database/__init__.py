@@ -136,7 +136,7 @@ def sql_database(
             name=table.name,
             primary_key=get_primary_key(table),
             merge_key=get_primary_key(table),
-            write_disposition="merge",
+            write_disposition="merge" if incremental else "replace",
             spec=SqlDatabaseTableConfiguration,
         )(
             engine=engine,
