@@ -100,5 +100,6 @@ def sql_database(
             table_rows,
             name=table.name,
             primary_key=get_primary_key(table),
+            write_disposition="replace",
             spec=SqlDatabaseTableConfiguration,
         )(engine, table)
