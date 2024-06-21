@@ -5,12 +5,14 @@ CREATE OR REPLACE VIEW persons_batch_export AS (
         pd.distinct_id AS distinct_id,
         toString(p.id) AS person_id,
         p.properties AS properties,
+        pd.version AS version,
         pd._timestamp AS _inserted_at
     FROM (
         SELECT
             team_id,
             distinct_id,
-            argMax(person_id, version) AS person_id,
+            max(version) AS version,
+            argMax(person_id, person_distinct_id2.version) AS person_id,
             max(_timestamp) AS _timestamp
         FROM
             person_distinct_id2
