@@ -54,8 +54,8 @@ export function QuestionBranchingInput({
                               ]
                             : []),
                         {
-                            label: 'Confirmation message',
-                            value: SurveyQuestionBranchingType.ConfirmationMessage,
+                            label: survey.appearance.displayThankYouMessage ? 'Confirmation message' : 'End',
+                            value: SurveyQuestionBranchingType.End,
                         },
                         ...(hasResponseBasedBranching
                             ? [
@@ -162,7 +162,7 @@ function QuestionResponseBasedBranchingInput({
                                     : []),
                                 {
                                     label: 'Confirmation message',
-                                    value: SurveyQuestionBranchingType.ConfirmationMessage,
+                                    value: SurveyQuestionBranchingType.End,
                                 },
                                 ...availableNextQuestions.map((question) => ({
                                     label: truncate(`${question.questionIndex + 1}. ${question.question}`, 20),
