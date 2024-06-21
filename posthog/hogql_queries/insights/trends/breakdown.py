@@ -142,6 +142,14 @@ class Breakdown:
             expr=self._get_breakdown_values_transform(ast.Field(chain=self._properties_chain)),
         )
 
+    @cached_property
+    def remove_others_row(self) -> bool:
+        return (
+            self.query.breakdownFilter.breakdown_hide_other_aggregation or False
+            if self.query.breakdownFilter
+            else False
+        )
+
     def events_where_filter(self, breakdown_values_override: Optional[str | int] = None) -> ast.Expr | None:
         if (
             self.query.breakdownFilter is not None

@@ -75,13 +75,6 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             full_query = self._outer_select_query(inner_query=inner_select, breakdown=breakdown)
             return full_query
 
-    def _get_breakdown_hide_others(self) -> bool:
-        return (
-            self.query.breakdownFilter.breakdown_hide_other_aggregation or False
-            if self.query.breakdownFilter
-            else False
-        )
-
     def _get_wrapper_query(
         self, events_query: ast.SelectQuery, breakdown: Breakdown
     ) -> ast.SelectQuery | ast.SelectUnionQuery:
@@ -108,7 +101,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                         row_number() OVER (ORDER BY total DESC) as row_number
                     FROM {events_query}
                 )
-            WHERE breakdown_value IS NOT NULL
+            WHERE {breakdown_filter}
             GROUP BY breakdown_value
             ORDER BY
                 {breakdown_order_by},
@@ -121,6 +114,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 ),
                 "breakdown_inner_select": breakdown_inner_select,
                 "events_query": events_query,
+                "breakdown_filter": self._breakdown_outer_query_filter(breakdown),
                 "breakdown_order_by": self._breakdown_query_order_by(breakdown),
             },
         )
@@ -413,7 +407,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                         ) as total,
                         {breakdown_select}
                     FROM {outer_query}
-                    WHERE breakdown_value IS NOT NULL
+                    WHERE {breakdown_filter}
                     GROUP BY breakdown_value
                     ORDER BY
                         {breakdown_order_by},
@@ -421,8 +415,9 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                         breakdown_value ASC
                 """,
                     {
-                        "outer_query": query,
                         "breakdown_select": self._breakdown_outer_query_select(breakdown),
+                        "outer_query": query,
+                        "breakdown_filter": self._breakdown_outer_query_filter(breakdown),
                         "breakdown_order_by": self._breakdown_query_order_by(breakdown),
                     },
                 )
@@ -780,26 +775,28 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         return TrendsDisplay(display)
 
     def _breakdown_outer_query_select(self, breakdown: Breakdown, breakdown_limit: int | None = None) -> ast.Expr:
-        hide_others = ast.Constant(value=None if self._get_breakdown_hide_others() else BREAKDOWN_OTHER_STRING_LABEL)
-
-        placeholders: dict[str, ast.Expr] = {
-            "breakdown_limit": ast.Constant(value=breakdown_limit or self._get_breakdown_limit()),
-            "other_label": hide_others,
-        }
+        breakdown_limit_expr = ast.Constant(value=breakdown_limit or self._get_breakdown_limit())
+        other_label_expr = ast.Constant(value=None if breakdown.remove_others_row else BREAKDOWN_OTHER_STRING_LABEL)
 
         if breakdown.is_multiple_breakdown:
             return parse_expr(
                 """
                 arrayMap(i -> if(ifNull(greaterOrEquals(row_number, {breakdown_limit}), 0), {other_label}, i), breakdown_value) AS breakdown_value
                 """,
-                placeholders=placeholders,
+                placeholders={
+                    "breakdown_limit": breakdown_limit_expr,
+                    "other_label": other_label_expr,
+                },
             )
 
         return parse_expr(
             """
             if(ifNull(greaterOrEquals(row_number, {breakdown_limit}), 0), {other_label}, breakdown_value) AS breakdown_value
             """,
-            placeholders=placeholders,
+            placeholders={
+                "breakdown_limit": breakdown_limit_expr,
+                "other_label": other_label_expr,
+            },
         )
 
     def _breakdown_query_order_by(self, breakdown: Breakdown):
@@ -822,4 +819,17 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 "nil_label": ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
                 "other_label": ast.Constant(value=BREAKDOWN_OTHER_STRING_LABEL),
             },
+        )
+
+    def _breakdown_outer_query_filter(self, breakdown: Breakdown):
+        if breakdown.is_multiple_breakdown:
+            return parse_expr(
+                """
+                arrayExists(x -> isNotNull(x), breakdown_value)
+                """
+            )
+        return parse_expr(
+            """
+            breakdown_value IS NOT NULL
+            """
         )
