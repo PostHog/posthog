@@ -24,7 +24,9 @@ def generate_template_bytecode(obj: Any) -> Any:
 
 
 class InputsSchemaItemSerializer(serializers.Serializer):
-    type = serializers.ChoiceField(choices=["string", "boolean", "dictionary", "choice", "json"])
+    type = serializers.ChoiceField(
+        choices=["string", "boolean", "dictionary", "choice", "json", "integration", "integration_field"]
+    )
     key = serializers.CharField()
     label = serializers.CharField(required=False)  # type: ignore
     choices = serializers.ListField(child=serializers.DictField(), required=False)
@@ -32,6 +34,9 @@ class InputsSchemaItemSerializer(serializers.Serializer):
     default = serializers.JSONField(required=False)
     secret = serializers.BooleanField(default=False)
     description = serializers.CharField(required=False)
+    integration = serializers.CharField(required=False)
+    integration_key = serializers.CharField(required=False)
+    integration_field = serializers.ChoiceField(choices=["slack_channel"], required=False)
 
     # TODO Validate choices if type=choice
 
@@ -71,6 +76,9 @@ class InputsItemSerializer(serializers.Serializer):
         elif item_type == "dictionary":
             if not isinstance(value, dict):
                 raise serializers.ValidationError({"inputs": {name: f"Value must be a dictionary."}})
+        elif item_type == "integration":
+            if not isinstance(value, int):
+                raise serializers.ValidationError({"inputs": {name: f"Value must be an Integration ID."}})
 
         try:
             if value:

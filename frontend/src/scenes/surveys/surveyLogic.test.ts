@@ -802,7 +802,7 @@ describe('set response-based survey branching', () => {
                 logic.actions.setResponseBasedBranchingForQuestion(
                     questionIndex,
                     0,
-                    SurveyQuestionBranchingType.ConfirmationMessage,
+                    SurveyQuestionBranchingType.End,
                     undefined
                 )
                 logic.actions.setResponseBasedBranchingForQuestion(
@@ -824,7 +824,7 @@ describe('set response-based survey branching', () => {
                                 ...SURVEY.questions[0],
                                 branching: {
                                     type: SurveyQuestionBranchingType.ResponseBased,
-                                    responseValues: { 0: SurveyQuestionBranchingType.ConfirmationMessage }, // Branching out to "Next question" is implicit
+                                    responseValues: { 0: SurveyQuestionBranchingType.End }, // Branching out to "Next question" is implicit
                                 },
                             },
                             { ...SURVEY.questions[1] },
@@ -1179,7 +1179,7 @@ describe('set response-based survey branching', () => {
                     upperBoundLabel: 'Very likely',
                     branching: {
                         type: SurveyQuestionBranchingType.ResponseBased,
-                        responseValues: { 2: 1, 5: SurveyQuestionBranchingType.ConfirmationMessage },
+                        responseValues: { 2: 1, 5: SurveyQuestionBranchingType.End },
                     },
                 },
                 {
@@ -1192,7 +1192,7 @@ describe('set response-based survey branching', () => {
                     upperBoundLabel: 'Very likely',
                     branching: {
                         type: SurveyQuestionBranchingType.ResponseBased,
-                        responseValues: { 3: SurveyQuestionBranchingType.ConfirmationMessage },
+                        responseValues: { 3: SurveyQuestionBranchingType.End },
                     },
                 },
             ]
@@ -1257,7 +1257,7 @@ describe('set response-based survey branching', () => {
                     scale: 5,
                     lowerBoundLabel: 'Unlikely',
                     upperBoundLabel: 'Very likely',
-                    branching: { type: SurveyQuestionBranchingType.ConfirmationMessage },
+                    branching: { type: SurveyQuestionBranchingType.End },
                 },
                 {
                     type: SurveyQuestionType.Rating,
@@ -1314,7 +1314,7 @@ describe('set response-based survey branching', () => {
                     question: '3',
                     description: '',
                     branching: {
-                        type: SurveyQuestionBranchingType.ConfirmationMessage,
+                        type: SurveyQuestionBranchingType.End,
                     },
                 },
                 {

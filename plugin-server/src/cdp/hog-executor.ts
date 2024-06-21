@@ -307,7 +307,7 @@ export class HogExecutor {
     buildHogFunctionGlobals(hogFunction: HogFunctionType, invocation: HogFunctionInvocation): Record<string, any> {
         const builtInputs: Record<string, any> = {}
 
-        Object.entries(hogFunction.inputs).forEach(([key, item]) => {
+        Object.entries(hogFunction.inputs ?? {}).forEach(([key, item]) => {
             builtInputs[key] = item.value
 
             if (item.bytecode) {

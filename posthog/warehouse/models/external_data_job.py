@@ -33,7 +33,10 @@ class ExternalDataJob(CreatedMetaFields, UUIDModel):
 
     @property
     def folder_path(self) -> str:
-        return f"team_{self.team_id}_{self.pipeline.source_type}_{str(self.schema_id)}".lower().replace("-", "_")
+        if self.schema and self.schema.is_incremental:
+            return f"team_{self.team_id}_{self.pipeline.source_type}_{str(self.schema.pk)}".lower().replace("-", "_")
+
+        return f"team_{self.team_id}_{self.pipeline.source_type}_{str(self.pk)}".lower().replace("-", "_")
 
     def url_pattern_by_schema(self, schema: str) -> str:
         if TEST:
