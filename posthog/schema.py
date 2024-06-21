@@ -841,6 +841,7 @@ class QueryResponseAlternative8(BaseModel):
     )
     errors: list[HogQLNotice]
     inputExpr: Optional[str] = None
+    inputProgram: Optional[str] = None
     inputSelect: Optional[str] = None
     isValid: Optional[bool] = None
     isValidView: Optional[bool] = None
@@ -2036,6 +2037,7 @@ class HogQLMetadataResponse(BaseModel):
     )
     errors: list[HogQLNotice]
     inputExpr: Optional[str] = None
+    inputProgram: Optional[str] = None
     inputSelect: Optional[str] = None
     isValid: Optional[bool] = None
     isValidView: Optional[bool] = None

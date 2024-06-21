@@ -23,6 +23,7 @@ def get_hogql_metadata(
         isValidView=False,
         inputExpr=query.expr,
         inputSelect=query.select,
+        inputProgram=query.program,
         errors=[],
         warnings=[],
         notices=[],
@@ -71,7 +72,10 @@ def get_hogql_metadata(
             error = str(e)
             if "mismatched input '<EOF>' expecting" in error:
                 error = "Unexpected end of query"
-            response.errors.append(HogQLNotice(message=error, start=e.start, end=e.end))
+            if e.end and e.start and e.end < e.start:
+                response.errors.append(HogQLNotice(message=error, start=e.end, end=e.start))
+            else:
+                response.errors.append(HogQLNotice(message=error, start=e.start, end=e.end))
         elif not settings.DEBUG:
             # We don't want to accidentally expose too much data via errors
             response.errors.append(HogQLNotice(message=f"Unexpected {e.__class__.__name__}"))

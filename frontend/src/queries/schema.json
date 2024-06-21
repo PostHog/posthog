@@ -4224,6 +4224,9 @@
                 "inputExpr": {
                     "type": "string"
                 },
+                "inputProgram": {
+                    "type": "string"
+                },
                 "inputSelect": {
                     "type": "string"
                 },
@@ -6132,6 +6135,9 @@
                             "type": "array"
                         },
                         "inputExpr": {
+                            "type": "string"
+                        },
+                        "inputProgram": {
                             "type": "string"
                         },
                         "inputSelect": {

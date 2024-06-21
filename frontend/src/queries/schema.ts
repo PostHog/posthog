@@ -272,6 +272,7 @@ export interface HogQLNotice {
 export interface HogQLMetadataResponse {
     inputExpr?: string
     inputSelect?: string
+    inputProgram?: string
     isValid?: boolean
     isValidView?: boolean
     errors: HogQLNotice[]
