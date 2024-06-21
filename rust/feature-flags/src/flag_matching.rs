@@ -1,12 +1,12 @@
 use crate::{
     api::FlagError,
-    database::{Client as DatabaseClient, CustomDatabaseError},
+    database::Client as DatabaseClient,
     flag_definitions::{FeatureFlag, FlagGroupType},
     property_matching::match_property,
 };
 use serde_json::Value;
 use sha1::{Digest, Sha1};
-use std::{collections::HashMap, fmt::Write, hash::Hash, sync::Arc};
+use std::{collections::HashMap, fmt::Write, sync::Arc};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct FeatureFlagMatch {
@@ -117,7 +117,6 @@ impl FeatureFlagMatcher {
                 condition_match = true;
             } else {
                 // TODO: First handle given override properties before going to db
-                // condition_match = all(match_property(property, target_properties) for property in properties)
                 let target_properties = self
                     .get_person_properties(feature_flag.team_id, self.distinct_id.clone())
                     .await
