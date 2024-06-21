@@ -1,5 +1,3 @@
-import { convertJSToHog } from '@posthog/hogvm'
-import express from 'express'
 import { features, librdkafkaVersion, Message } from 'node-rdkafka'
 import { Histogram } from 'prom-client'
 
@@ -14,28 +12,22 @@ import { createRdConnectionConfigFromEnvVars, createRdProducerConfigFromEnvVars 
 import { createKafkaProducer } from '../kafka/producer'
 import { addSentryBreadcrumbsEventListeners } from '../main/ingestion-queues/kafka-metrics'
 import { runInstrumentedFunction } from '../main/utils'
-import { GroupTypeToColumnIndex, Hub, PluginsServerConfig, RawClickHouseEvent, TeamId, TimestampFormat } from '../types'
+import { GroupTypeToColumnIndex, Hub, RawClickHouseEvent, TeamId, TimestampFormat } from '../types'
 import { KafkaProducerWrapper } from '../utils/db/kafka-producer-wrapper'
-import { PostgresRouter } from '../utils/db/postgres'
 import { status } from '../utils/status'
 import { castTimestampOrNow } from '../utils/utils'
 import { AppMetrics } from '../worker/ingestion/app-metrics'
-import { GroupTypeManager } from '../worker/ingestion/group-type-manager'
-import { OrganizationManager } from '../worker/ingestion/organization-manager'
-import { TeamManager } from '../worker/ingestion/team-manager'
 import { RustyHook } from '../worker/rusty-hook'
 import { AsyncFunctionExecutor } from './async-function-executor'
-import { addLog, HogExecutor } from './hog-executor'
+import { HogExecutor } from './hog-executor'
 import { HogFunctionManager } from './hog-function-manager'
 import { HogWatcher } from './hog-watcher'
 import {
     CdpOverflowMessage,
-    HogFunctionInvocation,
     HogFunctionInvocationAsyncResponse,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationResult,
     HogFunctionMessageToQueue,
-    HogFunctionType,
 } from './types'
 import { convertToHogFunctionInvocationGlobals, convertToParsedClickhouseEvent } from './utils'
 
@@ -64,11 +56,8 @@ export interface TeamIDWithConfig {
 
 abstract class CdpConsumerBase {
     batchConsumer?: BatchConsumer
-    teamManager: TeamManager
-    organizationManager: OrganizationManager
-    groupTypeManager: GroupTypeManager
     hogFunctionManager: HogFunctionManager
-    asyncFunctionExecutor?: AsyncFunctionExecutor
+    asyncFunctionExecutor: AsyncFunctionExecutor
     hogExecutor: HogExecutor
     hogWatcher: HogWatcher
     appMetrics?: AppMetrics
@@ -79,15 +68,12 @@ abstract class CdpConsumerBase {
     protected abstract topic: string
     protected abstract consumerGroupId: string
 
-    constructor(protected config: PluginsServerConfig, protected hub?: Hub) {
-        const postgres = hub?.postgres ?? new PostgresRouter(config)
-
-        this.teamManager = new TeamManager(postgres, config)
-        this.organizationManager = new OrganizationManager(postgres, this.teamManager)
-        this.groupTypeManager = new GroupTypeManager(postgres, this.teamManager)
-        this.hogWatcher = new HogWatcher()
-        this.hogFunctionManager = new HogFunctionManager(postgres, config)
-        this.hogExecutor = new HogExecutor(this.config, this.hogFunctionManager)
+    constructor(protected hub: Hub) {
+        this.hogWatcher = new HogWatcher(hub.redisPool)
+        this.hogFunctionManager = new HogFunctionManager(hub.postgres, hub)
+        this.hogExecutor = new HogExecutor(hub, this.hogFunctionManager)
+        const rustyHook = this.hub?.rustyHook ?? new RustyHook(this.hub)
+        this.asyncFunctionExecutor = new AsyncFunctionExecutor(this.hub, rustyHook)
     }
 
     public abstract handleEachBatch(messages: Message[], heartbeat: () => void): Promise<void>
@@ -119,7 +105,7 @@ abstract class CdpConsumerBase {
                         })
 
                         if (result.asyncFunctionRequest) {
-                            const res = await this.asyncFunctionExecutor!.execute(result)
+                            const res = await this.asyncFunctionExecutor.execute(result)
 
                             // NOTE: This is very temporary as it is producing the response. the response will actually be produced by the 3rd party service
                             // Later this will actually be the _request_ which we will push to the async function topic if we make one
@@ -154,22 +140,22 @@ abstract class CdpConsumerBase {
         return await runInstrumentedFunction({
             statsKey: `cdpConsumer.handleEachBatch.executeAsyncResponses`,
             func: async () => {
-                this.hogWatcher.observeAsyncFunctionResponses(asyncResponses)
+                await this.hogWatcher.observeAsyncFunctionResponses(asyncResponses)
                 // Filter for blocked functions
                 asyncResponses = asyncResponses.filter((e) => {
-                    if (this.hogWatcher.isHogFunctionOverflowed(e.hogFunctionId)) {
-                        // TODO: Move to overflow
-                        return false
-                    }
-                    if (this.hogWatcher.isHogFunctionDisabled(e.hogFunctionId)) {
-                        // TODO: We probably want to log some metric that it was blocked
-                        return false
-                    }
+                    // if (this.hogWatcher.isHogFunctionOverflowed(e.hogFunctionId)) {
+                    //     // TODO: Move to overflow
+                    //     return false
+                    // }
+                    // if (this.hogWatcher.isHogFunctionDisabled(e.hogFunctionId)) {
+                    //     // TODO: We probably want to log some metric that it was blocked
+                    //     return false
+                    // }
                     return true
                 })
 
                 const results = await Promise.all(asyncResponses.map((e) => this.hogExecutor.executeAsyncResponse(e)))
-                this.hogWatcher.observeResults(results)
+                await this.hogWatcher.observeResults(results)
                 return results
             },
         })
@@ -193,7 +179,7 @@ abstract class CdpConsumerBase {
                         })
                     )
                 ).flat()
-                this.hogWatcher.observeResults(results)
+                await this.hogWatcher.observeResults(results)
                 return results
             },
         })
@@ -206,8 +192,8 @@ abstract class CdpConsumerBase {
         })
 
         // NOTE: This is the only place where we need to use the shared server config
-        const globalConnectionConfig = createRdConnectionConfigFromEnvVars(this.config)
-        const globalProducerConfig = createRdProducerConfigFromEnvVars(this.config)
+        const globalConnectionConfig = createRdConnectionConfigFromEnvVars(this.hub)
+        const globalProducerConfig = createRdProducerConfigFromEnvVars(this.hub)
 
         await this.hogFunctionManager.start()
 
@@ -215,37 +201,34 @@ abstract class CdpConsumerBase {
             await createKafkaProducer(globalConnectionConfig, globalProducerConfig)
         )
 
-        const rustyHook = this.hub?.rustyHook ?? new RustyHook(this.config)
-        this.asyncFunctionExecutor = new AsyncFunctionExecutor(this.config, rustyHook)
-
         this.appMetrics =
             this.hub?.appMetrics ??
             new AppMetrics(
                 this.kafkaProducer,
-                this.config.APP_METRICS_FLUSH_FREQUENCY_MS,
-                this.config.APP_METRICS_FLUSH_MAX_QUEUE_SIZE
+                this.hub.APP_METRICS_FLUSH_FREQUENCY_MS,
+                this.hub.APP_METRICS_FLUSH_MAX_QUEUE_SIZE
             )
         this.kafkaProducer.producer.connect()
 
         this.batchConsumer = await startBatchConsumer({
-            connectionConfig: createRdConnectionConfigFromEnvVars(this.config),
+            connectionConfig: createRdConnectionConfigFromEnvVars(this.hub),
             groupId: this.consumerGroupId,
             topic: this.topic,
             autoCommit: true,
-            sessionTimeout: this.config.KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS,
-            maxPollIntervalMs: this.config.KAFKA_CONSUMPTION_MAX_POLL_INTERVAL_MS,
+            sessionTimeout: this.hub.KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS,
+            maxPollIntervalMs: this.hub.KAFKA_CONSUMPTION_MAX_POLL_INTERVAL_MS,
             // the largest size of a message that can be fetched by the consumer.
             // the largest size our MSK cluster allows is 20MB
             // we only use 9 or 10MB but there's no reason to limit this 🤷️
-            consumerMaxBytes: this.config.KAFKA_CONSUMPTION_MAX_BYTES,
-            consumerMaxBytesPerPartition: this.config.KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION,
+            consumerMaxBytes: this.hub.KAFKA_CONSUMPTION_MAX_BYTES,
+            consumerMaxBytesPerPartition: this.hub.KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION,
             // our messages are very big, so we don't want to buffer too many
-            // queuedMinMessages: this.config.KAFKA_QUEUE_SIZE,
-            consumerMaxWaitMs: this.config.KAFKA_CONSUMPTION_MAX_WAIT_MS,
-            consumerErrorBackoffMs: this.config.KAFKA_CONSUMPTION_ERROR_BACKOFF_MS,
-            fetchBatchSize: this.config.INGESTION_BATCH_SIZE,
-            batchingTimeoutMs: this.config.KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS,
-            topicCreationTimeoutMs: this.config.KAFKA_TOPIC_CREATION_TIMEOUT_MS,
+            // queuedMinMessages: this.hub.KAFKA_QUEUE_SIZE,
+            consumerMaxWaitMs: this.hub.KAFKA_CONSUMPTION_MAX_WAIT_MS,
+            consumerErrorBackoffMs: this.hub.KAFKA_CONSUMPTION_ERROR_BACKOFF_MS,
+            fetchBatchSize: this.hub.INGESTION_BATCH_SIZE,
+            batchingTimeoutMs: this.hub.KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS,
+            topicCreationTimeoutMs: this.hub.KAFKA_TOPIC_CREATION_TIMEOUT_MS,
             eachBatch: async (messages, { heartbeat }) => {
                 status.info('🔁', `${this.name} - handling batch`, {
                     size: messages.length,
@@ -294,103 +277,6 @@ abstract class CdpConsumerBase {
         // TODO: Maybe extend this to check if we are shutting down so we don't get killed early.
         return this.batchConsumer?.isHealthy()
     }
-
-    public addApiRoutes(app: express.Application) {
-        app.post('/api/projects/:team_id/hog_functions/:id/invocations', async (req, res): Promise<void> => {
-            try {
-                const { id, team_id } = req.params
-                const { event, mock_async_functions, configuration } = req.body
-
-                status.info('⚡️', 'Received invocation', { id, team_id, body: req.body })
-
-                if (!event) {
-                    res.status(400).json({ error: 'Missing event' })
-                    return
-                }
-
-                const [hogFunction, team] = await Promise.all([
-                    this.hogFunctionManager.fetchHogFunction(req.params.id),
-                    this.teamManager.fetchTeam(parseInt(team_id)),
-                ]).catch(() => {
-                    return [null, null]
-                })
-                if (!hogFunction || !team || hogFunction.team_id !== team.id) {
-                    res.status(404).json({ error: 'Hog function not found' })
-                    return
-                }
-
-                let groupTypes: GroupTypeToColumnIndex | undefined = undefined
-
-                if (await this.organizationManager.hasAvailableFeature(team.id, 'group_analytics')) {
-                    // If the organization has group analytics enabled then we enrich the event with group data
-                    groupTypes = await this.groupTypeManager.fetchGroupTypes(team.id)
-                }
-
-                const globals = convertToHogFunctionInvocationGlobals(
-                    event,
-                    team,
-                    this.config.SITE_URL ?? 'http://localhost:8000',
-                    groupTypes
-                )
-
-                globals.source = {
-                    name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
-                    url: `${globals.project.url}/pipeline/destinations/hog-${hogFunction.id}/configuration/`,
-                }
-
-                const invocation: HogFunctionInvocation = {
-                    id,
-                    globals: globals,
-                    teamId: team.id,
-                    hogFunctionId: id,
-                    logs: [],
-                    timings: [],
-                }
-
-                // We use the provided config if given, otherwise the function's config
-                const functionConfiguration: HogFunctionType = configuration ?? hogFunction
-
-                let response = this.hogExecutor.execute(functionConfiguration, invocation)
-
-                while (response.asyncFunctionRequest) {
-                    const asyncFunctionRequest = response.asyncFunctionRequest
-
-                    if (mock_async_functions || asyncFunctionRequest.name !== 'fetch') {
-                        addLog(response, 'info', `Async function '${asyncFunctionRequest.name}' was mocked`)
-
-                        // Add the state, simulating what executeAsyncResponse would do
-                        asyncFunctionRequest.vmState.stack.push(convertJSToHog({ status: 200, body: {} }))
-                    } else {
-                        const asyncRes = await this.asyncFunctionExecutor!.execute(response, {
-                            sync: true,
-                        })
-
-                        if (!asyncRes || asyncRes.asyncFunctionResponse.error) {
-                            addLog(response, 'error', 'Failed to execute async function')
-                        }
-                        asyncFunctionRequest.vmState.stack.push(
-                            convertJSToHog(asyncRes?.asyncFunctionResponse.vmResponse ?? null)
-                        )
-                        response.timings.push(...(asyncRes?.asyncFunctionResponse.timings ?? []))
-                    }
-
-                    // Clear it so we can't ever end up in a loop
-                    delete response.asyncFunctionRequest
-
-                    response = this.hogExecutor.execute(functionConfiguration, response, asyncFunctionRequest.vmState)
-                }
-
-                res.json({
-                    status: response.finished ? 'success' : 'error',
-                    error: String(response.error),
-                    logs: response.logs,
-                })
-            } catch (e) {
-                console.error(e)
-                res.status(500).json({ error: e.message })
-            }
-        })
-    }
 }
 
 /**
@@ -434,13 +320,16 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
                     let groupTypes: GroupTypeToColumnIndex | undefined = undefined
 
                     if (
-                        await this.organizationManager.hasAvailableFeature(clickHouseEvent.team_id, 'group_analytics')
+                        await this.hub.organizationManager.hasAvailableFeature(
+                            clickHouseEvent.team_id,
+                            'group_analytics'
+                        )
                     ) {
                         // If the organization has group analytics enabled then we enrich the event with group data
-                        groupTypes = await this.groupTypeManager.fetchGroupTypes(clickHouseEvent.team_id)
+                        groupTypes = await this.hub.groupTypeManager.fetchGroupTypes(clickHouseEvent.team_id)
                     }
 
-                    const team = await this.teamManager.fetchTeam(clickHouseEvent.team_id)
+                    const team = await this.hub.teamManager.fetchTeam(clickHouseEvent.team_id)
                     if (!team) {
                         return
                     }
@@ -448,7 +337,7 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
                         convertToHogFunctionInvocationGlobals(
                             convertToParsedClickhouseEvent(clickHouseEvent),
                             team,
-                            this.config.SITE_URL ?? 'http://localhost:8000',
+                            this.hub.SITE_URL ?? 'http://localhost:8000',
                             groupTypes
                         )
                     )

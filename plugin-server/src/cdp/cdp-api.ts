@@ -1,0 +1,152 @@
+import { convertJSToHog } from '@posthog/hogvm'
+import express from 'express'
+
+import { GroupTypeToColumnIndex, Hub } from '../types'
+import { status } from '../utils/status'
+import { AsyncFunctionExecutor } from './async-function-executor'
+import { addLog, HogExecutor } from './hog-executor'
+import { HogFunctionManager } from './hog-function-manager'
+import { HogWatcher } from './hog-watcher'
+import { HogFunctionInvocation, HogFunctionType } from './types'
+import { convertToHogFunctionInvocationGlobals } from './utils'
+
+export class CdpApi {
+    private hogExecutor: HogExecutor
+    private hogFunctionManager: HogFunctionManager
+    private asyncFunctionExecutor: AsyncFunctionExecutor
+    private hogWatcher: HogWatcher
+
+    constructor(
+        private hub: Hub,
+        dependencies: {
+            hogExecutor: HogExecutor
+            hogFunctionManager: HogFunctionManager
+            asyncFunctionExecutor: AsyncFunctionExecutor
+            hogWatcher: HogWatcher
+        }
+    ) {
+        this.hogExecutor = dependencies.hogExecutor
+        this.hogFunctionManager = dependencies.hogFunctionManager
+        this.asyncFunctionExecutor = dependencies.asyncFunctionExecutor
+        this.hogWatcher = dependencies.hogWatcher
+    }
+
+    router(): express.Router {
+        const router = express.Router()
+
+        const asyncHandler =
+            (fn: (req: express.Request, res: express.Response) => Promise<void>) =>
+            (req: express.Request, res: express.Response, next: express.NextFunction): Promise<void> =>
+                fn(req, res).catch(next)
+
+        router.post('/api/projects/:team_id/hog_functions/:id/invocations', asyncHandler(this.postFunctionInvocation))
+        router.get('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.getFunctionStatus()))
+
+        return router
+    }
+
+    private getFunctionStatus =
+        () =>
+        async (req: express.Request, res: express.Response): Promise<void> => {
+            const { id } = req.params
+
+            const summary = (await this.hogWatcher.getObserver(id)).getSummary()
+
+            res.json(summary)
+        }
+
+    private postFunctionInvocation = async (req: express.Request, res: express.Response): Promise<void> => {
+        try {
+            const { id, team_id } = req.params
+            const { event, mock_async_functions, configuration } = req.body
+
+            status.info('⚡️', 'Received invocation', { id, team_id, body: req.body })
+
+            if (!event) {
+                res.status(400).json({ error: 'Missing event' })
+                return
+            }
+
+            const [hogFunction, team] = await Promise.all([
+                this.hogFunctionManager.fetchHogFunction(req.params.id),
+                this.hub.teamManager.fetchTeam(parseInt(team_id)),
+            ]).catch(() => {
+                return [null, null]
+            })
+            if (!hogFunction || !team || hogFunction.team_id !== team.id) {
+                res.status(404).json({ error: 'Hog function not found' })
+                return
+            }
+
+            let groupTypes: GroupTypeToColumnIndex | undefined = undefined
+
+            if (await this.hub.organizationManager.hasAvailableFeature(team.id, 'group_analytics')) {
+                // If the organization has group analytics enabled then we enrich the event with group data
+                groupTypes = await this.hub.groupTypeManager.fetchGroupTypes(team.id)
+            }
+
+            const globals = convertToHogFunctionInvocationGlobals(
+                event,
+                team,
+                this.hub.SITE_URL ?? 'http://localhost:8000',
+                groupTypes
+            )
+
+            globals.source = {
+                name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
+                url: `${globals.project.url}/pipeline/destinations/hog-${hogFunction.id}/configuration/`,
+            }
+
+            const invocation: HogFunctionInvocation = {
+                id,
+                globals: globals,
+                teamId: team.id,
+                hogFunctionId: id,
+                logs: [],
+                timings: [],
+            }
+
+            // We use the provided config if given, otherwise the function's config
+            const functionConfiguration: HogFunctionType = configuration ?? hogFunction
+
+            let response = this.hogExecutor.execute(functionConfiguration, invocation)
+
+            while (response.asyncFunctionRequest) {
+                const asyncFunctionRequest = response.asyncFunctionRequest
+
+                if (mock_async_functions || asyncFunctionRequest.name !== 'fetch') {
+                    addLog(response, 'info', `Async function '${asyncFunctionRequest.name}' was mocked`)
+
+                    // Add the state, simulating what executeAsyncResponse would do
+                    asyncFunctionRequest.vmState.stack.push(convertJSToHog({ status: 200, body: {} }))
+                } else {
+                    const asyncRes = await this.asyncFunctionExecutor!.execute(response, {
+                        sync: true,
+                    })
+
+                    if (!asyncRes || asyncRes.asyncFunctionResponse.error) {
+                        addLog(response, 'error', 'Failed to execute async function')
+                    }
+                    asyncFunctionRequest.vmState.stack.push(
+                        convertJSToHog(asyncRes?.asyncFunctionResponse.vmResponse ?? null)
+                    )
+                    response.timings.push(...(asyncRes?.asyncFunctionResponse.timings ?? []))
+                }
+
+                // Clear it so we can't ever end up in a loop
+                delete response.asyncFunctionRequest
+
+                response = this.hogExecutor.execute(functionConfiguration, response, asyncFunctionRequest.vmState)
+            }
+
+            res.json({
+                status: response.finished ? 'success' : 'error',
+                error: String(response.error),
+                logs: response.logs,
+            })
+        } catch (e) {
+            console.error(e)
+            res.status(500).json({ error: e.message })
+        }
+    }
+}

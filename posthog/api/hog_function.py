@@ -1,3 +1,4 @@
+from typing import Any
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import QuerySet
@@ -18,7 +19,7 @@ from posthog.cdp.services.icons import CDPIconsService
 from posthog.cdp.validation import compile_hog, validate_inputs, validate_inputs_schema
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.permissions import PostHogFeatureFlagPermission
-from posthog.plugins.plugin_server_api import create_hog_invocation_test
+from posthog.plugins.plugin_server_api import create_hog_invocation_test, get_hog_function_status
 
 
 logger = structlog.get_logger(__name__)
@@ -46,6 +47,7 @@ class HogFunctionMinimalSerializer(serializers.ModelSerializer):
 
 class HogFunctionSerializer(HogFunctionMinimalSerializer):
     template = HogFunctionTemplateSerializer(read_only=True)
+    status = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = HogFunction
@@ -66,6 +68,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "icon_url",
             "template",
             "template_id",
+            "status",
         ]
         read_only_fields = [
             "id",
@@ -74,6 +77,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "updated_at",
             "bytecode",
             "template",
+            "status",
         ]
         extra_kwargs = {
             "template_id": {"write_only": True},
@@ -104,6 +108,17 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         request = self.context["request"]
         validated_data["created_by"] = request.user
         return super().create(validated_data=validated_data)
+
+    def get_status(self, instance: HogFunction) -> Any:
+        # Only get if the request is a retrieve
+        if self.context["view"].action == "retrieve":
+            try:
+                res = get_hog_function_status(instance.team_id, instance.id)
+                return res.json()
+            except Exception as e:
+                logger.error("Failed to get hog function status", error=str(e))
+
+        return None
 
 
 class HogFunctionInvocationSerializer(serializers.Serializer):

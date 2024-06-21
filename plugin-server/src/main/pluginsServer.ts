@@ -10,6 +10,7 @@ import { Counter } from 'prom-client'
 import v8Profiler from 'v8-profiler-next'
 
 import { getPluginServerCapabilities } from '../capabilities'
+import { CdpApi } from '../cdp/cdp-api'
 import { CdpFunctionCallbackConsumer, CdpOverflowConsumer, CdpProcessedEventsConsumer } from '../cdp/cdp-consumers'
 import { defaultConfig, sessionRecordingConsumerConfig } from '../config/config'
 import { Hub, PluginServerCapabilities, PluginsServerConfig } from '../types'
@@ -493,7 +494,7 @@ export async function startPluginsServer(
 
         if (capabilities.cdpProcessedEvents) {
             ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, capabilities)
-            const consumer = new CdpProcessedEventsConsumer(serverConfig, hub)
+            const consumer = new CdpProcessedEventsConsumer(hub)
             await consumer.start()
 
             shutdownOnConsumerExit(consumer.batchConsumer!)
@@ -503,7 +504,7 @@ export async function startPluginsServer(
 
         if (capabilities.cdpFunctionCallbacks) {
             ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, capabilities)
-            const consumer = new CdpFunctionCallbackConsumer(serverConfig, hub)
+            const consumer = new CdpFunctionCallbackConsumer(hub)
             await consumer.start()
 
             shutdownOnConsumerExit(consumer.batchConsumer!)
@@ -513,13 +514,14 @@ export async function startPluginsServer(
 
             // NOTE: The function callback service is more idle so can handle http requests as well
             if (capabilities.http) {
-                consumer.addApiRoutes(expressApp)
+                const api = new CdpApi(hub, consumer)
+                expressApp.use('/', api.router())
             }
         }
 
         if (capabilities.cdpOverflow) {
             ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, capabilities)
-            const consumer = new CdpOverflowConsumer(serverConfig, hub)
+            const consumer = new CdpOverflowConsumer(hub)
             await consumer.start()
 
             shutdownOnConsumerExit(consumer.batchConsumer!)

@@ -1,7 +1,7 @@
 import {
     DISABLE_THRESHOLD,
     DISABLED_PERIOD,
-    HogWatcherObservationPeriod,
+    HogWatcherObservationPeriodDetailed,
     HogWatcherObserver,
     HogWatcherState,
     OBSERVATION_PERIOD,
@@ -53,7 +53,7 @@ describe('HogWatcher', () => {
             })
 
             // TODO: Change rating to account for numbers as well - low volume failures can still have a high rating as their impact is not so bad
-            const cases: Array<[Partial<HogWatcherObservationPeriod>, number]> = [
+            const cases: Array<[Partial<HogWatcherObservationPeriodDetailed>, number]> = [
                 [{ successes: 9, failures: 1 }, 0.9],
                 [{ successes: 1, failures: 1 }, 0.5],
                 [{ successes: 0, failures: 1 }, 0],

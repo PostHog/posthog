@@ -4214,6 +4214,7 @@ export type HogFunctionType = {
     >
     filters?: PluginConfigFilters | null
     template?: HogFunctionTemplateType
+    status?: HogFunctionStatus
 }
 
 export type HogFunctionConfigurationType = Omit<HogFunctionType, 'created_at' | 'created_by' | 'updated_at'>
@@ -4229,6 +4230,21 @@ export type HogFunctionIconResponse = {
     id: string
     name: string
     url: string
+}
+
+export enum HogWatcherState {
+    healthy = 1,
+    overflowed = 2,
+    disabledForPeriod = 3,
+    disabledIndefinitely = 4,
+}
+
+export type HogFunctionStatus = {
+    state: HogWatcherState
+    states: {
+        timestamp: string
+        state: 'healthy' | 'overflowed'
+    }[]
 }
 
 export interface AnomalyCondition {
