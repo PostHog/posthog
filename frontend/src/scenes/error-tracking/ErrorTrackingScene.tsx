@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { Sparkline } from 'lib/lemon-ui/Sparkline'
 import { useMemo } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -32,6 +33,10 @@ export function ErrorTrackingScene(): JSX.Element {
                 width: '50%',
                 render: CustomGroupTitleColumn,
             },
+            "toJSONString(arrayReduce('sumMap', arrayMap(x -> map(x,1), groupArray(toHour(timestamp))))) -- Sparkline":
+                {
+                    render: SparklineColumn,
+                },
         },
         showOpenEditorButton: false,
     }
@@ -55,4 +60,13 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
             to={urls.errorTrackingGroup(properties.$exception_type)}
         />
     )
+}
+
+const SparklineColumn: QueryContextColumnComponent = ({ value }) => {
+    const values = JSON.parse(value as string)
+    const data = Array(24).fill(0)
+
+    Object.entries(values).forEach(([hour, count]) => (data[hour] = Number(count)))
+
+    return <Sparkline data={data} />
 }
