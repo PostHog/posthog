@@ -1409,10 +1409,14 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         for result in response:
             self.assertIsInstance(result["breakdown_value"], list)
 
-        self.assertEqual(response[0]["breakdown_value"], ["Safari", "2"], "idx 0")
-        self.assertEqual(response[1]["breakdown_value"], ["Safari", "1"], "idx 1")
-        self.assertEqual(response[2]["breakdown_value"], ["Chrome", "2"], "idx 2")
-        self.assertEqual(response[3]["breakdown_value"], ["Chrome", "1"], "idx 3")
+        self.assertEqual(response[0]["breakdown_value"], ["Safari", "2"])
+        self.assertEqual(response[1]["breakdown_value"], ["Safari", "1"])
+        self.assertEqual(response[2]["breakdown_value"], ["Chrome", "1"])
+        self.assertEqual(response[3]["breakdown_value"], ["Chrome", "2"])
+        self.assertEqual(response[0]["aggregated_value"], 3)
+        self.assertEqual(response[1]["aggregated_value"], 2)
+        self.assertEqual(response[2]["aggregated_value"], 1)
+        self.assertEqual(response[3]["aggregated_value"], 1)
 
     def test_trends_breakdown_single_aggregate_with_zero_person_ids(self):
         # only a person-on-event test
@@ -1761,7 +1765,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             [resp["breakdown_value"] for resp in daily_response],
             ["value2", "value1", "$$_posthog_breakdown_null_$$"],
         )
-        self.assertEqual(sorted([resp["aggregated_value"] for resp in daily_response]), sorted([12.5, 10, 1]))
+        self.assertEqual([resp["aggregated_value"] for resp in daily_response], [12.5, 10, 1])
 
         with freeze_time("2020-01-04T13:00:01Z"):
             weekly_response = self._run(
@@ -1818,9 +1822,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # empty has: 1 seconds
         self.assertEqual(
             [resp["breakdown_value"] for resp in daily_response],
-            [["value1"], ["value2"], ["$$_posthog_breakdown_null_$$"]],
+            [["value2"], ["value1"], ["$$_posthog_breakdown_null_$$"]],
         )
-        self.assertEqual(sorted([resp["aggregated_value"] for resp in daily_response]), sorted([12.5, 10, 1]))
+        self.assertEqual([resp["aggregated_value"] for resp in daily_response], [12.5, 10, 1])
 
         with freeze_time("2020-01-04T13:00:01Z"):
             weekly_response = self._run(

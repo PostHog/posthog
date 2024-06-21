@@ -3087,8 +3087,8 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert len(breakdown_labels) == 5
         assert breakdown_labels == [
             ["[4,28.8]"],
-            ["[28.8,53.6]"],
             ["[103.2,128.01]"],
+            ["[28.8,53.6]"],
             ["[53.6,78.4]"],
             [BREAKDOWN_NULL_STRING_LABEL],
         ]
