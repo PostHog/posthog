@@ -1,6 +1,7 @@
-from typing import cast
+from typing import cast, Optional
 import posthoganalytics
 
+from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.hogql.ast import SelectQuery, And
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
@@ -38,7 +39,12 @@ PERSONS_FIELDS: dict[str, FieldOrTable] = {
 }
 
 
-def select_from_persons_table(join_or_table: LazyJoinToAdd | LazyTableToAdd, context: HogQLContext, node: SelectQuery):
+def select_from_persons_table(
+    join_or_table: LazyJoinToAdd | LazyTableToAdd,
+    context: HogQLContext,
+    node: SelectQuery,
+    filter: Optional[str] = None,
+):
     version = context.modifiers.personsArgMaxVersion
     if version == PersonsArgMaxVersion.AUTO:
         version = PersonsArgMaxVersion.V1
@@ -55,10 +61,11 @@ def select_from_persons_table(join_or_table: LazyJoinToAdd | LazyTableToAdd, con
         select = cast(
             ast.SelectQuery,
             parse_select(
-                """
+                f"""
             SELECT id FROM raw_persons WHERE (id, version) IN (
                SELECT id, max(version) as version
                FROM raw_persons
+               {f'WHERE {filter}' if filter is not None else ''}
                GROUP BY id
                HAVING equals(argMax(raw_persons.is_deleted, raw_persons.version), 0)
                AND argMax(raw_persons.created_at, raw_persons.version) < now() + interval 1 day
@@ -88,6 +95,14 @@ def select_from_persons_table(join_or_table: LazyJoinToAdd | LazyTableToAdd, con
             timestamp_field_to_clamp="created_at",
         )
         select.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
+        if filter is not None:
+            from hogql_parser import parse_expr
+
+            where = parse_expr(filter)
+            if select.where:
+                select.where = And(exprs=[select.where, where])
+            elif where:
+                select.where = where
 
     if False or context.modifiers.optimizeJoinedFilters:
         extractor = WhereClauseExtractor(context)
@@ -179,7 +194,7 @@ class SuperhotPersonsTable(LazyTable):
     fields: dict[str, FieldOrTable] = PERSONS_FIELDS
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context, node):
-        return select_from_persons_table(table_to_add, context, node)
+        return select_from_persons_table(table_to_add, context, node, get_query_tag_value("superhot"))
 
     def to_printed_clickhouse(self, context):
         return "person"

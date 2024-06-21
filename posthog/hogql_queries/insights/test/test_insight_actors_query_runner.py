@@ -237,7 +237,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
 
         self.assertEqual([("p2",)], response.results)
-        assert "in(person.id" in queries[0]
+        assert "in(id," in queries[0]
 
     @snapshot_clickhouse_queries
     def test_insight_persons_trends_query_with_argmaxV2(self):

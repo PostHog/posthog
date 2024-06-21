@@ -1,6 +1,8 @@
 import itertools
 from typing import Optional
 from collections.abc import Sequence, Iterator
+
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.parser import parse_expr, parse_order_expr
@@ -249,6 +251,7 @@ class ActorsQueryRunner(QueryRunner):
                 if isinstance(self.strategy, PersonStrategy) and any(
                     isinstance(x, C) for x in [getattr(self.query.source, "source", None)] for C in (TrendsQuery,)
                 ):
+                    tag_queries(superhot="id IN (SELECT actor_id FROM source)")
                     origin = "superhot_persons"
 
                 join_expr = ast.JoinExpr(
