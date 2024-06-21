@@ -4220,7 +4220,7 @@ export type HogFunctionType = {
     status?: HogFunctionStatus
 }
 
-export type HogFunctionConfigurationType = Omit<HogFunctionType, 'created_at' | 'created_by' | 'updated_at'>
+export type HogFunctionConfigurationType = Omit<HogFunctionType, 'created_at' | 'created_by' | 'updated_at' | 'status'>
 
 export type HogFunctionTemplateType = Pick<
     HogFunctionType,
@@ -4244,9 +4244,14 @@ export enum HogWatcherState {
 
 export type HogFunctionStatus = {
     state: HogWatcherState
+    rating: number
     states: {
-        timestamp: string
-        state: 'healthy' | 'overflowed'
+        timestamp: number
+        state: HogWatcherState
+    }[]
+    observations: {
+        timestamp: number
+        rating: number
     }[]
 }
 

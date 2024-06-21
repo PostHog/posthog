@@ -69,7 +69,7 @@ abstract class CdpConsumerBase {
     protected abstract consumerGroupId: string
 
     constructor(protected hub: Hub) {
-        this.hogWatcher = new HogWatcher(hub.redisPool)
+        this.hogWatcher = new HogWatcher(hub)
         this.hogFunctionManager = new HogFunctionManager(hub.postgres, hub)
         this.hogExecutor = new HogExecutor(hub, this.hogFunctionManager)
         const rustyHook = this.hub?.rustyHook ?? new RustyHook(this.hub)
@@ -195,7 +195,7 @@ abstract class CdpConsumerBase {
         const globalConnectionConfig = createRdConnectionConfigFromEnvVars(this.hub)
         const globalProducerConfig = createRdProducerConfigFromEnvVars(this.hub)
 
-        await this.hogFunctionManager.start()
+        await Promise.all([this.hogFunctionManager.start(), this.hogWatcher.start()])
 
         this.kafkaProducer = new KafkaProducerWrapper(
             await createKafkaProducer(globalConnectionConfig, globalProducerConfig)

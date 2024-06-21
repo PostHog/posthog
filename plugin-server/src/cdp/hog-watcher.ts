@@ -1,8 +1,10 @@
 import { Redis } from 'ioredis'
 
-import { RedisPool } from '../types'
+import { Hub, PluginsServerConfig, RedisPool } from '../types'
 import { timeoutGuard } from '../utils/db/utils'
 import { HogFunctionInvocationAsyncResponse, HogFunctionInvocationResult, HogFunctionType } from './types'
+import { randomUUID } from 'node:crypto'
+import { PubSub } from '../utils/pubsub'
 
 /**
  * General approach:
@@ -58,9 +60,39 @@ export type HogWatcherObservationPeriodDetailed = HogWatcherObservationPeriod & 
 
 export type HogWatcherSummary = {
     state: HogWatcherState
+    rating: number
     states: HogWatcherStatePeriod[]
     observations: HogWatcherObservationPeriod[]
 }
+
+export type PersistedHogWatcherObservations = {
+    [key: string]: HogWatcherObservationPeriodDetailed
+}
+
+export type EmittedHogWatcherObservation = {
+    id: HogFunctionType['id']
+    observerId: string
+    observation: HogWatcherObservationPeriodDetailed
+}
+
+/*
+This all gets serialized to redis in a way that we can have shared state between multiple instances of the plugin server
+
+# Timestamps are rounded to a period so we can easily group them
+
+ZSET @posthog/hog-watcher/observations/<id>/successes
+# Whenever we pass the threshold for a evaluation period, we increment that period in the ZSET with our successes and failures
+
+
+FIELD @posthog/hog-watcher/observations/<id> = {
+  [uuid]: HogWatcherObservationPeriodDetailed
+}
+
+We set a ttl on the key to the max period we want to keep the data for. This way each pod can fetch all observations and states.
+
+*/
+
+const REDIS_TIMEOUT_SECONDS = 5
 
 export const OBSERVATION_PERIOD = 10000 // Adjust this for more or less granular checking
 export const EVALUATION_PERIOD = OBSERVATION_PERIOD * 100 // Essentially how many periods to keep in memory
@@ -75,12 +107,19 @@ export const DISABLE_THRESHOLD = 0.5
 export class HogWatcherObserver {
     observations: HogWatcherObservationPeriodDetailed[] = []
     states: HogWatcherStatePeriod[] = []
+    observerId: string
 
-    constructor(private id: HogFunctionType['id']) {}
+    // The current observation period
+    observation?: HogWatcherObservationPeriodDetailed
+
+    constructor(public hogFunctionId: HogFunctionType['id']) {
+        this.observerId = randomUUID()
+    }
 
     public getSummary(): HogWatcherSummary {
         return {
             state: this.currentState(),
+            rating: this.averageRating(),
             states: this.states,
             observations: this.observations.map((x) => ({
                 timestamp: x.timestamp,
@@ -167,7 +206,7 @@ export class HogWatcherObserver {
             'successes' | 'failures' | 'asyncFunctionFailures' | 'asyncFunctionSuccesses'
         >
     ): HogWatcherObservationPeriodDetailed {
-        const observation = this.getObservation()
+        const observation = this.getOrCreateCurrentObservation()
 
         observation.successes += incrs.successes ?? 0
         observation.failures += incrs.failures ?? 0
@@ -178,16 +217,28 @@ export class HogWatcherObserver {
         return observation
     }
 
+    public receiveObservation(observation: HogWatcherObservationPeriodDetailed) {
+        // TODO: We should probably merge the observations instead of just replacing them
+        const existing = this.observations.find((x) => x.timestamp === observation.timestamp)
+        if (existing) {
+            existing.successes += observation.successes
+            existing.failures += observation.failures
+            existing.asyncFunctionFailures += observation.asyncFunctionFailures
+            existing.asyncFunctionSuccesses += observation.asyncFunctionSuccesses
+            existing.rating = this.calculateRating(existing)
+        } else {
+            this.observations.push(observation)
+        }
+    }
+
     private periodTimestamp(): number {
         // Returns the timestamp but rounded to the nearest period (e.g. 1 minute)
         return Math.floor(Date.now() / OBSERVATION_PERIOD) * OBSERVATION_PERIOD
     }
 
-    private getObservation(): HogWatcherObservationPeriodDetailed {
-        let lastObservation = this.observations[this.observations.length - 1]
-
-        if (!lastObservation || lastObservation.timestamp !== this.periodTimestamp()) {
-            lastObservation = {
+    private getOrCreateCurrentObservation(): HogWatcherObservationPeriodDetailed {
+        if (!this.observation) {
+            this.observation = {
                 timestamp: this.periodTimestamp(),
                 rating: 0,
                 successes: 0,
@@ -195,11 +246,9 @@ export class HogWatcherObserver {
                 asyncFunctionFailures: 0,
                 asyncFunctionSuccesses: 0,
             }
-
-            this.observations.push(lastObservation)
         }
 
-        return lastObservation
+        return this.observation
     }
 
     private calculateRating(observation: HogWatcherObservationPeriodDetailed): number {
@@ -227,26 +276,36 @@ export class HogWatcherObserver {
  * If so, it marks it as such and then can be used to control the flow of the function.
  */
 export class HogWatcher {
-    observations: Record<HogFunctionType['id'], HogWatcherObserver> = {}
+    observers: Record<HogFunctionType['id'], HogWatcherObserver> = {}
+    pubSub: PubSub
+    interval?: NodeJS.Timeout
 
-    constructor(private redisPool: RedisPool) {}
+    constructor(private hub: Hub) {
+        this.pubSub = new PubSub(hub, {
+            'hog-watcher-observations': async (message) => {
+                const observationsList: EmittedHogWatcherObservation[] = JSON.parse(message)
 
-    private async run<T>(description: string, fn: (client: Redis) => Promise<T>): Promise<T> {
-        const client = await this.redisPool.acquire()
-        const timeout = timeoutGuard(`${description} delayed. Waiting over 30 seconds.`, undefined, 1000) // tight timeout
-        try {
-            return await fn(client)
-        } finally {
-            clearTimeout(timeout)
-            await this.redisPool.release(client)
-        }
+                observationsList.map(async ({ id, observerId, observation }) => {
+                    const observer = this.observers[id]
+                    if (observer && observer.observerId !== observerId) {
+                        observer.receiveObservation(observation)
+                    }
+                })
+            },
+        })
+    }
+
+    async start() {
+        await this.pubSub.start()
+
+        this.interval = setInterval(() => this.syncObservations())
     }
 
     async observeResults(results: HogFunctionInvocationResult[]) {
         // TODO: Actually measure something and store the result
         await Promise.all(
             results.map(async (result) =>
-                this.getObserver(result.id).then((x) =>
+                this.getObserver(result.hogFunctionId).then((x) =>
                     x.addObservations({
                         successes: result.finished ? 1 : 0,
                         failures: result.error ? 1 : 0,
@@ -279,16 +338,69 @@ export class HogWatcher {
     }
 
     public async getObserver(id: HogFunctionType['id']): Promise<HogWatcherObserver> {
-        if (!this.observations[id]) {
-            this.observations[id] = new HogWatcherObserver(id)
+        if (!this.observers[id]) {
+            this.observers[id] = new HogWatcherObserver(id)
         }
 
-        return await Promise.resolve(this.observations[id])
+        return await Promise.resolve(this.observers[id])
     }
 
-    private async syncAndRefresh() {
-        // We want to batch up all the observations and states and store them in Redis
-        // Then we refresh the values so that we know we are up-to-date
-        // TODO: Implement this
+    private async syncObservations() {
+        /**
+         * NOTE on Redis syncing
+         *
+         * We want to make sure that multiple consumers are kept up to date with each other with the least number of operations necessary.
+         * We periodically (inline with the observation period) write the observations to redis so that we can retrieve the state of the functions.
+         * We then need to get updates whenever they happen. We could do this by polling the redis instance for changes.
+         *
+         * Or we could use pubsub to notify all instances of changes, recording the change in memory, meaning we only need to read from redis on the initial startup.
+         */
+
+        const items: EmittedHogWatcherObservation[] = []
+
+        Object.values(this.observers).forEach((observer) => {
+            if (observer.observation) {
+                items.push({
+                    id: observer.hogFunctionId,
+                    observerId: observer.observerId,
+                    observation: observer.observation,
+                })
+
+                observer.observations.push(observer.observation)
+                observer.observation = undefined
+            }
+        })
+
+        // Write all the info to redis
+        await this.run('syncWithRedis', async (client) => {
+            const pipeline = client.pipeline()
+
+            items.forEach(({ id, observerId, observation }) => {
+                pipeline.hset(`@posthog/hog-watcher/observations/${id}`, observerId, JSON.stringify(observation))
+            })
+
+            return pipeline.exec()
+        })
+
+        if (!items.length) {
+            return
+        }
+
+        await this.pubSub.publish('hog-watcher-observations', JSON.stringify(items))
+    }
+
+    private async run<T>(description: string, fn: (client: Redis) => Promise<T>): Promise<T> {
+        const client = await this.hub.redisPool.acquire()
+        const timeout = timeoutGuard(
+            `${description} delayed. Waiting over ${REDIS_TIMEOUT_SECONDS} seconds.`,
+            undefined,
+            REDIS_TIMEOUT_SECONDS * 1000
+        )
+        try {
+            return await fn(client)
+        } finally {
+            clearTimeout(timeout)
+            await this.hub.redisPool.release(client)
+        }
     }
 }

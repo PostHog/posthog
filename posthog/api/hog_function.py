@@ -111,7 +111,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
     def get_status(self, instance: HogFunction) -> Any:
         # Only get if the request is a retrieve
-        if self.context["view"].action == "retrieve":
+        if self.context["view"].action == "retrieve" and instance.enabled:
             try:
                 res = get_hog_function_status(instance.team_id, instance.id)
                 return res.json()

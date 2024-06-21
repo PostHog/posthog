@@ -28,6 +28,7 @@ import { HogFunctionIconEditable } from './HogFunctionIcon'
 import { HogFunctionInputs } from './HogFunctionInputs'
 import { HogFunctionTest, HogFunctionTestPlaceholder } from './HogFunctionTest'
 import { pipelineHogFunctionConfigurationLogic } from './pipelineHogFunctionConfigurationLogic'
+import { HogFunctionStatusIndicator } from './HogFunctionStatusIndicator'
 
 export function PipelineHogFunctionConfiguration({
     templateId,
@@ -138,9 +139,12 @@ export function PipelineHogFunctionConfiguration({
                                         )}
                                     </LemonField>
 
-                                    <div className="flex flex-col py-1 flex-1">
+                                    <div className="flex flex-col py-1 flex-1 justify-start">
                                         <span className="font-semibold">{configuration.name}</span>
                                     </div>
+
+                                    <HogFunctionStatusIndicator />
+
                                     <LemonField name="enabled">
                                         {({ value, onChange }) => (
                                             <LemonSwitch
