@@ -49,13 +49,21 @@ class FormulaAST:
             left = self._evaluate(node.left, const_map)
             op = node.op
             right = self._evaluate(node.right, const_map)
-
             try:
                 return self.op_map[type(op)](left, right)
             except ZeroDivisionError:
                 return 0
             except KeyError:
                 raise ValueError(f"Operator {op.__class__.__name__} not supported")
+
+        elif isinstance(node, ast.UnaryOp):
+            operand = self._evaluate(node.operand, const_map)
+            unary_op = node.op
+            if isinstance(unary_op, ast.USub):
+                return -operand
+            elif isinstance(unary_op, ast.UAdd):
+                return operand
+            raise ValueError(f"Operator {unary_op.__class__.__name__} not supported")
 
         elif isinstance(node, ast.Num):
             return node.n

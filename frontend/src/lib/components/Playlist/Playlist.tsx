@@ -284,12 +284,13 @@ export function ListSection<
 }): JSX.Element {
     return (
         <>
-            {items.length &&
-                items.map((item) => (
-                    <div key={item.id} className="border-b" onClick={() => onClick(item)}>
-                        {render({ item, isActive: item.id === activeItemId })}
-                    </div>
-                ))}
+            {items.length > 0
+                ? items.map((item) => (
+                      <div key={item.id} className="border-b" onClick={() => onClick(item)}>
+                          {render({ item, isActive: item.id === activeItemId })}
+                      </div>
+                  ))
+                : null}
             {footer}
         </>
     )
