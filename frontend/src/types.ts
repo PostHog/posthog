@@ -2720,7 +2720,7 @@ export enum SurveyQuestionType {
 
 export enum SurveyQuestionBranchingType {
     NextQuestion = 'next_question',
-    ConfirmationMessage = 'confirmation_message',
+    End = 'end',
     ResponseBased = 'response_based',
     SpecificQuestion = 'specific_question',
 }
@@ -2730,7 +2730,7 @@ interface NextQuestionBranching {
 }
 
 interface ConfirmationMessageBranching {
-    type: SurveyQuestionBranchingType.ConfirmationMessage
+    type: SurveyQuestionBranchingType.End
 }
 
 interface ResponseBasedBranching {
@@ -4183,7 +4183,7 @@ export type OnboardingProduct = {
 }
 
 export type HogFunctionInputSchemaType = {
-    type: 'string' | 'boolean' | 'dictionary' | 'choice' | 'json'
+    type: 'string' | 'boolean' | 'dictionary' | 'choice' | 'json' | 'integration' | 'integration_field'
     key: string
     label: string
     choices?: { value: string; label: string }[]
@@ -4191,6 +4191,9 @@ export type HogFunctionInputSchemaType = {
     default?: any
     secret?: boolean
     description?: string
+    integration?: string
+    integration_key?: string
+    integration_field?: 'slack_channel'
 }
 
 export type HogFunctionType = {
