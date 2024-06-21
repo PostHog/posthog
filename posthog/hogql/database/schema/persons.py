@@ -66,7 +66,6 @@ def select_from_persons_table(
             SELECT id FROM raw_persons WHERE (id, version) IN (
                SELECT id, max(version) as version
                FROM raw_persons
-               {f'WHERE {filter}' if filter is not None else ''}
                GROUP BY id
                HAVING equals(argMax(raw_persons.is_deleted, raw_persons.version), 0)
                AND argMax(raw_persons.created_at, raw_persons.version) < now() + interval 1 day
@@ -75,6 +74,8 @@ def select_from_persons_table(
             ),
         )
         select.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
+        if filter is not None:
+            select.where.right.where = filter
 
         for field_name, field_chain in join_or_table.fields_accessed.items():
             # We need to always select the 'id' field for the join constraint. The field name here is likely to

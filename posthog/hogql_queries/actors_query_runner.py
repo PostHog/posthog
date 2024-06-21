@@ -255,8 +255,10 @@ class ActorsQueryRunner(QueryRunner):
                     and any(
                         isinstance(x, C) for x in [getattr(self.query.source, "source", None)] for C in (TrendsQuery,)
                     )
-                    and self.query.source.source.breakdownFilter is None
-                    or self.query.source.source.breakdownFilter.breakdown_type != BreakdownType.COHORT
+                    and (
+                        self.query.source.source.breakdownFilter is None
+                        or self.query.source.source.breakdownFilter.breakdown_type != BreakdownType.COHORT
+                    )
                 ):
                     s = ast.SelectQuery(
                         select=[ast.Field(chain=[source_alias, "actor_id"])],
