@@ -74,7 +74,7 @@ def execute_task_chain() -> None:
             args[2].task_id = result.id
             args[1].store_query_status(args[2])
 
-    _thread_locals.task_chain = []
+        _thread_locals.task_chain = []
 
 
 @contextmanager
