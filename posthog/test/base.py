@@ -1072,7 +1072,7 @@ def snapshot_clickhouse_alter_queries(fn):
 
     @wraps(fn)
     def wrapped(self, *args, **kwargs):
-        with self.capture_queries("ALTER") as queries:
+        with self.capture_queries_startswith("ALTER") as queries:
             fn(self, *args, **kwargs)
 
         for query in queries:
@@ -1089,7 +1089,7 @@ def snapshot_clickhouse_insert_cohortpeople_queries(fn):
 
     @wraps(fn)
     def wrapped(self, *args, **kwargs):
-        with self.capture_queries("INSERT INTO cohortpeople") as queries:
+        with self.capture_queries_startswith("INSERT INTO cohortpeople") as queries:
             fn(self, *args, **kwargs)
 
         for query in queries:
