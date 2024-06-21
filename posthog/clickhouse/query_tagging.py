@@ -8,7 +8,7 @@ thread_local_storage = threading.local()
 
 def get_query_tags():
     try:
-        return thread_local_storage.query_tags
+        return {k: v for k, v in thread_local_storage.query_tags.items() if k != "superhot"}
     except AttributeError:
         return {}
 

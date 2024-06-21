@@ -4,7 +4,6 @@ from collections.abc import Sequence, Iterator
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import has_aggregation
 from posthog.hogql_queries.actor_strategies import ActorStrategy, PersonStrategy, GroupStrategy
@@ -19,7 +18,6 @@ from posthog.schema import (
     TrendsQuery,
     BreakdownType,
 )
-from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 
 class ActorsQueryRunner(QueryRunner):
@@ -241,7 +239,6 @@ class ActorsQueryRunner(QueryRunner):
                 order_by = []
 
         with self.timings.measure("select"):
-            ctes = {}
             if not self.query.source:
                 join_expr = ast.JoinExpr(table=ast.Field(chain=[self.strategy.origin]))
             else:
@@ -261,11 +258,20 @@ class ActorsQueryRunner(QueryRunner):
                     and self.query.source.source.breakdownFilter is None
                     or self.query.source.source.breakdownFilter.breakdown_type != BreakdownType.COHORT
                 ):
-                    # ctes[source_alias] = ast.CTE(name=source_alias, expr=clone_expr(source_query), cte_type="subquery")
-                    tag_queries(superhot="id IN (SELECT actor_id FROM source)")
+                    s = ast.SelectQuery(
+                        select=[ast.Field(chain=[source_alias, "actor_id"])],
+                        select_from=ast.JoinExpr(table=source_query, alias=source_alias),
+                    )
+
+                    tag_queries(
+                        superhot=ast.CompareOperation(
+                            left=ast.Field(chain=["id"]), right=s, op=ast.CompareOperationOp.In
+                        )
+                    )
+                    # tag_queries(superhot="id IN (SELECT actor_id FROM source)")
                     origin = "superhot_persons"
 
-                ast.JoinExpr(
+                join_expr = ast.JoinExpr(
                     table=source_query,
                     alias=source_alias,
                     next_join=ast.JoinExpr(
@@ -282,19 +288,7 @@ class ActorsQueryRunner(QueryRunner):
                     ),
                 )
 
-                # For now, only use this CTE optimization in Trends, until we test it with other queries
-                if isinstance(self.strategy, PersonStrategy) and any(
-                    isinstance(x, C) for x in [getattr(self.query.source, "source", None)] for C in (TrendsQuery,)
-                ):
-                    # SelectUnionQuery (used by Stickiness) doesn't have settings
-                    if hasattr(source_query, "settings"):
-                        if source_query.settings is None:
-                            source_query.settings = HogQLQuerySettings()
-                        source_query.settings.use_query_cache = True
-                        source_query.settings.query_cache_ttl = HOGQL_INCREASED_MAX_EXECUTION_TIME
-
         return ast.SelectQuery(
-            ctes=ctes,
             select=columns,
             select_from=join_expr,
             where=where,

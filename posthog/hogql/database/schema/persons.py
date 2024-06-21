@@ -3,6 +3,7 @@ import posthoganalytics
 
 from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.hogql.ast import SelectQuery, And
+from posthog.hogql.base import Expr
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.argmax import argmax_select
@@ -43,7 +44,7 @@ def select_from_persons_table(
     join_or_table: LazyJoinToAdd | LazyTableToAdd,
     context: HogQLContext,
     node: SelectQuery,
-    filter: Optional[str] = None,
+    filter: Optional[Expr] = None,
 ):
     version = context.modifiers.personsArgMaxVersion
     if version == PersonsArgMaxVersion.AUTO:
@@ -96,13 +97,10 @@ def select_from_persons_table(
         )
         select.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
         if filter is not None:
-            from hogql_parser import parse_expr
-
-            where = parse_expr(filter)
             if select.where:
-                select.where = And(exprs=[select.where, where])
-            elif where:
-                select.where = where
+                select.where = And(exprs=[select.where, filter])
+            else:
+                select.where = filter
 
     if False or context.modifiers.optimizeJoinedFilters:
         extractor = WhereClauseExtractor(context)
