@@ -27,7 +27,8 @@ export const OnboardingDashboardTemplateConfigureStep = ({
                 <LemonButton
                     type="primary"
                     onClick={() =>
-                        activeDashboardTemplate && createDashboardFromTemplate(activeDashboardTemplate, variables)
+                        activeDashboardTemplate &&
+                        createDashboardFromTemplate(activeDashboardTemplate, variables, false)
                     }
                     loading={isLoading}
                 >

@@ -75,9 +75,14 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
         addDashboard: (form: Partial<NewDashboardForm>) => ({ form }),
         setActiveDashboardTemplate: (template: DashboardTemplateType) => ({ template }),
         clearActiveDashboardTemplate: true,
-        createDashboardFromTemplate: (template: DashboardTemplateType, variables: DashboardTemplateVariableType[]) => ({
+        createDashboardFromTemplate: (
+            template: DashboardTemplateType,
+            variables: DashboardTemplateVariableType[],
+            redirectAfterCreation?: boolean
+        ) => ({
             template,
             variables,
+            redirectAfterCreation,
         }),
         submitNewDashboardSuccessWithResult: (result: DashboardType) => ({ result }),
     }),
@@ -168,7 +173,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
             actions.clearActiveDashboardTemplate()
             actions.resetNewDashboard()
         },
-        createDashboardFromTemplate: async ({ template, variables }) => {
+        createDashboardFromTemplate: async ({ template, variables, redirectAfterCreation = true }) => {
             actions.setIsLoading(true)
             const tiles = makeTilesUsingVariables(template.tiles, variables)
             const dashboardJSON = {
@@ -185,7 +190,9 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                 actions.resetNewDashboard()
                 dashboardsModel.actions.addDashboardSuccess(result)
                 actions.submitNewDashboardSuccessWithResult(result)
-                router.actions.push(urls.dashboard(result.id))
+                if (redirectAfterCreation) {
+                    router.actions.push(urls.dashboard(result.id))
+                }
             } catch (e: any) {
                 if (!isBreakpoint(e)) {
                     const message = e.code && e.detail ? `${e.code}: ${e.detail}` : e
