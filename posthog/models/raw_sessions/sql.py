@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
     entry_url AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
     end_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
+    last_external_click_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
 
     -- device
     initial_browser AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
@@ -165,6 +166,7 @@ SELECT
     [{current_url}] AS urls,
     initializeAggregation('argMinState', {current_url_string}, timestamp) as entry_url,
     initializeAggregation('argMaxState', {current_url_string}, timestamp) as end_url,
+    initializeAggregation('argMaxState', {external_click_url}, timestamp) as last_external_click_url,
 
     -- device
     initializeAggregation('argMinState', {browser}, timestamp) as browser,
@@ -219,6 +221,7 @@ WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')),
         database=settings.CLICKHOUSE_DATABASE,
         current_url=source_url_column("$current_url"),
         current_url_string=source_string_column("$current_url"),
+        external_click_url=source_string_column("$external_click_url"),
         browser=source_string_column("$browser"),
         browser_version=source_string_column("$browser_version"),
         os=source_string_column("$os"),
@@ -269,6 +272,7 @@ SELECT
     groupUniqArray({current_url}) AS urls,
     argMinState({current_url_string}, timestamp) as entry_url,
     argMaxState({current_url_string}, timestamp) as end_url,
+    argMaxState({external_click_url}, timestamp) as last_external_click_url,
 
     -- device
     argMinState({browser}, timestamp) as initial_browser,
@@ -324,6 +328,7 @@ GROUP BY session_id_v7, team_id
         database=settings.CLICKHOUSE_DATABASE,
         current_url=source_url_column("$current_url"),
         current_url_string=source_string_column("$current_url"),
+        external_click_url=source_string_column("$external_click_url"),
         referring_domain=source_string_column("$referring_domain"),
         browser=source_string_column("$browser"),
         browser_version=source_string_column("$browser_version"),
@@ -424,6 +429,7 @@ SELECT
     arrayDistinct(arrayFlatten(groupArray(urls)) )AS urls,
     argMinMerge(entry_url) as entry_url,
     argMaxMerge(end_url) as end_url,
+    argMaxMerge(external_click_url) as external_click_url,
 
     -- device
     argMinMerge(initial_browser) as initial_browser,
