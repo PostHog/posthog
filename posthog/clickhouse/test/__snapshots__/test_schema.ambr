@@ -1616,6 +1616,7 @@
       urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
       entry_url AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       end_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
+      last_external_click_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
   
       -- device
       initial_browser AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
@@ -1694,6 +1695,7 @@
       groupUniqArray(nullIf(JSONExtractString(properties, '$current_url'), '')) AS urls,
       argMinState(JSONExtractString(properties, '$current_url'), timestamp) as entry_url,
       argMaxState(JSONExtractString(properties, '$current_url'), timestamp) as end_url,
+      argMaxState(JSONExtractString(properties, '$external_click_url'), timestamp) as last_external_click_url,
   
       -- device
       argMinState(JSONExtractString(properties, '$browser'), timestamp) as initial_browser,
@@ -2221,6 +2223,7 @@
       urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
       entry_url AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       end_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
+      last_external_click_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
   
       -- device
       initial_browser AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
@@ -2519,6 +2522,7 @@
       urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
       entry_url AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       end_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
+      last_external_click_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
   
       -- device
       initial_browser AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
@@ -3276,6 +3280,7 @@
       urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
       entry_url AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       end_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
+      last_external_click_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
   
       -- device
       initial_browser AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
