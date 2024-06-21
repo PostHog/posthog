@@ -236,7 +236,7 @@
                                                              FROM person
                                                              WHERE equals(person.team_id, 2)
                                                              GROUP BY person.id
-                                                             HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons) AS persons ON equals(persons.id, funnel_actors.actor_id)) AS aggregation_target_with_props
+                                                             HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons) AS persons ON equals(persons.id, funnel_actors.actor_id)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
   HAVING ifNull(notIn((aggregation_target_with_props.prop).1, []), 0)
   LIMIT 100
@@ -420,7 +420,7 @@
                                                                             FROM person
                                                                             WHERE equals(person.team_id, 2)
                                                                             GROUP BY person.id
-                                                                            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
+                                                                            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
                        WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__pdi__person.`properties___$browser`, 'Positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
@@ -437,7 +437,7 @@
      FROM person
      WHERE equals(person.team_id, 2)
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -569,7 +569,7 @@
                                                                             FROM person
                                                                             WHERE equals(person.team_id, 2)
                                                                             GROUP BY person.id
-                                                                            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
+                                                                            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
                        WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__pdi__person.`properties___$browser`, 'Positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
@@ -586,7 +586,7 @@
      FROM person
      WHERE equals(person.team_id, 2)
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -718,7 +718,7 @@
                                                                             FROM person
                                                                             WHERE equals(person.team_id, 2)
                                                                             GROUP BY person.id
-                                                                            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
+                                                                            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
                        WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__pdi__person.`properties___$browser`, 'Negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
@@ -735,7 +735,7 @@
      FROM person
      WHERE equals(person.team_id, 2)
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -867,7 +867,7 @@
                                                                             FROM person
                                                                             WHERE equals(person.team_id, 2)
                                                                             GROUP BY person.id
-                                                                            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
+                                                                            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
                        WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__pdi__person.`properties___$browser`, 'Negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
@@ -884,7 +884,7 @@
      FROM person
      WHERE equals(person.team_id, 2)
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -995,7 +995,7 @@
                                                              FROM person
                                                              WHERE equals(person.team_id, 2)
                                                              GROUP BY person.id
-                                                             HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons) AS persons ON equals(persons.id, funnel_actors.actor_id)) AS aggregation_target_with_props
+                                                             HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons) AS persons ON equals(persons.id, funnel_actors.actor_id)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
   HAVING ifNull(notIn((aggregation_target_with_props.prop).1, []), 0)
   LIMIT 100
@@ -1179,7 +1179,7 @@
                                                                             FROM person
                                                                             WHERE equals(person.team_id, 2)
                                                                             GROUP BY person.id
-                                                                            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
+                                                                            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
                        WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__pdi__person.`properties___$browser`, 'Positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
@@ -1196,7 +1196,7 @@
      FROM person
      WHERE equals(person.team_id, 2)
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -1328,7 +1328,7 @@
                                                                             FROM person
                                                                             WHERE equals(person.team_id, 2)
                                                                             GROUP BY person.id
-                                                                            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
+                                                                            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
                        WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__pdi__person.`properties___$browser`, 'Positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
@@ -1345,7 +1345,7 @@
      FROM person
      WHERE equals(person.team_id, 2)
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -1477,7 +1477,7 @@
                                                                             FROM person
                                                                             WHERE equals(person.team_id, 2)
                                                                             GROUP BY person.id
-                                                                            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
+                                                                            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
                        WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__pdi__person.`properties___$browser`, 'Negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
@@ -1494,7 +1494,7 @@
      FROM person
      WHERE equals(person.team_id, 2)
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -1626,7 +1626,7 @@
                                                                             FROM person
                                                                             WHERE equals(person.team_id, 2)
                                                                             GROUP BY person.id
-                                                                            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
+                                                                            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
                        WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__pdi__person.`properties___$browser`, 'Negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
@@ -1643,7 +1643,7 @@
      FROM person
      WHERE equals(person.team_id, 2)
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -2600,7 +2600,7 @@
                            if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
                     FROM events AS e
                     LEFT JOIN
-                      (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                      (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                               groups.group_type_index AS index,
                               groups.group_key AS key
                        FROM groups
@@ -2670,7 +2670,7 @@
                            if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
                     FROM events AS e
                     LEFT JOIN
-                      (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                      (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                               groups.group_type_index AS index,
                               groups.group_key AS key
                        FROM groups
@@ -3578,7 +3578,7 @@
                            if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
                     FROM events AS e
                     LEFT JOIN
-                      (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                      (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                               groups.group_type_index AS index,
                               groups.group_key AS key
                        FROM groups
@@ -3648,7 +3648,7 @@
                            if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
                     FROM events AS e
                     LEFT JOIN
-                      (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                      (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                               groups.group_type_index AS index,
                               groups.group_key AS key
                        FROM groups
@@ -3973,7 +3973,7 @@
        (SELECT groups.key AS key,
                groups.properties AS properties
         FROM
-          (SELECT argMax(groups.group_properties, groups._timestamp) AS properties,
+          (SELECT argMax(groups.group_properties, toTimeZone(groups._timestamp, 'UTC')) AS properties,
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
@@ -4139,7 +4139,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -4262,7 +4262,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -4385,7 +4385,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -4508,7 +4508,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -4613,7 +4613,7 @@
        (SELECT groups.key AS key,
                groups.properties AS properties
         FROM
-          (SELECT argMax(groups.group_properties, groups._timestamp) AS properties,
+          (SELECT argMax(groups.group_properties, toTimeZone(groups._timestamp, 'UTC')) AS properties,
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
@@ -4761,7 +4761,7 @@
        (SELECT groups.key AS key,
                groups.properties AS properties
         FROM
-          (SELECT argMax(groups.group_properties, groups._timestamp) AS properties,
+          (SELECT argMax(groups.group_properties, toTimeZone(groups._timestamp, 'UTC')) AS properties,
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
@@ -4927,7 +4927,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -5050,7 +5050,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -5173,7 +5173,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -5296,7 +5296,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -5401,7 +5401,7 @@
        (SELECT groups.key AS key,
                groups.properties AS properties
         FROM
-          (SELECT argMax(groups.group_properties, groups._timestamp) AS properties,
+          (SELECT argMax(groups.group_properties, toTimeZone(groups._timestamp, 'UTC')) AS properties,
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
@@ -5549,7 +5549,7 @@
        (SELECT groups.key AS key,
                groups.properties AS properties
         FROM
-          (SELECT argMax(groups.group_properties, groups._timestamp) AS properties,
+          (SELECT argMax(groups.group_properties, toTimeZone(groups._timestamp, 'UTC')) AS properties,
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
@@ -5715,7 +5715,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -5838,7 +5838,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -5961,7 +5961,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -6084,7 +6084,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -6189,7 +6189,7 @@
        (SELECT groups.key AS key,
                groups.properties AS properties
         FROM
-          (SELECT argMax(groups.group_properties, groups._timestamp) AS properties,
+          (SELECT argMax(groups.group_properties, toTimeZone(groups._timestamp, 'UTC')) AS properties,
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
@@ -6337,7 +6337,7 @@
        (SELECT groups.key AS key,
                groups.properties AS properties
         FROM
-          (SELECT argMax(groups.group_properties, groups._timestamp) AS properties,
+          (SELECT argMax(groups.group_properties, toTimeZone(groups._timestamp, 'UTC')) AS properties,
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
@@ -6503,7 +6503,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -6626,7 +6626,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -6749,7 +6749,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -6872,7 +6872,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -6977,7 +6977,7 @@
        (SELECT groups.key AS key,
                groups.properties AS properties
         FROM
-          (SELECT argMax(groups.group_properties, groups._timestamp) AS properties,
+          (SELECT argMax(groups.group_properties, toTimeZone(groups._timestamp, 'UTC')) AS properties,
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
@@ -7125,7 +7125,7 @@
        (SELECT groups.key AS key,
                groups.properties AS properties
         FROM
-          (SELECT argMax(groups.group_properties, groups._timestamp) AS properties,
+          (SELECT argMax(groups.group_properties, toTimeZone(groups._timestamp, 'UTC')) AS properties,
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
@@ -7291,7 +7291,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -7414,7 +7414,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -7537,7 +7537,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -7660,7 +7660,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -7765,7 +7765,7 @@
        (SELECT groups.key AS key,
                groups.properties AS properties
         FROM
-          (SELECT argMax(groups.group_properties, groups._timestamp) AS properties,
+          (SELECT argMax(groups.group_properties, toTimeZone(groups._timestamp, 'UTC')) AS properties,
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
