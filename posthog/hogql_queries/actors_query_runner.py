@@ -272,8 +272,8 @@ class ActorsQueryRunner(QueryRunner):
                         source_query.settings.query_cache_ttl = HOGQL_INCREASED_MAX_EXECUTION_TIME
                     s = parse_select("SELECT distinct actor_id as person_id FROM source")
                     # This feels like it adds one extra level of SELECT which is unnecessary
-                    ctes[ReservedCTE.POSTHOG_PERSON_IDS] = ast.CTE(
-                        name=ReservedCTE.POSTHOG_PERSON_IDS, expr=s, cte_type="subquery"
+                    ctes[ReservedCTE.POSTHOG_PERSON_IDS.value] = ast.CTE(
+                        name=ReservedCTE.POSTHOG_PERSON_IDS.value, expr=s, cte_type="subquery"
                     )
 
         return ast.SelectQuery(

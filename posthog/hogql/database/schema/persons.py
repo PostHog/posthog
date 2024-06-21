@@ -49,8 +49,8 @@ def select_from_persons_table(join_or_table: LazyJoinToAdd | LazyTableToAdd, con
                 version = PersonsArgMaxVersion.V2
                 break
 
-    use_cte = node.type is not None and ReservedCTE.POSTHOG_PERSON_IDS in node.type.ctes
-    cte_condition = f"raw_persons.id IN (SELECT person_id FROM {ReservedCTE.POSTHOG_PERSON_IDS})"
+    use_cte = node.type is not None and ReservedCTE.POSTHOG_PERSON_IDS.value in node.type.ctes
+    cte_condition = f"raw_persons.id IN (SELECT person_id FROM {ReservedCTE.POSTHOG_PERSON_IDS.value})"
 
     if version == PersonsArgMaxVersion.V2:
         from posthog.hogql import ast
