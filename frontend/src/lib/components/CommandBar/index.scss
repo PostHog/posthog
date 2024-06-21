@@ -35,12 +35,12 @@
     padding: 0.75rem;
     background-color: var(--modal-backdrop-color);
     backdrop-filter: blur(var(--modal-backdrop-blur));
-}
-
-.CommandBar__overlay-content {
-    width: 100%;
-    max-width: 62rem;
-    height: 100%;
-    max-height: 40rem;
-    overflow: hidden;
+    
+    &-content {
+        width: 100%;
+        max-width: 62rem;
+        height: 100%;
+        max-height: 40rem;
+        overflow: hidden;
+    }
 }
