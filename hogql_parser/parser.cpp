@@ -633,7 +633,13 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   }
 
   VISIT(IdentifierList) {
-    return visitPyListOfObjects(ctx->identifier());
+    vector<string> identifiers;
+    auto identifier_ctxs = ctx->identifier();
+    identifiers.reserve(identifier_ctxs.size());
+    for (auto identifier_ctx : identifier_ctxs) {
+      identifiers.push_back(visitAsString(identifier_ctx));
+    }
+    return X_PyList_FromStrings(identifiers);
   }
 
   VISIT(EmptyStmt) {
