@@ -16,7 +16,6 @@ from posthog.schema import (
     CachedActorsQueryResponse,
     DashboardFilter,
     TrendsQuery,
-    BreakdownType,
 )
 
 
@@ -250,15 +249,8 @@ class ActorsQueryRunner(QueryRunner):
                 source_alias = "source"
 
                 origin = self.strategy.origin
-                if (
-                    isinstance(self.strategy, PersonStrategy)
-                    and any(
-                        isinstance(x, C) for x in [getattr(self.query.source, "source", None)] for C in (TrendsQuery,)
-                    )
-                    and (
-                        self.query.source.source.breakdownFilter is None
-                        or self.query.source.source.breakdownFilter.breakdown_type != BreakdownType.COHORT
-                    )
+                if isinstance(self.strategy, PersonStrategy) and any(
+                    isinstance(x, C) for x in [getattr(self.query.source, "source", None)] for C in (TrendsQuery,)
                 ):
                     s = ast.SelectQuery(
                         select=[ast.Field(chain=[source_alias, "actor_id"])],

@@ -10,7 +10,7 @@ NON_SERIALIZABLE_TAGS = {"superhot"}
 
 def get_query_tags():
     try:
-        return {k: v for k, v in thread_local_storage.query_tags.items() if k in NON_SERIALIZABLE_TAGS}
+        return {k: v for k, v in thread_local_storage.query_tags.items() if k not in NON_SERIALIZABLE_TAGS}
     except AttributeError:
         return {}
 
