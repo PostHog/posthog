@@ -1,7 +1,7 @@
 import re
 from django.core.exceptions import ValidationError
 from django.db import models
-from typing import Optional
+from typing import Optional, Any
 
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import SavedQuery, FieldOrTable
@@ -58,7 +58,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             )
         ]
 
-    def get_columns(self) -> dict[str, str]:
+    def get_columns(self) -> dict[str, dict[str, Any]]:
         from posthog.api.services.query import process_query_dict
         from posthog.hogql_queries.query_runner import ExecutionMode
 
