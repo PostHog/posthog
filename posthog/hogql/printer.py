@@ -118,7 +118,7 @@ def prepare_ast_for_printing(
                     settings.__setattr__(key, value)
             node.settings = None
 
-    # If there don't come after "resolve_lazy_tables", cohorts can't resolve in them
+    # If these don't come after "resolve_lazy_tables", cohorts can't resolve in them
     if context.modifiers.inCohortVia == InCohortVia.LEFTJOIN_CONJOINED:
         with context.timings.measure("resolve_in_cohorts_conjoined"):
             resolve_in_cohorts_conjoined(node, dialect, context, stack)
