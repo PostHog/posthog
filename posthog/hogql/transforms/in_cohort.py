@@ -241,18 +241,29 @@ class MultipleInCohortResolver(TraversingVisitor):
                     constraint_type="ON",
                 ),
             )
+            new_join = cast(
+                ast.JoinExpr,
+                resolve_types(new_join, self.context, self.dialect, [self.stack[-1].type]),
+            )
 
-            new_join.constraint.expr.left = ast.Field(chain=[f"__in_cohort", "cohort_person_id"])  # type: ignore
+            new_join.constraint.expr.left = resolve_types(
+                ast.Field(chain=[f"__in_cohort", "cohort_person_id"]), self.context, self.dialect, [self.stack[-1].type]
+            )  # type: ignore
             new_join.constraint.expr.right = clone_expr(compare_operations[0].left)  # type: ignore
             if last_join:
                 last_join.next_join = new_join
             else:
                 select.select_from = new_join
 
-        cohort_match_compare_op = ast.CompareOperation(
-            left=ast.Field(chain=["__in_cohort", "matched"]),
-            op=ast.CompareOperationOp.Eq,
-            right=ast.Constant(value=1),
+        cohort_match_compare_op = resolve_types(
+            ast.CompareOperation(
+                left=ast.Field(chain=["__in_cohort", "matched"]),
+                op=ast.CompareOperationOp.Eq,
+                right=ast.Constant(value=1),
+            ),
+            self.context,
+            self.dialect,
+            [self.stack[-1].type],
         )
 
         if select.where is not None:
