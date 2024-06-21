@@ -340,12 +340,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
   VISIT(VarDecl) {
     string name = visitAsString(ctx->identifier());
-    PyObject* expr;
-    try {
-      expr = visitAsPyObjectOrNone(ctx->expression());
-    } catch (...) {
-      throw;
-    }
+    PyObject* expr = visitAsPyObjectOrNone(ctx->expression());
     PyObject* ret = build_ast_node("VariableDeclaration", "{s:s#,s:N}", "name", name.data(), name.size(), "expr", expr);
     if (!ret) {
       Py_DECREF(expr);
@@ -355,12 +350,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   }
 
   VISIT(VarAssignment) {
-    PyObject* left;
-    try {
-      left = visitAsPyObject(ctx->expression(0));
-    } catch (...) {
-      throw;
-    }
+    PyObject* left = visitAsPyObject(ctx->expression(0));
     PyObject* right;
     try {
       right = visitAsPyObject(ctx->expression(1));
@@ -514,27 +504,12 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
   VISIT(ForStmt) {
     PyObject* initializer;
-    auto initializer_var_declr_ctx = ctx->initializerVarDeclr;
-    auto initializer_var_assignment_ctx = ctx->initializerVarAssignment;
-    auto initializer_expression_ctx = ctx->initializerExpression;
-    if (initializer_var_declr_ctx) {
-      try {
-        initializer = visitAsPyObject(initializer_var_declr_ctx);
-      } catch (...) {
-        throw;
-      }
-    } else if (initializer_var_assignment_ctx) {
-      try {
-        initializer = visitAsPyObject(initializer_var_assignment_ctx);
-      } catch (...) {
-        throw;
-      }
-    } else if (initializer_expression_ctx) {
-      try {
-        initializer = visitAsPyObject(initializer_expression_ctx);
-      } catch (...) {
-        throw;
-      }
+    if (ctx->initializerVarDeclr) {
+      initializer = visitAsPyObject(ctx->initializerVarDeclr);
+    } else if (ctx->initializerVarAssignment) {
+      initializer = visitAsPyObject(ctx->initializerVarAssignment);
+    } else if (ctx->initializerExpression) {
+      initializer = visitAsPyObject(ctx->initializerExpression);
     } else {
       initializer = Py_None;
       Py_INCREF(initializer);
@@ -610,11 +585,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     PyObject* params;
     auto identifier_list_ctx = ctx->identifierList();
     if (identifier_list_ctx) {
-      try {
-        params = visitAsPyObject(identifier_list_ctx);
-      } catch (...) {
-        throw;
-      }
+      params = visitAsPyObject(identifier_list_ctx);
     } else {
       params = PyList_New(0);
       if (!params) {
@@ -640,63 +611,33 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   }
 
   VISIT(KvPairList) {
-    PyObject* ret = PyList_New(0);
-    if (!ret) {
-      throw PyInternalError();
-    }
-    auto kv_pair_ctxs = ctx->kvPair();
-    for (auto kv_pair_ctx : kv_pair_ctxs) {
-      PyObject* kv;
-      try {
-        kv = visitAsPyObject(kv_pair_ctx);
-      } catch (...) {
-        Py_DECREF(ret);
-        throw;
-      }
-      int append_code = PyList_Append(ret, kv);
-      Py_DECREF(kv);
-      if (append_code == -1) {
-        Py_DECREF(ret);
-        throw PyInternalError();
-      }
-    }
-    return ret;
+    return visitPyListOfObjects(ctx->kvPair());
   }
 
   VISIT(KvPair) {
-    PyObject* k;
+    PyObject* k = visitAsPyObject(ctx->expression(0));
     PyObject* v;
     try {
-      k = visitAsPyObject(ctx->expression(0));
       v = visitAsPyObject(ctx->expression(1));
     } catch (...) {
+      Py_DECREF(k);
       throw;
     }
     PyObject* ret = PyTuple_Pack(2, k, v);
+    Py_DECREF(k);
+    Py_DECREF(v);
     if (!ret) {
-      Py_DECREF(k);
-      Py_DECREF(v);
       throw PyInternalError();
     }
     return ret;
   }
 
   VISIT(IdentifierList) {
-    vector<string> identifiers;
-    auto identifier_ctxs = ctx->identifier();
-    identifiers.reserve(identifier_ctxs.size());
-    for (auto identifier_ctx : identifier_ctxs) {
-      identifiers.push_back(visitAsString(identifier_ctx));
-    }
-    return X_PyList_FromStrings(identifiers);
+    visitPyListOfObjects(ctx->identifier());
   }
 
   VISIT(EmptyStmt) {
-    PyObject* ret = build_ast_node("ExprStatement", "{s:O}", "expr", Py_None);
-    if (!ret) {
-      throw PyInternalError();
-    }
-    return ret;
+    RETURN_NEW_AST_NODE("ExprStatement", "{s:O}", "expr", Py_None);
   }
 
   VISIT(Block) {
