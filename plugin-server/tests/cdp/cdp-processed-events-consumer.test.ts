@@ -1,4 +1,4 @@
-import { CdpProcessedEventsConsumer } from '../../src/cdp/cdp-processed-events-consumer'
+import { CdpProcessedEventsConsumer } from '../../src/cdp/cdp-consumers'
 import { HogFunctionType } from '../../src/cdp/types'
 import { defaultConfig } from '../../src/config/config'
 import { Hub, PluginsServerConfig, Team } from '../../src/types'
@@ -199,52 +199,7 @@ describe('CDP Processed Events Consuner', () => {
             // Once for the async callback, twice for the logs
             expect(mockProducer.produce).toHaveBeenCalledTimes(3)
 
-            expect(decodeKafkaMessage(mockProducer.produce.mock.calls[0][0])).toEqual({
-                key: expect.any(String),
-                topic: 'cdp_function_callbacks_test',
-                value: {
-                    id: expect.any(String),
-                    globals: expect.objectContaining({
-                        project: { id: 2, name: 'TEST PROJECT', url: 'http://localhost:8000/project/2' },
-                        // We assume the rest is correct
-                    }),
-                    teamId: 2,
-                    hogFunctionId: expect.any(String),
-                    asyncFunctionName: 'fetch',
-                    asyncFunctionArgs: [
-                        'https://example.com/posthog-webhook',
-                        {
-                            headers: { version: 'v=1.0.0' },
-                            body: {
-                                event: {
-                                    uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d0',
-                                    name: '$pageview',
-                                    distinct_id: 'distinct_id_1',
-                                    properties: { $lib_version: '1.0.0', $elements_chain: '[]' },
-                                    timestamp: null,
-                                    url: 'http://localhost:8000/project/2/events/b3a1fe86-b10c-43cc-acaf-d208977608d0/null',
-                                },
-                                event_url:
-                                    'http://localhost:8000/project/2/events/b3a1fe86-b10c-43cc-acaf-d208977608d0/null-test',
-                                groups: null,
-                                nested: {
-                                    foo: 'http://localhost:8000/project/2/events/b3a1fe86-b10c-43cc-acaf-d208977608d0/null',
-                                },
-                                person: null,
-                            },
-                            method: 'POST',
-                        },
-                    ],
-                    vmState: expect.any(Object),
-                    vmResponse: {
-                        status: 200,
-                        body: { success: true },
-                    },
-                },
-                waitForAck: true,
-            })
-
-            expect(decodeKafkaMessage(mockProducer.produce.mock.calls[1][0])).toMatchObject({
+            expect(decodeKafkaMessage(mockProducer.produce.mock.calls[0][0])).toMatchObject({
                 key: expect.any(String),
                 topic: 'log_entries_test',
                 value: {
@@ -259,13 +214,76 @@ describe('CDP Processed Events Consuner', () => {
                 waitForAck: true,
             })
 
-            expect(decodeKafkaMessage(mockProducer.produce.mock.calls[2][0])).toMatchObject({
+            expect(decodeKafkaMessage(mockProducer.produce.mock.calls[1][0])).toMatchObject({
                 topic: 'log_entries_test',
                 value: {
                     log_source: 'hog_function',
                     message: "Suspending function due to async function call 'fetch'",
                     team_id: 2,
                 },
+            })
+
+            expect(decodeKafkaMessage(mockProducer.produce.mock.calls[2][0])).toEqual({
+                key: expect.any(String),
+                topic: 'cdp_function_callbacks_test',
+                value: {
+                    id: expect.any(String),
+                    globals: expect.objectContaining({
+                        project: { id: 2, name: 'TEST PROJECT', url: 'http://localhost:8000/project/2' },
+                        // We assume the rest is correct
+                    }),
+                    teamId: 2,
+                    hogFunctionId: expect.any(String),
+                    finished: false,
+                    logs: [],
+                    timings: [
+                        {
+                            kind: 'hog',
+                            duration_ms: expect.any(Number),
+                        },
+                    ],
+                    asyncFunctionRequest: {
+                        name: 'fetch',
+                        args: [
+                            'https://example.com/posthog-webhook',
+                            {
+                                headers: { version: 'v=1.0.0' },
+                                body: {
+                                    event: {
+                                        uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d0',
+                                        name: '$pageview',
+                                        distinct_id: 'distinct_id_1',
+                                        properties: { $lib_version: '1.0.0', $elements_chain: '[]' },
+                                        timestamp: null,
+                                        url: 'http://localhost:8000/project/2/events/b3a1fe86-b10c-43cc-acaf-d208977608d0/null',
+                                    },
+                                    event_url:
+                                        'http://localhost:8000/project/2/events/b3a1fe86-b10c-43cc-acaf-d208977608d0/null-test',
+                                    groups: null,
+                                    nested: {
+                                        foo: 'http://localhost:8000/project/2/events/b3a1fe86-b10c-43cc-acaf-d208977608d0/null',
+                                    },
+                                    person: null,
+                                },
+                                method: 'POST',
+                            },
+                        ],
+                        vmState: expect.any(Object),
+                    },
+                    asyncFunctionResponse: {
+                        vmResponse: {
+                            status: 200,
+                            body: { success: true },
+                        },
+                        timings: [
+                            {
+                                kind: 'async_function',
+                                duration_ms: expect.any(Number),
+                            },
+                        ],
+                    },
+                },
+                waitForAck: true,
             })
         })
     })

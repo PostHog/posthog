@@ -11,7 +11,7 @@ import PostgresSchemaForm from '../external/forms/PostgresSchemaForm'
 import SourceForm from '../external/forms/SourceForm'
 import { SyncProgressStep } from '../external/forms/SyncProgressStep'
 import { DatawarehouseTableForm } from '../new/DataWarehouseTableForm'
-import { RenderDataWarehouseSourceIcon } from '../settings/DataWarehouseSourcesTable'
+import { RenderDataWarehouseSourceIcon } from '../settings/DataWarehouseManagedSourcesTable'
 import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
 import { sourceWizardLogic } from './sourceWizardLogic'
 

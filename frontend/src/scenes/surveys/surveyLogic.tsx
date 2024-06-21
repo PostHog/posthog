@@ -6,7 +6,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
-import { hasFormErrors } from 'lib/utils'
+import { hasFormErrors, isObject } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -137,6 +137,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 'reportSurveyStopped',
                 'reportSurveyResumed',
                 'reportSurveyViewed',
+                'reportSurveyCycleDetected',
             ],
         ],
         values: [enabledFlagLogic, ['featureFlags as enabledFlags'], surveysLogic, ['surveys']],
@@ -169,6 +170,7 @@ export const surveyLogic = kea<surveyLogicType>([
             specificQuestionIndex,
         }),
         resetBranchingForQuestion: (questionIndex) => ({ questionIndex }),
+        deleteBranchingLogic: true,
         archiveSurvey: true,
         setWritingHTMLDescription: (writingHTML: boolean) => ({ writingHTML }),
         setSurveyTemplateValues: (template: any) => ({ template }),
@@ -678,9 +680,9 @@ export const surveyLogic = kea<surveyLogicType>([
 
                     if (type === SurveyQuestionBranchingType.NextQuestion) {
                         delete question.branching
-                    } else if (type === SurveyQuestionBranchingType.ConfirmationMessage) {
+                    } else if (type === SurveyQuestionBranchingType.End) {
                         question.branching = {
-                            type: SurveyQuestionBranchingType.ConfirmationMessage,
+                            type: SurveyQuestionBranchingType.End,
                         }
                     } else if (type === SurveyQuestionBranchingType.ResponseBased) {
                         if (
@@ -734,9 +736,8 @@ export const surveyLogic = kea<surveyLogicType>([
                     if ('responseValues' in question.branching) {
                         if (nextStep === SurveyQuestionBranchingType.NextQuestion) {
                             delete question.branching.responseValues[responseValue]
-                        } else if (nextStep === SurveyQuestionBranchingType.ConfirmationMessage) {
-                            question.branching.responseValues[responseValue] =
-                                SurveyQuestionBranchingType.ConfirmationMessage
+                        } else if (nextStep === SurveyQuestionBranchingType.End) {
+                            question.branching.responseValues[responseValue] = SurveyQuestionBranchingType.End
                         } else if (nextStep === SurveyQuestionBranchingType.SpecificQuestion) {
                             question.branching.responseValues[responseValue] = specificQuestionIndex
                         }
@@ -754,6 +755,17 @@ export const surveyLogic = kea<surveyLogicType>([
                     delete question.branching
 
                     newQuestions[questionIndex] = question
+                    return {
+                        ...state,
+                        questions: newQuestions,
+                    }
+                },
+                deleteBranchingLogic: (state) => {
+                    const newQuestions = [...state.questions]
+                    newQuestions.forEach((question) => {
+                        delete question.branching
+                    })
+
                     return {
                         ...state,
                         questions: newQuestions,
@@ -852,6 +864,12 @@ export const surveyLogic = kea<surveyLogicType>([
             (s) => [s.survey],
             (survey: Survey): boolean => {
                 return !!(survey.start_date && !survey.end_date)
+            },
+        ],
+        surveyShufflingQuestionsAvailable: [
+            (s) => [s.survey],
+            (survey: Survey): boolean => {
+                return survey.questions.length > 1
             },
         ],
         showSurveyRepeatSchedule: [(s) => [s.schedule], (schedule: ScheduleType) => schedule == 'recurring'],
@@ -1003,7 +1021,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     return SurveyQuestionBranchingType.NextQuestion
                 }
 
-                return SurveyQuestionBranchingType.ConfirmationMessage
+                return SurveyQuestionBranchingType.End
             },
         ],
         getResponseBasedBranchingDropdownValue: [
@@ -1029,8 +1047,68 @@ export const surveyLogic = kea<surveyLogicType>([
                     return SurveyQuestionBranchingType.NextQuestion
                 }
 
-                return SurveyQuestionBranchingType.ConfirmationMessage
+                return SurveyQuestionBranchingType.End
             },
+        ],
+        hasCycle: [
+            (s) => [s.survey],
+            (survey) => {
+                const graph = new Map()
+                survey.questions.forEach((question, fromIndex: number) => {
+                    if (!graph.has(fromIndex)) {
+                        graph.set(fromIndex, new Set())
+                    }
+
+                    if (question.branching?.type === SurveyQuestionBranchingType.End) {
+                        return
+                    } else if (
+                        question.branching?.type === SurveyQuestionBranchingType.SpecificQuestion &&
+                        Number.isInteger(question.branching.index)
+                    ) {
+                        const toIndex = question.branching.index
+                        graph.get(fromIndex).add(toIndex)
+                        return
+                    } else if (
+                        question.branching?.type === SurveyQuestionBranchingType.ResponseBased &&
+                        isObject(question.branching?.responseValues)
+                    ) {
+                        for (const [_, toIndex] of Object.entries(question.branching?.responseValues)) {
+                            if (Number.isInteger(toIndex)) {
+                                graph.get(fromIndex).add(toIndex)
+                            }
+                        }
+                    }
+
+                    // No branching - still need to connect the next question
+                    if (fromIndex < survey.questions.length - 1) {
+                        const toIndex = fromIndex + 1
+                        graph.get(fromIndex).add(toIndex)
+                    }
+                })
+
+                let cycleDetected = false
+                function dfs(node: number, seen: number[]): void {
+                    if (cycleDetected) {
+                        return
+                    }
+
+                    for (const neighbor of graph.get(node) || []) {
+                        if (seen.includes(neighbor)) {
+                            cycleDetected = true
+                            return
+                        }
+                        dfs(neighbor, seen.concat(neighbor))
+                    }
+                }
+                dfs(0, [0])
+
+                return cycleDetected
+            },
+        ],
+        hasBranchingLogic: [
+            (s) => [s.survey],
+            (survey) =>
+                survey.questions.some((question) => question.branching && Object.keys(question.branching).length > 0),
         ],
     }),
     forms(({ actions, props, values }) => ({
@@ -1055,6 +1133,14 @@ export const surveyLogic = kea<surveyLogicType>([
                 urlMatchType: values.urlMatchTypeValidationError,
             }),
             submit: (surveyPayload) => {
+                if (values.hasCycle) {
+                    actions.reportSurveyCycleDetected(values.survey)
+
+                    return lemonToast.error(
+                        'Your survey contains an endless cycle. Please revisit your branching rules.'
+                    )
+                }
+
                 // when the survey is being submitted, we should turn off editing mode
                 actions.editingSurvey(false)
                 if (props.id && props.id !== 'new') {

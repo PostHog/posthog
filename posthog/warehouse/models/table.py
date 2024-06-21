@@ -104,6 +104,7 @@ DataWarehouseTableColumns: TypeAlias = dict[str, dict[str, str | bool]] | dict[s
 class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
     class TableFormat(models.TextChoices):
         CSV = "CSV", "CSV"
+        CSVWithNames = "CSVWithNames", "CSVWithNames"
         Parquet = "Parquet", "Parquet"
         JSON = "JSONEachRow", "JSON"
 

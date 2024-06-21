@@ -10,7 +10,7 @@ import { Counter } from 'prom-client'
 import v8Profiler from 'v8-profiler-next'
 
 import { getPluginServerCapabilities } from '../capabilities'
-import { CdpFunctionCallbackConsumer, CdpProcessedEventsConsumer } from '../cdp/cdp-processed-events-consumer'
+import { CdpFunctionCallbackConsumer, CdpProcessedEventsConsumer } from '../cdp/cdp-consumers'
 import { defaultConfig, sessionRecordingConsumerConfig } from '../config/config'
 import { Hub, PluginServerCapabilities, PluginsServerConfig } from '../types'
 import { createHub, createKafkaClient, createKafkaProducerWrapper } from '../utils/db/hub'
@@ -43,7 +43,7 @@ import {
 } from './ingestion-queues/on-event-handler-consumer'
 import { startScheduledTasksConsumer } from './ingestion-queues/scheduled-tasks-consumer'
 import { SessionRecordingIngester } from './ingestion-queues/session-recording/session-recordings-consumer'
-import { setupCommonRoutes } from './services/http-server'
+import { expressApp, setupCommonRoutes } from './services/http-server'
 import { getObjectStorage } from './services/object_storage'
 
 CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
@@ -519,6 +519,11 @@ export async function startPluginsServer(
                 await consumer.stop()
             })
             healthChecks['cdp-function-callbacks'] = () => consumer.isHealthy() ?? false
+
+            // NOTE: The function callback service is more idle so can handle http requests as well
+            if (capabilities.http) {
+                consumer.addApiRoutes(expressApp)
+            }
         }
 
         if (capabilities.personOverrides) {

@@ -1,16 +1,31 @@
-import './HogFunctionInputs.scss'
-
+import { closestCenter, DndContext } from '@dnd-kit/core'
+import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { Monaco } from '@monaco-editor/react'
-import { IconPencil, IconPlus, IconX } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonInput, LemonSelect } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
-import { CodeEditor } from 'lib/components/CodeEditors'
+import { IconGear, IconPlus, IconTrash, IconX } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonCheckbox,
+    LemonInput,
+    LemonInputSelect,
+    LemonLabel,
+    LemonSelect,
+    LemonTag,
+    LemonTextArea,
+} from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { CodeEditorResizeable } from 'lib/components/CodeEditors'
+import { LemonField } from 'lib/lemon-ui/LemonField'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { languages } from 'monaco-editor'
 import { useEffect, useMemo, useState } from 'react'
-import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 
 import { groupsModel } from '~/models/groupsModel'
 import { HogFunctionInputSchemaType } from '~/types'
+
+import { HogFunctionInputIntegration } from './integrations/HogFunctionInputIntegration'
+import { HogFunctionInputIntegrationField } from './integrations/HogFunctionInputIntegrationField'
+import { pipelineHogFunctionConfigurationLogic } from './pipelineHogFunctionConfigurationLogic'
 
 export type HogFunctionInputProps = {
     schema: HogFunctionInputSchemaType
@@ -19,7 +34,11 @@ export type HogFunctionInputProps = {
     disabled?: boolean
 }
 
-const SECRET_FIELD_VALUE = '********'
+export type HogFunctionInputWithSchemaProps = {
+    schema: HogFunctionInputSchemaType
+}
+
+const typeList = ['string', 'boolean', 'dictionary', 'choice', 'json', 'integration'] as const
 
 function useAutocompleteOptions(): languages.CompletionItem[] {
     const { groupTypes } = useValues(groupsModel)
@@ -75,22 +94,12 @@ function useAutocompleteOptions(): languages.CompletionItem[] {
 
 function JsonConfigField(props: {
     onChange?: (value: string) => void
-    className: string
-    autoFocus: boolean
+    className?: string
+    autoFocus?: boolean
     value?: string
 }): JSX.Element {
     const suggestions = useAutocompleteOptions()
     const [monaco, setMonaco] = useState<Monaco>()
-
-    const [height, setHeight] = useState(200)
-    const [manualHeight, setManualHeight] = useState<number>()
-
-    useEffect(() => {
-        const value = typeof props.value !== 'string' ? JSON.stringify(props.value, null, 2) : props.value
-        const lineCount = (value?.split('\n').length ?? 1) + 1
-        const lineHeight = 18
-        setHeight(lineHeight * lineCount)
-    }, [props.value])
 
     useEffect(() => {
         if (!monaco) {
@@ -138,64 +147,33 @@ function JsonConfigField(props: {
     }, [suggestions, monaco])
 
     return (
-        <div
-            className="HogFunctionInputCode relative border rounded min-h-50 max-h-200"
-            // eslint-disable-next-line react/forbid-dom-props
-            style={{
-                height: manualHeight ?? height,
+        <CodeEditorResizeable
+            language="json"
+            value={typeof props.value !== 'string' ? JSON.stringify(props.value, null, 2) : props.value}
+            onChange={(v) => props.onChange?.(v ?? '')}
+            options={{
+                lineNumbers: 'off',
+                minimap: {
+                    enabled: false,
+                },
+                quickSuggestions: {
+                    other: true,
+                    strings: true,
+                },
+                suggest: {
+                    showWords: false,
+                    showFields: false,
+                    showKeywords: false,
+                },
+                scrollbar: {
+                    vertical: 'hidden',
+                    verticalScrollbarSize: 0,
+                },
             }}
-        >
-            <AutoSizer disableWidth>
-                {({ height }) => (
-                    <CodeEditor
-                        language="json"
-                        value={typeof props.value !== 'string' ? JSON.stringify(props.value, null, 2) : props.value}
-                        onChange={(v) => props.onChange?.(v ?? '')}
-                        height={height - 2} // Account for border
-                        options={{
-                            lineNumbers: 'off',
-                            minimap: {
-                                enabled: false,
-                            },
-                            quickSuggestions: {
-                                other: true,
-                                strings: true,
-                            },
-                            suggest: {
-                                showWords: false,
-                                showFields: false,
-                                showKeywords: false,
-                            },
-                            scrollbar: {
-                                vertical: 'hidden',
-                                verticalScrollbarSize: 0,
-                            },
-                        }}
-                        onMount={(_editor, monaco) => {
-                            setMonaco(monaco)
-                        }}
-                    />
-                )}
-            </AutoSizer>
-
-            {/* Using a standard resize css means we need overflow-hidden which hides parts of the editor unnecessarily */}
-            <div
-                className="absolute bottom-0 right-0 z-10 resize-y h-5 w-5 cursor-s-resize overflow-hidden"
-                onMouseDown={(e) => {
-                    const startY = e.clientY
-                    const startHeight = height
-                    const onMouseMove = (event: MouseEvent): void => {
-                        setManualHeight(startHeight + event.clientY - startY)
-                    }
-                    const onMouseUp = (): void => {
-                        window.removeEventListener('mousemove', onMouseMove)
-                        window.removeEventListener('mouseup', onMouseUp)
-                    }
-                    window.addEventListener('mousemove', onMouseMove)
-                    window.addEventListener('mouseup', onMouseUp)
-                }}
-            />
-        </div>
+            onMount={(_editor, monaco) => {
+                setMonaco(monaco)
+            }}
+        />
     )
 }
 
@@ -259,49 +237,12 @@ function DictionaryField({ onChange, value }: { onChange?: (value: any) => void;
     )
 }
 
-export function HogFunctionInput({ value, onChange, schema, disabled }: HogFunctionInputProps): JSX.Element {
-    const [editingSecret, setEditingSecret] = useState(false)
-    if (
-        schema.secret &&
-        !editingSecret &&
-        value &&
-        (value === SECRET_FIELD_VALUE || value.name === SECRET_FIELD_VALUE)
-    ) {
-        return (
-            <LemonButton
-                type="secondary"
-                icon={<IconPencil />}
-                onClick={() => {
-                    onChange?.(schema.default || '')
-                    setEditingSecret(true)
-                }}
-                disabled={disabled}
-            >
-                Reset secret variable
-            </LemonButton>
-        )
-    }
-
+export function HogFunctionInputRenderer({ value, onChange, schema, disabled }: HogFunctionInputProps): JSX.Element {
     switch (schema.type) {
         case 'string':
-            return (
-                <LemonInput
-                    value={value}
-                    onChange={onChange}
-                    autoFocus={editingSecret}
-                    className="ph-no-capture"
-                    disabled={disabled}
-                />
-            )
+            return <LemonInput value={value} onChange={onChange} className="ph-no-capture" disabled={disabled} />
         case 'json':
-            return (
-                <JsonConfigField
-                    value={value}
-                    onChange={onChange}
-                    autoFocus={editingSecret}
-                    className="ph-no-capture"
-                />
-            )
+            return <JsonConfigField value={value} onChange={onChange} className="ph-no-capture" />
         case 'choice':
             return (
                 <LemonSelect
@@ -318,13 +259,251 @@ export function HogFunctionInput({ value, onChange, schema, disabled }: HogFunct
 
         case 'boolean':
             return <LemonCheckbox checked={value} onChange={(checked) => onChange?.(checked)} disabled={disabled} />
+        case 'integration':
+            return <HogFunctionInputIntegration schema={schema} value={value} onChange={onChange} />
+        case 'integration_field':
+            return <HogFunctionInputIntegrationField schema={schema} value={value} onChange={onChange} />
         default:
             return (
                 <strong className="text-danger">
                     Unknown field type "<code>{schema.type}</code>".
-                    <br />
-                    You may need to upgrade PostHog!
                 </strong>
             )
     }
+}
+
+type HogFunctionInputSchemaControlsProps = {
+    value: HogFunctionInputSchemaType
+    onChange: (value: HogFunctionInputSchemaType | null) => void
+    onDone: () => void
+}
+
+function HogFunctionInputSchemaControls({ value, onChange, onDone }: HogFunctionInputSchemaControlsProps): JSX.Element {
+    const _onChange = (data: Partial<HogFunctionInputSchemaType> | null): void => {
+        onChange(data ? { ...value, ...data } : null)
+    }
+
+    return (
+        <div className="flex flex-col gap-2">
+            <div className="flex-1 flex items-center gap-2 flex-wrap">
+                <LemonSelect
+                    size="small"
+                    options={typeList.map((type) => ({
+                        label: capitalizeFirstLetter(type),
+                        value: type,
+                    }))}
+                    value={value.type}
+                    className="w-30"
+                    onChange={(type) => _onChange({ type })}
+                />
+                <LemonCheckbox
+                    size="small"
+                    checked={value.required}
+                    onChange={(required) => _onChange({ required })}
+                    label="Required"
+                    bordered
+                />
+                <LemonCheckbox
+                    size="small"
+                    checked={value.secret}
+                    onChange={(secret) => _onChange({ secret })}
+                    label="Secret"
+                    bordered
+                />
+                <div className="flex-1" />
+                <LemonButton status="danger" icon={<IconTrash />} size="small" onClick={() => onChange(null)} />
+                <LemonButton size="small" onClick={() => onDone()}>
+                    Done
+                </LemonButton>
+            </div>
+            <div className="flex-1 flex gap-2 flex-wrap">
+                <LemonField.Pure label="Display label">
+                    <LemonInput
+                        className="min-w-60"
+                        size="small"
+                        value={value.label}
+                        onChange={(label) => _onChange({ label })}
+                        placeholder="Display label"
+                    />
+                </LemonField.Pure>
+                <LemonField.Pure label="Input variable name">
+                    <LemonInput
+                        size="small"
+                        value={value.key}
+                        onChange={(key) => _onChange({ key })}
+                        placeholder="Variable name"
+                    />
+                </LemonField.Pure>
+            </div>
+
+            <LemonField.Pure label="Description">
+                <LemonTextArea
+                    minRows={1}
+                    value={value.description}
+                    onChange={(description) => _onChange({ description })}
+                    placeholder="Description"
+                />
+            </LemonField.Pure>
+            {value.type === 'choice' && (
+                <LemonField.Pure label="Choices">
+                    <LemonInputSelect
+                        mode="multiple"
+                        allowCustomValues
+                        value={value.choices?.map((choice) => choice.value)}
+                        onChange={(choices) =>
+                            _onChange({ choices: choices.map((value) => ({ label: value, value })) })
+                        }
+                        placeholder="Choices"
+                    />
+                </LemonField.Pure>
+            )}
+
+            {value.type === 'integration' && (
+                <LemonField.Pure label="Integration kind">
+                    <LemonSelect
+                        value={value.integration}
+                        onChange={(integration) => _onChange({ integration })}
+                        options={[{ label: 'Slack', value: 'slack' }]}
+                        placeholder="Choose kind"
+                    />
+                </LemonField.Pure>
+            )}
+
+            <LemonField.Pure label="Default value">
+                <HogFunctionInputRenderer
+                    schema={value}
+                    value={value.default}
+                    onChange={(val) => _onChange({ default: val })}
+                />
+            </LemonField.Pure>
+        </div>
+    )
+}
+
+export function HogFunctionInputWithSchema({ schema }: HogFunctionInputWithSchemaProps): JSX.Element {
+    const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: schema.key })
+    const { showSource, configuration } = useValues(pipelineHogFunctionConfigurationLogic)
+    const { setConfigurationValue } = useActions(pipelineHogFunctionConfigurationLogic)
+    const [editing, setEditing] = useState(showSource)
+
+    const value = configuration.inputs?.[schema.key]
+
+    const onSchemaChange = (newSchema: HogFunctionInputSchemaType | null): void => {
+        let inputsSchema = configuration.inputs_schema || []
+        if (!newSchema) {
+            inputsSchema = inputsSchema.filter((s) => s.key !== schema.key)
+        } else {
+            const modifiedSchema = { ...schema, ...newSchema }
+            inputsSchema = inputsSchema.map((s) => (s.key === schema.key ? modifiedSchema : s))
+        }
+
+        if (newSchema?.key) {
+            setConfigurationValue(`inputs.${newSchema.key}`, value)
+        }
+
+        if (newSchema?.type && newSchema.type !== schema.type) {
+            setConfigurationValue(`inputs.${schema.key}`, null)
+        }
+
+        setConfigurationValue('inputs_schema', inputsSchema)
+    }
+
+    useEffect(() => {
+        if (!showSource) {
+            setEditing(false)
+        }
+    }, [showSource])
+
+    return (
+        <div
+            ref={setNodeRef}
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{
+                transform: CSS.Transform.toString(transform),
+                transition,
+            }}
+        >
+            {!editing ? (
+                <LemonField name={`inputs.${schema.key}`} help={schema.description}>
+                    {({ value, onChange }) => {
+                        return (
+                            <>
+                                <div className="flex items-center gap-2">
+                                    <LemonLabel
+                                        className={showSource ? 'cursor-grab' : ''}
+                                        showOptional={!schema.required}
+                                        {...attributes}
+                                        {...listeners}
+                                    >
+                                        {schema.label || schema.key}
+                                    </LemonLabel>
+                                    {showSource ? (
+                                        <>
+                                            <LemonTag type="muted" className="font-mono">
+                                                inputs.{schema.key}
+                                            </LemonTag>
+                                            <div className="flex-1" />
+                                            <LemonButton
+                                                size="small"
+                                                noPadding
+                                                icon={<IconGear />}
+                                                onClick={() => setEditing(true)}
+                                            />
+                                        </>
+                                    ) : null}
+                                </div>
+                                <HogFunctionInputRenderer
+                                    schema={schema}
+                                    value={value?.value}
+                                    onChange={(val) => onChange({ value: val })}
+                                />
+                            </>
+                        )
+                    }}
+                </LemonField>
+            ) : (
+                <div className="border rounded p-2 border-dashed space-y-4">
+                    <HogFunctionInputSchemaControls
+                        value={schema}
+                        onChange={onSchemaChange}
+                        onDone={() => setEditing(false)}
+                    />
+                </div>
+            )}
+        </div>
+    )
+}
+
+export function HogFunctionInputs(): JSX.Element {
+    const { showSource, configuration } = useValues(pipelineHogFunctionConfigurationLogic)
+    const { setConfigurationValue } = useActions(pipelineHogFunctionConfigurationLogic)
+
+    if (!configuration?.inputs_schema?.length) {
+        return <span className="italic text-muted-alt">This function does not require any input variables.</span>
+    }
+
+    const inputSchemas = configuration.inputs_schema
+    const inputSchemaIds = inputSchemas.map((schema) => schema.key)
+
+    return (
+        <>
+            <DndContext
+                collisionDetection={closestCenter}
+                onDragEnd={({ active, over }) => {
+                    if (over && active.id !== over.id) {
+                        const oldIndex = inputSchemaIds.indexOf(active.id as string)
+                        const newIndex = inputSchemaIds.indexOf(over.id as string)
+
+                        setConfigurationValue('inputs_schema', arrayMove(inputSchemas, oldIndex, newIndex))
+                    }
+                }}
+            >
+                <SortableContext disabled={!showSource} items={inputSchemaIds} strategy={verticalListSortingStrategy}>
+                    {configuration.inputs_schema?.map((schema) => {
+                        return <HogFunctionInputWithSchema key={schema.key} schema={schema} />
+                    })}
+                </SortableContext>
+            </DndContext>
+        </>
+    )
 }

@@ -1,11 +1,14 @@
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, urlToAction } from 'kea-router'
 import api, { ApiMethodOptions, PaginatedResponse } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb, ExternalDataSourceSchema, ExternalDataStripeSource } from '~/types'
+import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema'
+import { Breadcrumb, DataWarehouseSettingsTab, ExternalDataSourceSchema, ExternalDataStripeSource } from '~/types'
 
 import type { dataWarehouseSettingsLogicType } from './dataWarehouseSettingsLogicType'
 
@@ -13,8 +16,21 @@ const REFRESH_INTERVAL = 10000
 
 export interface DataWarehouseSource {}
 
+export const humanFriendlyDataWarehouseSettingsTabName = (tab: DataWarehouseSettingsTab): string => {
+    switch (tab) {
+        case DataWarehouseSettingsTab.Managed:
+            return 'Managed'
+        case DataWarehouseSettingsTab.SelfManaged:
+            return 'Self managed'
+    }
+}
+
 export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
     path(['scenes', 'data-warehouse', 'settings', 'dataWarehouseSettingsLogic']),
+    connect(() => ({
+        values: [databaseTableListLogic, ['dataWarehouseTables']],
+        actions: [databaseTableListLogic, ['loadDatabase']],
+    })),
     actions({
         deleteSource: (source: ExternalDataStripeSource) => ({ source }),
         reloadSource: (source: ExternalDataStripeSource) => ({ source }),
@@ -24,6 +40,8 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
         schemaLoadingFinished: (schema: ExternalDataSourceSchema) => ({ schema }),
         updateSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
         abortAnyRunningQuery: true,
+        setCurrentTab: (tab: DataWarehouseSettingsTab = DataWarehouseSettingsTab.Managed) => ({ tab }),
+        deleteSelfManagedTable: (tableId: string) => ({ tableId }),
     }),
     loaders(({ cache, actions, values }) => ({
         dataWarehouseSources: [
@@ -100,6 +118,12 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                 }),
             },
         ],
+        currentTab: [
+            DataWarehouseSettingsTab.Managed as DataWarehouseSettingsTab,
+            {
+                setCurrentTab: (_, { tab }) => tab,
+            },
+        ],
     })),
     selectors({
         breadcrumbs: [
@@ -117,8 +141,18 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                 },
             ],
         ],
+        selfManagedTables: [
+            (s) => [s.dataWarehouseTables],
+            (dataWarehouseTables): DatabaseSchemaDataWarehouseTable[] => {
+                return dataWarehouseTables.filter((table) => !table.source)
+            },
+        ],
     }),
     listeners(({ actions, values, cache }) => ({
+        deleteSelfManagedTable: async ({ tableId }) => {
+            await api.dataWarehouseTables.delete(tableId)
+            actions.loadDatabase()
+        },
         loadSourcesSuccess: () => {
             clearTimeout(cache.refreshTimeout)
 
@@ -254,4 +288,16 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
     afterMount(({ actions }) => {
         actions.loadSources(null)
     }),
+    actionToUrl(({ values }) => {
+        return {
+            setCurrentTab: () => [urls.dataWarehouseSettings(values.currentTab)],
+        }
+    }),
+    urlToAction(({ actions, values }) => ({
+        '/data-warehouse/settings/:tab': ({ tab }) => {
+            if (tab !== values.currentTab) {
+                actions.setCurrentTab(tab as DataWarehouseSettingsTab)
+            }
+        },
+    })),
 ])

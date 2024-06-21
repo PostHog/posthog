@@ -89,6 +89,7 @@ export enum AvailableFeature {
     SURVEYS_SLACK_NOTIFICATIONS = 'surveys_slack_notifications',
     SURVEYS_WAIT_PERIODS = 'surveys_wait_periods',
     SURVEYS_RECURRING = 'surveys_recurring',
+    SURVEYS_EVENTS = 'surveys_events',
     TRACKED_USERS = 'tracked_users',
     TEAM_MEMBERS = 'team_members',
     API_ACCESS = 'api_access',
@@ -949,7 +950,7 @@ export type ActionStepProperties =
 
 export interface RecordingPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Recording
-    key: DurationType | 'console_log_level' | 'console_log_query'
+    key: DurationType | 'console_log_level' | 'console_log_query' | 'snapshot_source'
     operator: PropertyOperator
 }
 
@@ -961,6 +962,7 @@ export interface RecordingDurationFilter extends RecordingPropertyFilter {
 export type DurationType = 'duration' | 'active_seconds' | 'inactive_seconds'
 
 export type FilterableLogLevel = 'info' | 'warn' | 'error'
+
 export interface RecordingFilters {
     /**
      * live mode is front end only, sets date_from and date_to to the last hour
@@ -974,8 +976,10 @@ export interface RecordingFilters {
     session_recording_duration?: RecordingDurationFilter
     duration_type_filter?: DurationType
     console_search_query?: string
+    snapshot_source?: AnyPropertyFilter | null
     console_logs?: FilterableLogLevel[]
     filter_test_accounts?: boolean
+    operand?: FilterLogicalOperator
 }
 
 export interface RecordingUniversalFilters {
@@ -1005,15 +1009,6 @@ export type ErrorCluster = {
     viewed: number
 }
 export type ErrorClusterResponse = ErrorCluster[] | null
-
-export type ErrorTrackingGroup = {
-    id: string
-    title: string
-    description: string
-    occurrences: number
-    uniqueSessions: number
-    uniqueUsers: number
-}
 
 export type EntityType = 'actions' | 'events' | 'data_warehouse' | 'new_entity'
 
@@ -1947,6 +1942,15 @@ export interface PluginErrorType {
     event?: Record<string, any>
 }
 
+// The general log entry format that eventually everything should match
+export type LogEntry = {
+    log_source_id: string
+    instance_id: string
+    timestamp: string
+    level: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
+    message: string
+}
+
 export enum PluginLogEntryType {
     Debug = 'DEBUG',
     Log = 'LOG',
@@ -2717,7 +2721,7 @@ export enum SurveyQuestionType {
 
 export enum SurveyQuestionBranchingType {
     NextQuestion = 'next_question',
-    ConfirmationMessage = 'confirmation_message',
+    End = 'end',
     ResponseBased = 'response_based',
     SpecificQuestion = 'specific_question',
 }
@@ -2727,7 +2731,7 @@ interface NextQuestionBranching {
 }
 
 interface ConfirmationMessageBranching {
-    type: SurveyQuestionBranchingType.ConfirmationMessage
+    type: SurveyQuestionBranchingType.End
 }
 
 interface ResponseBasedBranching {
@@ -3773,14 +3777,14 @@ export interface DataWarehouseTable {
     /** UUID */
     id: string
     name: string
-    format: string
+    format: DataWarehouseTableTypes
     url_pattern: string
     credential: DataWarehouseCredential
     external_data_source?: ExternalDataStripeSource
     external_schema?: SimpleExternalDataSourceSchema
 }
 
-export type DataWarehouseTableTypes = 'CSV' | 'Parquet'
+export type DataWarehouseTableTypes = 'CSV' | 'Parquet' | 'JSON' | 'CSVWithNames'
 
 export interface DataWarehouseSavedQuery {
     /** UUID */
@@ -3799,6 +3803,11 @@ export interface DataWarehouseViewLink {
     field_name?: string
     created_by?: UserBasicType | null
     created_at?: string | null
+}
+
+export enum DataWarehouseSettingsTab {
+    Managed = 'managed',
+    SelfManaged = 'self_managed',
 }
 
 export const externalDataSources = ['Stripe', 'Hubspot', 'Postgres', 'Zendesk', 'Snowflake'] as const
@@ -3835,6 +3844,11 @@ export interface SimpleExternalDataSourceSchema {
 export interface ExternalDataSourceSyncSchema {
     table: string
     should_sync: boolean
+    sync_type: 'full_refresh' | 'incremental'
+    sync_types: {
+        full_refresh: boolean
+        incremental: boolean
+    }
 }
 
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
@@ -3971,6 +3985,7 @@ export type BatchExportConfiguration = {
     start_at: string | null
     end_at: string | null
     paused: boolean
+    model: string
     latest_runs?: BatchExportRun[]
 }
 
@@ -4169,7 +4184,7 @@ export type OnboardingProduct = {
 }
 
 export type HogFunctionInputSchemaType = {
-    type: 'string' | 'boolean' | 'dictionary' | 'choice' | 'json'
+    type: 'string' | 'boolean' | 'dictionary' | 'choice' | 'json' | 'integration' | 'integration_field'
     key: string
     label: string
     choices?: { value: string; label: string }[]
@@ -4177,6 +4192,9 @@ export type HogFunctionInputSchemaType = {
     default?: any
     secret?: boolean
     description?: string
+    integration?: string
+    integration_key?: string
+    integration_field?: 'slack_channel'
 }
 
 export type HogFunctionType = {
@@ -4201,6 +4219,8 @@ export type HogFunctionType = {
     filters?: PluginConfigFilters | null
     template?: HogFunctionTemplateType
 }
+
+export type HogFunctionConfigurationType = Omit<HogFunctionType, 'created_at' | 'created_by' | 'updated_at'>
 
 export type HogFunctionTemplateType = Pick<
     HogFunctionType,

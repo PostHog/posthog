@@ -94,7 +94,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
             ref={ref}
         >
             <div className="border border-border rounded w-full bg-bg-light" ref={productRef}>
-                <div className="border-b border-border rounded-t bg-mid p-4">
+                <div className="border-b border-border rounded-t bg-bg-3000 p-4">
                     <div className="flex gap-4 items-center justify-between">
                         {getProductIcon(product.name, product.icon_key, 'text-2xl')}
                         <div>
