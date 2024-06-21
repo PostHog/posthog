@@ -173,3 +173,16 @@ class PersonsTable(LazyTable):
 
     def to_printed_hogql(self):
         return "persons"
+
+
+class SuperhotPersonsTable(LazyTable):
+    fields: dict[str, FieldOrTable] = PERSONS_FIELDS
+
+    def lazy_select(self, table_to_add: LazyTableToAdd, context, node):
+        return select_from_persons_table(table_to_add, context, node)
+
+    def to_printed_clickhouse(self, context):
+        return "person"
+
+    def to_printed_hogql(self):
+        return "superhot_persons"

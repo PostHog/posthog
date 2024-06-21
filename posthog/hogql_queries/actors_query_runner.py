@@ -3,9 +3,6 @@ from typing import Optional
 from collections.abc import Sequence, Iterator
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLQuerySettings
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import LazyTableToAdd
-from posthog.hogql.database.schema.persons import select_from_persons_table
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import has_aggregation
 from posthog.hogql_queries.actor_strategies import ActorStrategy, PersonStrategy, GroupStrategy
@@ -248,15 +245,21 @@ class ActorsQueryRunner(QueryRunner):
 
                 ctes[source_alias] = ast.CTE(name=source_alias, expr=source_query, cte_type="subquery")
 
+                origin = self.strategy.origin
+                if isinstance(self.strategy, PersonStrategy) and any(
+                    isinstance(x, C) for x in [getattr(self.query.source, "source", None)] for C in (TrendsQuery,)
+                ):
+                    origin = "superhot_persons"
+
                 join_expr = ast.JoinExpr(
                     table=ast.Field(chain=[source_alias]),
                     next_join=ast.JoinExpr(
-                        table=ast.Field(chain=[self.strategy.origin]),
+                        table=ast.Field(chain=[origin]),
                         join_type="INNER JOIN",
                         constraint=ast.JoinConstraint(
                             expr=ast.CompareOperation(
                                 op=ast.CompareOperationOp.Eq,
-                                left=ast.Field(chain=[self.strategy.origin, self.strategy.origin_id]),
+                                left=ast.Field(chain=[origin, self.strategy.origin_id]),
                                 right=ast.Field(chain=[source_alias, *source_id_chain]),
                             ),
                             constraint_type="ON",
@@ -274,28 +277,6 @@ class ActorsQueryRunner(QueryRunner):
                             source_query.settings = HogQLQuerySettings()
                         source_query.settings.use_query_cache = True
                         source_query.settings.query_cache_ttl = HOGQL_INCREASED_MAX_EXECUTION_TIME
-
-                    # This feels like it adds one extra level of SELECT which is unnecessary
-                    select = select_from_persons_table(
-                        LazyTableToAdd(
-                            lazy_table=None, fields_accessed={"id": ["id"], "properties___name": ["properties", "name"]}
-                        ),
-                        HogQLContext(team_id=self.team.pk, team=self.team, modifiers=self.modifiers),
-                        None,
-                    )
-                    join_expr.next_join = ast.JoinExpr(
-                        table=select,
-                        join_type="INNER JOIN",
-                        alias="persons",
-                        constraint=ast.JoinConstraint(
-                            expr=ast.CompareOperation(
-                                op=ast.CompareOperationOp.Eq,
-                                left=ast.Field(chain=["persons", "id"]),
-                                right=ast.Field(chain=["source", "actor_id"]),
-                            ),
-                            constraint_type="ON",
-                        ),
-                    )
 
         return ast.SelectQuery(
             ctes=ctes,
