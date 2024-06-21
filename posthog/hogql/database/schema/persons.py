@@ -62,7 +62,7 @@ def select_from_persons_table(
         select = cast(
             ast.SelectQuery,
             parse_select(
-                f"""
+                """
             SELECT id FROM raw_persons WHERE (id, version) IN (
                SELECT id, max(version) as version
                FROM raw_persons
@@ -74,7 +74,8 @@ def select_from_persons_table(
             ),
         )
         select.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
-        select.where.right.where = filter
+        if filter is not None:
+            select.where.right.where = filter
 
         for field_name, field_chain in join_or_table.fields_accessed.items():
             # We need to always select the 'id' field for the join constraint. The field name here is likely to
