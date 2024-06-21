@@ -169,6 +169,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
             actions.resetNewDashboard()
         },
         createDashboardFromTemplate: async ({ template, variables }) => {
+            actions.setIsLoading(true)
             const tiles = makeTilesUsingVariables(template.tiles, variables)
             const dashboardJSON = {
                 ...template,
