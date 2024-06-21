@@ -67,14 +67,63 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
         if self._trends_display.is_total_value():
             events_query = self._get_events_subquery(False, is_actors_query=False, breakdown=breakdown)
-            return self._get_outer_select_query_for_total_value(inner_query=events_query, breakdown=breakdown)
+            wrapper_query = self._get_wrapper_query(events_query, breakdown=breakdown)
+            return wrapper_query
         else:
             event_query = self._get_events_subquery(False, is_actors_query=False, breakdown=breakdown)
-
             inner_select = self._inner_select_query(inner_query=event_query, breakdown=breakdown)
             full_query = self._outer_select_query(inner_query=inner_select, breakdown=breakdown)
-
             return full_query
+
+    def _get_breakdown_hide_others(self) -> bool:
+        return (
+            self.query.breakdownFilter.breakdown_hide_other_aggregation or False
+            if self.query.breakdownFilter
+            else False
+        )
+
+    def _get_wrapper_query(
+        self, events_query: ast.SelectQuery, breakdown: Breakdown
+    ) -> ast.SelectQuery | ast.SelectUnionQuery:
+        if not breakdown.enabled:
+            return events_query
+
+        if breakdown.is_multiple_breakdown:
+            breakdown_inner_select = ast.Alias(
+                alias="breakdown_value", expr=ast.Array(exprs=cast(list[ast.Expr], breakdown.field_exprs))
+            )
+        else:
+            breakdown_inner_select = ast.Alias(alias="breakdown_value", expr=breakdown.field_exprs[0])
+
+        return parse_select(
+            """
+            SELECT
+                SUM(total) AS total,
+                {breakdown_select}
+            FROM
+                (
+                    SELECT
+                        total,
+                        {breakdown_inner_select},
+                        row_number() OVER (ORDER BY total DESC) as row_number
+                    FROM {events_query}
+                )
+            WHERE breakdown_value IS NOT NULL
+            GROUP BY breakdown_value
+            ORDER BY
+                {breakdown_order_by},
+                total DESC,
+                breakdown_value ASC
+            """,
+            placeholders={
+                "breakdown_select": self._breakdown_outer_query_select(
+                    breakdown, breakdown_limit=self._get_breakdown_limit() + 1
+                ),
+                "breakdown_inner_select": breakdown_inner_select,
+                "events_query": events_query,
+                "breakdown_order_by": self._breakdown_query_order_by(breakdown),
+            },
+        )
 
     def _get_date_subqueries(self) -> ast.Expr:
         return parse_expr(
@@ -335,6 +384,10 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             query.group_by = [ast.Field(chain=["breakdown_value"])]
 
             query.order_by.append(ast.OrderExpr(expr=self._breakdown_query_order_by(breakdown), order="ASC"))
+            query.order_by.append(
+                ast.OrderExpr(expr=ast.Call(name="arraySum", args=[ast.Field(chain=["total"])]), order="DESC")
+            )
+            query.order_by.append(ast.OrderExpr(expr=ast.Field(chain=["breakdown_value"]), order="ASC"))
 
             # TODO: What happens with cohorts and this limit?
             if not breakdown.is_histogram_breakdown:
@@ -360,6 +413,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                         ) as total,
                         {breakdown_select}
                     FROM {outer_query}
+                    WHERE breakdown_value IS NOT NULL
                     GROUP BY breakdown_value
                     ORDER BY
                         {breakdown_order_by},
@@ -379,31 +433,10 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
         return query
 
-    def _get_outer_select_query_for_total_value(self, inner_query: ast.SelectQuery, breakdown: Breakdown):
-        if breakdown.enabled and breakdown.is_multiple_breakdown:
-            query = parse_select(
-                """
-                SELECT
-                    sum(total) AS total,
-                    {breakdowns} AS breakdown_value
-                FROM {inner_query}
-                ORDER BY
-                    {breakdown_order_by},
-                    1 DESC
-                """,
-                placeholders={
-                    "inner_query": inner_query,
-                    "breakdowns": ast.Array(exprs=breakdown.field_exprs),
-                    "breakdown_order_by": self._breakdown_query_order_by(breakdown),
-                },
-            )
-            query.group_by = []
-            query.group_by.extend(breakdown.field_exprs)
-            return query
-
-        return inner_query
-
     def _get_breakdown_limit(self) -> int:
+        if self._trends_display.display_type == ChartDisplayType.WORLD_MAP:
+            return 250
+
         return (
             self.query.breakdownFilter and self.query.breakdownFilter.breakdown_limit
         ) or get_breakdown_limit_for_context(self.limit_context)
@@ -746,23 +779,25 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         )
         return TrendsDisplay(display)
 
-    def _breakdown_outer_query_select(self, breakdown: Breakdown) -> ast.Expr:
+    def _breakdown_outer_query_select(self, breakdown: Breakdown, breakdown_limit: int | None = None) -> ast.Expr:
+        hide_others = ast.Constant(value=None if self._get_breakdown_hide_others() else BREAKDOWN_OTHER_STRING_LABEL)
+
         placeholders: dict[str, ast.Expr] = {
-            "breakdown_limit": ast.Constant(value=self._get_breakdown_limit()),
-            "other": ast.Constant(value=BREAKDOWN_OTHER_STRING_LABEL),
+            "breakdown_limit": ast.Constant(value=breakdown_limit or self._get_breakdown_limit()),
+            "other_label": hide_others,
         }
 
         if breakdown.is_multiple_breakdown:
             return parse_expr(
                 """
-                arrayMap(i -> if(greaterOrEquals(row_number, {breakdown_limit}), {other}, i), breakdown_value) AS breakdown_value
+                arrayMap(i -> if(ifNull(greaterOrEquals(row_number, {breakdown_limit}), 0), {other_label}, i), breakdown_value) AS breakdown_value
                 """,
                 placeholders=placeholders,
             )
 
         return parse_expr(
             """
-            if(row_number >= {breakdown_limit}, {other}, breakdown_value) as breakdown_value
+            if(ifNull(greaterOrEquals(row_number, {breakdown_limit}), 0), {other_label}, breakdown_value) AS breakdown_value
             """,
             placeholders=placeholders,
         )
@@ -771,20 +806,20 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         if breakdown.is_multiple_breakdown:
             return parse_expr(
                 """
-                if(has(breakdown_value, {other}), 2, if(has(breakdown_value, {nil}), 1, 0))
+                if(has(breakdown_value, {other_label}), 2, if(has(breakdown_value, {nil_label}), 1, 0))
                 """,
                 placeholders={
-                    "nil": ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
-                    "other": ast.Constant(value=BREAKDOWN_OTHER_STRING_LABEL),
+                    "nil_label": ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
+                    "other_label": ast.Constant(value=BREAKDOWN_OTHER_STRING_LABEL),
                 },
             )
 
         return parse_expr(
             """
-            breakdown_value = {other} ? 2 : breakdown_value = {nil} ? 1 : 0
+            breakdown_value = {other_label} ? 2 : breakdown_value = {nil_label} ? 1 : 0
             """,
             placeholders={
-                "nil": ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
-                "other": ast.Constant(value=BREAKDOWN_OTHER_STRING_LABEL),
+                "nil_label": ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
+                "other_label": ast.Constant(value=BREAKDOWN_OTHER_STRING_LABEL),
             },
         )

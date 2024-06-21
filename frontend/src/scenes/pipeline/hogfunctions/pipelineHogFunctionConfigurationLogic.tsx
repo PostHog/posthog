@@ -9,6 +9,7 @@ import { urls } from 'scenes/urls'
 
 import {
     FilterType,
+    HogFunctionConfigurationType,
     HogFunctionTemplateType,
     HogFunctionType,
     PipelineNodeTab,
@@ -23,8 +24,6 @@ export interface PipelineHogFunctionConfigurationLogicProps {
     templateId?: string
     id?: string
 }
-
-export type HogFunctionConfigurationType = Omit<HogFunctionType, 'created_at' | 'created_by' | 'updated_at'>
 
 const NEW_FUNCTION_TEMPLATE: HogFunctionTemplateType = {
     id: 'new',
@@ -68,7 +67,37 @@ function sanitizeFilters(filters?: FilterType): PluginConfigTypeNew['filters'] {
     return Object.keys(sanitized).length > 0 ? sanitized : undefined
 }
 
-// Should likely be somewhat similar to pipelineBatchExportConfigurationLogic
+export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFunctionConfigurationType {
+    const sanitizedInputs = {}
+
+    data.inputs_schema?.forEach((input) => {
+        const value = data.inputs?.[input.key]?.value
+
+        if (input.type === 'json' && typeof value === 'string') {
+            try {
+                sanitizedInputs[input.key] = {
+                    value: JSON.parse(value),
+                }
+            } catch (e) {
+                // Ignore
+            }
+        } else {
+            sanitizedInputs[input.key] = {
+                value: value,
+            }
+        }
+    })
+
+    const payload: HogFunctionConfigurationType = {
+        ...data,
+        filters: data.filters ? sanitizeFilters(data.filters) : null,
+        inputs: sanitizedInputs,
+        icon_url: data.icon_url?.replace('&temp=true', ''), // Remove temp=true so it doesn't try and suggest new options next time
+    }
+
+    return payload
+}
+
 export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConfigurationLogicType>([
     props({} as PipelineHogFunctionConfigurationLogicProps),
     key(({ id, templateId }: PipelineHogFunctionConfigurationLogicProps) => {
@@ -140,42 +169,20 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
             },
             submit: async (data) => {
                 try {
-                    const sanitizedInputs = {}
-
-                    data.inputs_schema?.forEach((input) => {
-                        const value = data.inputs?.[input.key]?.value
-
-                        if (input.type === 'json' && typeof value === 'string') {
-                            try {
-                                sanitizedInputs[input.key] = {
-                                    value: JSON.parse(value),
-                                }
-                            } catch (e) {
-                                // Ignore
-                            }
-                        } else {
-                            sanitizedInputs[input.key] = {
-                                value: value,
-                            }
-                        }
-                    })
-
-                    const payload: HogFunctionConfigurationType = {
-                        ...data,
-                        filters: data.filters ? sanitizeFilters(data.filters) : null,
-                        inputs: sanitizedInputs,
-                        icon_url: data.icon_url?.replace('&temp=true', ''), // Remove temp=true so it doesn't try and suggest new options next time
-                    }
+                    const payload = sanitizeConfiguration(data)
 
                     if (props.templateId) {
                         // Only sent on create
                         ;(payload as any).template_id = props.templateId
                     }
 
-                    if (!props.id) {
-                        return await api.hogFunctions.create(payload)
-                    }
-                    return await api.hogFunctions.update(props.id, payload)
+                    const res = props.id
+                        ? await api.hogFunctions.update(props.id, payload)
+                        : await api.hogFunctions.create(payload)
+
+                    lemonToast.success('Configuration saved')
+
+                    return res
                 } catch (e) {
                     const maybeValidationError = (e as any).data
                     if (maybeValidationError?.type === 'validation_error') {
@@ -214,15 +221,17 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
                 const inputErrors = {}
 
                 configuration.inputs_schema?.forEach((input) => {
-                    if (input.required && !inputs[input.key]) {
-                        inputErrors[input.key] = 'This field is required'
+                    const key = input.key
+                    const value = inputs[key]?.value
+                    if (input.required && !value) {
+                        inputErrors[key] = 'This field is required'
                     }
 
-                    if (input.type === 'json' && typeof inputs[input.key] === 'string') {
+                    if (input.type === 'json' && typeof value === 'string') {
                         try {
-                            JSON.parse(inputs[input.key].value)
+                            JSON.parse(value)
                         } catch (e) {
-                            inputErrors[input.key] = 'Invalid JSON'
+                            inputErrors[key] = 'Invalid JSON'
                         }
                     }
                 })
@@ -312,6 +321,10 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
                     enabled: false,
                 })
             }
+        },
+        setConfigurationValue: () => {
+            // Clear the manually set errors otherwise the submission won't work
+            actions.setConfigurationManualErrors({})
         },
     })),
     afterMount(({ props, actions, cache }) => {

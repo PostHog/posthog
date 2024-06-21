@@ -1,7 +1,6 @@
 import { IconGear } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { UnexpectedNeverError } from 'lib/utils'
@@ -120,85 +119,45 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
 }
 
 export const webStatsBreakdownToPropertyName = (
-    breakdownBy: WebStatsBreakdown,
-    useSessionTable: boolean
+    breakdownBy: WebStatsBreakdown
 ):
     | { key: string; type: PropertyFilterType.Person | PropertyFilterType.Event | PropertyFilterType.Session }
     | undefined => {
-    if (!useSessionTable) {
-        switch (breakdownBy) {
-            case WebStatsBreakdown.Page:
-                return { key: '$pathname', type: PropertyFilterType.Event }
-            case WebStatsBreakdown.InitialPage:
-                return { key: '$initial_pathname', type: PropertyFilterType.Person }
-            case WebStatsBreakdown.ExitPage:
-                return undefined
-            case WebStatsBreakdown.InitialChannelType:
-                return undefined
-            case WebStatsBreakdown.InitialReferringDomain:
-                return { key: '$initial_referring_domain', type: PropertyFilterType.Person }
-            case WebStatsBreakdown.InitialUTMSource:
-                return { key: '$initial_utm_source', type: PropertyFilterType.Person }
-            case WebStatsBreakdown.InitialUTMCampaign:
-                return { key: '$initial_utm_campaign', type: PropertyFilterType.Person }
-            case WebStatsBreakdown.InitialUTMMedium:
-                return { key: '$initial_utm_medium', type: PropertyFilterType.Person }
-            case WebStatsBreakdown.InitialUTMContent:
-                return { key: '$initial_utm_content', type: PropertyFilterType.Person }
-            case WebStatsBreakdown.InitialUTMTerm:
-                return { key: '$initial_utm_term', type: PropertyFilterType.Person }
-            case WebStatsBreakdown.Browser:
-                return { key: '$browser', type: PropertyFilterType.Event }
-            case WebStatsBreakdown.OS:
-                return { key: '$os', type: PropertyFilterType.Event }
-            case WebStatsBreakdown.DeviceType:
-                return { key: '$device_type', type: PropertyFilterType.Event }
-            case WebStatsBreakdown.Country:
-                return { key: '$geoip_country_code', type: PropertyFilterType.Event }
-            case WebStatsBreakdown.Region:
-                return { key: '$geoip_subdivision_1_code', type: PropertyFilterType.Event }
-            case WebStatsBreakdown.City:
-                return { key: '$geoip_city_name', type: PropertyFilterType.Event }
-            default:
-                throw new UnexpectedNeverError(breakdownBy)
-        }
-    } else {
-        switch (breakdownBy) {
-            case WebStatsBreakdown.Page:
-                return { key: '$pathname', type: PropertyFilterType.Event }
-            case WebStatsBreakdown.InitialPage:
-                return { key: '$entry_pathname', type: PropertyFilterType.Session }
-            case WebStatsBreakdown.ExitPage:
-                return { key: '$exit_pathname', type: PropertyFilterType.Session }
-            case WebStatsBreakdown.InitialChannelType:
-                return { key: '$channel_type', type: PropertyFilterType.Session }
-            case WebStatsBreakdown.InitialReferringDomain:
-                return { key: '$entry_referring_domain', type: PropertyFilterType.Session }
-            case WebStatsBreakdown.InitialUTMSource:
-                return { key: '$entry_utm_source', type: PropertyFilterType.Session }
-            case WebStatsBreakdown.InitialUTMCampaign:
-                return { key: '$entry_utm_campaign', type: PropertyFilterType.Session }
-            case WebStatsBreakdown.InitialUTMMedium:
-                return { key: '$entry_utm_medium', type: PropertyFilterType.Session }
-            case WebStatsBreakdown.InitialUTMContent:
-                return { key: '$entry_utm_content', type: PropertyFilterType.Session }
-            case WebStatsBreakdown.InitialUTMTerm:
-                return { key: '$entry_utm_term', type: PropertyFilterType.Session }
-            case WebStatsBreakdown.Browser:
-                return { key: '$browser', type: PropertyFilterType.Event }
-            case WebStatsBreakdown.OS:
-                return { key: '$os', type: PropertyFilterType.Event }
-            case WebStatsBreakdown.DeviceType:
-                return { key: '$device_type', type: PropertyFilterType.Event }
-            case WebStatsBreakdown.Country:
-                return { key: '$geoip_country_code', type: PropertyFilterType.Event }
-            case WebStatsBreakdown.Region:
-                return { key: '$geoip_subdivision_1_code', type: PropertyFilterType.Event }
-            case WebStatsBreakdown.City:
-                return { key: '$geoip_city_name', type: PropertyFilterType.Event }
-            default:
-                throw new UnexpectedNeverError(breakdownBy)
-        }
+    switch (breakdownBy) {
+        case WebStatsBreakdown.Page:
+            return { key: '$pathname', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.InitialPage:
+            return { key: '$entry_pathname', type: PropertyFilterType.Session }
+        case WebStatsBreakdown.ExitPage:
+            return { key: '$exit_pathname', type: PropertyFilterType.Session }
+        case WebStatsBreakdown.InitialChannelType:
+            return { key: '$channel_type', type: PropertyFilterType.Session }
+        case WebStatsBreakdown.InitialReferringDomain:
+            return { key: '$entry_referring_domain', type: PropertyFilterType.Session }
+        case WebStatsBreakdown.InitialUTMSource:
+            return { key: '$entry_utm_source', type: PropertyFilterType.Session }
+        case WebStatsBreakdown.InitialUTMCampaign:
+            return { key: '$entry_utm_campaign', type: PropertyFilterType.Session }
+        case WebStatsBreakdown.InitialUTMMedium:
+            return { key: '$entry_utm_medium', type: PropertyFilterType.Session }
+        case WebStatsBreakdown.InitialUTMContent:
+            return { key: '$entry_utm_content', type: PropertyFilterType.Session }
+        case WebStatsBreakdown.InitialUTMTerm:
+            return { key: '$entry_utm_term', type: PropertyFilterType.Session }
+        case WebStatsBreakdown.Browser:
+            return { key: '$browser', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.OS:
+            return { key: '$os', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.DeviceType:
+            return { key: '$device_type', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.Country:
+            return { key: '$geoip_country_code', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.Region:
+            return { key: '$geoip_subdivision_1_code', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.City:
+            return { key: '$geoip_city_name', type: PropertyFilterType.Event }
+        default:
+            throw new UnexpectedNeverError(breakdownBy)
     }
 }
 
@@ -246,7 +205,6 @@ export const WebStatsTrendTile = ({
     insightProps: InsightLogicProps
 }): JSX.Element => {
     const { togglePropertyFilter, setInterval } = useActions(webAnalyticsLogic)
-    const useSessionsTable = useFeatureFlag('SESSION_TABLE_PROPERTY_FILTERS')
     const {
         hasCountryFilter,
         deviceTab,
@@ -255,8 +213,8 @@ export const WebStatsTrendTile = ({
         hasOSFilter,
         dateFilter: { interval },
     } = useValues(webAnalyticsLogic)
-    const worldMapPropertyName = webStatsBreakdownToPropertyName(WebStatsBreakdown.Country, useSessionsTable)?.key
-    const deviceTypePropertyName = webStatsBreakdownToPropertyName(WebStatsBreakdown.DeviceType, useSessionsTable)?.key
+    const worldMapPropertyName = webStatsBreakdownToPropertyName(WebStatsBreakdown.Country)?.key
+    const deviceTypePropertyName = webStatsBreakdownToPropertyName(WebStatsBreakdown.DeviceType)?.key
 
     const onWorldMapClick = useCallback(
         (breakdownValue: string) => {
@@ -366,9 +324,8 @@ export const WebStatsTableTile = ({
 }): JSX.Element => {
     const { togglePropertyFilter, setIsPathCleaningEnabled } = useActions(webAnalyticsLogic)
     const { isPathCleaningEnabled } = useValues(webAnalyticsLogic)
-    const useSessionsTable = useFeatureFlag('SESSION_TABLE_PROPERTY_FILTERS')
 
-    const { key, type } = webStatsBreakdownToPropertyName(breakdownBy, useSessionsTable) || {}
+    const { key, type } = webStatsBreakdownToPropertyName(breakdownBy) || {}
 
     const onClick = useCallback(
         (breakdownValue: string) => {

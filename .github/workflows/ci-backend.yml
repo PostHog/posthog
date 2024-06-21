@@ -8,12 +8,12 @@ on:
     push:
         branches:
             - master
-    pull_request:
     workflow_dispatch:
         inputs:
             clickhouseServerVersion:
                 description: ClickHouse server version. Leave blank for default
                 type: string
+    pull_request:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}

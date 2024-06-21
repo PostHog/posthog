@@ -8,6 +8,7 @@ import {
     LemonButton,
     LemonCheckbox,
     LemonCollapse,
+    LemonDialog,
     LemonDivider,
     LemonInput,
     LemonSelect,
@@ -18,6 +19,7 @@ import {
 import { BindLogic, useActions, useValues } from 'kea'
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
 import { FlagSelector } from 'lib/components/FlagSelector'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -50,6 +52,7 @@ export default function SurveyEdit(): JSX.Element {
         targetingFlagFilters,
         showSurveyRepeatSchedule,
         schedule,
+        hasBranchingLogic,
     } = useValues(surveyLogic)
     const {
         setSurveyValue,
@@ -58,6 +61,7 @@ export default function SurveyEdit(): JSX.Element {
         setSelectedSection,
         setFlagPropertyErrors,
         setSchedule,
+        deleteBranchingLogic,
     } = useActions(surveyLogic)
     const { surveysMultipleQuestionsAvailable, surveysRecurringScheduleAvailable, surveysEventsAvailable } =
         useValues(surveysLogic)
@@ -170,10 +174,37 @@ export default function SurveyEdit(): JSX.Element {
                                     <DndContext
                                         onDragEnd={({ active, over }) => {
                                             if (over && active.id !== over.id) {
-                                                onSortEnd({
-                                                    oldIndex: sortedItemIds.indexOf(active.id.toString()),
-                                                    newIndex: sortedItemIds.indexOf(over.id.toString()),
-                                                })
+                                                const finishDrag = (): void =>
+                                                    onSortEnd({
+                                                        oldIndex: sortedItemIds.indexOf(active.id.toString()),
+                                                        newIndex: sortedItemIds.indexOf(over.id.toString()),
+                                                    })
+
+                                                if (hasBranchingLogic) {
+                                                    LemonDialog.open({
+                                                        title: 'Your survey has active branching logic',
+                                                        description: (
+                                                            <p className="py-2">
+                                                                Rearranging questions will remove your branching logic.
+                                                                Are you sure you want to continue?
+                                                            </p>
+                                                        ),
+
+                                                        primaryButton: {
+                                                            children: 'Continue',
+                                                            status: 'danger',
+                                                            onClick: () => {
+                                                                deleteBranchingLogic()
+                                                                finishDrag()
+                                                            },
+                                                        },
+                                                        secondaryButton: {
+                                                            children: 'Cancel',
+                                                        },
+                                                    })
+                                                } else {
+                                                    finishDrag()
+                                                }
                                             }
                                         }}
                                     >
@@ -225,14 +256,48 @@ export default function SurveyEdit(): JSX.Element {
                                                                               icon={<IconTrash />}
                                                                               data-attr="delete-survey-confirmation"
                                                                               onClick={(e) => {
-                                                                                  e.stopPropagation()
-                                                                                  setSelectedPageIndex(
-                                                                                      survey.questions.length - 1
-                                                                                  )
-                                                                                  setSurveyValue('appearance', {
-                                                                                      ...survey.appearance,
-                                                                                      displayThankYouMessage: false,
-                                                                                  })
+                                                                                  const deleteConfirmationMessage =
+                                                                                      (): void => {
+                                                                                          e.stopPropagation()
+                                                                                          setSelectedPageIndex(
+                                                                                              survey.questions.length -
+                                                                                                  1
+                                                                                          )
+                                                                                          setSurveyValue('appearance', {
+                                                                                              ...survey.appearance,
+                                                                                              displayThankYouMessage:
+                                                                                                  false,
+                                                                                          })
+                                                                                      }
+
+                                                                                  if (hasBranchingLogic) {
+                                                                                      LemonDialog.open({
+                                                                                          title: 'Your survey has active branching logic',
+                                                                                          description: (
+                                                                                              <p className="py-2">
+                                                                                                  Deleting the
+                                                                                                  confirmation message
+                                                                                                  will remove your
+                                                                                                  branching logic. Are
+                                                                                                  you sure you want to
+                                                                                                  continue?
+                                                                                              </p>
+                                                                                          ),
+                                                                                          primaryButton: {
+                                                                                              children: 'Continue',
+                                                                                              status: 'danger',
+                                                                                              onClick: () => {
+                                                                                                  deleteBranchingLogic()
+                                                                                                  deleteConfirmationMessage()
+                                                                                              },
+                                                                                          },
+                                                                                          secondaryButton: {
+                                                                                              children: 'Cancel',
+                                                                                          },
+                                                                                      })
+                                                                                  } else {
+                                                                                      deleteConfirmationMessage()
+                                                                                  }
                                                                               }}
                                                                               tooltipPlacement="top-end"
                                                                           />
@@ -620,8 +685,12 @@ export default function SurveyEdit(): JSX.Element {
                                                 </BindLogic>
                                             </LemonField.Pure>
                                             {featureFlags[FEATURE_FLAGS.SURVEYS_EVENTS] && surveysEventsAvailable && (
-                                                <LemonField.Pure label="User sends events">
+                                                <LemonField.Pure
+                                                    label="User sends events"
+                                                    info="Note that these events are only observed, and activate this survey, in the current user session."
+                                                >
                                                     <EventSelect
+                                                        filterGroupTypes={[TaxonomicFilterGroupType.CustomEvents]}
                                                         onChange={(includedEvents) => {
                                                             setSurveyValue('conditions', {
                                                                 ...survey.conditions,
