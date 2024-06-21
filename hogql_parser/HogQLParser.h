@@ -258,9 +258,9 @@ public:
     ForStmtContext *forStmt();
     FuncStmtContext *funcStmt();
     VarAssignmentContext *varAssignment();
+    BlockContext *block();
     ExprStmtContext *exprStmt();
     EmptyStmtContext *emptyStmt();
-    BlockContext *block();
 
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
