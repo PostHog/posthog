@@ -236,14 +236,16 @@ def invalid_web_replays() -> None:
     query = """
     select
         --team_id,
-        count()
+        count() as all_recordings,
+        countIf(snapshot_source == 'mobile') as mobile_recordings,
+        countIf(snapshot_source == 'web') as web_recordings,
+        countIf(snapshot_source =='web' and first_url is null) as invalid_web_recordings
     from (
         select any(team_id) as team_id, argMinMerge(first_url) as first_url, argMinMerge(snapshot_source) as snapshot_source
         from session_replay_events
-        where min_first_timestamp >= now() - interval 1 hour
-        and min_first_timestamp <= now()
+        where min_first_timestamp >= now() - interval 65 minute
+        and min_first_timestamp <= now() - interval 5 minute
         group by session_id
-        having first_url is null and snapshot_source = 'web'
     )
     --group by team_id
     """
@@ -252,14 +254,28 @@ def invalid_web_replays() -> None:
         results = sync_execute(
             query,
         )
+
+        metrics = [
+            "all_recordings",
+            "mobile_recordings",
+            "web_recordings",
+            "invalid_web_recordings",
+        ]
+        descriptions = [
+            "All recordings that started in the last hour",
+            "Recordings started in the last hour that are from mobile",
+            "Recordings started in the last hour that are from web",
+            "Acts as a proxy for replay sessions which haven't received a full snapshot",
+        ]
         with pushed_metrics_registry("celery_replay_tracking") as registry:
-            gauge = Gauge(
-                "replay_tracking_web_replay_with_missing_first_url",
-                "Acts as a proxy for replay sessions which haven't received a full snapshot",
-                registry=registry,
-            )
-            count = results[0][0]
-            gauge.set(count)
+            for i in range(0, 4):
+                gauge = Gauge(
+                    f"replay_tracking_{metrics[i]}",
+                    descriptions[i],
+                    registry=registry,
+                )
+                count = results[0][i]
+                gauge.set(count)
     except:
         pass
 
