@@ -16,7 +16,6 @@ from posthog.schema import (
     ActorsQueryResponse,
     CachedActorsQueryResponse,
     DashboardFilter,
-    TrendsQuery,
 )
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
@@ -251,9 +250,10 @@ class ActorsQueryRunner(QueryRunner):
                 source_alias = "source"
 
                 origin = self.strategy.origin
-                if isinstance(self.strategy, PersonStrategy) and any(
-                    isinstance(x, C) for x in [getattr(self.query.source, "source", None)] for C in (TrendsQuery,)
-                ):
+                if isinstance(self.strategy, PersonStrategy):
+                    # if isinstance(self.strategy, PersonStrategy) and any(
+                    #    isinstance(x, C) for x in [getattr(self.query.source, "source", None)] for C in (TrendsQuery,)
+                    # ):
                     # SelectUnionQuery (used by Stickiness) doesn't have settings
                     if hasattr(source_query, "settings"):
                         if source_query.settings is None:
