@@ -5,6 +5,7 @@ from posthog.hogql.test.utils import pretty_print_in_tests
 from posthog.hogql.visitor import clear_locations
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.models.utils import UUIDT
+from uuid import UUID
 from posthog.schema import (
     ActorsQuery,
     PersonPropertyFilter,
@@ -16,6 +17,8 @@ from posthog.schema import (
     EventsNode,
     IntervalType,
     InsightActorsQuery,
+    TrendsQuery,
+    EventPropertyFilter,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -186,30 +189,65 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.hasMore, True)
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=True)
-    def test_source_hogql_query_poe_on(self):
+    def test_source_hogql_query_source(self):
         self.random_uuid = self._create_random_persons()
-        source_query = HogQLQuery(query="SELECT distinct person_id FROM events WHERE event='clicky-4'")
+        source_query = HogQLQuery(
+            query="SELECT person_id, count() as event_count FROM events WHERE event='clicky-4' group by person_id"
+        )
         query = ActorsQuery(
-            select=["properties.email"],
-            orderBy=["properties.email DESC"],
+            select=["actor"],
+            orderBy=["event_count DESC, actor_id DESC"],
+            limit=100,
             source=source_query,
         )
         runner = self._create_runner(query)
         response = runner.calculate()
-        self.assertEqual(response.results, [[f"jacob4@{self.random_uuid}.posthog.com"]])
+        self.assertEqual(response.results[0][0]["id"], UUID("00000000-0000-4000-8000-000000000005"))
+        self.assertEqual(len(response.results), 1)
 
-    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
-    def test_source_hogql_query_poe_off(self):
+    def test_source_hogql_query_filter(self):
         self.random_uuid = self._create_random_persons()
-        source_query = HogQLQuery(query="SELECT distinct person_id FROM events WHERE event='clicky-4'")
+        source_query = HogQLQuery(
+            query="select * from (SELECT person_id as actor_id, count() as event_count FROM events where event IN ('clicky-3', 'clicky-4') group by 1)"
+        )
         query = ActorsQuery(
-            select=["properties.email"],
-            orderBy=["properties.email DESC"],
+            select=["actor", "event_count", "matched_recordings"],
+            orderBy=["event_count DESC, actor_id DESC"],
+            search="jacob3",
+            limit=100,
             source=source_query,
         )
         runner = self._create_runner(query)
         response = runner.calculate()
-        self.assertEqual(response.results, [[f"jacob4@{self.random_uuid}.posthog.com"]])
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0][0]["id"], UUID("00000000-0000-4000-8000-000000000004"))
+
+    def test_source_trend_query_with_filter(self):
+        with freeze_time("2021-01-01T12:00:00Z"):
+            self.random_uuid = self._create_random_persons()
+        with freeze_time("2021-01-03T12:00:00Z"):
+            source_query = TrendsQuery(
+                series=[EventsNode(event="clicky-4")],
+                properties=[
+                    EventPropertyFilter(
+                        key="$browser", label=None, operator=PropertyOperator.IS_NOT, type="event", value=["eee"]
+                    )
+                ],
+                # properties=[(key='email', value='fuck')],
+                interval=IntervalType.DAY,
+                dateRange=InsightDateRange(date_from="-7d"),
+            )
+            query = ActorsQuery(
+                select=["actor", "event_count", "matched_recordings"],
+                orderBy=["event_count DESC, actor_id DESC"],
+                search="jacob4",
+                limit=100,
+                source=InsightActorsQuery(source=source_query, day="2021-01-01"),
+            )
+            runner = self._create_runner(query)
+            response = runner.calculate()
+            self.assertEqual(len(response.results), 1)
+            self.assertEqual(response.results[0][0]["id"], UUID("00000000-0000-4000-8000-000000000005"))
 
     def test_source_lifecycle_query(self):
         with freeze_time("2021-01-01T12:00:00Z"):
@@ -228,8 +266,8 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 dateRange=InsightDateRange(date_from="-7d"),
             )
             query = ActorsQuery(
-                select=["properties.email"],
-                orderBy=["properties.email DESC"],
+                select=["actor"],
+                orderBy=["actor_id DESC"],
                 source=InsightActorsQuery(source=source_query),
             )
             runner = self._create_runner(query)

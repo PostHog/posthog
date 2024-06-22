@@ -8,7 +8,16 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.utils.recordings_helper import RecordingsHelper
 from posthog.models import Team, Group
-from posthog.schema import ActorsQuery
+from posthog.schema import (
+    ActorsQuery,
+    PersonPropertyFilter,
+    GroupPropertyFilter,
+    PropertyOperator,
+    HogQLPropertyFilter,
+    PropertyGroupFilter,
+    FilterLogicalOperator,
+    PropertyGroupFilterValue,
+)
 
 import orjson as json
 
@@ -34,6 +43,9 @@ class ActorStrategy:
 
     def filter_conditions(self) -> list[ast.Expr]:
         return []
+
+    def property_conditions(self) -> Optional[PropertyGroupFilter]:
+        return None
 
     def order_by(self) -> Optional[list[ast.OrderExpr]]:
         return None
@@ -128,6 +140,18 @@ class PersonStrategy(ActorStrategy):
             )
         return where_exprs
 
+    def property_conditions(self) -> Optional[PropertyGroupFilter]:
+        if self.query.search is not None and self.query.search != "":
+            return PropertyGroupFilterValue(
+                type=FilterLogicalOperator.OR_,
+                values=[
+                    PersonPropertyFilter(key="email", operator=PropertyOperator.ICONTAINS, value=self.query.search),
+                    PersonPropertyFilter(key="name", operator=PropertyOperator.ICONTAINS, value=self.query.search),
+                    HogQLPropertyFilter(key=f"toString(person_id) ilike '%{self.query.search}%'"),
+                    HogQLPropertyFilter(key=f"distinct_id ilike '%{self.query.search}%'"),
+                ],
+            )
+
     def order_by(self) -> Optional[list[ast.OrderExpr]]:
         if self.query.orderBy not in [["person"], ["person DESC"], ["person ASC"]]:
             return None
@@ -195,6 +219,22 @@ class GroupStrategy(ActorStrategy):
             )
 
         return where_exprs
+
+    def property_conditions(self) -> Optional[PropertyGroupFilter]:
+        if self.query.search is not None and self.query.search != "":
+            return PropertyGroupFilter(
+                type=FilterLogicalOperator.OR_,
+                values=[
+                    GroupPropertyFilter(
+                        key="name",
+                        operator=PropertyOperator.ICONTAINS,
+                        value=self.query.search,
+                        group_type_index=self.group_type_index,
+                    ),
+                    HogQLPropertyFilter(key=f"$group_{self.group_type_index} ilike '{self.query.search}'"),
+                ],
+            )
+        return []
 
     def order_by(self) -> Optional[list[ast.OrderExpr]]:
         if self.query.orderBy not in [["group"], ["group DESC"], ["group ASC"]]:

@@ -1,6 +1,8 @@
 from posthog.hogql.ast import SelectQuery, JoinExpr
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
+    VirtualTable,
+    StringJSONDatabaseField,
     Table,
     StringDatabaseField,
     DateTimeDatabaseField,
@@ -138,6 +140,21 @@ def join_with_console_logs_log_entries_table(
 
 RAW_ONLY_FIELDS = ["min_first_timestamp", "max_last_timestamp"]
 
+
+class SessionReplayEventsPersonSubTable(VirtualTable):
+    fields: dict[str, FieldOrTable] = {
+        "id": StringDatabaseField(name="person_id"),
+        "created_at": DateTimeDatabaseField(name="person_created_at"),
+        "properties": StringJSONDatabaseField(name="person_properties"),
+    }
+
+    def to_printed_clickhouse(self, context):
+        return "session_replay_events"
+
+    def to_printed_hogql(self):
+        return "session_replay_events"
+
+
 SESSION_REPLAY_EVENTS_COMMON_FIELDS: dict[str, FieldOrTable] = {
     "session_id": StringDatabaseField(name="session_id"),
     "team_id": IntegerDatabaseField(name="team_id"),
@@ -163,6 +180,7 @@ SESSION_REPLAY_EVENTS_COMMON_FIELDS: dict[str, FieldOrTable] = {
     ),
     # this is so that HogQL properties e.g. on test account filters can find the correct column
     "properties": FieldTraverser(chain=["events", "properties"]),
+    "poe": SessionReplayEventsPersonSubTable(),
     "pdi": LazyJoin(
         from_field=["distinct_id"],
         join_table=PersonDistinctIdsTable(),

@@ -348,7 +348,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
             () => [(_, p) => p.additionalSelect],
             (additionalSelect: PersonModalLogicProps['additionalSelect']): string[] => {
                 const extra = Object.values(additionalSelect || {})
-                return ['actor', 'created_at', ...extra]
+                return ['actor', ...extra]
             },
         ],
         actorsQuery: [
@@ -361,7 +361,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
                     kind: NodeKind.ActorsQuery,
                     source: query,
                     select: selectFields,
-                    orderBy: orderBy || ['created_at DESC'],
+                    orderBy: orderBy || [''],
                     search: searchTerm,
                 }
             },
