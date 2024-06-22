@@ -270,7 +270,7 @@ def invalid_web_replays() -> None:
         with pushed_metrics_registry("celery_replay_tracking") as registry:
             for i in range(0, 4):
                 gauge = Gauge(
-                    f"replay_tracking_web_replay_{metrics[i]}",
+                    f"replay_tracking_{metrics[i]}",
                     descriptions[i],
                     registry=registry,
                 )
