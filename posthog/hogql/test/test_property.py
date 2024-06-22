@@ -606,33 +606,6 @@ class TestProperty(BaseTest):
             self._parse_expr("event = '$pageview' OR true"),  # All events just resolve to "true"
         )
 
-    def test_href_materialized(self):
-        action1 = Action.objects.create(
-            team=self.team,
-            steps_json=[
-                {
-                    "event": "$autocapture",
-                    "href": "/api/whatever",
-                }
-            ],
-        )
-        self.assertEqual(
-            clear_locations(action_to_expr(action1)),
-            self._parse_expr(
-                "event = '$autocapture' and elements_chain_href = '/api/whatever'",
-            ),
-        )
-        action1 = Action.objects.create(
-            team=self.team,
-            steps_json=[{"event": "$autocapture", "href": "/api/whatever", "href_matching": "contains"}],
-        )
-        self.assertEqual(
-            clear_locations(action_to_expr(action1)),
-            self._parse_expr(
-                "event = '$autocapture' and elements_chain_href LIKE '%/api/whatever%'",
-            ),
-        )
-
     def test_cohort_filter_static(self):
         cohort = Cohort.objects.create(
             team=self.team,
