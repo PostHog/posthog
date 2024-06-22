@@ -4,6 +4,7 @@ from collections.abc import Sequence, Iterator
 
 from posthog.clickhouse.query_tagging import tag_queries, NonSerializableTags
 from posthog.hogql import ast
+from posthog.hogql.ast import SelectQuery
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import has_aggregation
@@ -255,20 +256,22 @@ class ActorsQueryRunner(QueryRunner):
                     #    isinstance(x, C) for x in [getattr(self.query.source, "source", None)] for C in (TrendsQuery,)
                     # ):
                     # SelectUnionQuery (used by Stickiness) doesn't have settings
-                    if hasattr(source_query, "settings"):
-                        if source_query.settings is None:
-                            source_query.settings = HogQLQuerySettings()
-                        source_query.settings.use_query_cache = True
-                        source_query.settings.query_cache_ttl = HOGQL_INCREASED_MAX_EXECUTION_TIME
-                    s = ast.SelectQuery(
-                        select=[ast.Field(chain=[source_alias, "actor_id"])],
-                        select_from=ast.JoinExpr(table=source_query, alias=source_alias),
-                    )
-
+                    for select_query in (
+                        [source_query] if isinstance(source_query, SelectQuery) else source_query.select_queries
+                    ):
+                        if select_query.settings is None:
+                            select_query.settings = HogQLQuerySettings()
+                        select_query.settings.use_query_cache = True
+                        select_query.settings.query_cache_ttl = HOGQL_INCREASED_MAX_EXECUTION_TIME
                     tag_queries(
                         **{
                             NonSerializableTags.FILTERABLE_PERSONS.value: ast.CompareOperation(
-                                left=ast.Field(chain=["id"]), right=s, op=ast.CompareOperationOp.In
+                                left=ast.Field(chain=["id"]),
+                                right=ast.SelectQuery(
+                                    select=[ast.Field(chain=[source_alias, "actor_id"])],
+                                    select_from=ast.JoinExpr(table=source_query, alias=source_alias),
+                                ),
+                                op=ast.CompareOperationOp.In,
                             )
                         }
                     )
