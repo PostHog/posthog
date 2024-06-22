@@ -237,7 +237,9 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
 
         self.assertEqual([("p2",)], response.results)
-        assert "in(person.id" in queries[0]
+        assert "in(id," in queries[0]
+        self.assertEqual(2, queries[0].count("toTimeZone(e.timestamp, 'US/Pacific') AS timestamp"))
+        self.assertEqual(2, queries[0].count("use_query_cache=1"))
 
     @snapshot_clickhouse_queries
     def test_insight_persons_trends_query_with_argmaxV2(self):
@@ -265,6 +267,8 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual([("p2",)], response.results)
         assert "in(person.id" in queries[0]
+        self.assertEqual(2, queries[0].count("toTimeZone(e.timestamp, 'US/Pacific') AS timestamp"))
+        self.assertEqual(2, queries[0].count("use_query_cache=1"))
 
     @snapshot_clickhouse_queries
     def test_insight_persons_trends_groups_query(self):

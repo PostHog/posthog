@@ -1,8 +1,10 @@
-from typing import cast
+from typing import cast, Optional
 import posthoganalytics
 
+from posthog.clickhouse.query_tagging import get_query_tag_value, NonSerializableTags
 from posthog.hogql.ast import SelectQuery, And
-from posthog.hogql.constants import HogQLQuerySettings, ReservedCTE
+from posthog.hogql.base import Expr
+from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.argmax import argmax_select
 from posthog.hogql.database.models import (
@@ -21,7 +23,7 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.schema.util.where_clause_extractor import WhereClauseExtractor
 from posthog.hogql.database.schema.persons_pdi import PersonsPDITable, persons_pdi_join
 from posthog.hogql.errors import ResolutionError
-from posthog.hogql.parser import parse_expr
+from posthog.hogql.visitor import clone_expr
 from posthog.models.organization import Organization
 from posthog.schema import PersonsArgMaxVersion
 
@@ -39,7 +41,12 @@ PERSONS_FIELDS: dict[str, FieldOrTable] = {
 }
 
 
-def select_from_persons_table(join_or_table: LazyJoinToAdd | LazyTableToAdd, context: HogQLContext, node: SelectQuery):
+def select_from_persons_table(
+    join_or_table: LazyJoinToAdd | LazyTableToAdd,
+    context: HogQLContext,
+    node: SelectQuery,
+    filter: Optional[Expr] = None,
+):
     version = context.modifiers.personsArgMaxVersion
     if version == PersonsArgMaxVersion.AUTO:
         version = PersonsArgMaxVersion.V1
@@ -49,9 +56,6 @@ def select_from_persons_table(join_or_table: LazyJoinToAdd | LazyTableToAdd, con
                 version = PersonsArgMaxVersion.V2
                 break
 
-    use_cte = node.type is not None and ReservedCTE.POSTHOG_PERSON_IDS.value in node.type.ctes
-    cte_condition = f"raw_persons.id IN (SELECT person_id FROM {ReservedCTE.POSTHOG_PERSON_IDS.value})"
-
     if version == PersonsArgMaxVersion.V2:
         from posthog.hogql import ast
         from posthog.hogql.parser import parse_select
@@ -59,11 +63,10 @@ def select_from_persons_table(join_or_table: LazyJoinToAdd | LazyTableToAdd, con
         select = cast(
             ast.SelectQuery,
             parse_select(
-                f"""
+                """
             SELECT id FROM raw_persons WHERE (id, version) IN (
                SELECT id, max(version) as version
                FROM raw_persons
-               {f"WHERE {cte_condition}" if use_cte else ""}
                GROUP BY id
                HAVING equals(argMax(raw_persons.is_deleted, raw_persons.version), 0)
                AND argMax(raw_persons.created_at, raw_persons.version) < now() + interval 1 day
@@ -72,6 +75,8 @@ def select_from_persons_table(join_or_table: LazyJoinToAdd | LazyTableToAdd, con
             ),
         )
         select.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
+        if filter is not None:
+            cast(ast.SelectQuery, cast(ast.CompareOperation, select.where).right).where = filter
 
         for field_name, field_chain in join_or_table.fields_accessed.items():
             # We need to always select the 'id' field for the join constraint. The field name here is likely to
@@ -93,12 +98,11 @@ def select_from_persons_table(join_or_table: LazyJoinToAdd | LazyTableToAdd, con
             timestamp_field_to_clamp="created_at",
         )
         select.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
-        if use_cte:
-            expr = parse_expr(cte_condition)
+        if filter is not None:
             if select.where:
-                select.where = And(exprs=[select.where, expr])
+                select.where = And(exprs=[select.where, filter])
             else:
-                select.where = expr
+                select.where = filter
 
     if context.modifiers.optimizeJoinedFilters:
         extractor = WhereClauseExtractor(context)
@@ -184,3 +188,21 @@ class PersonsTable(LazyTable):
 
     def to_printed_hogql(self):
         return "persons"
+
+
+# Filterable Persons is a lazy table that allows you to insert a where statement inside of the person subselect
+# This is useful for certain users and queries where we might not want to pull everything
+class FilterablePersonsTable(LazyTable):
+    fields: dict[str, FieldOrTable] = PERSONS_FIELDS
+
+    def lazy_select(self, table_to_add: LazyTableToAdd, context, node):
+        filter = get_query_tag_value(NonSerializableTags.FILTERABLE_PERSONS.value)
+        if filter is not None:
+            filter = clone_expr(filter, clear_types=True, clear_locations=True)
+        return select_from_persons_table(table_to_add, context, node, filter)
+
+    def to_printed_clickhouse(self, context):
+        return "person"
+
+    def to_printed_hogql(self):
+        return "filterable_persons"

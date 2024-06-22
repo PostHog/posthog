@@ -58,7 +58,7 @@
                     FROM person_distinct_id2
                     WHERE equals(person_distinct_id2.team_id, 2)
                     GROUP BY person_distinct_id2.distinct_id
-                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))))
                  ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
@@ -142,7 +142,7 @@
                     FROM person_distinct_id2
                     WHERE equals(person_distinct_id2.team_id, 2)
                     GROUP BY person_distinct_id2.distinct_id
-                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))))
                  ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
@@ -226,7 +226,7 @@
                     FROM person_distinct_id2
                     WHERE equals(person_distinct_id2.team_id, 2)
                     GROUP BY person_distinct_id2.distinct_id
-                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))))
                  ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
@@ -310,7 +310,7 @@
                     FROM person_distinct_id2
                     WHERE equals(person_distinct_id2.team_id, 2)
                     GROUP BY person_distinct_id2.distinct_id
-                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))))
                  ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
@@ -394,7 +394,7 @@
                     FROM person_distinct_id2
                     WHERE equals(person_distinct_id2.team_id, 2)
                     GROUP BY person_distinct_id2.distinct_id
-                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-05-23 23:59:59', 6, 'UTC')))), and(equals(events.event, '$pageview'), ifNull(notIn(path_item, ['/bar/*/foo']), 0)))
                  ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
@@ -477,7 +477,7 @@
                     FROM person_distinct_id2
                     WHERE equals(person_distinct_id2.team_id, 2)
                     GROUP BY person_distinct_id2.distinct_id
-                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-05-23 23:59:59', 6, 'UTC')))), and(equals(events.event, '$pageview'), ifNull(notIn(path_item, ['/bar/*/foo']), 0)))
                  ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
@@ -560,7 +560,7 @@
                     FROM person_distinct_id2
                     WHERE equals(person_distinct_id2.team_id, 2)
                     GROUP BY person_distinct_id2.distinct_id
-                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-05-23 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
                  ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
@@ -643,7 +643,7 @@
                     FROM person_distinct_id2
                     WHERE equals(person_distinct_id2.team_id, 2)
                     GROUP BY person_distinct_id2.distinct_id
-                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-05-23 23:59:59', 6, 'UTC')))), equals(events.event, '$screen'))
                  ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
@@ -726,7 +726,7 @@
                     FROM person_distinct_id2
                     WHERE equals(person_distinct_id2.team_id, 2)
                     GROUP BY person_distinct_id2.distinct_id
-                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-05-23 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
                  ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
@@ -809,7 +809,7 @@
                     FROM person_distinct_id2
                     WHERE equals(person_distinct_id2.team_id, 2)
                     GROUP BY person_distinct_id2.distinct_id
-                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-05-23 23:59:59', 6, 'UTC')))), and(or(equals(events.event, '$pageview'), equals(events.event, '$screen'), not(startsWith(events.event, '$'))), ifNull(notIn(path_item, ['/custom1', '/1', '/2', '/3']), 0)))
                  ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
@@ -892,7 +892,7 @@
                     FROM person_distinct_id2
                     WHERE equals(person_distinct_id2.team_id, 2)
                     GROUP BY person_distinct_id2.distinct_id
-                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-03 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
                  ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
@@ -975,9 +975,9 @@
                     FROM person_distinct_id2
                     WHERE equals(person_distinct_id2.team_id, 2)
                     GROUP BY person_distinct_id2.distinct_id
-                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                  LEFT JOIN
-                   (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                   (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                            groups.group_type_index AS index,
                            groups.group_key AS key
                     FROM groups
@@ -1061,7 +1061,7 @@
                         (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
                  FROM events
                  LEFT JOIN
-                   (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                   (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                            groups.group_type_index AS index,
                            groups.group_key AS key
                     FROM groups
@@ -1145,7 +1145,7 @@
                         (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
                  FROM events
                  LEFT JOIN
-                   (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                   (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                            groups.group_type_index AS index,
                            groups.group_key AS key
                     FROM groups
@@ -1267,7 +1267,7 @@
                        FROM person_distinct_id2
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
-                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                     WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
                     ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
@@ -1283,7 +1283,7 @@
      FROM person
      WHERE equals(person.team_id, 2)
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -1388,7 +1388,7 @@
                        FROM person_distinct_id2
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
-                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                     WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
                     ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
@@ -1403,7 +1403,7 @@
      FROM person
      WHERE equals(person.team_id, 2)
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -1508,7 +1508,7 @@
                        FROM person_distinct_id2
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
-                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                     WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
                     ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
@@ -1523,7 +1523,7 @@
      FROM person
      WHERE equals(person.team_id, 2)
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -1628,7 +1628,7 @@
                        FROM person_distinct_id2
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
-                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                     WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
                     ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
@@ -1644,7 +1644,7 @@
      FROM person
      WHERE equals(person.team_id, 2)
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -1749,7 +1749,7 @@
                        FROM person_distinct_id2
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
-                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                     WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
                     ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
@@ -1764,7 +1764,7 @@
      FROM person
      WHERE equals(person.team_id, 2)
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -1869,7 +1869,7 @@
                        FROM person_distinct_id2
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
-                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                     WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
                     ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
@@ -1884,7 +1884,7 @@
      FROM person
      WHERE equals(person.team_id, 2)
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -1989,7 +1989,7 @@
                        FROM person_distinct_id2
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
-                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                     WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
                     ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
@@ -2005,7 +2005,7 @@
      FROM person
      WHERE equals(person.team_id, 2)
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -2110,7 +2110,7 @@
                        FROM person_distinct_id2
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
-                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                     WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
                     ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
@@ -2125,7 +2125,7 @@
      FROM person
      WHERE equals(person.team_id, 2)
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -2230,7 +2230,7 @@
                        FROM person_distinct_id2
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
-                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                     WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
                     ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
@@ -2245,7 +2245,7 @@
      FROM person
      WHERE equals(person.team_id, 2)
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -2326,7 +2326,7 @@
                     FROM person_distinct_id_overrides
                     WHERE equals(person_distinct_id_overrides.team_id, 2)
                     GROUP BY person_distinct_id_overrides.distinct_id
-                    HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                    HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-02-01 23:59:59', 6, 'UTC')))), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), not(startsWith(events.event, '$'))))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
@@ -2353,7 +2353,7 @@
 # name: TestClickhousePaths.test_recording
   '''
   SELECT persons.id AS id,
-         toTimeZone(persons.created_at, 'UTC') AS created_at,
+         persons.created_at AS created_at,
          source.event_count AS event_count,
          source.matching_events AS matching_events
   FROM
@@ -2445,7 +2445,7 @@
                        FROM person_distinct_id2
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
-                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                     WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-02 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
                     ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
@@ -2456,12 +2456,12 @@
      WHERE ifNull(equals(path_key, '2_/2'), 0)
      GROUP BY person_id) AS source
   INNER JOIN
-    (SELECT argMax(person.created_at, person.version) AS created_at,
+    (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person
      WHERE equals(person.team_id, 2)
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -2492,7 +2492,7 @@
 # name: TestClickhousePaths.test_recording_for_dropoff
   '''
   SELECT persons.id AS id,
-         toTimeZone(persons.created_at, 'UTC') AS created_at,
+         persons.created_at AS created_at,
          source.event_count AS event_count,
          source.matching_events AS matching_events
   FROM
@@ -2584,7 +2584,7 @@
                        FROM person_distinct_id2
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
-                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                     WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-02 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
                     ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
@@ -2596,12 +2596,12 @@
                                                                    and isNull(path_key)))
      GROUP BY person_id) AS source
   INNER JOIN
-    (SELECT argMax(person.created_at, person.version) AS created_at,
+    (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person
      WHERE equals(person.team_id, 2)
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -2617,7 +2617,7 @@
 # name: TestClickhousePaths.test_recording_for_dropoff.1
   '''
   SELECT persons.id AS id,
-         toTimeZone(persons.created_at, 'UTC') AS created_at,
+         persons.created_at AS created_at,
          source.event_count AS event_count,
          source.matching_events AS matching_events
   FROM
@@ -2709,7 +2709,7 @@
                        FROM person_distinct_id2
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
-                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                     WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-02 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
                     ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
@@ -2721,12 +2721,12 @@
                                                                    and isNull(path_key)))
      GROUP BY person_id) AS source
   INNER JOIN
-    (SELECT argMax(person.created_at, person.version) AS created_at,
+    (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person
      WHERE equals(person.team_id, 2)
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -2757,7 +2757,7 @@
 # name: TestClickhousePaths.test_recording_with_no_window_or_session_id
   '''
   SELECT persons.id AS id,
-         toTimeZone(persons.created_at, 'UTC') AS created_at,
+         persons.created_at AS created_at,
          source.event_count AS event_count,
          source.matching_events AS matching_events
   FROM
@@ -2849,7 +2849,7 @@
                        FROM person_distinct_id2
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
-                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                     WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-02 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
                     ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
@@ -2860,12 +2860,12 @@
      WHERE ifNull(equals(path_key, '2_/2'), 0)
      GROUP BY person_id) AS source
   INNER JOIN
-    (SELECT argMax(person.created_at, person.version) AS created_at,
+    (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person
      WHERE equals(person.team_id, 2)
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -2896,7 +2896,7 @@
 # name: TestClickhousePaths.test_recording_with_start_and_end
   '''
   SELECT persons.id AS id,
-         toTimeZone(persons.created_at, 'UTC') AS created_at,
+         persons.created_at AS created_at,
          source.event_count AS event_count,
          source.matching_events AS matching_events
   FROM
@@ -2996,7 +2996,7 @@
                        FROM person_distinct_id2
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
-                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                     WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-02 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
                     ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
@@ -3008,12 +3008,12 @@
      WHERE ifNull(equals(path_key, '2_/2'), 0)
      GROUP BY person_id) AS source
   INNER JOIN
-    (SELECT argMax(person.created_at, person.version) AS created_at,
+    (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person
      WHERE equals(person.team_id, 2)
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -3100,7 +3100,7 @@
                     FROM person_distinct_id2
                     WHERE equals(person_distinct_id2.team_id, 2)
                     GROUP BY person_distinct_id2.distinct_id
-                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-05-23 23:59:59', 6, 'UTC')))))
                  ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
@@ -3187,7 +3187,7 @@
                     FROM person_distinct_id2
                     WHERE equals(person_distinct_id2.team_id, 2)
                     GROUP BY person_distinct_id2.distinct_id
-                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
                  ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
@@ -3312,7 +3312,7 @@
                        FROM person_distinct_id2
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
-                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                     WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
                     ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
@@ -3328,7 +3328,7 @@
      FROM person
      WHERE equals(person.team_id, 2)
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -3404,7 +3404,7 @@
                     FROM person_distinct_id2
                     WHERE equals(person_distinct_id2.team_id, 2)
                     GROUP BY person_distinct_id2.distinct_id
-                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
                  ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
@@ -3529,7 +3529,7 @@
                        FROM person_distinct_id2
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
-                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                     WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
                     ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
@@ -3545,7 +3545,7 @@
      FROM person
      WHERE equals(person.team_id, 2)
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -3621,7 +3621,7 @@
                     FROM person_distinct_id2
                     WHERE equals(person_distinct_id2.team_id, 2)
                     GROUP BY person_distinct_id2.distinct_id
-                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
                  ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
@@ -3746,7 +3746,7 @@
                        FROM person_distinct_id2
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
-                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                     WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
                     ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
@@ -3762,7 +3762,7 @@
      FROM person
      WHERE equals(person.team_id, 2)
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -3838,7 +3838,7 @@
                     FROM person_distinct_id2
                     WHERE equals(person_distinct_id2.team_id, 2)
                     GROUP BY person_distinct_id2.distinct_id
-                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
                  ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
@@ -3963,7 +3963,7 @@
                        FROM person_distinct_id2
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
-                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                     WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
                     ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
@@ -3979,7 +3979,7 @@
      FROM person
      WHERE equals(person.team_id, 2)
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -4051,7 +4051,7 @@
                     FROM person_distinct_id2
                     WHERE equals(person_distinct_id2.team_id, 2)
                     GROUP BY person_distinct_id2.distinct_id
-                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))))
                  ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
@@ -4135,7 +4135,7 @@
                     FROM person_distinct_id2
                     WHERE equals(person_distinct_id2.team_id, 2)
                     GROUP BY person_distinct_id2.distinct_id
-                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-05-23 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
                  ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
@@ -4218,7 +4218,7 @@
                     FROM person_distinct_id2
                     WHERE equals(person_distinct_id2.team_id, 2)
                     GROUP BY person_distinct_id2.distinct_id
-                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2011-12-31 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-07 23:59:59', 6, 'UTC')))))
                  ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
@@ -4334,7 +4334,7 @@
                        FROM person_distinct_id2
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
-                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                     WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2011-12-31 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-07 23:59:59', 6, 'UTC')))))
                     ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
@@ -4349,7 +4349,7 @@
      FROM person
      WHERE equals(person.team_id, 2)
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -4454,7 +4454,7 @@
                        FROM person_distinct_id2
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
-                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                     WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2011-12-31 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-07 23:59:59', 6, 'UTC')))))
                     ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
@@ -4469,7 +4469,7 @@
      FROM person
      WHERE equals(person.team_id, 2)
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -4541,7 +4541,7 @@
                     FROM person_distinct_id2
                     WHERE equals(person_distinct_id2.team_id, 2)
                     GROUP BY person_distinct_id2.distinct_id
-                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2011-12-31 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-07 23:59:59', 6, 'UTC')))))
                  ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
@@ -4657,7 +4657,7 @@
                        FROM person_distinct_id2
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
-                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                     WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2011-12-31 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-07 23:59:59', 6, 'UTC')))))
                     ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
@@ -4672,7 +4672,7 @@
      FROM person
      WHERE equals(person.team_id, 2)
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -4744,7 +4744,7 @@
                     FROM person_distinct_id2
                     WHERE equals(person_distinct_id2.team_id, 2)
                     GROUP BY person_distinct_id2.distinct_id
-                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2011-12-31 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-07 23:59:59', 6, 'UTC')))))
                  ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
@@ -4860,7 +4860,7 @@
                        FROM person_distinct_id2
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
-                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                     WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2011-12-31 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-07 23:59:59', 6, 'UTC')))))
                     ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
@@ -4875,7 +4875,7 @@
      FROM person
      WHERE equals(person.team_id, 2)
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -4980,7 +4980,7 @@
                        FROM person_distinct_id2
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
-                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                     WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2011-12-31 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-07 23:59:59', 6, 'UTC')))))
                     ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
@@ -4995,7 +4995,7 @@
      FROM person
      WHERE equals(person.team_id, 2)
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -5100,7 +5100,7 @@
                        FROM person_distinct_id2
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
-                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                     WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2011-12-31 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-07 23:59:59', 6, 'UTC')))))
                     ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
@@ -5115,7 +5115,7 @@
      FROM person
      WHERE equals(person.team_id, 2)
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -5187,7 +5187,7 @@
                     FROM person_distinct_id2
                     WHERE equals(person_distinct_id2.team_id, 2)
                     GROUP BY person_distinct_id2.distinct_id
-                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-05-23 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
                  ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
@@ -5275,7 +5275,7 @@
                     FROM person_distinct_id2
                     WHERE equals(person_distinct_id2.team_id, 2)
                     GROUP BY person_distinct_id2.distinct_id
-                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-05-23 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
                  ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY

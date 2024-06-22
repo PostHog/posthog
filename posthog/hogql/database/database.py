@@ -45,7 +45,12 @@ from posthog.hogql.database.schema.person_distinct_ids import (
     PersonDistinctIdsTable,
     RawPersonDistinctIdsTable,
 )
-from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable, join_with_persons_table
+from posthog.hogql.database.schema.persons import (
+    PersonsTable,
+    RawPersonsTable,
+    join_with_persons_table,
+    FilterablePersonsTable,
+)
 from posthog.hogql.database.schema.session_replay_events import (
     RawSessionReplayEventsTable,
     SessionReplayEventsTable,
@@ -87,6 +92,7 @@ class Database(BaseModel):
     events: EventsTable = EventsTable()
     groups: GroupsTable = GroupsTable()
     persons: PersonsTable = PersonsTable()
+    filterable_persons: FilterablePersonsTable = FilterablePersonsTable()
     person_distinct_ids: PersonDistinctIdsTable = PersonDistinctIdsTable()
     person_distinct_id_overrides: PersonDistinctIdOverridesTable = PersonDistinctIdOverridesTable()
 

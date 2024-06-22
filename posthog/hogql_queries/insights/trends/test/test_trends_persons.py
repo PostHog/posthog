@@ -32,7 +32,6 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
     _create_person,
-    snapshot_clickhouse_queries,
 )
 
 
@@ -444,7 +443,6 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
     def test_trends_all_cohort_breakdown_persons_subquery(self):
         self.trends_all_cohort_breakdown_persons("subquery")
 
-    @snapshot_clickhouse_queries
     def test_trends_all_cohort_breakdown_persons_leftjoin(self):
         self.trends_all_cohort_breakdown_persons("leftjoin")
 

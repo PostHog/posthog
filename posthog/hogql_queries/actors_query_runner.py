@@ -1,15 +1,23 @@
 import itertools
 from typing import Optional
 from collections.abc import Sequence, Iterator
+
+from posthog.clickhouse.query_tagging import tag_queries, NonSerializableTags
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLQuerySettings, ReservedCTE
-from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
+from posthog.hogql.constants import HogQLQuerySettings
+from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import has_aggregation
 from posthog.hogql_queries.actor_strategies import ActorStrategy, PersonStrategy, GroupStrategy
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
-from posthog.schema import ActorsQuery, ActorsQueryResponse, CachedActorsQueryResponse, DashboardFilter, TrendsQuery
+from posthog.schema import (
+    ActorsQuery,
+    ActorsQueryResponse,
+    CachedActorsQueryResponse,
+    DashboardFilter,
+    TrendsQuery,
+)
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 
@@ -232,35 +240,17 @@ class ActorsQueryRunner(QueryRunner):
                 order_by = []
 
         with self.timings.measure("select"):
-            ctes = {}
             if not self.query.source:
                 join_expr = ast.JoinExpr(table=ast.Field(chain=[self.strategy.origin]))
             else:
                 assert self.source_query_runner is not None  # For type checking
                 source_query = self.source_query_runner.to_actors_query()
 
+                # Source Query has "Select actor_id as actor_id, count() as event_count) "source"
                 source_id_chain = self.source_id_column(source_query)
                 source_alias = "source"
 
-                join_expr = ast.JoinExpr(
-                    table=ast.Field(chain=[source_alias]),
-                    next_join=ast.JoinExpr(
-                        table=ast.Field(chain=[self.strategy.origin]),
-                        join_type="INNER JOIN",
-                        constraint=ast.JoinConstraint(
-                            expr=ast.CompareOperation(
-                                op=ast.CompareOperationOp.Eq,
-                                left=ast.Field(chain=[self.strategy.origin, self.strategy.origin_id]),
-                                right=ast.Field(chain=[source_alias, *source_id_chain]),
-                            ),
-                            constraint_type="ON",
-                        ),
-                    ),
-                )
-
-                ctes[source_alias] = ast.CTE(name=source_alias, expr=source_query, cte_type="subquery")
-
-                # For now, only use this CTE optimization in Trends, until we test it with other queries
+                origin = self.strategy.origin
                 if isinstance(self.strategy, PersonStrategy) and any(
                     isinstance(x, C) for x in [getattr(self.query.source, "source", None)] for C in (TrendsQuery,)
                 ):
@@ -270,14 +260,38 @@ class ActorsQueryRunner(QueryRunner):
                             source_query.settings = HogQLQuerySettings()
                         source_query.settings.use_query_cache = True
                         source_query.settings.query_cache_ttl = HOGQL_INCREASED_MAX_EXECUTION_TIME
-                    s = parse_select("SELECT distinct actor_id as person_id FROM source")
-                    # This feels like it adds one extra level of SELECT which is unnecessary
-                    ctes[ReservedCTE.POSTHOG_PERSON_IDS.value] = ast.CTE(
-                        name=ReservedCTE.POSTHOG_PERSON_IDS.value, expr=s, cte_type="subquery"
+                    s = ast.SelectQuery(
+                        select=[ast.Field(chain=[source_alias, "actor_id"])],
+                        select_from=ast.JoinExpr(table=source_query, alias=source_alias),
                     )
 
+                    tag_queries(
+                        **{
+                            NonSerializableTags.FILTERABLE_PERSONS.value: ast.CompareOperation(
+                                left=ast.Field(chain=["id"]), right=s, op=ast.CompareOperationOp.In
+                            )
+                        }
+                    )
+                    origin = "filterable_persons"
+
+                join_expr = ast.JoinExpr(
+                    table=source_query,
+                    alias=source_alias,
+                    next_join=ast.JoinExpr(
+                        table=ast.Field(chain=[origin]),
+                        join_type="INNER JOIN",
+                        constraint=ast.JoinConstraint(
+                            expr=ast.CompareOperation(
+                                op=ast.CompareOperationOp.Eq,
+                                left=ast.Field(chain=[origin, self.strategy.origin_id]),
+                                right=ast.Field(chain=[source_alias, *source_id_chain]),
+                            ),
+                            constraint_type="ON",
+                        ),
+                    ),
+                )
+
         return ast.SelectQuery(
-            ctes=ctes,
             select=columns,
             select_from=join_expr,
             where=where,

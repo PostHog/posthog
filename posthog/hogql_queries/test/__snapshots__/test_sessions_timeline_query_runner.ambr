@@ -47,12 +47,12 @@
         ORDER BY timestamp DESC
         LIMIT 1001)) AS e
   LEFT JOIN
-    (SELECT toTimeZone(session_replay_events.start_time, 'UTC') AS start_time,
-            toTimeZone(session_replay_events.end_time, 'UTC') AS end_time,
+    (SELECT session_replay_events.start_time AS start_time,
+            session_replay_events.end_time AS end_time,
             session_replay_events.session_id AS session_id
      FROM
-       (SELECT min(session_replay_events.min_first_timestamp) AS start_time,
-               max(session_replay_events.max_last_timestamp) AS end_time,
+       (SELECT min(toTimeZone(session_replay_events.min_first_timestamp, 'UTC')) AS start_time,
+               max(toTimeZone(session_replay_events.max_last_timestamp, 'UTC')) AS end_time,
                session_replay_events.session_id AS session_id
         FROM session_replay_events
         WHERE equals(session_replay_events.team_id, 2)
@@ -116,12 +116,12 @@
         ORDER BY timestamp DESC
         LIMIT 1001)) AS e
   LEFT JOIN
-    (SELECT toTimeZone(session_replay_events.start_time, 'UTC') AS start_time,
-            toTimeZone(session_replay_events.end_time, 'UTC') AS end_time,
+    (SELECT session_replay_events.start_time AS start_time,
+            session_replay_events.end_time AS end_time,
             session_replay_events.session_id AS session_id
      FROM
-       (SELECT min(session_replay_events.min_first_timestamp) AS start_time,
-               max(session_replay_events.max_last_timestamp) AS end_time,
+       (SELECT min(toTimeZone(session_replay_events.min_first_timestamp, 'UTC')) AS start_time,
+               max(toTimeZone(session_replay_events.max_last_timestamp, 'UTC')) AS end_time,
                session_replay_events.session_id AS session_id
         FROM session_replay_events
         WHERE equals(session_replay_events.team_id, 2)
@@ -185,12 +185,12 @@
         ORDER BY timestamp DESC
         LIMIT 3)) AS e
   LEFT JOIN
-    (SELECT toTimeZone(session_replay_events.start_time, 'UTC') AS start_time,
-            toTimeZone(session_replay_events.end_time, 'UTC') AS end_time,
+    (SELECT session_replay_events.start_time AS start_time,
+            session_replay_events.end_time AS end_time,
             session_replay_events.session_id AS session_id
      FROM
-       (SELECT min(session_replay_events.min_first_timestamp) AS start_time,
-               max(session_replay_events.max_last_timestamp) AS end_time,
+       (SELECT min(toTimeZone(session_replay_events.min_first_timestamp, 'UTC')) AS start_time,
+               max(toTimeZone(session_replay_events.max_last_timestamp, 'UTC')) AS end_time,
                session_replay_events.session_id AS session_id
         FROM session_replay_events
         WHERE equals(session_replay_events.team_id, 2)
@@ -254,12 +254,12 @@
         ORDER BY timestamp DESC
         LIMIT 1001)) AS e
   LEFT JOIN
-    (SELECT toTimeZone(session_replay_events.start_time, 'UTC') AS start_time,
-            toTimeZone(session_replay_events.end_time, 'UTC') AS end_time,
+    (SELECT session_replay_events.start_time AS start_time,
+            session_replay_events.end_time AS end_time,
             session_replay_events.session_id AS session_id
      FROM
-       (SELECT min(session_replay_events.min_first_timestamp) AS start_time,
-               max(session_replay_events.max_last_timestamp) AS end_time,
+       (SELECT min(toTimeZone(session_replay_events.min_first_timestamp, 'UTC')) AS start_time,
+               max(toTimeZone(session_replay_events.max_last_timestamp, 'UTC')) AS end_time,
                session_replay_events.session_id AS session_id
         FROM session_replay_events
         WHERE equals(session_replay_events.team_id, 2)
@@ -323,12 +323,12 @@
         ORDER BY timestamp DESC
         LIMIT 1001)) AS e
   LEFT JOIN
-    (SELECT toTimeZone(session_replay_events.start_time, 'UTC') AS start_time,
-            toTimeZone(session_replay_events.end_time, 'UTC') AS end_time,
+    (SELECT session_replay_events.start_time AS start_time,
+            session_replay_events.end_time AS end_time,
             session_replay_events.session_id AS session_id
      FROM
-       (SELECT min(session_replay_events.min_first_timestamp) AS start_time,
-               max(session_replay_events.max_last_timestamp) AS end_time,
+       (SELECT min(toTimeZone(session_replay_events.min_first_timestamp, 'UTC')) AS start_time,
+               max(toTimeZone(session_replay_events.max_last_timestamp, 'UTC')) AS end_time,
                session_replay_events.session_id AS session_id
         FROM session_replay_events
         WHERE equals(session_replay_events.team_id, 2)
@@ -392,12 +392,12 @@
         ORDER BY timestamp DESC
         LIMIT 1001)) AS e
   LEFT JOIN
-    (SELECT toTimeZone(session_replay_events.start_time, 'UTC') AS start_time,
-            toTimeZone(session_replay_events.end_time, 'UTC') AS end_time,
+    (SELECT session_replay_events.start_time AS start_time,
+            session_replay_events.end_time AS end_time,
             session_replay_events.session_id AS session_id
      FROM
-       (SELECT min(session_replay_events.min_first_timestamp) AS start_time,
-               max(session_replay_events.max_last_timestamp) AS end_time,
+       (SELECT min(toTimeZone(session_replay_events.min_first_timestamp, 'UTC')) AS start_time,
+               max(toTimeZone(session_replay_events.max_last_timestamp, 'UTC')) AS end_time,
                session_replay_events.session_id AS session_id
         FROM session_replay_events
         WHERE equals(session_replay_events.team_id, 2)
@@ -461,12 +461,12 @@
         ORDER BY timestamp DESC
         LIMIT 1001)) AS e
   LEFT JOIN
-    (SELECT toTimeZone(session_replay_events.start_time, 'UTC') AS start_time,
-            toTimeZone(session_replay_events.end_time, 'UTC') AS end_time,
+    (SELECT session_replay_events.start_time AS start_time,
+            session_replay_events.end_time AS end_time,
             session_replay_events.session_id AS session_id
      FROM
-       (SELECT min(session_replay_events.min_first_timestamp) AS start_time,
-               max(session_replay_events.max_last_timestamp) AS end_time,
+       (SELECT min(toTimeZone(session_replay_events.min_first_timestamp, 'UTC')) AS start_time,
+               max(toTimeZone(session_replay_events.max_last_timestamp, 'UTC')) AS end_time,
                session_replay_events.session_id AS session_id
         FROM session_replay_events
         WHERE equals(session_replay_events.team_id, 2)
