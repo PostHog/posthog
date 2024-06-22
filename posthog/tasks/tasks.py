@@ -276,8 +276,8 @@ def invalid_web_replays() -> None:
                 )
                 count = results[0][i]
                 gauge.set(count)
-    except:
-        pass
+    except Exception as e:
+        logger.error("Failed to run invalid web replays task", error=e, inc_exc_info=True)
 
 
 KNOWN_CELERY_TASK_IDENTIFIERS = {
