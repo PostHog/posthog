@@ -243,8 +243,8 @@ def invalid_web_replays() -> None:
     from (
         select any(team_id) as team_id, argMinMerge(first_url) as first_url, argMinMerge(snapshot_source) as snapshot_source
         from session_replay_events
-        where min_first_timestamp >= now() - interval 1 hour
-        and min_first_timestamp <= now()
+        where min_first_timestamp >= now() - interval 65 minute
+        and min_first_timestamp <= now() - interval 5 minute
         group by session_id
     )
     --group by team_id
