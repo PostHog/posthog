@@ -6,18 +6,18 @@ import api from 'lib/api'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
-import { IntegrationType, SlackChannelType } from '~/types'
+import { IntegrationType } from '~/types'
 
 import type { integrationsLogicType } from './integrationsLogicType'
 
 // NOTE: Slack enforces HTTPS urls so to aid local dev we change to https so the redirect works.
 // Just means we have to change it back to http once redirected.
-export const getSlackRedirectUri = (next: string = ''): string =>
+const getSlackRedirectUri = (next: string = ''): string =>
     `${window.location.origin.replace('http://', 'https://')}/integrations/slack/redirect${
         next ? '?next=' + encodeURIComponent(next) : ''
     }`
 
-export const getSlackEventsUri = (): string =>
+const getSlackEventsUri = (): string =>
     `${window.location.origin.replace('http://', 'https://')}/api/integrations/slack/events`
 
 // Modified version of https://app.slack.com/app-settings/TSS5W8YQZ/A03KWE2FJJ2/app-manifest to match current instance
@@ -57,7 +57,7 @@ export const getSlackAppManifest = (): any => ({
 })
 
 export const integrationsLogic = kea<integrationsLogicType>([
-    path(['scenes', 'project', 'Settings', 'integrationsLogic']),
+    path(['lib', 'integrations', 'integrationsLogic']),
     connect({
         values: [preflightLogic, ['siteUrlMisconfigured', 'preflight']],
     }),
@@ -67,27 +67,13 @@ export const integrationsLogic = kea<integrationsLogicType>([
         deleteIntegration: (id: number) => ({ id }),
     }),
 
-    loaders(({ values }) => ({
+    loaders(() => ({
         integrations: [
             null as IntegrationType[] | null,
             {
                 loadIntegrations: async () => {
                     const res = await api.integrations.list()
                     return res.results
-                },
-            },
-        ],
-
-        slackChannels: [
-            null as SlackChannelType[] | null,
-            {
-                loadSlackChannels: async () => {
-                    if (!values.slackIntegration) {
-                        return null
-                    }
-
-                    const res = await api.integrations.slackChannels(values.slackIntegration.id)
-                    return res.channels
                 },
             },
         ],
@@ -142,27 +128,13 @@ export const integrationsLogic = kea<integrationsLogicType>([
         },
     })),
     selectors({
-        slackIntegration: [
+        slackIntegrations: [
             (s) => [s.integrations],
             (integrations) => {
-                return integrations?.find((x) => x.kind == 'slack')
+                return integrations?.filter((x) => x.kind == 'slack')
             },
         ],
 
-        isMemberOfSlackChannel: [
-            (s) => [s.slackChannels],
-            (slackChannels) => {
-                return (channel: string) => {
-                    if (!slackChannels) {
-                        return null
-                    }
-
-                    const [channelId] = channel.split('|')
-
-                    return slackChannels.find((x) => x.id === channelId)?.is_member
-                }
-            },
-        ],
         addToSlackButtonUrl: [
             (s) => [s.preflight],
             (preflight) => {

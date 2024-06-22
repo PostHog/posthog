@@ -78,8 +78,12 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
 
     const upgradeToPlanKey = upgradePlan?.plan_key
     const currentPlanKey = currentPlan?.plan_key
+
+    // Note(@zach): The upgrade card will be removed when Subscribe to all products is fully rolled out
     const showUpgradeCard =
-        (upgradePlan?.product_key !== 'platform_and_support' || product?.addons?.length === 0) && upgradePlan
+        (upgradePlan?.product_key !== 'platform_and_support' || product?.addons?.length === 0) &&
+        upgradePlan &&
+        (featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] !== 'test' || billing?.subscription_level == 'custom')
 
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
@@ -88,7 +92,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
 
     return (
         <div
-            className={clsx('flex flex-wrap max-w-300 pb-12', {
+            className={clsx('flex flex-wrap max-w-300 pb-8', {
                 'flex-col pb-4': size === 'small',
             })}
             ref={ref}
@@ -132,24 +136,27 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                 >
                                                     Learn how to reduce your bill
                                                 </LemonButton>
-                                                {product.plans?.length > 0 ? (
-                                                    <LemonButton
-                                                        fullWidth
-                                                        onClick={() => {
-                                                            setSurveyResponse(product.type, '$survey_response_1')
-                                                            reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, product.type)
-                                                        }}
-                                                    >
-                                                        Unsubscribe
-                                                    </LemonButton>
-                                                ) : (
-                                                    <LemonButton
-                                                        fullWidth
-                                                        to="mailto:sales@posthog.com?subject=Custom%20plan%20unsubscribe%20request"
-                                                    >
-                                                        Contact support to unsubscribe
-                                                    </LemonButton>
-                                                )}
+                                                {(featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] !== 'test' ||
+                                                    (featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' &&
+                                                        billing?.subscription_level === 'custom')) &&
+                                                    (product.plans?.length > 0 ? (
+                                                        <LemonButton
+                                                            fullWidth
+                                                            onClick={() => {
+                                                                setSurveyResponse(product.type, '$survey_response_1')
+                                                                reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, product.type)
+                                                            }}
+                                                        >
+                                                            Unsubscribe
+                                                        </LemonButton>
+                                                    ) : (
+                                                        <LemonButton
+                                                            fullWidth
+                                                            to="mailto:sales@posthog.com?subject=Custom%20plan%20unsubscribe%20request"
+                                                        >
+                                                            Contact support to unsubscribe
+                                                        </LemonButton>
+                                                    ))}
                                             </>
                                         }
                                     />
@@ -284,7 +291,29 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     {showTierBreakdown && <BillingProductPricingTable product={product} />}
                     {product.addons?.length > 0 && (
                         <div className="pb-8">
-                            <h4 className="my-4">Addons</h4>
+                            <h4 className="my-4">Add-ons</h4>
+                            {featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] == 'test' &&
+                                billing?.subscription_level == 'free' && (
+                                    <LemonBanner type="warning" className="text-sm mb-4" hideIcon>
+                                        <div className="flex justify-between items-center">
+                                            <div>
+                                                Add-ons are only available on paid plans. Upgrade to access these
+                                                features.
+                                            </div>
+                                            <LemonButton
+                                                className="shrink-0"
+                                                to={`/api/billing/activate?products=all_products:&redirect_path=${redirectPath}&intent_product=${product.type}`}
+                                                type="primary"
+                                                status="alt"
+                                                disableClientSideRouting
+                                                loading={!!billingProductLoading}
+                                                onClick={() => setBillingProductLoading(product.type)}
+                                            >
+                                                Upgrade now
+                                            </LemonButton>
+                                        </div>
+                                    </LemonBanner>
+                                )}
                             <div className="gap-y-4 flex flex-col">
                                 {product.addons
                                     // TODO: enhanced_persons: remove this filter
@@ -392,12 +421,14 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         !upgradePlan.unit_amount_usd && (
                                             <BillingUpgradeCTA
                                                 data-attr={`${product.type}-upgrade-cta`}
-                                                to={getUpgradeProductLink(
+                                                to={getUpgradeProductLink({
                                                     product,
-                                                    upgradeToPlanKey || '',
+                                                    upgradeToPlanKey: upgradeToPlanKey || '',
                                                     redirectPath,
-                                                    false // don't include addons, as we're not in onboarding
-                                                )}
+                                                    includeAddons: false,
+                                                    subscriptionLevel: billing?.subscription_level,
+                                                    featureFlags,
+                                                })}
                                                 type="primary"
                                                 icon={<IconPlus />}
                                                 disableClientSideRouting
