@@ -91,7 +91,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             query={
                 "select": ["person"],
-                "orderBy": ["id"],
+                "orderBy": ["event_count DESC", "actor_id DESC"],
                 "source": {
                     "kind": "InsightActorsQuery",
                     "source": {

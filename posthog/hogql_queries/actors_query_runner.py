@@ -32,10 +32,12 @@ class ActorsQueryRunner(QueryRunner):
         )
         self.source_query_runner: Optional[QueryRunner] = None
 
-        self.strategy = self.determine_strategy()
         if self.query.source:
             self.source_query_runner = get_query_runner(self.query.source, self.team, self.timings, self.limit_context)
 
+        self.strategy = self.determine_strategy()
+
+        if self.query.source:
             property_conditions = self.strategy.property_conditions()
             if (
                 property_conditions
@@ -154,8 +156,6 @@ class ActorsQueryRunner(QueryRunner):
     def input_columns(self) -> list[str]:
         if self.query.select:
             return self.query.select
-
-        # TODO: Don't allow fields not in the source select query here
         return self.strategy.input_columns()
 
     # TODO: Figure out a more sure way of getting the actor id than using the alias or chain name
@@ -183,6 +183,7 @@ class ActorsQueryRunner(QueryRunner):
         group_by = []
         aggregations = []
         has_any_aggregation = None
+
         if not self.query.source:
             with self.timings.measure("columns"):
                 for expr in self.input_columns():
