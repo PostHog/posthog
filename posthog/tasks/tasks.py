@@ -228,6 +228,42 @@ def ingestion_lag() -> None:
         pass
 
 
+@shared_task(ignore_result=True)
+def invalid_web_replays() -> None:
+    from posthog.client import sync_execute
+
+    # ultimately I want to observe values by team id, but at the moment that would be lots of series, let's reduce the value first
+    query = """
+    select
+        --team_id,
+        count()
+    from (
+        select any(team_id) as team_id, argMinMerge(first_url) as first_url, argMinMerge(snapshot_source) as snapshot_source
+        from session_replay_events
+        where min_first_timestamp >= now() - interval 1 hour
+        and min_first_timestamp <= now()
+        group by session_id
+        having first_url is null and snapshot_source = 'web'
+    )
+    --group by team_id
+    """
+
+    try:
+        results = sync_execute(
+            query,
+        )
+        with pushed_metrics_registry("celery_replay_tracking") as registry:
+            gauge = Gauge(
+                "replay_tracking_web_replay_with_missing_first_url",
+                "Acts as a proxy for replay sessions which haven't received a full snapshot",
+                registry=registry,
+            )
+            count = results[0][0]
+            gauge.set(count)
+    except:
+        pass
+
+
 KNOWN_CELERY_TASK_IDENTIFIERS = {
     "pluginJob",
     "runEveryHour",
