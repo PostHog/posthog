@@ -268,7 +268,7 @@ class ActorsQueryRunner(QueryRunner):
                             NonSerializableTags.FILTERABLE_PERSONS.value: ast.CompareOperation(
                                 left=ast.Field(chain=["id"]),
                                 right=ast.SelectQuery(
-                                    select=[ast.Field(chain=[source_alias, "actor_id"])],
+                                    select=[ast.Field(chain=[source_alias, *self.source_id_column(source_query)])],
                                     select_from=ast.JoinExpr(table=source_query, alias=source_alias),
                                 ),
                                 op=ast.CompareOperationOp.In,

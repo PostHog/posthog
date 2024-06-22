@@ -416,7 +416,7 @@ class TestResolver(BaseTest):
             "(SELECT id, properties.email AS email FROM "
             "(SELECT DISTINCT person_id FROM events) "
             "AS source INNER JOIN "
-            "persons ON equals(persons.id, source.person_id) ORDER BY id ASC) "
+            "filterable_persons ON equals(filterable_persons.id, source.person_id) ORDER BY id ASC) "
             f"LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
