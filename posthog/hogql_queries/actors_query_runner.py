@@ -16,6 +16,7 @@ from posthog.schema import (
     FilterLogicalOperator,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
+    HogQLQuery,
 )
 
 
@@ -35,7 +36,12 @@ class ActorsQueryRunner(QueryRunner):
         if self.query.source:
             self.source_query_runner = get_query_runner(self.query.source, self.team, self.timings, self.limit_context)
 
-            if self.strategy.property_conditions():
+            property_conditions = self.strategy.property_conditions()
+            if (
+                property_conditions
+                and not isinstance(self.query.source, HogQLQuery)
+                and hasattr(self.query.source.source, "properties")
+            ):
                 if isinstance(self.query.source.source.properties, list):
                     self.query.source.source.properties = PropertyGroupFilter(
                         type=FilterLogicalOperator.AND_,
@@ -43,11 +49,11 @@ class ActorsQueryRunner(QueryRunner):
                             PropertyGroupFilterValue(
                                 type=FilterLogicalOperator.AND_, values=self.query.source.source.properties
                             ),
-                            self.strategy.property_conditions(),
+                            property_conditions,
                         ],
                     )
-                else:
-                    self.query.source.source.properties.values.append(self.strategy.property_conditions())
+                elif self.query.source.source.properties and self.query.source.source.properties.values:
+                    self.query.source.source.properties.values.append(property_conditions)
 
     @property
     def group_type_index(self) -> int | None:
@@ -99,6 +105,8 @@ class ActorsQueryRunner(QueryRunner):
         if (
             (column_name != "person" and column_name != "actor")
             or "matched_recordings" not in input_columns
+            or not self.paginator.response
+            or not self.paginator.response.columns
             or "matching_events" not in self.paginator.response.columns
         ):
             return None, None
@@ -244,10 +252,11 @@ class ActorsQueryRunner(QueryRunner):
                 group_by=group_by if has_any_aggregation else None,
             )
 
-        if self.query.source:
+        if self.query.source and self.source_query_runner:
             source_query = self.source_query_runner.to_actors_query()
-            source_query.order_by = order_by
-            return source_query
+            if isinstance(source_query, ast.SelectQuery):  # typing fun
+                source_query.order_by = order_by
+                return source_query
 
         stmt.order_by = order_by
 

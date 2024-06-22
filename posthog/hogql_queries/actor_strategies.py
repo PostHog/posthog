@@ -14,7 +14,6 @@ from posthog.schema import (
     GroupPropertyFilter,
     PropertyOperator,
     HogQLPropertyFilter,
-    PropertyGroupFilter,
     FilterLogicalOperator,
     PropertyGroupFilterValue,
 )
@@ -44,7 +43,7 @@ class ActorStrategy:
     def filter_conditions(self) -> list[ast.Expr]:
         return []
 
-    def property_conditions(self) -> Optional[PropertyGroupFilter]:
+    def property_conditions(self) -> Optional[PropertyGroupFilterValue]:
         return None
 
     def order_by(self) -> Optional[list[ast.OrderExpr]]:
@@ -140,7 +139,7 @@ class PersonStrategy(ActorStrategy):
             )
         return where_exprs
 
-    def property_conditions(self) -> Optional[PropertyGroupFilter]:
+    def property_conditions(self) -> Optional[PropertyGroupFilterValue]:
         if self.query.search is not None and self.query.search != "":
             return PropertyGroupFilterValue(
                 type=FilterLogicalOperator.OR_,
@@ -151,6 +150,7 @@ class PersonStrategy(ActorStrategy):
                     HogQLPropertyFilter(key=f"distinct_id ilike '%{self.query.search}%'"),
                 ],
             )
+        return None
 
     def order_by(self) -> Optional[list[ast.OrderExpr]]:
         if self.query.orderBy not in [["person"], ["person DESC"], ["person ASC"]]:
@@ -220,9 +220,9 @@ class GroupStrategy(ActorStrategy):
 
         return where_exprs
 
-    def property_conditions(self) -> Optional[PropertyGroupFilter]:
+    def property_conditions(self) -> Optional[PropertyGroupFilterValue]:
         if self.query.search is not None and self.query.search != "":
-            return PropertyGroupFilter(
+            return PropertyGroupFilterValue(
                 type=FilterLogicalOperator.OR_,
                 values=[
                     GroupPropertyFilter(
@@ -234,7 +234,7 @@ class GroupStrategy(ActorStrategy):
                     HogQLPropertyFilter(key=f"$group_{self.group_type_index} ilike '{self.query.search}'"),
                 ],
             )
-        return []
+        return None
 
     def order_by(self) -> Optional[list[ast.OrderExpr]]:
         if self.query.orderBy not in [["group"], ["group DESC"], ["group ASC"]]:
