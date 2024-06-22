@@ -136,7 +136,9 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                 >
                                                     Learn how to reduce your bill
                                                 </LemonButton>
-                                                {featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] !== 'test' &&
+                                                {(featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] !== 'test' ||
+                                                    (featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' &&
+                                                        billing?.subscription_level === 'custom')) &&
                                                     (product.plans?.length > 0 ? (
                                                         <LemonButton
                                                             fullWidth
