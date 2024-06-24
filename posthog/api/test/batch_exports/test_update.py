@@ -94,8 +94,8 @@ def test_can_put_config(client: HttpClient):
         new_schedule = describe_schedule(temporal, batch_export["id"])
         assert old_schedule.schedule.spec.intervals[0].every != new_schedule.schedule.spec.intervals[0].every
         assert new_schedule.schedule.spec.intervals[0].every == dt.timedelta(days=1)
-        assert new_schedule.schedule.spec.start_at == dt.datetime(2022, 7, 19, 0, 0, 0, tzinfo=dt.timezone.utc)
-        assert new_schedule.schedule.spec.end_at == dt.datetime(2023, 7, 20, 0, 0, 0, tzinfo=dt.timezone.utc)
+        assert new_schedule.schedule.spec.start_at == dt.datetime(2022, 7, 19, 0, 0, 0, tzinfo=dt.UTC)
+        assert new_schedule.schedule.spec.end_at == dt.datetime(2023, 7, 20, 0, 0, 0, tzinfo=dt.UTC)
 
         decoded_payload = async_to_sync(codec.decode)(new_schedule.schedule.action.args)
         args = json.loads(decoded_payload[0].data)

@@ -286,8 +286,8 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
     Once we have these events, we pass them to the assert_clickhouse_records_in_s3 function to check
     that they appear in the expected S3 bucket and key.
     """
-    data_interval_start = dt.datetime(2023, 4, 20, 14, 0, 0, tzinfo=dt.timezone.utc)
-    data_interval_end = dt.datetime(2023, 4, 25, 15, 0, 0, tzinfo=dt.timezone.utc)
+    data_interval_start = dt.datetime(2023, 4, 20, 14, 0, 0, tzinfo=dt.UTC)
+    data_interval_end = dt.datetime(2023, 4, 25, 15, 0, 0, tzinfo=dt.UTC)
 
     # Generate a random team id integer. There's still a chance of a collision,
     # but it's very small.
