@@ -11,6 +11,7 @@ from posthog.models.team.team import Team
 from posthog.schema import (
     ActionsNode,
     BreakdownFilter,
+    BreakdownType,
     DataWarehouseNode,
     EventsNode,
     HogQLQueryModifiers,
@@ -110,41 +111,39 @@ class Breakdown:
         return [ast.Alias(alias=self.breakdown_alias, expr=ast.Field(chain=[self.breakdown_alias]))]
 
     def _column_expr(self) -> list[ast.Alias] | ast.Alias:
-        assert self.query.breakdownFilter is not None  # type checking
-
-        if self.query.breakdownFilter.breakdown_type == "cohort":
-            if self.modifiers.inCohortVia == InCohortVia.LEFTJOIN_CONJOINED:
-                return ast.Alias(
-                    alias=self.breakdown_alias,
-                    expr=hogql_to_string(ast.Field(chain=["__in_cohort", "cohort_id"])),
-                )
-
-            cohort_breakdown = (
-                0 if self.query.breakdownFilter.breakdown == "all" else int(self.query.breakdownFilter.breakdown)  # type: ignore
-            )
-            return ast.Alias(
-                alias=self.breakdown_alias,
-                expr=hogql_to_string(ast.Constant(value=cohort_breakdown)),
-            )
-
-        if self.query.breakdownFilter.breakdown_type == "hogql":
-            return ast.Alias(
-                alias=self.breakdown_alias,
-                expr=self._get_breakdown_values_transform(parse_expr(cast(str, self.query.breakdownFilter.breakdown))),
-            )
+        breakdown_filter = self._breakdown_filter
 
         if self.is_multiple_breakdown:
-            return self._get_multiple_breakdowns_aliases()
+            assert breakdown_filter.breakdowns is not None  # type checking
 
-        if self.query.breakdownFilter.breakdown_histogram_bin_count is not None:
+            breakdowns: list[ast.Alias] = []
+
+            for idx, breakdown in enumerate(breakdown_filter.breakdowns):
+                breakdowns.append(
+                    self._get_breakdown_col_expr(self._get_multiple_breakdown_alias_name(idx + 1), breakdown)
+                )
+            return breakdowns
+
+        if (
+            isinstance(breakdown_filter.breakdown, list)
+            and self.modifiers.inCohortVia == InCohortVia.LEFTJOIN_CONJOINED
+        ):
             return ast.Alias(
                 alias=self.breakdown_alias,
-                expr=ast.Field(chain=self._properties_chain),
+                expr=hogql_to_string(ast.Field(chain=["__in_cohort", "cohort_id"])),
             )
 
-        return ast.Alias(
-            alias=self.breakdown_alias,
-            expr=self._get_breakdown_values_transform(ast.Field(chain=self._properties_chain)),
+        assert not isinstance(breakdown_filter.breakdown, list)
+
+        return self._get_breakdown_col_expr(
+            self.breakdown_alias,
+            BreakdownSchema(
+                type=breakdown_filter.breakdown_type,
+                property=breakdown_filter.breakdown,
+                normalize_url=breakdown_filter.breakdown_normalize_url,
+                histogram_bin_count=breakdown_filter.breakdown_histogram_bin_count,
+                group_type_index=breakdown_filter.breakdown_group_type_index,
+            ),
         )
 
     @property
@@ -162,40 +161,58 @@ class Breakdown:
             else False
         )
 
-    def events_where_filter(self, breakdown_values_override: Optional[str | int] = None) -> ast.Expr | None:
-        if (
-            self.query.breakdownFilter is not None
-            and self.query.breakdownFilter.breakdown is not None
-            and self.query.breakdownFilter.breakdown_type == "cohort"
-        ):
-            breakdown = breakdown_values_override if breakdown_values_override else self.query.breakdownFilter.breakdown
+    def _get_cohort_filter(self, breakdowns: list[str | int | float] | list[str | int] | str | int | float):
+        if breakdowns == "all":
+            return None
 
-            if breakdown == "all":
+        if isinstance(breakdowns, list):
+            filter_exprs: list[ast.Expr] = [
+                ast.CompareOperation(
+                    left=ast.Field(chain=["person_id"]),
+                    op=ast.CompareOperationOp.InCohort,
+                    right=ast.Constant(value=breakdown),
+                )
+                for breakdown in breakdowns
+                if breakdown != "all"
+            ]
+
+            or_clause = ast.Or(exprs=filter_exprs)
+
+            if len(filter_exprs) == 0:
                 return None
 
-            if isinstance(breakdown, list):
-                or_clause = ast.Or(
-                    exprs=[
-                        ast.CompareOperation(
-                            left=ast.Field(chain=["person_id"]),
-                            op=ast.CompareOperationOp.InCohort,
-                            right=ast.Constant(value=breakdown),
-                        )
-                        for breakdown in breakdown
-                    ]
-                )
-                if len(breakdown) > 1:
-                    return or_clause
-                elif len(breakdown) == 1:
-                    return or_clause.exprs[0]
-                else:
-                    return ast.Constant(value=True)
+            if len(breakdowns) == 1:
+                return filter_exprs[0]
 
-            return ast.CompareOperation(
-                left=ast.Field(chain=["person_id"]),
-                op=ast.CompareOperationOp.InCohort,
-                right=ast.Constant(value=breakdown),
-            )
+            if len(breakdowns) > 1:
+                return or_clause
+
+            return ast.Constant(value=True)
+
+        return ast.CompareOperation(
+            left=ast.Field(chain=["person_id"]),
+            op=ast.CompareOperationOp.InCohort,
+            right=ast.Constant(value=breakdowns),
+        )
+
+    def events_where_filter(self, breakdown_values_override: Optional[str | int] = None) -> ast.Expr | None:
+        if self.enabled:
+            if self.is_multiple_breakdown:
+                cohort_breakdowns = [
+                    breakdown.property
+                    for breakdown in cast(list[BreakdownSchema], self._breakdown_filter.breakdowns)
+                    if breakdown.type == BreakdownType.COHORT
+                ]
+
+                if cohort_breakdowns:
+                    return self._get_cohort_filter(cohort_breakdowns)
+
+            if (
+                self._breakdown_filter.breakdown is not None
+                and self._breakdown_filter.breakdown_type == BreakdownType.COHORT
+            ):
+                breakdown = breakdown_values_override if breakdown_values_override else self._breakdown_filter.breakdown
+                return self._get_cohort_filter(breakdown)
 
         if breakdown_values_override:
             if (
@@ -206,7 +223,14 @@ class Breakdown:
             ):
                 left = parse_expr(self.query.breakdownFilter.breakdown)
             else:
-                left = ast.Field(chain=self._properties_chain)
+                left = ast.Field(
+                    chain=get_properties_chain(
+                        breakdown_type=self._breakdown_filter.breakdown_type,
+                        breakdown_field=cast(str, self._breakdown_filter.breakdown),
+                        group_type_index=self._breakdown_filter.breakdown_group_type_index,
+                    )
+                )
+
             value: Optional[str] = str(breakdown_values_override)  # non-cohorts are always strings
             if value == BREAKDOWN_OTHER_STRING_LABEL:
                 # TODO: Fix breaking down by other
@@ -222,8 +246,8 @@ class Breakdown:
                 return ast.CompareOperation(left=left, op=ast.CompareOperationOp.Eq, right=ast.Constant(value=value))
         return ast.Constant(value=True)
 
-    def _get_breakdown_values_transform(self, node: ast.Expr) -> ast.Call:
-        if self.query.breakdownFilter and self.query.breakdownFilter.breakdown_normalize_url:
+    def _get_breakdown_values_transform(self, node: ast.Expr, normalize_url: bool | None = None) -> ast.Call:
+        if normalize_url:
             node = self._get_normalized_url_transform(node)
         return self.get_replace_null_values_transform(node)
 
@@ -246,37 +270,38 @@ class Breakdown:
             ),
         )
 
-    @cached_property
-    def _properties_chain(self):
-        breakdown_filter = self._breakdown_filter
-        return get_properties_chain(
-            breakdown_type=breakdown_filter.breakdown_type,
-            breakdown_field=cast(str, breakdown_filter.breakdown),  # not safe
-            group_type_index=breakdown_filter.breakdown_group_type_index,
-        )
+    def _get_breakdown_col_expr(self, alias: str, breakdown: BreakdownSchema):
+        if breakdown.type == "cohort":
+            cohort_breakdown = 0 if breakdown.property == "all" else int(breakdown.property)
 
-    def _get_multiple_breakdowns_aliases(self):
-        breakdown_filter = self._breakdown_filter
-        assert breakdown_filter.breakdowns is not None  # type checking
-
-        breakdowns: list[ast.Alias] = []
-
-        for idx, breakdown in enumerate(breakdown_filter.breakdowns):
-            node = ast.Field(
-                chain=get_properties_chain(
-                    breakdown_type=breakdown.type,
-                    breakdown_field=breakdown.property,
-                    group_type_index=breakdown.group_type_index,
-                )
+            return ast.Alias(
+                alias=alias,
+                expr=hogql_to_string(ast.Constant(value=cohort_breakdown)),
             )
 
-            if breakdown.histogram_bin_count is None:
-                if breakdown.normalize_url:
-                    node = self._get_normalized_url_transform(node)
-                node = self.get_replace_null_values_transform(node)
+        if breakdown.type == "hogql":
+            return ast.Alias(
+                alias=alias, expr=self._get_breakdown_values_transform(parse_expr(cast(str, breakdown.property)))
+            )
 
-            breakdowns.append(ast.Alias(expr=node, alias=self._get_multiple_breakdown_alias_name(idx + 1)))
-        return breakdowns
+        properties_chain = get_properties_chain(
+            breakdown_type=breakdown.type,
+            breakdown_field=str(breakdown.property),
+            group_type_index=breakdown.group_type_index,
+        )
+
+        if breakdown.histogram_bin_count is not None:
+            return ast.Alias(
+                alias=alias,
+                expr=ast.Field(chain=properties_chain),
+            )
+
+        return ast.Alias(
+            alias=alias,
+            expr=self._get_breakdown_values_transform(
+                ast.Field(chain=properties_chain), normalize_url=breakdown.normalize_url
+            ),
+        )
 
     @staticmethod
     def _get_multiple_breakdown_alias_name(idx: int):

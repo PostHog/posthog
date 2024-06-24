@@ -1547,9 +1547,11 @@ export interface InsightDateRange {
     explicitDate?: boolean | null
 }
 
+export type MultipleBreakdownType = Extract<BreakdownType, 'person' | 'event' | 'group' | 'session' | 'hogql'>
+
 export interface Breakdown {
-    type?: BreakdownType | null
-    property: string
+    type?: MultipleBreakdownType | null
+    property: string | integer
     normalize_url?: boolean
     group_type_index?: integer | null
     histogram_bin_count?: integer // trends breakdown histogram bin

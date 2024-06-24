@@ -664,6 +664,14 @@ class LifecycleToggle(StrEnum):
     DORMANT = "dormant"
 
 
+class MultipleBreakdownType(StrEnum):
+    PERSON = "person"
+    EVENT = "event"
+    GROUP = "group"
+    SESSION = "session"
+    HOGQL = "hogql"
+
+
 class NodeKind(StrEnum):
     EVENTS_NODE = "EventsNode"
     ACTIONS_NODE = "ActionsNode"
@@ -1317,8 +1325,8 @@ class Breakdown(BaseModel):
     group_type_index: Optional[int] = None
     histogram_bin_count: Optional[int] = None
     normalize_url: Optional[bool] = None
-    property: str
-    type: Optional[BreakdownType] = None
+    property: Union[str, int]
+    type: Optional[MultipleBreakdownType] = None
 
 
 class BreakdownFilter(BaseModel):

@@ -421,12 +421,19 @@
                     "type": "boolean"
                 },
                 "property": {
-                    "type": "string"
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "integer"
+                        }
+                    ]
                 },
                 "type": {
                     "anyOf": [
                         {
-                            "$ref": "#/definitions/BreakdownType"
+                            "$ref": "#/definitions/MultipleBreakdownType"
                         },
                         {
                             "type": "null"
@@ -5298,6 +5305,10 @@
                     "$ref": "#/definitions/HogQLMathType"
                 }
             ]
+        },
+        "MultipleBreakdownType": {
+            "enum": ["person", "event", "group", "session", "hogql"],
+            "type": "string"
         },
         "NamedParameters<typeof dateRangeForFilter>": {
             "additionalProperties": false,
