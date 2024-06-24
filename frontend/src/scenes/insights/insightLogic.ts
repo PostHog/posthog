@@ -9,11 +9,9 @@ import { DashboardPrivilegeLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getEventNamesForAction, objectsEqual, toParams } from 'lib/utils'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
-import { transformLegacyHiddenLegendKeys } from 'scenes/funnels/funnelUtils'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import {
     filterTrendsClientSideParams,
-    isFilterWithHiddenLegendKeys,
     isFunnelsFilter,
     isLifecycleFilter,
     isPathsFilter,
@@ -47,7 +45,6 @@ import {
     InsightShortId,
     ItemMode,
     SetInsightOptions,
-    TrendsFilterType,
 } from '~/types'
 
 import { teamLogic } from '../teamLogic'
@@ -134,7 +131,6 @@ export const insightLogic = kea<insightLogicType>([
             callback,
         }),
         setInsightMetadata: (metadata: Partial<InsightModel>) => ({ metadata }),
-        toggleVisibility: (index: number) => ({ index }),
         highlightSeries: (seriesIndex: number | null) => ({ seriesIndex }),
     }),
     loaders(({ actions, values, props }) => ({
@@ -425,16 +421,6 @@ export const insightLogic = kea<insightLogicType>([
                 return Array.from(new Set(allEvents.filter((a): a is string => !!a)))
             },
         ],
-        hiddenLegendKeys: [
-            (s) => [s.filters],
-            (filters) => {
-                if (isFilterWithHiddenLegendKeys(filters) && filters.hidden_legend_keys) {
-                    return transformLegacyHiddenLegendKeys(filters.hidden_legend_keys)
-                }
-
-                return {}
-            },
-        ],
         filtersKnown: [
             (s) => [s.insight],
             ({ filters }) => {
@@ -670,17 +656,6 @@ export const insightLogic = kea<insightLogicType>([
         },
         loadInsightSuccess: async ({ insight }) => {
             actions.reportInsightViewed(insight, insight?.filters || {})
-        },
-        toggleVisibility: ({ index }) => {
-            const currentIsHidden = !!values.hiddenLegendKeys?.[index]
-            const newFilters: Partial<TrendsFilterType> = {
-                ...values.filters,
-                hidden_legend_keys: {
-                    ...values.hiddenLegendKeys,
-                    [`${index}`]: currentIsHidden ? undefined : true,
-                },
-            }
-            actions.setFilters(newFilters)
         },
         cancelChanges: () => {
             actions.setFilters(values.savedInsight.filters || {})
