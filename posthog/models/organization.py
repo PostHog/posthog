@@ -229,6 +229,31 @@ class Organization(UUIDModel):
             "name": self.name,
         }
 
+    def _get_org_billing(self) -> dict:
+        from ee.billing.billing_manager import BillingManager
+        from posthog.cloud_utils import get_cached_instance_license
+
+        license = get_cached_instance_license()
+        return BillingManager(license).get_billing(self)
+
+    def get_billing_period_start(self) -> Optional[timezone.datetime]:
+        _billing = self._get_org_billing()
+
+        _billing_period = _billing.get("billing_period", None)
+        if _billing_period:
+            return _billing.get("current_period_start", None)
+
+        return None
+
+    def get_billing_limit_by_product(self, product: str) -> Optional[int]:
+        _billing = self._get_org_billing()
+
+        _billing_limit = _billing.get("custom_limits_usd", None)
+        if _billing_limit:
+            return _billing_limit.get(product, None)
+
+        return None
+
 
 @receiver(models.signals.pre_save, sender=Organization)
 def organization_about_to_be_created(sender, instance: Organization, raw, using, **kwargs):
