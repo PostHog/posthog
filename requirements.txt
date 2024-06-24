@@ -571,9 +571,9 @@ snowflake-connector-python==3.6.0
     #   snowflake-sqlalchemy
 snowflake-sqlalchemy==1.5.3
     # via -r requirements.in
-social-auth-app-django==5.0.0
+social-auth-app-django==5.1.0
     # via -r requirements.in
-social-auth-core==4.5.1
+social-auth-core==4.5.4
     # via
     #   -r requirements.in
     #   social-auth-app-django
