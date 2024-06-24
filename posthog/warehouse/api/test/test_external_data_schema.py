@@ -111,7 +111,10 @@ class TestExternalDataSchema(APIBaseTest):
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio
     async def test_incremental_fields_postgres(self):
-        postgres_connection = await anext(self.postgres_connection)
+        if not isinstance(self.postgres_connection, psycopg.AsyncConnection):
+            postgres_connection: psycopg.AsyncConnection = await anext(self.postgres_connection)
+        else:
+            postgres_connection = self.postgres_connection
 
         await postgres_connection.execute(
             "CREATE TABLE IF NOT EXISTS {schema}.posthog_test (id integer)".format(
