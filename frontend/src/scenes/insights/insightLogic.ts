@@ -405,7 +405,6 @@ export const insightLogic = kea<insightLogicType>([
                 return 'insight' in (filters ?? {})
             },
         ],
-        intervalUnit: [(s) => [s.filters], (filters) => filters?.interval || 'day'],
         exporterResourceParams: [
             (s) => [s.filters, s.currentTeamId, s.insight],
             (
