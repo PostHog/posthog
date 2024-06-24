@@ -560,17 +560,13 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                             push(urls.cohorts())
                         },
                     },
-                    ...(values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS]
-                        ? [
-                              {
-                                  icon: IconPieChart,
-                                  display: 'Go to Web analytics',
-                                  executor: () => {
-                                      push(urls.webAnalytics())
-                                  },
-                              },
-                          ]
-                        : []),
+                    {
+                        icon: IconPieChart,
+                        display: 'Go to Web analytics',
+                        executor: () => {
+                            push(urls.webAnalytics())
+                        },
+                    },
                     ...(values.featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE]
                         ? [
                               {

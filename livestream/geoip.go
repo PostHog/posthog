@@ -1,7 +1,7 @@
 package main
 
 import (
-	"log"
+	"errors"
 	"net"
 
 	"github.com/oschwald/maxminddb-golang"
@@ -14,7 +14,7 @@ type GeoLocator struct {
 func NewGeoLocator(dbPath string) (*GeoLocator, error) {
 	db, err := maxminddb.Open(dbPath)
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 
 	return &GeoLocator{
@@ -22,10 +22,10 @@ func NewGeoLocator(dbPath string) (*GeoLocator, error) {
 	}, nil
 }
 
-func (g *GeoLocator) Lookup(ipString string) (float64, float64) {
+func (g *GeoLocator) Lookup(ipString string) (float64, float64, error) {
 	ip := net.ParseIP(ipString)
 	if ip == nil {
-		return 0, 0
+		return 0, 0, errors.New("invalid IP address")
 	}
 
 	var record struct {
@@ -37,8 +37,7 @@ func (g *GeoLocator) Lookup(ipString string) (float64, float64) {
 
 	err := g.db.Lookup(ip, &record)
 	if err != nil {
-		log.Panic(err)
+		return 0, 0, err
 	}
-
-	return record.Location.Latitude, record.Location.Longitude
+	return record.Location.Latitude, record.Location.Longitude, nil
 }

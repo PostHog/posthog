@@ -1,4 +1,4 @@
-import { CdpProcessedEventsConsumer } from '../../src/cdp/cdp-processed-events-consumer'
+import { CdpProcessedEventsConsumer } from '../../src/cdp/cdp-consumers'
 import { HogFunctionType } from '../../src/cdp/types'
 import { defaultConfig } from '../../src/config/config'
 import { Hub, PluginsServerConfig, Team } from '../../src/types'
@@ -234,35 +234,53 @@ describe('CDP Processed Events Consuner', () => {
                     }),
                     teamId: 2,
                     hogFunctionId: expect.any(String),
-                    asyncFunctionName: 'fetch',
-                    asyncFunctionArgs: [
-                        'https://example.com/posthog-webhook',
+                    finished: false,
+                    logs: [],
+                    timings: [
                         {
-                            headers: { version: 'v=1.0.0' },
-                            body: {
-                                event: {
-                                    uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d0',
-                                    name: '$pageview',
-                                    distinct_id: 'distinct_id_1',
-                                    properties: { $lib_version: '1.0.0', $elements_chain: '[]' },
-                                    timestamp: null,
-                                    url: 'http://localhost:8000/project/2/events/b3a1fe86-b10c-43cc-acaf-d208977608d0/null',
-                                },
-                                event_url:
-                                    'http://localhost:8000/project/2/events/b3a1fe86-b10c-43cc-acaf-d208977608d0/null-test',
-                                groups: null,
-                                nested: {
-                                    foo: 'http://localhost:8000/project/2/events/b3a1fe86-b10c-43cc-acaf-d208977608d0/null',
-                                },
-                                person: null,
-                            },
-                            method: 'POST',
+                            kind: 'hog',
+                            duration_ms: expect.any(Number),
                         },
                     ],
-                    vmState: expect.any(Object),
-                    vmResponse: {
-                        status: 200,
-                        body: { success: true },
+                    asyncFunctionRequest: {
+                        name: 'fetch',
+                        args: [
+                            'https://example.com/posthog-webhook',
+                            {
+                                headers: { version: 'v=1.0.0' },
+                                body: {
+                                    event: {
+                                        uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d0',
+                                        name: '$pageview',
+                                        distinct_id: 'distinct_id_1',
+                                        properties: { $lib_version: '1.0.0', $elements_chain: '[]' },
+                                        timestamp: null,
+                                        url: 'http://localhost:8000/project/2/events/b3a1fe86-b10c-43cc-acaf-d208977608d0/null',
+                                    },
+                                    event_url:
+                                        'http://localhost:8000/project/2/events/b3a1fe86-b10c-43cc-acaf-d208977608d0/null-test',
+                                    groups: null,
+                                    nested: {
+                                        foo: 'http://localhost:8000/project/2/events/b3a1fe86-b10c-43cc-acaf-d208977608d0/null',
+                                    },
+                                    person: null,
+                                },
+                                method: 'POST',
+                            },
+                        ],
+                        vmState: expect.any(Object),
+                    },
+                    asyncFunctionResponse: {
+                        vmResponse: {
+                            status: 200,
+                            body: { success: true },
+                        },
+                        timings: [
+                            {
+                                kind: 'async_function',
+                                duration_ms: expect.any(Number),
+                            },
+                        ],
                     },
                 },
                 waitForAck: true,

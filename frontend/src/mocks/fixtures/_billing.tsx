@@ -3835,4 +3835,5 @@ export const billingJson: BillingV2Type = {
     custom_limits_usd: {},
     stripe_portal_url:
         'https://billing.stripe.com/p/session/test_YWNjdF8xSElNRERFdUlhdFJYU2R6LF9QaEVJR3VyemlvMDZzRzdiQXZrc1AxSjNXZk1BellP0100ZsforDQG',
+    subscription_level: 'paid',
 }

@@ -35,7 +35,11 @@ from posthog.api.decide import hostname_in_allowed_url_list
 from posthog.api.email_verification import EmailVerifier
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
-from posthog.api.utils import PublicIPOnlyHttpAdapter, raise_if_user_provided_url_unsafe
+from posthog.api.utils import (
+    PublicIPOnlyHttpAdapter,
+    raise_if_user_provided_url_unsafe,
+    ClassicBehaviorBooleanFieldSerializer,
+)
 from posthog.auth import (
     PersonalAPIKeyAuthentication,
     SessionAuthentication,
@@ -84,6 +88,7 @@ class UserSerializer(serializers.ModelSerializer):
     current_password = serializers.CharField(write_only=True, required=False)
     notification_settings = serializers.DictField(required=False)
     scene_personalisation = ScenePersonalisationBasicSerializer(many=True, read_only=True)
+    anonymize_data = ClassicBehaviorBooleanFieldSerializer()
 
     class Meta:
         model = User

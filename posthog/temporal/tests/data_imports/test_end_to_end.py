@@ -104,6 +104,9 @@ async def _run(
             continue
         assert name in (res.columns or [])
 
+    await sync_to_async(source.refresh_from_db)()
+    assert source.job_inputs.get("reset_pipeline", None) is None
+
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
@@ -346,4 +349,17 @@ async def test_zendesk_ticket_metric_events(team, zendesk_ticket_metric_events):
             "zendesk_email_address": "test@posthog.com",
         },
         mock_data_response=zendesk_ticket_metric_events["ticket_metric_events"],
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_reset_pipeline(team, stripe_balance_transaction):
+    await _run(
+        team=team,
+        schema_name="BalanceTransaction",
+        table_name="stripe_balancetransaction",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id", "reset_pipeline": "True"},
+        mock_data_response=stripe_balance_transaction["data"],
     )

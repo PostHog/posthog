@@ -31,7 +31,7 @@ func decodeAuthToken(authHeader string) (jwt.MapClaims, error) {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
 		// Here you should specify the secret used to sign your JWTs.
-		return []byte(viper.GetString("jwt.token")), nil
+		return []byte(viper.GetString("jwt.secret")), nil
 	})
 
 	if err != nil {

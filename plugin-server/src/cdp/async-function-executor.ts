@@ -1,48 +1,59 @@
 import { Webhook } from '@posthog/plugin-scaffold'
 
-import { KAFKA_CDP_FUNCTION_CALLBACKS } from '../config/kafka-topics'
 import { PluginsServerConfig } from '../types'
 import { trackedFetch } from '../utils/fetch'
 import { status } from '../utils/status'
 import { RustyHook } from '../worker/rusty-hook'
-import {
-    HogFunctionInvocationAsyncRequest,
-    HogFunctionInvocationAsyncResponse,
-    HogFunctionMessageToQueue,
-} from './types'
+import { HogFunctionInvocationAsyncResponse, HogFunctionInvocationResult } from './types'
+
+export type AsyncFunctionExecutorOptions = {
+    sync?: boolean
+}
 
 export class AsyncFunctionExecutor {
     constructor(private serverConfig: PluginsServerConfig, private rustyHook: RustyHook) {}
 
-    async execute(request: HogFunctionInvocationAsyncRequest): Promise<HogFunctionMessageToQueue | undefined> {
+    async execute(
+        request: HogFunctionInvocationResult,
+        options: AsyncFunctionExecutorOptions = { sync: false }
+    ): Promise<HogFunctionInvocationAsyncResponse | undefined> {
+        if (!request.asyncFunctionRequest) {
+            throw new Error('No async function request provided')
+        }
+
         const loggingContext = {
             hogFunctionId: request.hogFunctionId,
             invocationId: request.id,
-            asyncFunctionName: request.asyncFunctionName,
+            asyncFunctionName: request.asyncFunctionRequest.name,
         }
         status.info('🦔', `[AsyncFunctionExecutor] Executing async function`, loggingContext)
 
-        switch (request.asyncFunctionName) {
+        switch (request.asyncFunctionRequest.name) {
             case 'fetch':
-                return await this.asyncFunctionFetch(request)
+                return await this.asyncFunctionFetch(request, options)
             default:
-                status.error('🦔', `[HogExecutor] Unknown async function: ${request.asyncFunctionName}`, loggingContext)
+                status.error(
+                    '🦔',
+                    `[HogExecutor] Unknown async function: ${request.asyncFunctionRequest.name}`,
+                    loggingContext
+                )
         }
     }
 
     private async asyncFunctionFetch(
-        request: HogFunctionInvocationAsyncRequest
-    ): Promise<HogFunctionMessageToQueue | undefined> {
+        request: HogFunctionInvocationResult,
+        options?: AsyncFunctionExecutorOptions
+    ): Promise<HogFunctionInvocationAsyncResponse | undefined> {
         // TODO: validate the args
-        const args = request.asyncFunctionArgs ?? []
+        const args = request.asyncFunctionRequest!.args ?? []
         const url: string = args[0]
-        const options = args[1]
+        const fetchOptions = args[1]
 
-        const method = options.method || 'POST'
-        const headers = options.headers || {
+        const method = fetchOptions.method || 'POST'
+        const headers = fetchOptions.headers || {
             'Content-Type': 'application/json',
         }
-        const body = options.body || {}
+        const body = fetchOptions.body || {}
 
         const webhook: Webhook = {
             url,
@@ -51,25 +62,28 @@ export class AsyncFunctionExecutor {
             body: typeof body === 'string' ? body : JSON.stringify(body, undefined, 4),
         }
 
-        // NOTE: Purposefully disabled for now - once we have callback support we can re-enable
-        // const SPECIAL_CONFIG_ID = -3 // Hardcoded to mean Hog
-        // const success = await this.rustyHook.enqueueIfEnabledForTeam({
-        //     webhook: webhook,
-        //     teamId: hogFunction.team_id,
-        //     pluginId: SPECIAL_CONFIG_ID,
-        //     pluginConfigId: SPECIAL_CONFIG_ID,
-        // })
-
         const success = false
 
-        // TODO: Temporary test code
+        if (!options?.sync === false) {
+            // NOTE: Purposefully disabled for now - once we have callback support we can re-enable
+            // const SPECIAL_CONFIG_ID = -3 // Hardcoded to mean Hog
+            // const success = await this.rustyHook.enqueueIfEnabledForTeam({
+            //     webhook: webhook,
+            //     teamId: hogFunction.team_id,
+            //     pluginId: SPECIAL_CONFIG_ID,
+            //     pluginConfigId: SPECIAL_CONFIG_ID,
+            // })
+        }
+
         if (!success) {
             status.info('🦔', `[HogExecutor] Webhook not sent via rustyhook, sending directly instead`)
-            const response: HogFunctionInvocationAsyncResponse = {
-                ...request,
+
+            const asyncFunctionResponse: HogFunctionInvocationAsyncResponse['asyncFunctionResponse'] = {
+                timings: [],
             }
 
             try {
+                const start = performance.now()
                 const fetchResponse = await trackedFetch(url, {
                     method: webhook.method,
                     body: webhook.body,
@@ -81,23 +95,31 @@ export class AsyncFunctionExecutor {
                 try {
                     body = JSON.parse(body)
                 } catch (err) {
-                    body
+                    // Ignore
                 }
 
-                response.vmResponse = {
+                const duration = performance.now() - start
+
+                asyncFunctionResponse.timings.push({
+                    kind: 'async_function',
+                    duration_ms: duration,
+                })
+
+                asyncFunctionResponse.vmResponse = {
                     status: fetchResponse.status,
                     body: body,
                 }
             } catch (err) {
                 status.error('🦔', `[HogExecutor] Error during fetch`, { ...request, error: String(err) })
-                response.error = 'Something went wrong with the fetch request.'
+                asyncFunctionResponse.error = 'Something went wrong with the fetch request.'
             }
 
-            return {
-                topic: KAFKA_CDP_FUNCTION_CALLBACKS,
-                value: response,
-                key: response.id,
+            const response: HogFunctionInvocationAsyncResponse = {
+                ...request,
+                asyncFunctionResponse,
             }
+
+            return response
         }
     }
 }

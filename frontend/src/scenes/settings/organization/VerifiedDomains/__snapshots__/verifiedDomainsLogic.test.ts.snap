@@ -61,7 +61,6 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
           "data-attr",
         ],
         "effective_membership_level": 8,
-        "groups_on_events_querying_enabled": true,
         "has_group_types": true,
         "heatmaps_opt_in": true,
         "id": 997,

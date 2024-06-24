@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
+	"github.com/getsentry/sentry-go"
 )
 
 type PostHogEventWrapper struct {
@@ -61,12 +62,14 @@ func NewKafkaConsumer(brokers string, securityProtocol string, groupID string, t
 func (c *KafkaConsumer) Consume() {
 	err := c.consumer.SubscribeTopics([]string{c.topic}, nil)
 	if err != nil {
+		sentry.CaptureException(err)
 		log.Fatalf("Failed to subscribe to topic: %v", err)
 	}
 
 	for {
 		msg, err := c.consumer.ReadMessage(-1)
 		if err != nil {
+			sentry.CaptureException(err)
 			log.Printf("Error consuming message: %v", err)
 			continue
 		}
@@ -74,6 +77,7 @@ func (c *KafkaConsumer) Consume() {
 		var wrapperMessage PostHogEventWrapper
 		err = json.Unmarshal(msg.Value, &wrapperMessage)
 		if err != nil {
+			sentry.CaptureException(err)
 			log.Printf("Error decoding JSON: %v", err)
 			continue
 		}
@@ -81,6 +85,7 @@ func (c *KafkaConsumer) Consume() {
 		var phEvent PostHogEvent
 		err = json.Unmarshal([]byte(wrapperMessage.Data), &phEvent)
 		if err != nil {
+			sentry.CaptureException(err)
 			log.Printf("Error decoding JSON: %v", err)
 			continue
 		}
@@ -110,7 +115,10 @@ func (c *KafkaConsumer) Consume() {
 		}
 
 		if ipStr != "" {
-			phEvent.Lat, phEvent.Lng = c.geolocator.Lookup(ipStr)
+			phEvent.Lat, phEvent.Lng, err = c.geolocator.Lookup(ipStr)
+			if err != nil && err.Error() != "invalid IP address" { // An invalid IP address is not an error on our side
+				sentry.CaptureException(err)
+			}
 		}
 
 		c.outgoingChan <- phEvent

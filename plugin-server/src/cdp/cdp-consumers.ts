@@ -1,3 +1,5 @@
+import { convertJSToHog } from '@posthog/hogvm'
+import express from 'express'
 import { features, librdkafkaVersion, Message } from 'node-rdkafka'
 import { Histogram } from 'prom-client'
 
@@ -7,25 +9,28 @@ import { createRdConnectionConfigFromEnvVars, createRdProducerConfigFromEnvVars 
 import { createKafkaProducer } from '../kafka/producer'
 import { addSentryBreadcrumbsEventListeners } from '../main/ingestion-queues/kafka-metrics'
 import { runInstrumentedFunction } from '../main/utils'
-import { GroupTypeToColumnIndex, Hub, PluginsServerConfig, RawClickHouseEvent, TeamId } from '../types'
+import { GroupTypeToColumnIndex, Hub, PluginsServerConfig, RawClickHouseEvent, TeamId, TimestampFormat } from '../types'
 import { KafkaProducerWrapper } from '../utils/db/kafka-producer-wrapper'
 import { PostgresRouter } from '../utils/db/postgres'
 import { status } from '../utils/status'
+import { castTimestampOrNow } from '../utils/utils'
 import { AppMetrics } from '../worker/ingestion/app-metrics'
 import { GroupTypeManager } from '../worker/ingestion/group-type-manager'
 import { OrganizationManager } from '../worker/ingestion/organization-manager'
 import { TeamManager } from '../worker/ingestion/team-manager'
 import { RustyHook } from '../worker/rusty-hook'
 import { AsyncFunctionExecutor } from './async-function-executor'
-import { HogExecutor } from './hog-executor'
+import { addLog, HogExecutor } from './hog-executor'
 import { HogFunctionManager } from './hog-function-manager'
 import {
+    HogFunctionInvocation,
     HogFunctionInvocationAsyncResponse,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationResult,
     HogFunctionMessageToQueue,
+    HogFunctionType,
 } from './types'
-import { convertToHogFunctionInvocationGlobals } from './utils'
+import { convertToHogFunctionInvocationGlobals, convertToParsedClickhouseEvent } from './utils'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
@@ -89,19 +94,32 @@ abstract class CdpConsumerBase {
 
                 await Promise.all(
                     results.map(async (result) => {
-                        result.logs.forEach((x) => {
+                        // Tricky: We want to pull all the logs out as we don't want them to be passed around to any subsequent functions
+                        const logs = result.logs
+                        result.logs = []
+
+                        logs.forEach((x) => {
+                            const sanitized = {
+                                ...x,
+                                timestamp: castTimestampOrNow(x.timestamp, TimestampFormat.ClickHouse),
+                            }
+                            // Convert timestamps to ISO strings
                             messagesToProduce.push({
                                 topic: KAFKA_LOG_ENTRIES,
-                                value: x,
+                                value: sanitized,
                                 key: x.instance_id,
                             })
                         })
 
-                        if (result.asyncFunction) {
-                            const res = await this.asyncFunctionExecutor!.execute(result.asyncFunction)
+                        if (result.asyncFunctionRequest) {
+                            const res = await this.asyncFunctionExecutor!.execute(result)
 
                             if (res) {
-                                messagesToProduce.push(res)
+                                messagesToProduce.push({
+                                    topic: KAFKA_CDP_FUNCTION_CALLBACKS,
+                                    value: res,
+                                    key: res.id,
+                                })
                             }
                         }
                     })
@@ -282,7 +300,7 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
                     }
                     events.push(
                         convertToHogFunctionInvocationGlobals(
-                            clickHouseEvent,
+                            convertToParsedClickhouseEvent(clickHouseEvent),
                             team,
                             this.config.SITE_URL ?? 'http://localhost:8000',
                             groupTypes
@@ -354,5 +372,108 @@ export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
         })
 
         return events
+    }
+
+    public addApiRoutes(app: express.Application) {
+        app.post('/api/projects/:team_id/hog_functions/:id/invocations', async (req, res): Promise<void> => {
+            try {
+                const { id, team_id } = req.params
+                const { event, mock_async_functions, configuration } = req.body
+
+                status.info('⚡️', 'Received invocation', { id, team_id, body: req.body })
+
+                if (!event) {
+                    res.status(400).json({ error: 'Missing event' })
+                    return
+                }
+
+                const [hogFunction, team] = await Promise.all([
+                    this.hogFunctionManager.fetchHogFunction(req.params.id),
+                    this.teamManager.fetchTeam(parseInt(team_id)),
+                ]).catch(() => {
+                    return [null, null]
+                })
+                if (!hogFunction || !team || hogFunction.team_id !== team.id) {
+                    res.status(404).json({ error: 'Hog function not found' })
+                    return
+                }
+
+                let groupTypes: GroupTypeToColumnIndex | undefined = undefined
+
+                if (await this.organizationManager.hasAvailableFeature(team.id, 'group_analytics')) {
+                    // If the organization has group analytics enabled then we enrich the event with group data
+                    groupTypes = await this.groupTypeManager.fetchGroupTypes(team.id)
+                }
+
+                const globals = convertToHogFunctionInvocationGlobals(
+                    event,
+                    team,
+                    this.config.SITE_URL ?? 'http://localhost:8000',
+                    groupTypes
+                )
+
+                globals.source = {
+                    name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
+                    url: `${globals.project.url}/pipeline/destinations/hog-${hogFunction.id}/configuration/`,
+                }
+
+                const invocation: HogFunctionInvocation = {
+                    id,
+                    globals: globals,
+                    teamId: team.id,
+                    hogFunctionId: id,
+                    logs: [],
+                    timings: [],
+                }
+
+                // We use the provided config if given, otherwise the function's config
+                const compoundConfiguration: HogFunctionType = {
+                    ...hogFunction,
+                    ...(configuration ?? {}),
+                }
+
+                // TODO: Type the configuration better so we don't make mistakes here
+                await this.hogFunctionManager.enrichWithIntegrations([compoundConfiguration])
+
+                let response = this.hogExecutor.execute(compoundConfiguration, invocation)
+
+                while (response.asyncFunctionRequest) {
+                    const asyncFunctionRequest = response.asyncFunctionRequest
+
+                    if (mock_async_functions || asyncFunctionRequest.name !== 'fetch') {
+                        addLog(response, 'info', `Async function '${asyncFunctionRequest.name}' was mocked`)
+
+                        // Add the state, simulating what executeAsyncResponse would do
+                        asyncFunctionRequest.vmState.stack.push(convertJSToHog({ status: 200, body: {} }))
+                    } else {
+                        const asyncRes = await this.asyncFunctionExecutor!.execute(response, {
+                            sync: true,
+                        })
+
+                        if (!asyncRes || asyncRes.asyncFunctionResponse.error) {
+                            addLog(response, 'error', 'Failed to execute async function')
+                        }
+                        asyncFunctionRequest.vmState.stack.push(
+                            convertJSToHog(asyncRes?.asyncFunctionResponse.vmResponse ?? null)
+                        )
+                        response.timings.push(...(asyncRes?.asyncFunctionResponse.timings ?? []))
+                    }
+
+                    // Clear it so we can't ever end up in a loop
+                    delete response.asyncFunctionRequest
+
+                    response = this.hogExecutor.execute(compoundConfiguration, response, asyncFunctionRequest.vmState)
+                }
+
+                res.json({
+                    status: response.finished ? 'success' : 'error',
+                    error: String(response.error),
+                    logs: response.logs,
+                })
+            } catch (e) {
+                console.error(e)
+                res.status(500).json({ error: e.message })
+            }
+        })
     }
 }
