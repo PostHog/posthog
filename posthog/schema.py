@@ -548,8 +548,11 @@ class PersonsJoinMode(str, Enum):
 
 class PersonsOnEventsMode(str, Enum):
     DISABLED = "disabled"
+    # Use person IDs and person properties from the time of the event
     PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS = "person_id_no_override_properties_on_events"
+    # Use person properties from the time of the event
     PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS = "person_id_override_properties_on_events"
+    # Use person properties as of running the query
     PERSON_ID_OVERRIDE_PROPERTIES_JOINED = "person_id_override_properties_joined"
 
 
