@@ -549,3 +549,19 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
     #             "https://l.facebook.com/",
     #         ),
     #     )
+
+    def test_zendesk_ticket_14945(self):
+        # see https://posthoghelp.zendesk.com/agent/tickets/14945
+        self.assertEqual(
+            "Paid Social",
+            self._get_session_channel_type(
+                {
+                    "utm_source": "Facebook",
+                    "utm_medium": "Paid",
+                    "utm_campaign": "Foo",
+                    "referring_domain": "l.facebook.com",
+                    "gclid": "",
+                    "gad_source": "",
+                }
+            ),
+        )
