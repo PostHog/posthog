@@ -74,7 +74,7 @@ scikit-learn==1.4.0
 slack_sdk==3.17.1
 snowflake-connector-python==3.6.0
 snowflake-sqlalchemy==1.5.3
-social-auth-app-django==5.0.0
+social-auth-app-django==5.4.0
 social-auth-core==4.5.0
 sqlalchemy==1.4.52
 sshtunnel==0.4.0
