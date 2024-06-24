@@ -43,7 +43,7 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
             {
                 reloadMetadata: async (_, breakpoint) => {
                     const model = props.editor?.getModel()
-                    if (!model || !props.monaco || (props.language !== 'hogql' && props.language !== 'hog')) {
+                    if (!model || !props.monaco || !['hogql', 'hog', 'ehog'].includes(props.language ?? '')) {
                         return null
                     }
                     await breakpoint(300)

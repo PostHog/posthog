@@ -843,6 +843,7 @@ class QueryResponseAlternative8(BaseModel):
     inputExpr: Optional[str] = None
     inputProgram: Optional[str] = None
     inputSelect: Optional[str] = None
+    inputTemplate: Optional[str] = None
     isValid: Optional[bool] = None
     isValidView: Optional[bool] = None
     notices: list[HogQLNotice]
@@ -2038,6 +2039,7 @@ class HogQLMetadataResponse(BaseModel):
     inputExpr: Optional[str] = None
     inputProgram: Optional[str] = None
     inputSelect: Optional[str] = None
+    inputTemplate: Optional[str] = None
     isValid: Optional[bool] = None
     isValidView: Optional[bool] = None
     notices: list[HogQLNotice]
@@ -4446,9 +4448,7 @@ class HogQLMetadata(BaseModel):
     debug: Optional[bool] = Field(
         default=None, description="Enable more verbose output, usually run from the /debug page"
     )
-    expr: Optional[str] = Field(
-        default=None, description="HogQL expression to validate (use `select` or `expr`, but not both)"
-    )
+    expr: Optional[str] = Field(default=None, description="HogQL expression to validate")
     exprSource: Optional[
         Union[
             EventsNode,
@@ -4468,18 +4468,20 @@ class HogQLMetadata(BaseModel):
             WebStatsTableQuery,
             WebTopClicksQuery,
         ]
-    ] = Field(default=None, description='Query within which "expr" is validated. Defaults to "select * from events"')
+    ] = Field(
+        default=None,
+        description='Query within which "expr" and "template" are validated. Defaults to "select * from events"',
+    )
     filters: Optional[HogQLFilters] = Field(default=None, description="Extra filters applied to query via {filters}")
     kind: Literal["HogQLMetadata"] = "HogQLMetadata"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    program: Optional[str] = Field(default=None, description="Full Hog program")
+    program: Optional[str] = Field(default=None, description="Hog program to validate")
     response: Optional[HogQLMetadataResponse] = None
-    select: Optional[str] = Field(
-        default=None, description="Full select query to validate (use `select` or `expr`, but not both)"
-    )
+    select: Optional[str] = Field(default=None, description="Select query to validate")
     table: Optional[str] = Field(default=None, description="Table to validate the expression against")
+    template: Optional[str] = Field(default=None, description="Template string to validate")
 
 
 class QueryRequest(BaseModel):

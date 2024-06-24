@@ -9,8 +9,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DateDatabaseField, StringDatabaseField
 from posthog.hogql.errors import ExposedHogQLError, QueryError
-from posthog.hogql.hogql import translate_hogql
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_select, parse_expr
 from posthog.hogql.printer import print_ast, to_printed_hogql
 from posthog.models import PropertyDefinition
 from posthog.models.team.team import WeekStartDay
@@ -28,7 +27,11 @@ class TestPrinter(BaseTest):
         context: Optional[HogQLContext] = None,
         dialect: Literal["hogql", "clickhouse"] = "clickhouse",
     ) -> str:
-        return translate_hogql(query, context or HogQLContext(team_id=self.team.pk), dialect)
+        return print_ast(
+            parse_expr(query),
+            context or HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            dialect,
+        )
 
     # Helper to always translate HogQL with a blank context,
     def _select(

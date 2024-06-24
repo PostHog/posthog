@@ -34,4 +34,4 @@ fi
 # Remove this when https://github.com/koxudaxi/datamodel-code-generator/issues/1313 is resolved
 
 sed -i -e 's/str, Enum/StrEnum/g' posthog/schema.py
-sed -i 's/from enum import Enum/from enum import Enum, StrEnum/g' posthog/schema.py
+sed -i -e 's/from enum import Enum/from enum import Enum, StrEnum/g' posthog/schema.py
