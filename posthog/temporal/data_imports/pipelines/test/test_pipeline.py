@@ -59,6 +59,7 @@ class TestDataImportPipeline(APIBaseTest):
             ),
             logger=structlog.get_logger(),
             incremental=incremental,
+            reset_pipeline=False,
         )
 
         return pipeline
