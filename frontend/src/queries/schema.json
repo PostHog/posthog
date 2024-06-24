@@ -4200,6 +4200,10 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "program": {
+                    "description": "Full Hog program",
+                    "type": "string"
+                },
                 "response": {
                     "$ref": "#/definitions/HogQLMetadataResponse"
                 },
@@ -4225,6 +4229,9 @@
                     "type": "array"
                 },
                 "inputExpr": {
+                    "type": "string"
+                },
+                "inputProgram": {
                     "type": "string"
                 },
                 "inputSelect": {
@@ -6135,6 +6142,9 @@
                             "type": "array"
                         },
                         "inputExpr": {
+                            "type": "string"
+                        },
+                        "inputProgram": {
                             "type": "string"
                         },
                         "inputSelect": {

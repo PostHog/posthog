@@ -608,7 +608,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         elif ctx.STRING_LITERAL():
             alias = parse_string_literal_ctx(ctx.STRING_LITERAL())
         else:
-            raise NotImplementedError(f"Must specify an alias")
+            raise SyntaxError(f"Must specify an alias")
         expr = self.visit(ctx.columnExpr())
 
         if alias.lower() in RESERVED_KEYWORDS:
