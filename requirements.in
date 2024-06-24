@@ -97,4 +97,4 @@ hogql-parser==1.0.21
 zxcvbn==4.4.28
 zstd==1.5.5.1
 xmlsec==1.3.13
-lxml==5.2.2
+lxml==4.9.4
