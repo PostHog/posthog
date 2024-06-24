@@ -353,7 +353,14 @@ class APIScopePermission(BasePermission):
 
         return True
 
-    def check_team_and_org_permissions(self, request, view) -> None:
+    def check_team_and_org_permissions(
+        self,
+        request: Request,
+        view: View,
+    ) -> None:
+        if view.scope_object == "user":
+            return  # The /api/users/@me/ endpoint is exempt from team and org scoping
+
         scoped_organizations = request.successful_authenticator.personal_api_key.scoped_organizations
         scoped_teams = request.successful_authenticator.personal_api_key.scoped_teams
 
@@ -361,16 +368,16 @@ class APIScopePermission(BasePermission):
             try:
                 team = view.team
                 if team.id not in scoped_teams:
-                    raise PermissionDenied(f"API key does not have access to the requested project '{team.id}'")
-            except (ValueError, KeyError):
-                raise PermissionDenied(f"API key with scoped projects are only supported on project-based views.")
+                    raise PermissionDenied(f"API key does not have access to the requested project: ID {team.id}.")
+            except (KeyError, AttributeError):
+                raise PermissionDenied(f"API keys with scoped projects are only supported on project-based endpoints.")
 
         if scoped_organizations:
             try:
                 organization = get_organization_from_view(view)
                 if str(organization.id) not in scoped_organizations:
                     raise PermissionDenied(
-                        f"API key does not have access to the requested organization '{organization.id}'"
+                        f"API key does not have access to the requested organization: ID {organization.id}."
                     )
             except ValueError:
                 # Indicates this is not an organization scoped view
