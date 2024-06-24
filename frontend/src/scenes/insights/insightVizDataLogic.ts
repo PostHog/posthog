@@ -16,19 +16,6 @@ import { BASE_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
 
 import { queryNodeToFilter, seriesNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import {
-    getBreakdown,
-    getCompareFilter,
-    getDisplay,
-    getFormula,
-    getInterval,
-    getSeries,
-    getShowLabelsOnSeries,
-    getShowLegend,
-    getShowPercentStackView,
-    getShowValuesOnSeries,
-    supportsPercentStackView,
-} from '~/queries/nodes/InsightViz/utils'
-import {
     BreakdownFilter,
     CompareFilter,
     DatabaseSchemaField,
@@ -46,6 +33,16 @@ import {
 import {
     filterForQuery,
     filterKeyForQuery,
+    getBreakdown,
+    getCompareFilter,
+    getDisplay,
+    getFormula,
+    getInterval,
+    getSeries,
+    getShowLabelsOnSeries,
+    getShowLegend,
+    getShowPercentStackView,
+    getShowValuesOnSeries,
     isActionsNode,
     isDataWarehouseNode,
     isEventsNode,
@@ -59,6 +56,7 @@ import {
     isStickinessQuery,
     isTrendsQuery,
     nodeKindToFilterProperty,
+    supportsPercentStackView,
 } from '~/queries/utils'
 import { BaseMathType, ChartDisplayType, FilterType, InsightLogicProps } from '~/types'
 
