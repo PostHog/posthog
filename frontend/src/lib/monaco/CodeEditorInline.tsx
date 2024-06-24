@@ -13,6 +13,7 @@ export function CodeEditorInline(props: Omit<CodeEditorProps, 'height'>): JSX.El
                 wordWrap: 'on',
                 renderLineHighlight: 'none',
                 scrollbar: { vertical: 'hidden', horizontal: 'hidden' },
+                tabFocusMode: true,
                 ...props.options,
             }}
         />
