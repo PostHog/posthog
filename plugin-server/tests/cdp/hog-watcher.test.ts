@@ -421,6 +421,44 @@ describe('HogWatcher', () => {
                     }
                 `)
             })
+
+            it('should move the function into a bad state after enough periods', async () => {
+                for (let i = 0; i < 4; i++) {
+                    watcher1.currentObservations.observeResults([createResult('id1', false, 'error')])
+                    advanceTime(OBSERVATION_PERIOD)
+                    await watcher1.sync()
+                }
+                await delay(100)
+
+                expect(watcher2.states['id1']).toEqual([
+                    {
+                        state: 2,
+                        timestamp: 1720000030000, // After 3rd period it get evaluated
+                    },
+                    {
+                        state: 3, // After 4th period it is bad enough to get temp disabled
+                        timestamp: 1720000040000,
+                    },
+                ])
+
+                advanceTime(DISABLED_PERIOD + 1)
+                await watcher1.sync()
+                await delay(100)
+                expect(watcher2.states['id1']).toEqual([
+                    {
+                        state: 2,
+                        timestamp: 1720000030000, // After 3rd period it get evaluated
+                    },
+                    {
+                        state: 3, // After 4th period it is bad enough to get temp disabled
+                        timestamp: 1720000040000,
+                    },
+                    {
+                        state: 2,
+                        timestamp: 1720000640000, // After enough time passing it is moved back to overflow
+                    },
+                ])
+            })
         })
     })
 })
