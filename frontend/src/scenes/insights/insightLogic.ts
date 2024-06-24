@@ -4,16 +4,13 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
-import { parseProperties } from 'lib/components/PropertyFilters/utils'
 import { DashboardPrivilegeLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getEventNamesForAction, objectsEqual, toParams } from 'lib/utils'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
-import { transformLegacyHiddenLegendKeys } from 'scenes/funnels/funnelUtils'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import {
     filterTrendsClientSideParams,
-    isFilterWithHiddenLegendKeys,
     isFunnelsFilter,
     isLifecycleFilter,
     isPathsFilter,
@@ -47,14 +44,12 @@ import {
     InsightShortId,
     ItemMode,
     SetInsightOptions,
-    TrendsFilterType,
 } from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import type { insightLogicType } from './insightLogicType'
-import { extractObjectDiffKeys, getInsightId } from './utils'
+import { getInsightId } from './utils'
 
-const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 export const UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES = 3
 
 function emptyFilters(filters: Partial<FilterType> | undefined): boolean {
@@ -103,19 +98,7 @@ export const insightLogic = kea<insightLogicType>([
             insightMode,
             clearInsightQuery,
         }),
-        setFiltersMerge: (filters: Partial<FilterType>) => ({ filters }),
-        reportInsightViewedForRecentInsights: () => true,
-        reportInsightViewed: (
-            insightModel: Partial<InsightModel>,
-            filters: Partial<FilterType>,
-            previousFilters?: Partial<FilterType>
-        ) => ({
-            insightModel,
-            filters,
-            previousFilters,
-        }),
         setIsLoading: (isLoading: boolean) => ({ isLoading }),
-        setNotFirstLoad: true,
         setInsight: (insight: Partial<InsightModel>, options: SetInsightOptions) => ({
             insight,
             options,
@@ -134,7 +117,6 @@ export const insightLogic = kea<insightLogicType>([
             callback,
         }),
         setInsightMetadata: (metadata: Partial<InsightModel>) => ({ metadata }),
-        toggleVisibility: (index: number) => ({ index }),
         highlightSeries: (seriesIndex: number | null) => ({ seriesIndex }),
     }),
     loaders(({ actions, values, props }) => ({
@@ -350,15 +332,6 @@ export const insightLogic = kea<insightLogicType>([
                 loadInsightFailure: () => false,
             },
         ],
-        /*
-        isFirstLoad determines if this is the first graph being shown after the component is mounted (used for analytics)
-        */
-        isFirstLoad: [
-            true,
-            {
-                setNotFirstLoad: () => false,
-            },
-        ],
         insightSaving: [
             false,
             {
@@ -425,16 +398,6 @@ export const insightLogic = kea<insightLogicType>([
                 return Array.from(new Set(allEvents.filter((a): a is string => !!a)))
             },
         ],
-        hiddenLegendKeys: [
-            (s) => [s.filters],
-            (filters) => {
-                if (isFilterWithHiddenLegendKeys(filters) && filters.hidden_legend_keys) {
-                    return transformLegacyHiddenLegendKeys(filters.hidden_legend_keys)
-                }
-
-                return {}
-            },
-        ],
         filtersKnown: [
             (s) => [s.insight],
             ({ filters }) => {
@@ -491,107 +454,9 @@ export const insightLogic = kea<insightLogicType>([
                 return null
             },
         ],
-        isUsingSessionAnalysis: [
-            (s) => [s.filters],
-            (filters: Partial<FilterType>): boolean => {
-                const entities = (filters.events || []).concat(filters.actions ?? [])
-                const using_session_breakdown = filters.breakdown_type === 'session'
-                const using_session_math = entities.some((entity) => entity.math === 'unique_session')
-                const using_session_property_math = entities.some((entity) => {
-                    // Should be made more generic is we ever add more session properties
-                    return entity.math_property === '$session_duration'
-                })
-                const using_entity_session_property_filter = entities.some((entity) => {
-                    return parseProperties(entity.properties).some((property) => property.type === 'session')
-                })
-                const using_global_session_property_filter = parseProperties(filters.properties).some(
-                    (property) => property.type === 'session'
-                )
-                return (
-                    using_session_breakdown ||
-                    using_session_math ||
-                    using_session_property_math ||
-                    using_entity_session_property_filter ||
-                    using_global_session_property_filter
-                )
-            },
-        ],
         showPersonsModal: [() => [(_, p) => p.query], (query?: InsightVizNode) => !query || !query.hidePersonsModal],
     }),
-    listeners(({ actions, selectors, values }) => ({
-        setFiltersMerge: ({ filters }) => {
-            actions.setFilters({ ...values.filters, ...filters })
-        },
-        setFilters: async ({ filters }, _, __, previousState) => {
-            const previousFilters = selectors.filters(previousState)
-            if (objectsEqual(previousFilters, filters)) {
-                return
-            }
-            const dupeFilters = { ...filters }
-            const dupePrevFilters = { ...selectors.filters(previousState) }
-            if ('new_entity' in dupeFilters) {
-                delete (dupeFilters as any).new_entity
-            }
-            if ('new_entity' in dupePrevFilters) {
-                delete (dupePrevFilters as any).new_entity
-            }
-            if (objectsEqual(dupePrevFilters, dupeFilters)) {
-                return
-            }
-
-            actions.reportInsightViewed(values.insight, filters, previousFilters)
-        },
-        reportInsightViewedForRecentInsights: async () => {
-            // Report the insight being viewed to our '/viewed' endpoint. Used for "recently viewed insights"
-
-            // TODO: This should be merged into the same action as `reportInsightViewed`, but we can't right now
-            // because there are some issues with `reportInsightViewed` not being called when the
-            // insightLogic is already loaded.
-            // For example, if the user navigates to an insight after viewing it on a dashboard, `reportInsightViewed`
-            // will not be called. This should be fixed when we refactor insightLogic, but the logic is a bit tangled
-            // right now
-            if (values.insight.id) {
-                return api.create(`api/projects/${teamLogic.values.currentTeamId}/insights/${values.insight.id}/viewed`)
-            }
-        },
-        reportInsightViewed: async ({ filters, previousFilters }, breakpoint) => {
-            await breakpoint(IS_TEST_MODE ? 1 : 500) // Debounce to avoid noisy events from changing filters multiple times
-            if (!values.isInDashboardContext) {
-                const { fromDashboard } = router.values.hashParams
-                const changedKeysObj: Record<string, any> | undefined =
-                    previousFilters && extractObjectDiffKeys(previousFilters, filters)
-
-                const insightMode =
-                    insightSceneLogic.isMounted() && insightSceneLogic.values.insight === values.insight
-                        ? insightSceneLogic.values.insightMode
-                        : ItemMode.View
-
-                eventUsageLogic.actions.reportInsightViewed(
-                    values.insight,
-                    filters || {},
-                    insightMode,
-                    values.isFirstLoad,
-                    Boolean(fromDashboard),
-                    0,
-                    changedKeysObj,
-                    values.isUsingSessionAnalysis
-                )
-
-                actions.setNotFirstLoad()
-                await breakpoint(IS_TEST_MODE ? 1 : 10000) // Tests will wait for all breakpoints to finish
-
-                eventUsageLogic.actions.reportInsightViewed(
-                    values.insight,
-                    filters || {},
-                    insightMode,
-                    values.isFirstLoad,
-                    Boolean(fromDashboard),
-                    10,
-                    changedKeysObj,
-                    values.isUsingSessionAnalysis
-                )
-            }
-        },
+    listeners(({ actions, values }) => ({
         saveInsight: async ({ redirectToViewMode }) => {
             const insightNumericId =
                 values.insight.id || (values.insight.short_id ? await getInsightId(values.insight.short_id) : undefined)
@@ -667,20 +532,6 @@ export const insightLogic = kea<insightLogicType>([
             actions.setInsight(insight, { fromPersistentApi: true, overrideFilter: true })
             savedInsightsLogic.findMounted()?.actions.loadInsights() // Load insights afresh
             router.actions.push(urls.insightEdit(insight.short_id))
-        },
-        loadInsightSuccess: async ({ insight }) => {
-            actions.reportInsightViewed(insight, insight?.filters || {})
-        },
-        toggleVisibility: ({ index }) => {
-            const currentIsHidden = !!values.hiddenLegendKeys?.[index]
-            const newFilters: Partial<TrendsFilterType> = {
-                ...values.filters,
-                hidden_legend_keys: {
-                    ...values.hiddenLegendKeys,
-                    [`${index}`]: currentIsHidden ? undefined : true,
-                },
-            }
-            actions.setFilters(newFilters)
         },
         cancelChanges: () => {
             actions.setFilters(values.savedInsight.filters || {})

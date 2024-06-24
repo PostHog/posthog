@@ -351,10 +351,14 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         toggleSchemaShouldSync: (schema: ExternalDataSourceSyncSchema, shouldSync: boolean) => ({ schema, shouldSync }),
         updateSchemaSyncType: (
             schema: ExternalDataSourceSyncSchema,
-            sync_type: ExternalDataSourceSyncSchema['sync_type']
+            syncType: ExternalDataSourceSyncSchema['sync_type'],
+            incrementalField: string | null,
+            incrementalFieldType: string | null
         ) => ({
             schema,
-            sync_type,
+            syncType,
+            incrementalField,
+            incrementalFieldType,
         }),
         clearSource: true,
         updateSource: (source: Partial<ExternalDataSourceCreatePayload>) => ({ source }),
@@ -366,6 +370,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         setStep: (step: number) => ({ step }),
         getDatabaseSchemas: true,
         setManualLinkingProvider: (provider: ManualLinkSourceType) => ({ provider }),
+        openSyncMethodModal: (schema: ExternalDataSourceSyncSchema) => ({ schema }),
+        cancelSyncMethodModal: true,
     }),
     connect({
         values: [
@@ -422,10 +428,13 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     }))
                     return newSchema
                 },
-                updateSchemaSyncType: (state, { schema, sync_type }) => {
+                updateSchemaSyncType: (state, { schema, syncType, incrementalField, incrementalFieldType }) => {
                     const newSchema = state.map((s) => ({
                         ...s,
-                        sync_type: s.table === schema.table ? sync_type : s.sync_type,
+                        sync_type: s.table === schema.table ? syncType : s.sync_type,
+                        incremental_field: s.table === schema.table ? incrementalField : s.incremental_field,
+                        incremental_field_type:
+                            s.table === schema.table ? incrementalFieldType : s.incremental_field_type,
                     }))
                     return newSchema
                 },
@@ -462,6 +471,26 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 setSourceId: (_, { sourceId }) => sourceId,
             },
         ],
+        syncMethodModalOpen: [
+            false as boolean,
+            {
+                openSyncMethodModal: () => true,
+                cancelSyncMethodModal: () => false,
+            },
+        ],
+        currentSyncMethodModalSchema: [
+            null as ExternalDataSourceSyncSchema | null,
+            {
+                openSyncMethodModal: (_, { schema }) => schema,
+                cancelSyncMethodModal: () => null,
+                updateSchemaSyncType: (_, { schema, syncType, incrementalField, incrementalFieldType }) => ({
+                    ...schema,
+                    sync_type: syncType,
+                    incremental_field: incrementalField,
+                    incremental_field_type: incrementalFieldType,
+                }),
+            },
+        ],
     }),
     selectors({
         isManualLinkingSelected: [(s) => [s.selectedConnector], (selectedConnector): boolean => !selectedConnector],
@@ -472,10 +501,18 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
         ],
         canGoNext: [
-            (s) => [s.currentStep, s.isManualLinkingSelected],
-            (currentStep, isManualLinkingSelected): boolean => {
-                if (isManualLinkingSelected && currentStep == 1) {
+            (s) => [s.currentStep, s.isManualLinkingSelected, s.databaseSchema],
+            (currentStep, isManualLinkingSelected, databaseSchema): boolean => {
+                if (isManualLinkingSelected && currentStep === 1) {
                     return false
+                }
+
+                if (!isManualLinkingSelected && currentStep === 3) {
+                    if (databaseSchema.filter((n) => n.should_sync).length === 0) {
+                        return false
+                    }
+
+                    return databaseSchema.filter((n) => n.should_sync && !n.sync_type).length === 0
                 }
 
                 return true
@@ -638,6 +675,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                             name: schema.table,
                             should_sync: schema.should_sync,
                             sync_type: schema.sync_type,
+                            incremental_field: schema.incremental_field,
+                            incremental_field_type: schema.incremental_field_type,
                         })),
                     },
                 })
