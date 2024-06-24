@@ -154,7 +154,7 @@ def execute_process_query(
 
     query_status.error = True  # Assume error in case nothing below ends up working
 
-    pickup_time = datetime.datetime.now(datetime.timezone.utc)
+    pickup_time = datetime.datetime.now(datetime.UTC)
     if query_status.start_time:
         wait_duration = (pickup_time - query_status.start_time) / datetime.timedelta(seconds=1)
         QUERY_WAIT_TIME.labels(team=team_id).observe(wait_duration)
@@ -173,7 +173,7 @@ def execute_process_query(
         query_status.complete = True
         query_status.error = False
         query_status.results = results
-        query_status.end_time = datetime.datetime.now(datetime.timezone.utc)
+        query_status.end_time = datetime.datetime.now(datetime.UTC)
         query_status.expiration_time = query_status.end_time + datetime.timedelta(seconds=manager.STATUS_TTL_SECONDS)
         process_duration = (query_status.end_time - pickup_time) / datetime.timedelta(seconds=1)
         QUERY_PROCESS_TIME.labels(team=team_id).observe(process_duration)
@@ -232,7 +232,7 @@ def enqueue_process_query_task(
         return manager.get_query_status()
 
     # Immediately set status, so we don't have race with celery
-    query_status = QueryStatus(id=query_id, team_id=team.id, start_time=datetime.datetime.now(datetime.timezone.utc))
+    query_status = QueryStatus(id=query_id, team_id=team.id, start_time=datetime.datetime.now(datetime.UTC))
     manager.store_query_status(query_status)
 
     if _test_only_bypass_celery:

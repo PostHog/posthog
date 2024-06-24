@@ -130,7 +130,7 @@ async def assert_clickhouse_records_in_redshfit(
                         remove_escaped_whitespace_recursive(json.loads(v)), ensure_ascii=False
                     )
                 elif isinstance(v, dt.datetime):
-                    expected_record[k] = v.replace(tzinfo=dt.timezone.utc)  # type: ignore
+                    expected_record[k] = v.replace(tzinfo=dt.UTC)  # type: ignore
                 else:
                     expected_record[k] = v
 
@@ -242,8 +242,8 @@ async def test_insert_into_redshift_activity_inserts_data_into_redshift_table(
     Once we have these events, we pass them to the assert_events_in_redshift function to check
     that they appear in the expected Redshift table.
     """
-    data_interval_start = dt.datetime(2023, 4, 20, 14, 0, 0, tzinfo=dt.timezone.utc)
-    data_interval_end = dt.datetime(2023, 4, 25, 15, 0, 0, tzinfo=dt.timezone.utc)
+    data_interval_start = dt.datetime(2023, 4, 20, 14, 0, 0, tzinfo=dt.UTC)
+    data_interval_end = dt.datetime(2023, 4, 25, 15, 0, 0, tzinfo=dt.UTC)
 
     # Generate a random team id integer. There's still a chance of a collision,
     # but it's very small.

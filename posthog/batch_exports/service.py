@@ -257,7 +257,7 @@ def pause_batch_export(temporal: Client, batch_export_id: str, note: str | None 
         raise BatchExportServiceRPCError(f"BatchExport {batch_export_id} could not be paused") from exc
 
     batch_export.paused = True
-    batch_export.last_paused_at = dt.datetime.now(dt.timezone.utc)
+    batch_export.last_paused_at = dt.datetime.now(dt.UTC)
     batch_export.save()
 
     return True
@@ -285,7 +285,7 @@ async def apause_batch_export(temporal: Client, batch_export_id: str, note: str 
         raise BatchExportServiceRPCError(f"BatchExport {batch_export_id} could not be paused") from exc
 
     batch_export.paused = True
-    batch_export.last_paused_at = dt.datetime.now(dt.timezone.utc)
+    batch_export.last_paused_at = dt.datetime.now(dt.UTC)
     await batch_export.asave()
 
     return True
