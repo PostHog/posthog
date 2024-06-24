@@ -24,7 +24,6 @@ import { insightsModel } from '~/models/insightsModel'
 import { tagsModel } from '~/models/tagsModel'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { InsightVizNode } from '~/queries/schema'
-import { isInsightVizNode } from '~/queries/utils'
 import {
     ActionType,
     FilterType,
@@ -356,7 +355,6 @@ export const insightLogic = kea<insightLogicType>([
         ],
         insightId: [(s) => [s.queryBasedInsight], (insight) => insight?.id || null],
         isQueryBasedInsight: [(s) => [s.legacyInsight], (insight) => !!insight.query],
-        isInsightVizQuery: [(s) => [s.legacyInsight], (insight) => isInsightVizNode(insight.query)],
         canEditInsight: [
             (s) => [s.queryBasedInsight],
             (insight) =>
