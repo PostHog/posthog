@@ -95,7 +95,6 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 const params = {
                     ...values.paramsFromFilters,
                     basic: true,
-                    include_query_insights: true,
                 }
 
                 const response = await api.get(
@@ -105,7 +104,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 if (filters.search && String(filters.search).match(/^[0-9]+$/)) {
                     try {
                         const insight: InsightModel = await api.get(
-                            `api/projects/${teamLogic.values.currentTeamId}/insights/${filters.search}/?include_query_insights=true`
+                            `api/projects/${teamLogic.values.currentTeamId}/insights/${filters.search}/`
                         )
                         return {
                             ...response,
