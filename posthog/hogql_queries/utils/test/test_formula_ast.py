@@ -56,3 +56,13 @@ class TestFormulaAST(APIBaseTest):
         formula = self._get_formula_ast()
         response = formula.call("a+b")
         self.assertListEqual([2, 4, 6, 8], response)
+
+    def test_unary_minus(self):
+        formula = self._get_formula_ast()
+        response = formula.call("-A")
+        self.assertListEqual([-1, -2, -3, -4], response)
+
+    def test_unary_plus(self):
+        formula = self._get_formula_ast()
+        response = formula.call("+A")
+        self.assertListEqual([1, 2, 3, 4], response)

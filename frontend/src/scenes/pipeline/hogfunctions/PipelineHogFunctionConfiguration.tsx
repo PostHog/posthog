@@ -25,7 +25,8 @@ import { groupsModel } from '~/models/groupsModel'
 import { EntityTypes } from '~/types'
 
 import { HogFunctionIconEditable } from './HogFunctionIcon'
-import { HogFunctionInputWithSchema } from './HogFunctionInputs'
+import { HogFunctionInputs } from './HogFunctionInputs'
+import { HogFunctionTest, HogFunctionTestPlaceholder } from './HogFunctionTest'
 import { pipelineHogFunctionConfigurationLogic } from './pipelineHogFunctionConfigurationLogic'
 
 export function PipelineHogFunctionConfiguration({
@@ -262,15 +263,7 @@ export function PipelineHogFunctionConfiguration({
                         <div className="flex-2 min-w-100 space-y-4">
                             <div className="border bg-bg-light rounded p-3 space-y-2">
                                 <div className="space-y-2">
-                                    {configuration?.inputs_schema?.length ? (
-                                        configuration?.inputs_schema.map((schema, index) => {
-                                            return <HogFunctionInputWithSchema key={index} schema={schema} />
-                                        })
-                                    ) : (
-                                        <span className="italic text-muted-alt">
-                                            This function does not require any input variables.
-                                        </span>
-                                    )}
+                                    <HogFunctionInputs />
 
                                     {showSource ? (
                                         <>
@@ -343,6 +336,8 @@ export function PipelineHogFunctionConfiguration({
                                     )}
                                 </div>
                             </div>
+
+                            {id ? <HogFunctionTest id={id} /> : <HogFunctionTestPlaceholder />}
                             <div className="flex gap-2 justify-end">{saveButtons}</div>
                         </div>
                     </div>
