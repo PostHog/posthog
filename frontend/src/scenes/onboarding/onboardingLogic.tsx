@@ -119,7 +119,10 @@ export const onboardingLogic = kea<onboardingLogicType>([
     actions({
         setProduct: (product: OnboardingProduct | null) => ({ product }),
         setProductKey: (productKey: string | null) => ({ productKey }),
-        completeOnboarding: (nextProductKey?: string) => ({ nextProductKey }),
+        completeOnboarding: (nextProductKey?: string, redirectUrlOverride?: string) => ({
+            nextProductKey,
+            redirectUrlOverride,
+        }),
         setAllOnboardingSteps: (allOnboardingSteps: AllOnboardingSteps) => ({ allOnboardingSteps }),
         setStepKey: (stepKey: OnboardingStepKey) => ({ stepKey }),
         setSubscribedDuringOnboarding: (subscribedDuringOnboarding: boolean) => ({ subscribedDuringOnboarding }),
@@ -129,6 +132,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
         goToNextStep: (numStepsToAdvance?: number) => ({ numStepsToAdvance }),
         goToPreviousStep: true,
         resetStepKey: true,
+        setOnCompleteOnboardingRedirectUrl: (url: string | null) => ({ url }),
     }),
     reducers(() => ({
         productKey: [
@@ -173,6 +177,12 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 setWaitForBilling: (_, { waitForBilling }) => waitForBilling,
             },
         ],
+        onCompleteOnboardingRedirectUrlOverride: [
+            null as string | null,
+            {
+                setOnCompleteOnboardingRedirectUrl: (_, { url }) => url,
+            },
+        ],
     })),
     selectors({
         breadcrumbs: [
@@ -195,8 +205,11 @@ export const onboardingLogic = kea<onboardingLogicType>([
             },
         ],
         onCompleteOnboardingRedirectUrl: [
-            (s) => [s.productKey],
-            (productKey: string | null) => {
+            (s) => [s.productKey, s.onCompleteOnboardingRedirectUrlOverride],
+            (productKey: string | null, onCompleteOnboardingRedirectUrlOverride) => {
+                if (onCompleteOnboardingRedirectUrlOverride) {
+                    return onCompleteOnboardingRedirectUrlOverride
+                }
                 return productKey ? getProductUri(productKey as ProductKey) : urls.default()
             },
         ],
@@ -309,7 +322,10 @@ export const onboardingLogic = kea<onboardingLogicType>([
             }
         },
 
-        completeOnboarding: ({ nextProductKey }) => {
+        completeOnboarding: ({ nextProductKey, redirectUrlOverride }) => {
+            if (redirectUrlOverride) {
+                actions.setOnCompleteOnboardingRedirectUrl(redirectUrlOverride)
+            }
             if (values.productKey) {
                 const product = values.productKey
                 eventUsageLogic.actions.reportOnboardingCompleted(product)

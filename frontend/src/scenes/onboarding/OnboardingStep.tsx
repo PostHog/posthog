@@ -4,8 +4,10 @@ import { useActions, useValues } from 'kea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
 import React from 'react'
+import { urls } from 'scenes/urls'
 
 import { breadcrumbExcludeSteps, onboardingLogic, OnboardingStepKey, stepKeyToTitle } from './onboardingLogic'
+import { onboardingTemplateConfigLogic } from './productAnalyticsSteps/onboardingTemplateConfigLogic'
 
 export const OnboardingStep = ({
     stepKey,
@@ -37,6 +39,7 @@ export const OnboardingStep = ({
     const { hasNextStep, onboardingStepKeys, currentOnboardingStep } = useValues(onboardingLogic)
     const { completeOnboarding, goToNextStep, setStepKey } = useActions(onboardingLogic)
     const { openSupportForm } = useActions(supportLogic)
+    const { dashboardCreatedDuringOnboarding } = useValues(onboardingTemplateConfigLogic)
 
     if (!stepKey) {
         throw new Error('stepKey is required in any OnboardingStep')
@@ -97,7 +100,14 @@ export const OnboardingStep = ({
                             type="secondary"
                             onClick={() => {
                                 onSkip && onSkip()
-                                !hasNextStep ? completeOnboarding() : goToNextStep()
+                                !hasNextStep
+                                    ? completeOnboarding(
+                                          undefined,
+                                          dashboardCreatedDuringOnboarding
+                                              ? urls.dashboard(dashboardCreatedDuringOnboarding.id)
+                                              : undefined
+                                      )
+                                    : goToNextStep()
                             }}
                             data-attr="onboarding-skip-button"
                         >
@@ -113,7 +123,14 @@ export const OnboardingStep = ({
                             data-attr="onboarding-continue"
                             onClick={() => {
                                 continueAction && continueAction()
-                                !hasNextStep ? completeOnboarding() : goToNextStep()
+                                !hasNextStep
+                                    ? completeOnboarding(
+                                          undefined,
+                                          dashboardCreatedDuringOnboarding
+                                              ? urls.dashboard(dashboardCreatedDuringOnboarding.id)
+                                              : undefined
+                                      )
+                                    : goToNextStep()
                             }}
                             sideIcon={hasNextStep ? <IconArrowRight /> : null}
                         >

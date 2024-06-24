@@ -1,6 +1,8 @@
-import { actions, connect, kea, path } from 'kea'
+import { actions, connect, kea, path, reducers } from 'kea'
 import { urlToAction } from 'kea-router'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
+
+import { DashboardType } from '~/types'
 
 import { onboardingLogic, OnboardingStepKey } from '../onboardingLogic'
 import type { onboardingTemplateConfigLogicType } from './onboardingTemplateConfigLogicType'
@@ -9,9 +11,22 @@ export const onboardingTemplateConfigLogic = kea<onboardingTemplateConfigLogicTy
     path(['scenes', 'onboarding', 'productAnalyticsSteps', 'onboardingTemplateConfigLogic']),
     connect({
         values: [newDashboardLogic, ['activeDashboardTemplate']],
-        actions: [onboardingLogic, ['goToPreviousStep']],
+        actions: [
+            newDashboardLogic,
+            ['submitNewDashboardSuccessWithResult', 'setIsLoading'],
+            onboardingLogic,
+            ['goToPreviousStep'],
+        ],
     }),
     actions({}),
+    reducers({
+        dashboardCreatedDuringOnboarding: [
+            null as DashboardType | null,
+            {
+                submitNewDashboardSuccessWithResult: (_, { result }) => result,
+            },
+        ],
+    }),
     urlToAction(({ actions, values }) => ({
         '/onboarding/:productKey': (_, { step }) => {
             if (step === OnboardingStepKey.DASHBOARD_TEMPLATE_CONFIGURE) {
@@ -19,6 +34,7 @@ export const onboardingTemplateConfigLogic = kea<onboardingTemplateConfigLogicTy
                     actions.goToPreviousStep()
                 }
             }
+            actions.setIsLoading(false)
         },
     })),
 ])

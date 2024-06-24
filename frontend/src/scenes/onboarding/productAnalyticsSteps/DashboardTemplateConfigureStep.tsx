@@ -32,7 +32,7 @@ export const OnboardingDashboardTemplateConfigureStep = ({
                     }
                     loading={isLoading}
                 >
-                    Continue
+                    Create dashboard
                 </LemonButton>
             }
         >
