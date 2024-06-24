@@ -10,7 +10,6 @@ import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterT
 
 import { examples, TotalEventsTable } from '~/queries/examples'
 import { insightMap } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { getDisplay, getShowPercentStackView, getShowValuesOnSeries } from '~/queries/nodes/InsightViz/utils'
 import {
     ActionsNode,
     DataWarehouseNode,
@@ -34,6 +33,9 @@ import {
 import {
     containsHogQLQuery,
     filterKeyForQuery,
+    getDisplay,
+    getShowPercentStackView,
+    getShowValuesOnSeries,
     isHogQuery,
     isInsightQueryWithBreakdown,
     isInsightQueryWithSeries,

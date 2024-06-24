@@ -4,8 +4,8 @@ import { LemonButton, LemonLabel, LemonSwitch, LemonTable, LemonTag, Tooltip } f
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { CodeEditorResizeable } from 'lib/components/CodeEditors'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 
 import { hogFunctionTestLogic, HogFunctionTestLogicProps } from './hogFunctionTestLogic'
 

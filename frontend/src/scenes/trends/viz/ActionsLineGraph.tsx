@@ -20,7 +20,7 @@ export function ActionsLineGraph({
     showPersonsModal = true,
     context,
 }: ChartParams): JSX.Element | null {
-    const { insightProps, hiddenLegendKeys } = useValues(insightLogic)
+    const { insightProps } = useValues(insightLogic)
     const {
         indexedResults,
         labelGroupType,
@@ -37,6 +37,7 @@ export function ActionsLineGraph({
         isStickiness,
         isDataWarehouseSeries,
         showLegend,
+        hiddenLegendIndexes,
         querySource,
     } = useValues(trendsDataLogic(insightProps))
 
@@ -76,7 +77,7 @@ export function ActionsLineGraph({
         <LineGraph
             data-attr="trend-line-graph"
             type={display === ChartDisplayType.ActionsBar || isLifecycle ? GraphType.Bar : GraphType.Line}
-            hiddenLegendKeys={hiddenLegendKeys}
+            hiddenLegendIndexes={hiddenLegendIndexes}
             datasets={indexedResults}
             labels={labels}
             inSharedMode={inSharedMode}
