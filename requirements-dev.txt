@@ -288,8 +288,7 @@ ruamel-yaml==0.18.6
     # via prance
 ruamel-yaml-clib==0.2.8
     # via ruamel-yaml
-ruff==0.4.3
-    # via -r requirements-dev.in
+ruff==0.4.10
 six==1.16.0
     # via
     #   -c requirements.txt

@@ -1,3 +1,5 @@
+import asyncio
+
 import psycopg
 import pytest
 import pytest_asyncio
@@ -59,7 +61,7 @@ def batch_export_schema(request) -> dict | None:
 
 @pytest_asyncio.fixture
 async def setup_postgres_test_db(postgres_config):
-    """Fixture to manage a database for Redshift export testing.
+    """Fixture to manage a database for Redshift and Postgres export testing.
 
     Managing a test database involves the following steps:
     1. Creating a test database.
@@ -123,3 +125,31 @@ async def setup_postgres_test_db(postgres_config):
         await cursor.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(postgres_config["database"])))
 
     await connection.close()
+
+
+@pytest_asyncio.fixture(scope="module", autouse=True)
+async def create_clickhouse_tables_and_views(clickhouse_client, django_db_setup):
+    from posthog.batch_exports.sql import (
+        CREATE_EVENTS_BATCH_EXPORT_VIEW,
+        CREATE_EVENTS_BATCH_EXPORT_VIEW_BACKFILL,
+        CREATE_EVENTS_BATCH_EXPORT_VIEW_UNBOUNDED,
+        CREATE_PERSONS_BATCH_EXPORT_VIEW,
+    )
+    from posthog.clickhouse.schema import CREATE_KAFKA_TABLE_QUERIES
+
+    create_view_queries = (
+        CREATE_EVENTS_BATCH_EXPORT_VIEW,
+        CREATE_EVENTS_BATCH_EXPORT_VIEW_BACKFILL,
+        CREATE_EVENTS_BATCH_EXPORT_VIEW_UNBOUNDED,
+        CREATE_PERSONS_BATCH_EXPORT_VIEW,
+    )
+
+    clickhouse_tasks = set()
+    for query in create_view_queries + CREATE_KAFKA_TABLE_QUERIES:
+        task = asyncio.create_task(clickhouse_client.execute_query(query))
+        clickhouse_tasks.add(task)
+        task.add_done_callback(clickhouse_tasks.discard)
+
+    await asyncio.wait(clickhouse_tasks)
+
+    return

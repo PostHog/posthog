@@ -5,7 +5,7 @@ import contextlib
 import json
 import typing
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone, UTC
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -14,7 +14,7 @@ from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 
-EPOCH = datetime(1970, 1, 1, 0, 0, tzinfo=timezone.utc)
+EPOCH = datetime(1970, 1, 1, 0, 0, tzinfo=UTC)
 
 
 CREATE_TABLE_PERSON_DISTINCT_ID_OVERRIDES_JOIN = """
@@ -174,7 +174,7 @@ MUTATIONS = {
 }
 
 
-def parse_clickhouse_timestamp(s: str, tzinfo: timezone = timezone.utc) -> datetime:
+def parse_clickhouse_timestamp(s: str, tzinfo: timezone = UTC) -> datetime:
     """Parse a timestamp from ClickHouse."""
     return datetime.strptime(s.strip(), "%Y-%m-%d %H:%M:%S.%f").replace(tzinfo=tzinfo)
 
