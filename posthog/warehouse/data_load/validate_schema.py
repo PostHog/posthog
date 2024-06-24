@@ -145,6 +145,7 @@ async def validate_schema_and_update_table(
         # create or update
         table_created: DataWarehouseTable | None = await get_table_by_schema_id(_schema_id, team_id)
         if table_created:
+            table_created.credential = data.get("credential")
             table_created.url_pattern = new_url_pattern
             if incremental:
                 table_created.row_count = await sync_to_async(table_created.get_count)()

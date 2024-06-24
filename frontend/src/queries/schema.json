@@ -3841,7 +3841,7 @@
                     "$ref": "#/definitions/FunnelConversionWindowTimeUnit",
                     "default": "day"
                 },
-                "hidden_legend_breakdowns": {
+                "hiddenLegendBreakdowns": {
                     "items": {
                         "type": "string"
                     },
@@ -3856,7 +3856,7 @@
         },
         "FunnelsFilterLegacy": {
             "additionalProperties": false,
-            "description": "`FunnelsFilterType` minus everything inherited from `FilterType` and persons modal related params and `hidden_legend_keys` replaced by `hidden_legend_breakdowns`",
+            "description": "`FunnelsFilterType` minus everything inherited from `FilterType` and persons modal related params",
             "properties": {
                 "bin_count": {
                     "$ref": "#/definitions/BinCountValue"
@@ -3897,11 +3897,18 @@
                 "funnel_window_interval_unit": {
                     "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
                 },
-                "hidden_legend_breakdowns": {
-                    "items": {
-                        "type": "string"
+                "hidden_legend_keys": {
+                    "additionalProperties": {
+                        "anyOf": [
+                            {
+                                "type": "boolean"
+                            },
+                            {
+                                "not": {}
+                            }
+                        ]
                     },
-                    "type": "array"
+                    "type": "object"
                 },
                 "layout": {
                     "$ref": "#/definitions/FunnelLayout"
@@ -4214,6 +4221,10 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "program": {
+                    "description": "Full Hog program",
+                    "type": "string"
+                },
                 "response": {
                     "$ref": "#/definitions/HogQLMetadataResponse"
                 },
@@ -4239,6 +4250,9 @@
                     "type": "array"
                 },
                 "inputExpr": {
+                    "type": "string"
+                },
+                "inputProgram": {
                     "type": "string"
                 },
                 "inputSelect": {
@@ -6151,6 +6165,9 @@
                         "inputExpr": {
                             "type": "string"
                         },
+                        "inputProgram": {
+                            "type": "string"
+                        },
                         "inputSelect": {
                             "type": "string"
                         },
@@ -7613,16 +7630,12 @@
         "StickinessFilter": {
             "additionalProperties": false,
             "properties": {
-                "compare": {
-                    "default": false,
-                    "type": "boolean"
-                },
                 "display": {
                     "$ref": "#/definitions/ChartDisplayType"
                 },
-                "hidden_legend_indexes": {
+                "hiddenLegendIndexes": {
                     "items": {
-                        "type": "number"
+                        "type": "integer"
                     },
                     "type": "array"
                 },
@@ -7637,7 +7650,7 @@
         },
         "StickinessFilterLegacy": {
             "additionalProperties": false,
-            "description": "`StickinessFilterType` minus everything inherited from `FilterType` and persons modal related params and `hidden_legend_keys` replaced by `hidden_legend_indexes`",
+            "description": "`StickinessFilterType` minus everything inherited from `FilterType` and persons modal related params",
             "properties": {
                 "compare": {
                     "type": "boolean"
@@ -7648,11 +7661,18 @@
                 "display": {
                     "$ref": "#/definitions/ChartDisplayType"
                 },
-                "hidden_legend_indexes": {
-                    "items": {
-                        "type": "number"
+                "hidden_legend_keys": {
+                    "additionalProperties": {
+                        "anyOf": [
+                            {
+                                "type": "boolean"
+                            },
+                            {
+                                "not": {}
+                            }
+                        ]
                     },
-                    "type": "array"
+                    "type": "object"
                 },
                 "show_legend": {
                     "type": "boolean"
@@ -8008,9 +8028,9 @@
                 "formula": {
                     "type": "string"
                 },
-                "hidden_legend_indexes": {
+                "hiddenLegendIndexes": {
                     "items": {
-                        "type": "number"
+                        "type": "integer"
                     },
                     "type": "array"
                 },
@@ -8038,7 +8058,7 @@
         },
         "TrendsFilterLegacy": {
             "additionalProperties": false,
-            "description": "`TrendsFilterType` minus everything inherited from `FilterType` and `hidden_legend_keys` replaced by `hidden_legend_indexes`",
+            "description": "`TrendsFilterType` minus everything inherited from `FilterType` and `shown_as`",
             "properties": {
                 "aggregation_axis_format": {
                     "$ref": "#/definitions/AggregationAxisFormat"
@@ -8067,11 +8087,18 @@
                 "formula": {
                     "type": "string"
                 },
-                "hidden_legend_indexes": {
-                    "items": {
-                        "type": "number"
+                "hidden_legend_keys": {
+                    "additionalProperties": {
+                        "anyOf": [
+                            {
+                                "type": "boolean"
+                            },
+                            {
+                                "not": {}
+                            }
+                        ]
                     },
-                    "type": "array"
+                    "type": "object"
                 },
                 "show_labels_on_series": {
                     "type": "boolean"

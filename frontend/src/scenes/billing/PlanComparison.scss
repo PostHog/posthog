@@ -6,7 +6,7 @@ table.PlanComparison {
     table-layout: fixed;
 
     td {
-        padding: 0.75rem 1.25rem;
+        padding: 0.75rem 1rem;
         vertical-align: top;
 
         &.PlanTable__td__upgradeButton {
@@ -16,22 +16,22 @@ table.PlanComparison {
     }
 
     th {
-        padding: 0.75rem 1.25rem;
+        padding: 0.75rem 1rem;
         font-weight: 600;
         text-align: left;
         vertical-align: top;
 
         &.PlanTable__th__section {
-            padding: 0.25rem 1.25rem;
+            padding: 0.25rem 1rem;
             font-weight: 500;
         }
 
         &.PlanTable__th__feature {
-            padding: 0.75rem 1.25rem 0.75rem 3.25rem;
+            padding: 0.75rem 1rem 0.75rem 3.25rem;
             font-weight: 600;
 
             &.PlanTable__th__feature--reduced_padding {
-                padding: 0.75rem 1.25rem;
+                padding: 0.75rem 1rem;
             }
         }
 
