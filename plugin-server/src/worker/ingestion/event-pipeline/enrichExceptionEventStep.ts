@@ -46,17 +46,8 @@ export function enrichExceptionEventStep(
         COULD_NOT_PARSE_STACK_TRACE_COUNTER.inc()
     }
 
-    const fingerprint = [
-        type ? 'TYPE' : false,
-        type,
-        message ? 'RAW_MESSAGE' : false,
-        message,
-        firstFunction ? 'FIRST_STACK_FUNCTION' : false,
-        firstFunction,
-    ]
-        .filter(Boolean)
-        .join('__')
-    event.properties['$exception_fingerprint'] = fingerprint.trim().length ? fingerprint : undefined
+    const fingerprint = [type, message, firstFunction].filter(Boolean)
+    event.properties['$exception_fingerprint'] = fingerprint.length ? fingerprint : undefined
 
     EXCEPTIONS_ENRICHED_COUNTER.inc()
     return Promise.resolve(event)
