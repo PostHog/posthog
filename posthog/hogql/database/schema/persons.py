@@ -198,17 +198,23 @@ class FilterablePersonsTable(LazyTable):
     @staticmethod
     def is_promotable_expr(expr):
         return (
-            isinstance(expr, CompareOperation) and expr.op == CompareOperationOp.In and expr.left == Field(chain=["id"])
+            isinstance(expr, CompareOperation)
+            and expr.op == CompareOperationOp.In
+            and expr.left == Field(chain=["filterable_persons", "id"])
         )
 
     @staticmethod
     def partition_exprs(exprs):
         not_promotable = []
         promotable = []
-        [
-            promotable.append(expr) if FilterablePersonsTable.is_promotable_expr(expr) else not_promotable.append(expr)
-            for expr in exprs
-        ]
+        for expr in exprs:
+            if FilterablePersonsTable.is_promotable_expr(expr):
+                # Erase "filterable_persons" from the chain before bringing inside
+                expr.left = Field(chain=["id"])
+                promotable.append(expr)
+            else:
+                not_promotable.append(expr)
+
         return promotable, not_promotable
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context, node):

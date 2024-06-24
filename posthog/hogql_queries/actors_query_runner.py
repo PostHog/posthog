@@ -275,7 +275,7 @@ class ActorsQueryRunner(QueryRunner):
                                 right=ast.Field(chain=[source_alias, *source_id_chain]),
                             ),
                             ast.CompareOperation(
-                                left=ast.Field(chain=["id"]),
+                                left=ast.Field(chain=[origin, "id"]),
                                 right=ast.SelectQuery(
                                     select=[ast.Field(chain=[source_alias, *self.source_id_column(source_query)])],
                                     select_from=ast.JoinExpr(table=source_query, alias=source_alias),
