@@ -3,7 +3,6 @@ import { expectLogic, partial, truth } from 'kea-test-utils'
 import api from 'lib/api'
 import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constants'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
@@ -17,16 +16,13 @@ import { DataTableNode, NodeKind } from '~/queries/schema'
 import { initKeaTests } from '~/test/init'
 import {
     AnyPropertyFilter,
-    BreakdownType,
     DashboardTile,
     DashboardType,
-    FilterLogicalOperator,
     FilterType,
     FunnelsFilterType,
     InsightModel,
     InsightShortId,
     InsightType,
-    ItemMode,
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
@@ -238,36 +234,6 @@ describe('insightLogic', () => {
                 dashboardItemId: undefined,
             })
             expect(logic.key).toEqual('new')
-        })
-    })
-
-    describe('analytics', () => {
-        it('reports insight changes on setFilter', async () => {
-            const insight = {
-                filters: { insight: InsightType.TRENDS },
-            }
-            logic = insightLogic({
-                dashboardItemId: undefined,
-                cachedInsight: insight,
-            })
-            logic.mount()
-
-            await expectLogic(logic, () => {
-                logic.actions.setFilters({ insight: InsightType.FUNNELS })
-            }).toDispatchActions([
-                eventUsageLogic.actionCreators.reportInsightViewed(
-                    insight,
-                    { insight: InsightType.FUNNELS },
-                    ItemMode.View,
-                    true,
-                    false,
-                    0,
-                    {
-                        changed_insight: InsightType.TRENDS,
-                    },
-                    false
-                ),
-            ])
         })
     })
 
@@ -646,138 +612,6 @@ describe('insightLogic', () => {
                     query: { kind: NodeKind.DataTableNode } as DataTableNode,
                 })
             }).toDispatchActions(['updateInsightSuccess'])
-        })
-    })
-
-    describe('isUsingSessionAnalysis selector', () => {
-        it('is false by default', async () => {
-            const insight = {
-                filters: { insight: InsightType.TRENDS },
-            }
-            logic = insightLogic({
-                dashboardItemId: undefined,
-                cachedInsight: insight,
-            })
-            logic.mount()
-            expectLogic(logic).toMatchValues({ isUsingSessionAnalysis: false })
-        })
-
-        it('setting session breakdown sets it true', async () => {
-            const insight = {
-                filters: { insight: InsightType.TRENDS, breakdown_type: 'session' as BreakdownType },
-            }
-            logic = insightLogic({
-                dashboardItemId: undefined,
-                cachedInsight: insight,
-            })
-            logic.mount()
-            expectLogic(logic).toMatchValues({ isUsingSessionAnalysis: true })
-        })
-
-        it('setting global session property filters sets it true', async () => {
-            const insight: Partial<InsightModel> = {
-                filters: {
-                    insight: InsightType.TRENDS,
-                    properties: {
-                        type: FilterLogicalOperator.And,
-                        values: [
-                            {
-                                type: FilterLogicalOperator.And,
-                                values: [
-                                    {
-                                        key: '$session_duration',
-                                        value: 1,
-                                        operator: PropertyOperator.GreaterThan,
-                                        type: PropertyFilterType.Session,
-                                    },
-                                ],
-                            },
-                        ],
-                    },
-                },
-            }
-            logic = insightLogic({
-                dashboardItemId: undefined,
-                cachedInsight: insight,
-            })
-            logic.mount()
-            expectLogic(logic).toMatchValues({ isUsingSessionAnalysis: true })
-        })
-
-        it('setting entity session property filters sets it true', async () => {
-            const insight = {
-                filters: {
-                    events: [
-                        {
-                            id: '$pageview',
-                            name: '$pageview',
-                            type: 'events',
-                            order: 0,
-                            properties: [
-                                {
-                                    key: '$session_duration',
-                                    value: 1,
-                                    operator: PropertyOperator.GreaterThan,
-                                    type: 'session',
-                                },
-                            ],
-                        },
-                    ],
-                },
-            }
-            logic = insightLogic({
-                dashboardItemId: undefined,
-                cachedInsight: insight,
-            })
-            logic.mount()
-            expectLogic(logic).toMatchValues({ isUsingSessionAnalysis: true })
-        })
-
-        it('setting math to unique_session sets it true', async () => {
-            const insight = {
-                filters: {
-                    events: [
-                        {
-                            id: '$pageview',
-                            name: '$pageview',
-                            type: 'events',
-                            order: 0,
-                            properties: [],
-                            math: 'unique_session',
-                        },
-                    ],
-                },
-            }
-            logic = insightLogic({
-                dashboardItemId: undefined,
-                cachedInsight: insight,
-            })
-            logic.mount()
-            expectLogic(logic).toMatchValues({ isUsingSessionAnalysis: true })
-        })
-
-        it('setting math to use session property sets it true', async () => {
-            const insight = {
-                filters: {
-                    events: [
-                        {
-                            id: '$pageview',
-                            name: '$pageview',
-                            type: 'events',
-                            order: 0,
-                            properties: [],
-                            math: 'median',
-                            math_property: '$session_duration',
-                        },
-                    ],
-                },
-            }
-            logic = insightLogic({
-                dashboardItemId: undefined,
-                cachedInsight: insight,
-            })
-            logic.mount()
-            expectLogic(logic).toMatchValues({ isUsingSessionAnalysis: true })
         })
     })
 

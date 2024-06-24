@@ -675,9 +675,6 @@ class InsightViewSet(
             queryset = queryset.prefetch_related("tagged_items__tag")
             queryset = self._filter_request(self.request, queryset)
 
-            if self.request.query_params.get("include_query_insights", "false").lower() != "true":
-                queryset = queryset.exclude(Q(filters={}) & Q(query__isnull=False))
-
         order = self.request.GET.get("order", None)
         if order:
             queryset = queryset.order_by(order)
@@ -697,8 +694,6 @@ class InsightViewSet(
             .exclude(insight__deleted=True)
             .only("insight")
         )
-        if self.request.query_params.get("include_query_insights", "false").lower() != "true":
-            insight_queryset = insight_queryset.exclude(Q(insight__filters={}) & Q(insight__query__isnull=False))
 
         recently_viewed = [rv.insight for rv in (insight_queryset.order_by("-last_viewed_at")[:5])]
 
