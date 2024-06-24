@@ -584,7 +584,8 @@ describe('insightLogic', () => {
             .toMatchValues({
                 savedInsight: partial({ filters: partial({ insight: InsightType.FUNNELS }) }),
                 filters: partial({ insight: InsightType.FUNNELS }),
-                insight: partial({ id: 12, short_id: Insight12, name: 'New Insight (copy)' }),
+                legacyInsight: partial({ id: 12, short_id: Insight12, name: 'New Insight (copy)' }),
+                queryBasedInsight: partial({ id: 12, short_id: Insight12, name: 'New Insight (copy)' }),
                 insightChanged: false,
             })
 
@@ -658,7 +659,10 @@ describe('insightLogic', () => {
             })
                 .toFinishAllListeners()
                 .toMatchValues({
-                    insight: truth(({ name }) => {
+                    legacyInsight: truth(({ name }) => {
+                        return name === 'new name'
+                    }),
+                    queryBasedInsight: truth(({ name }) => {
                         return name === 'new name'
                     }),
                 })
@@ -678,7 +682,10 @@ describe('insightLogic', () => {
             })
                 .toFinishAllListeners()
                 .toMatchValues({
-                    insight: truth(({ name }) => {
+                    legacyInsight: truth(({ name }) => {
+                        return name === 'original name'
+                    }),
+                    queryBasedInsight: truth(({ name }) => {
                         return name === 'original name'
                     }),
                 })
@@ -693,7 +700,8 @@ describe('insightLogic', () => {
             })
                 .toFinishAllListeners()
                 .toMatchValues({
-                    insight: expect.objectContaining({ dashboards: [1, 2] }),
+                    legacyInsight: expect.objectContaining({ dashboards: [1, 2] }),
+                    queryBasedInsight: expect.objectContaining({ dashboards: [1, 2] }),
                 })
         })
 
@@ -706,7 +714,8 @@ describe('insightLogic', () => {
             })
                 .toFinishAllListeners()
                 .toMatchValues({
-                    insight: expect.objectContaining({ dashboards: [1, 2, 3] }),
+                    legacyInsight: expect.objectContaining({ dashboards: [1, 2, 3] }),
+                    queryBasedInsight: expect.objectContaining({ dashboards: [1, 2, 3] }),
                 })
         })
 
@@ -716,7 +725,8 @@ describe('insightLogic', () => {
             })
                 .toFinishAllListeners()
                 .toMatchValues({
-                    insight: expect.objectContaining({ dashboards: [1, 2] }),
+                    legacyInsight: expect.objectContaining({ dashboards: [1, 2] }),
+                    queryBasedInsight: expect.objectContaining({ dashboards: [1, 2] }),
                 })
         })
 
@@ -726,7 +736,8 @@ describe('insightLogic', () => {
             })
                 .toFinishAllListeners()
                 .toMatchValues({
-                    insight: expect.objectContaining({ dashboards: [1, 2, 3] }),
+                    legacyInsight: expect.objectContaining({ dashboards: [1, 2, 3] }),
+                    queryBasedInsight: expect.objectContaining({ dashboards: [1, 2, 3] }),
                 })
         })
 
@@ -736,7 +747,8 @@ describe('insightLogic', () => {
             })
                 .toFinishAllListeners()
                 .toMatchValues({
-                    insight: expect.objectContaining({ dashboards: [1, 2, 3, 1234] }),
+                    legacyInsight: expect.objectContaining({ dashboards: [1, 2, 3, 1234] }),
+                    queryBasedInsight: expect.objectContaining({ dashboards: [1, 2, 3, 1234] }),
                 })
         })
 
@@ -746,7 +758,8 @@ describe('insightLogic', () => {
             })
                 .toFinishAllListeners()
                 .toMatchValues({
-                    insight: expect.objectContaining({ dashboards: [1, 2, 3] }),
+                    legacyInsight: expect.objectContaining({ dashboards: [1, 2, 3] }),
+                    queryBasedInsight: expect.objectContaining({ dashboards: [1, 2, 3] }),
                 })
         })
     })
