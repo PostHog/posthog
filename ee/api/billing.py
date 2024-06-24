@@ -93,6 +93,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             required=False
         )  # This is required but in order to support an error for the legacy 'plan' param we need to set required=False
         redirect_path = serializers.CharField(required=False)
+        intent_product = serializers.CharField(required=False)
 
         def validate(self, data):
             plan = data.get("plan")
@@ -136,6 +137,10 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         products = serializer.validated_data.get("products")
         url = f"{url}&products={products}"
+
+        intent_product = serializer.validated_data.get("intent_product")
+        if intent_product:
+            url = f"{url}&intent_product={intent_product}"
 
         if license:
             billing_service_token = build_billing_token(license, organization)

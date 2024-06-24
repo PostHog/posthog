@@ -427,9 +427,15 @@ export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
                 }
 
                 // We use the provided config if given, otherwise the function's config
-                const functionConfiguration: HogFunctionType = configuration ?? hogFunction
+                const compoundConfiguration: HogFunctionType = {
+                    ...hogFunction,
+                    ...(configuration ?? {}),
+                }
 
-                let response = this.hogExecutor.execute(functionConfiguration, invocation)
+                // TODO: Type the configuration better so we don't make mistakes here
+                await this.hogFunctionManager.enrichWithIntegrations([compoundConfiguration])
+
+                let response = this.hogExecutor.execute(compoundConfiguration, invocation)
 
                 while (response.asyncFunctionRequest) {
                     const asyncFunctionRequest = response.asyncFunctionRequest
@@ -456,7 +462,7 @@ export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
                     // Clear it so we can't ever end up in a loop
                     delete response.asyncFunctionRequest
 
-                    response = this.hogExecutor.execute(functionConfiguration, response, asyncFunctionRequest.vmState)
+                    response = this.hogExecutor.execute(compoundConfiguration, response, asyncFunctionRequest.vmState)
                 }
 
                 res.json({

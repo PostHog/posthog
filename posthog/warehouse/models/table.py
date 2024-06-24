@@ -1,4 +1,3 @@
-import re
 from typing import Optional, TypeAlias
 from django.db import models
 
@@ -6,15 +5,7 @@ from posthog.client import sync_execute
 from posthog.errors import wrap_query_error
 from posthog.hogql import ast
 from posthog.hogql.database.models import (
-    BooleanDatabaseField,
-    DateDatabaseField,
-    DateTimeDatabaseField,
     FieldOrTable,
-    FloatDatabaseField,
-    IntegerDatabaseField,
-    StringArrayDatabaseField,
-    StringDatabaseField,
-    StringJSONDatabaseField,
 )
 from posthog.hogql.database.s3_table import S3Table
 from posthog.models.team import Team
@@ -32,6 +23,7 @@ from .credential import DataWarehouseCredential
 from uuid import UUID
 from sentry_sdk import capture_exception
 from posthog.warehouse.util import database_sync_to_async
+from posthog.warehouse.models.util import CLICKHOUSE_HOGQL_MAPPING, clean_type, STR_TO_HOGQL_MAPPING
 from .external_table_definitions import external_tables
 
 SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING: dict[DatabaseSerializedFieldType, str] = {
@@ -43,44 +35,6 @@ SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING: dict[DatabaseSerializedFieldType, str] =
     DatabaseSerializedFieldType.BOOLEAN: "Bool",
     DatabaseSerializedFieldType.ARRAY: "Array",
     DatabaseSerializedFieldType.JSON: "Map",
-}
-
-CLICKHOUSE_HOGQL_MAPPING = {
-    "UUID": StringDatabaseField,
-    "String": StringDatabaseField,
-    "DateTime64": DateTimeDatabaseField,
-    "DateTime32": DateTimeDatabaseField,
-    "DateTime": DateTimeDatabaseField,
-    "Date": DateDatabaseField,
-    "Date32": DateDatabaseField,
-    "UInt8": IntegerDatabaseField,
-    "UInt16": IntegerDatabaseField,
-    "UInt32": IntegerDatabaseField,
-    "UInt64": IntegerDatabaseField,
-    "Float8": FloatDatabaseField,
-    "Float16": FloatDatabaseField,
-    "Float32": FloatDatabaseField,
-    "Float64": FloatDatabaseField,
-    "Int8": IntegerDatabaseField,
-    "Int16": IntegerDatabaseField,
-    "Int32": IntegerDatabaseField,
-    "Int64": IntegerDatabaseField,
-    "Tuple": StringJSONDatabaseField,
-    "Array": StringArrayDatabaseField,
-    "Map": StringJSONDatabaseField,
-    "Bool": BooleanDatabaseField,
-    "Decimal": FloatDatabaseField,
-}
-
-STR_TO_HOGQL_MAPPING = {
-    "BooleanDatabaseField": BooleanDatabaseField,
-    "DateDatabaseField": DateDatabaseField,
-    "DateTimeDatabaseField": DateTimeDatabaseField,
-    "IntegerDatabaseField": IntegerDatabaseField,
-    "FloatDatabaseField": FloatDatabaseField,
-    "StringArrayDatabaseField": StringArrayDatabaseField,
-    "StringDatabaseField": StringDatabaseField,
-    "StringJSONDatabaseField": StringJSONDatabaseField,
 }
 
 ExtractErrors = {
@@ -182,17 +136,6 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
 
         if result is None or isinstance(result, int):
             raise Exception("No columns types provided by clickhouse in get_columns")
-
-        def clean_type(column_type: str) -> str:
-            if column_type.startswith("Nullable("):
-                column_type = column_type.replace("Nullable(", "")[:-1]
-
-            if column_type.startswith("Array("):
-                column_type = remove_named_tuples(column_type)
-
-            column_type = re.sub(r"\(.+\)+", "", column_type)
-
-            return column_type
 
         columns = {
             str(item[0]): {

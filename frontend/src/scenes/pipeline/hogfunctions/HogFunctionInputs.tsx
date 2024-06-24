@@ -14,8 +14,8 @@ import {
     LemonTextArea,
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { CodeEditorResizeable } from 'lib/components/CodeEditors'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { languages } from 'monaco-editor'
 import { useEffect, useMemo, useState } from 'react'
@@ -23,6 +23,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { groupsModel } from '~/models/groupsModel'
 import { HogFunctionInputSchemaType } from '~/types'
 
+import { HogFunctionInputIntegration } from './integrations/HogFunctionInputIntegration'
+import { HogFunctionInputIntegrationField } from './integrations/HogFunctionInputIntegrationField'
 import { pipelineHogFunctionConfigurationLogic } from './pipelineHogFunctionConfigurationLogic'
 
 export type HogFunctionInputProps = {
@@ -36,7 +38,7 @@ export type HogFunctionInputWithSchemaProps = {
     schema: HogFunctionInputSchemaType
 }
 
-const typeList = ['string', 'boolean', 'dictionary', 'choice', 'json'] as const
+const typeList = ['string', 'boolean', 'dictionary', 'choice', 'json', 'integration'] as const
 
 function useAutocompleteOptions(): languages.CompletionItem[] {
     const { groupTypes } = useValues(groupsModel)
@@ -257,12 +259,14 @@ export function HogFunctionInputRenderer({ value, onChange, schema, disabled }: 
 
         case 'boolean':
             return <LemonCheckbox checked={value} onChange={(checked) => onChange?.(checked)} disabled={disabled} />
+        case 'integration':
+            return <HogFunctionInputIntegration schema={schema} value={value} onChange={onChange} />
+        case 'integration_field':
+            return <HogFunctionInputIntegrationField schema={schema} value={value} onChange={onChange} />
         default:
             return (
                 <strong className="text-danger">
                     Unknown field type "<code>{schema.type}</code>".
-                    <br />
-                    You may need to upgrade PostHog!
                 </strong>
             )
     }
@@ -350,6 +354,17 @@ function HogFunctionInputSchemaControls({ value, onChange, onDone }: HogFunction
                             _onChange({ choices: choices.map((value) => ({ label: value, value })) })
                         }
                         placeholder="Choices"
+                    />
+                </LemonField.Pure>
+            )}
+
+            {value.type === 'integration' && (
+                <LemonField.Pure label="Integration kind">
+                    <LemonSelect
+                        value={value.integration}
+                        onChange={(integration) => _onChange({ integration })}
+                        options={[{ label: 'Slack', value: 'slack' }]}
+                        placeholder="Choose kind"
                     />
                 </LemonField.Pure>
             )}
