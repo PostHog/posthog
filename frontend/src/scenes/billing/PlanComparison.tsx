@@ -11,7 +11,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React, { useState } from 'react'
 import { getProductIcon } from 'scenes/products/Products'
-import { urls } from 'scenes/urls'
 import useResizeObserver from 'use-resize-observer'
 
 import { BillingProductV2AddonType, BillingProductV2Type, BillingV2FeatureType, BillingV2PlanType } from '~/types'
@@ -128,6 +127,7 @@ export const PlanComparison = ({
     const { reportSurveyShown, setSurveyResponse } = useActions(billingProductLogic({ product }))
     const { featureFlags } = useValues(featureFlagLogic)
 
+    const ctaAction = featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' ? 'Upgrade' : 'Subscribe'
     const upgradeButtons = plans?.map((plan, i) => {
         return (
             <td key={`${plan.plan_key}-cta`} className="PlanTable__td__upgradeButton">
@@ -135,13 +135,14 @@ export const PlanComparison = ({
                     to={
                         plan.contact_support
                             ? 'mailto:sales@posthog.com?subject=Enterprise%20plan%20request'
-                            : !plan.included_if
-                            ? getUpgradeProductLink(product, plan.plan_key || '', redirectPath, includeAddons)
-                            : plan.included_if == 'has_subscription' &&
-                              i >= currentPlanIndex &&
-                              !billing?.has_active_subscription
-                            ? urls.organizationBilling()
-                            : undefined
+                            : getUpgradeProductLink({
+                                  product,
+                                  upgradeToPlanKey: plan.plan_key || '',
+                                  redirectPath,
+                                  includeAddons,
+                                  subscriptionLevel: billing?.subscription_level,
+                                  featureFlags,
+                              })
                     }
                     type={plan.current_plan || i < currentPlanIndex ? 'secondary' : 'primary'}
                     status={
@@ -182,15 +183,20 @@ export const PlanComparison = ({
                         : plan.included_if == 'has_subscription' &&
                           i >= currentPlanIndex &&
                           !billing?.has_active_subscription
-                        ? 'View products'
+                        ? ctaAction
                         : plan.free_allocation && !plan.tiers
                         ? 'Select' // Free plan
-                        : 'Subscribe'}
+                        : ctaAction}
                 </BillingUpgradeCTA>
                 {!plan.current_plan && !plan.free_allocation && includeAddons && product.addons?.length > 0 && (
                     <p className="text-center ml-0 mt-2 mb-0">
                         <Link
-                            to={`/api/billing/activate?products=${product.type}:${plan.plan_key}&redirect_path=${redirectPath}`}
+                            to={
+                                featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' &&
+                                billing?.subscription_level === 'free'
+                                    ? `/api/billing/activate?products=all_products:&redirect_path=${redirectPath}`
+                                    : `/api/billing/activate?products=${product.type}:${plan.plan_key}&redirect_path=${redirectPath}`
+                            }
                             className="text-muted text-xs"
                             disableClientSideRouting
                         >
@@ -233,7 +239,9 @@ export const PlanComparison = ({
                                     : plan.contact_support
                                     ? 'Custom'
                                     : plan.included_if == 'has_subscription'
-                                    ? 'Free, included with any product subscription'
+                                    ? featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test'
+                                        ? 'Usage-based - starting at $0'
+                                        : 'Free, included with any product subscription'
                                     : '$0 per month'}
                                 {isProrated && (
                                     <p className="text-xxs text-muted font-normal italic mt-2">
@@ -336,7 +344,9 @@ export const PlanComparison = ({
                         })}
                 <tr>
                     <th colSpan={1} className="PlanTable__th__section rounded text-left">
-                        <h3 className="mt-6 mb-2">Product Features:</h3>
+                        <h3 className="mt-6 mb-2">
+                            {product.type === 'platform_and_support' ? 'Platform' : 'Product'} features:
+                        </h3>
                     </th>
                 </tr>
                 {fullyFeaturedPlan?.features?.map((feature, i) => (
@@ -480,20 +490,22 @@ export const PlanComparison = ({
 
 export const PlanComparisonModal = ({
     product,
+    title,
     includeAddons = false,
     modalOpen,
     onClose,
 }: {
     product: BillingProductV2Type
+    title?: string
     includeAddons?: boolean
     modalOpen: boolean
     onClose?: () => void
 }): JSX.Element | null => {
     return (
         <LemonModal isOpen={modalOpen} onClose={onClose}>
-            <div className="PlanComparisonModal flex w-full h-full justify-center p-8">
+            <div className="PlanComparisonModal flex w-full h-full justify-center p-6">
                 <div className="text-left bg-bg-light rounded relative w-full">
-                    <h2>{product.name} plans</h2>
+                    {title ? <h2>{title}</h2> : <h2>{product.name} plans</h2>}
                     <PlanComparison product={product} includeAddons={includeAddons} />
                 </div>
             </div>
