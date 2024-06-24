@@ -92,6 +92,13 @@ def get_hogql_metadata(
             # We don't want to accidentally expose too much data via errors
             response.errors.append(HogQLNotice(message=f"Unexpected {e.__class__.__name__}"))
 
+    # We add a magic "F'" start prefix to get Antlr into the right parsing mode, subtract it now
+    if query.template is not None:
+        for err in response.errors:
+            if err.start is not None and err.end is not None and err.start > 0:
+                err.start -= 2
+                err.end -= 2
+
     return response
 
 

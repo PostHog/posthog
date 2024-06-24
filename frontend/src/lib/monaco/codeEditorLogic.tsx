@@ -51,6 +51,8 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                     const response = await performQuery<HogQLMetadata>(
                         props.language === 'hogql'
                             ? { kind: NodeKind.HogQLMetadata, select: query, filters: props.metadataFilters }
+                            : props.language === 'ehog'
+                            ? { kind: NodeKind.HogQLMetadata, template: query, filters: props.metadataFilters }
                             : { kind: NodeKind.HogQLMetadata, program: query, filters: props.metadataFilters }
                     )
                     breakpoint()
