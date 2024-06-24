@@ -518,6 +518,8 @@ class TrendsQueryRunner(QueryRunner):
 
             # Modifications for when breakdowns are active
             if self.breakdown_enabled:
+                assert self.query.breakdownFilter is not None  # type checking
+
                 remapped_label = None
 
                 if self._is_breakdown_field_boolean():

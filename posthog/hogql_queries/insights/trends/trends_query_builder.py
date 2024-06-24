@@ -30,6 +30,7 @@ from posthog.schema import (
     EventsNode,
     HogQLQueryModifiers,
     TrendsQuery,
+    Breakdown as BreakdownSchema,
 )
 
 
@@ -460,6 +461,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             query.order_by.append(ast.OrderExpr(expr=ast.Field(chain=["day_start"]), order="ASC"))
 
         if breakdown.enabled:
+            assert self.query.breakdownFilter is not None  # type checking
+
             if breakdown.is_histogram_breakdown:
                 query.ctes = {
                     "min_max": ast.CTE(
@@ -478,13 +481,12 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                             "histogram_bin_count": breakdown_schema.histogram_bin_count,
                         }
                         for breakdown_schema, alias in zip(
-                            self.query.breakdownFilter.breakdowns, breakdown.multiple_breakdowns_aliases
+                            cast(list[BreakdownSchema], self.query.breakdownFilter.breakdowns),
+                            breakdown.multiple_breakdowns_aliases,
                         )
                     ]
                 else:
-                    filter_bin_count = (
-                        self.query.breakdownFilter.breakdown_histogram_bin_count if self.query.breakdownFilter else None
-                    )
+                    filter_bin_count = cast(int, self.query.breakdownFilter.breakdown_histogram_bin_count)
 
                     breakdown_aliases = [
                         {

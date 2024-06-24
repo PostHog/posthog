@@ -74,7 +74,7 @@ class Breakdown:
     @cached_property
     def is_histogram_breakdown(self) -> bool:
         if self.enabled:
-            breakdown_filter = cast(BreakdownFilter, self.query.breakdownFilter)
+            breakdown_filter = self._breakdown_filter
             if not self.is_multiple_breakdown:
                 return breakdown_filter.breakdown_histogram_bin_count is not None
 
@@ -85,7 +85,10 @@ class Breakdown:
 
     @cached_property
     def is_multiple_breakdown(self) -> bool:
-        return self.enabled and self.query.breakdownFilter.breakdowns is not None
+        if self.enabled:
+            breakdown_filter = self._breakdown_filter
+            return breakdown_filter.breakdowns is not None
+        return False
 
     @cached_property
     def column_exprs(self) -> list[ast.Alias]:
@@ -107,6 +110,8 @@ class Breakdown:
         return [ast.Alias(alias=self.breakdown_alias, expr=ast.Field(chain=[self.breakdown_alias]))]
 
     def _column_expr(self) -> list[ast.Alias] | ast.Alias:
+        assert self.query.breakdownFilter is not None  # type checking
+
         if self.query.breakdownFilter.breakdown_type == "cohort":
             if self.modifiers.inCohortVia == InCohortVia.LEFTJOIN_CONJOINED:
                 return ast.Alias(
@@ -125,7 +130,7 @@ class Breakdown:
         if self.query.breakdownFilter.breakdown_type == "hogql":
             return ast.Alias(
                 alias=self.breakdown_alias,
-                expr=self._get_breakdown_values_transform(parse_expr(self.query.breakdownFilter.breakdown)),
+                expr=self._get_breakdown_values_transform(parse_expr(cast(str, self.query.breakdownFilter.breakdown))),
             )
 
         if self.is_multiple_breakdown:
@@ -141,6 +146,13 @@ class Breakdown:
             alias=self.breakdown_alias,
             expr=self._get_breakdown_values_transform(ast.Field(chain=self._properties_chain)),
         )
+
+    @property
+    def _breakdown_filter(self) -> BreakdownFilter:
+        """
+        Type checking
+        """
+        return cast(BreakdownFilter, self.query.breakdownFilter)
 
     @cached_property
     def remove_others_row(self) -> bool:
@@ -236,16 +248,20 @@ class Breakdown:
 
     @cached_property
     def _properties_chain(self):
+        breakdown_filter = self._breakdown_filter
         return get_properties_chain(
-            breakdown_type=self.query.breakdownFilter.breakdown_type,
-            breakdown_field=self.query.breakdownFilter.breakdown,
-            group_type_index=self.query.breakdownFilter.breakdown_group_type_index,
+            breakdown_type=breakdown_filter.breakdown_type,
+            breakdown_field=cast(str, breakdown_filter.breakdown),  # not safe
+            group_type_index=breakdown_filter.breakdown_group_type_index,
         )
 
     def _get_multiple_breakdowns_aliases(self):
+        breakdown_filter = self._breakdown_filter
+        assert breakdown_filter.breakdowns is not None  # type checking
+
         breakdowns: list[ast.Alias] = []
 
-        for idx, breakdown in enumerate(self.query.breakdownFilter.breakdowns):
+        for idx, breakdown in enumerate(breakdown_filter.breakdowns):
             node = ast.Field(
                 chain=get_properties_chain(
                     breakdown_type=breakdown.type,
@@ -272,7 +288,6 @@ class Breakdown:
 
     @cached_property
     def multiple_breakdowns_aliases(self):
-        return [
-            self._get_multiple_breakdown_alias_name(idx + 1)
-            for idx in range(len(self.query.breakdownFilter.breakdowns))
-        ]
+        breakdown_filter = self._breakdown_filter
+        assert breakdown_filter.breakdowns is not None  # type checking
+        return [self._get_multiple_breakdown_alias_name(idx + 1) for idx in range(len(breakdown_filter.breakdowns))]

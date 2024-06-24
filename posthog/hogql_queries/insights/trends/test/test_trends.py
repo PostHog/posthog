@@ -1600,7 +1600,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 properties={"$some_property": "value", "$math_prop": 4},
             )
 
-        for breakdown_filter in ({"breakdown": "$some_property"}, {"breakdowns": [{"property": "$some_property"}]}):
+        filters: list[dict[str, Any]] = [
+            {"breakdown": "$some_property"},
+            {"breakdowns": [{"property": "$some_property"}]},
+        ]
+        for breakdown_filter in filters:
             with freeze_time("2020-01-04T13:00:01Z"):
                 daily_response = self._run(
                     Filter(
@@ -3356,7 +3360,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # Fifth session lasted 5 seconds
 
         for breakdown_type in ("single", "multiple"):
-            breakdown_filter = (
+            breakdown_filter: dict[str, Any] = (
                 {"breakdown": "$some_property"}
                 if breakdown_type == "single"
                 else {"breakdowns": [{"property": "$some_property"}]}
@@ -4514,7 +4518,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         action = _create_action(name="watched movie", team=self.team)
 
         for breakdown_type in ("single", "multiple"):
-            breakdown_filter = (
+            breakdown_filter: dict[str, Any] = (
                 {
                     "breakdowns": [
                         {
@@ -5590,10 +5594,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             properties={"key": "val"},
         )
 
-        for breakdown_filter in (
+        filters: list[dict[str, Any]] = [
             {"breakdown": "email", "breakdown_type": "person"},
             {"breakdowns": [{"type": "person", "property": "email"}]},
-        ):
+        ]
+        for breakdown_filter in filters:
             response = self._run(
                 Filter(
                     team=self.team,
@@ -5659,10 +5664,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             properties=[{"key": "key", "type": "event", "value": ["val"], "operator": "exact"}],
         )
 
-        for breakdown_filter in (
+        filters: list[dict[str, Any]] = [
             {"breakdown": "email", "breakdown_type": "person"},
             {"breakdowns": [{"property": "email", "type": "person"}]},
-        ):
+        ]
+        for breakdown_filter in filters:
             response = self._run(
                 Filter(
                     team=self.team,
@@ -5727,10 +5733,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 },
             )
 
-        for breakdown_filter in (
-            {"breakdown": "$current_url"},
-            {"breakdowns": [{"property": "$current_url"}]},
-        ):
+        filters: list[dict[str, Any]] = [{"breakdown": "$current_url"}, {"breakdowns": [{"property": "$current_url"}]}]
+        for breakdown_filter in filters:
             with freeze_time("2020-01-05T13:01:01Z"):
                 response = self._run(
                     Filter(
@@ -5814,10 +5818,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 },
             )
 
-        for breakdown_filter in (
+        filters: list[dict[str, Any]] = [
             {"breakdown": "$current_url"},
             {"breakdowns": [{"property": "$current_url"}]},
-        ):
+        ]
+        for breakdown_filter in filters:
             with freeze_time("2020-01-05T13:01:01Z"):
                 response = self._run(
                     Filter(
@@ -5914,10 +5919,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self._create_event(team=self.team, event="sign up", distinct_id="blabla2")
             self._create_event(team=self.team, event="sign up", distinct_id="blabla3")
 
-        for breakdown_filter in (
+        filters: list[dict[str, Any]] = [
             {"breakdown": "$some_prop", "breakdown_type": "person"},
             {"breakdowns": [{"property": "$some_prop", "type": "person"}]},
-        ):
+        ]
+        for breakdown_filter in filters:
             with freeze_time("2020-01-04T13:01:01Z"):
                 event_response = self._run(
                     Filter(
@@ -5958,10 +5964,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 properties={"$some_property": "other_value"},
             )
 
-        for breakdown_filter in (
+        filters: list[dict[str, Any]] = [
             {"breakdown": "$some_property"},
             {"breakdowns": [{"property": "$some_property"}]},
-        ):
+        ]
+        for breakdown_filter in filters:
             with freeze_time("2020-01-04T13:01:01Z"):
                 action_response = self._run(
                     Filter(
@@ -6007,10 +6014,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 properties={"$some_property": "other_value"},
             )
 
-        for breakdown_filter in (
+        filters: list[dict[str, Any]] = [
             {"breakdown": "$some_property"},
             {"breakdowns": [{"property": "$some_property"}]},
-        ):
+        ]
+        for breakdown_filter in filters:
             with freeze_time("2020-01-04T13:01:01Z"):
                 action_response = self._run(
                     Filter(
@@ -6058,10 +6066,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 properties={"$some_property": "other_value", "$os": "Windows"},
             )
 
-        for breakdown_filter in (
+        filters: list[dict[str, Any]] = [
             {"breakdown": "$some_property"},
             {"breakdowns": [{"property": "$some_property"}]},
-        ):
+        ]
+        for breakdown_filter in filters:
             with freeze_time("2020-01-04T13:01:01Z"):
                 action_response = self._run(
                     Filter(
@@ -6109,10 +6118,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-03T12:00:00Z",
         )
 
-        for breakdown_filter in (
+        filters: list[dict[str, Any]] = [
             {"breakdown": "$some_prop", "breakdown_type": "person"},
             {"breakdowns": [{"property": "$some_prop", "type": "person"}]},
-        ):
+        ]
+        for breakdown_filter in filters:
             with freeze_time("2020-01-04T13:01:01Z"):
                 response = self._run(
                     Filter(

@@ -1317,7 +1317,7 @@ class Breakdown(BaseModel):
     group_type_index: Optional[int] = None
     histogram_bin_count: Optional[int] = None
     normalize_url: Optional[bool] = None
-    property: Optional[Union[str, float, list[Union[str, float]]]] = None
+    property: str
     type: Optional[BreakdownType] = None
 
 
@@ -1332,9 +1332,7 @@ class BreakdownFilter(BaseModel):
     breakdown_limit: Optional[int] = None
     breakdown_normalize_url: Optional[bool] = None
     breakdown_type: Optional[BreakdownType] = BreakdownType.EVENT
-    breakdowns: Optional[list[Breakdown]] = Field(
-        default=None, description="We want to limit maximum count of breakdowns avoiding overloading.", max_length=3
-    )
+    breakdowns: Optional[list[Breakdown]] = Field(default=None, max_length=3)
 
 
 class CacheMissResponse(BaseModel):

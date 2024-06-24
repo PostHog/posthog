@@ -1549,7 +1549,7 @@ export interface InsightDateRange {
 
 export interface Breakdown {
     type?: BreakdownType | null
-    property?: BreakdownKeyType
+    property: string
     normalize_url?: boolean
     group_type_index?: integer | null
     histogram_bin_count?: integer // trends breakdown histogram bin
@@ -1562,10 +1562,10 @@ export interface BreakdownFilter {
     breakdown_limit?: integer
     breakdown?: BreakdownKeyType
     breakdown_normalize_url?: boolean
-    /** We want to limit maximum count of breakdowns avoiding overloading.
+    /**
      * @maxLength 3
      */
-    breakdowns?: Breakdown[]
+    breakdowns?: Breakdown[] // We want to limit maximum count of breakdowns avoiding overloading.
     breakdown_group_type_index?: integer | null
     breakdown_histogram_bin_count?: integer // trends breakdown histogram bin
     breakdown_hide_other_aggregation?: boolean | null // hides the "other" field for trends

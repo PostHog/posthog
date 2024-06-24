@@ -421,7 +421,7 @@
                     "type": "boolean"
                 },
                 "property": {
-                    "$ref": "#/definitions/BreakdownKeyType"
+                    "type": "string"
                 },
                 "type": {
                     "anyOf": [
@@ -434,6 +434,7 @@
                     ]
                 }
             },
+            "required": ["property"],
             "type": "object"
         },
         "BreakdownAttributionType": {
@@ -480,7 +481,6 @@
                     "default": "event"
                 },
                 "breakdowns": {
-                    "description": "We want to limit maximum count of breakdowns avoiding overloading.",
                     "items": {
                         "$ref": "#/definitions/Breakdown"
                     },
