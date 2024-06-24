@@ -9,10 +9,25 @@ from posthog.warehouse.data_load.service import (
     unpause_external_data_schedule,
 )
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSource
+from posthog.ph_client import get_ph_client
+from posthog.models import Team
+from posthog.celery import app
+from django.db.models import Q
 
 logger = structlog.get_logger(__name__)
 
 MONTHLY_LIMIT = 200_000_000
+
+# TODO: adjust to whenever billing officially starts
+DEFAULT_DATE_TIME = datetime.datetime(2024, 7, 31, tzinfo=datetime.timezone.utc)
+
+
+@app.task(ignore_result=True)
+def capture_external_data_rows_synced() -> None:
+    for team in Team.objects.select_related("organization").exclude(
+        Q(organization__for_internal_metrics=True) | Q(is_demo=True) | Q(external_data_workspace_id__isnull=True)
+    ):
+        capture_workspace_rows_synced_by_team.delay(team.pk)
 
 
 def check_synced_row_limits() -> None:
@@ -64,3 +79,31 @@ def check_synced_row_limits_of_team(team_id: int) -> None:
 
             source.status = ExternalDataSource.Status.COMPLETED
             source.save()
+
+
+@app.task(ignore_result=True)
+def capture_workspace_rows_synced_by_team(team_id: int) -> None:
+    ph_client = get_ph_client()
+    team = Team.objects.get(pk=team_id)
+    now = datetime.datetime.now(datetime.timezone.utc)
+    begin = team.external_data_workspace_last_synced_at or DEFAULT_DATE_TIME
+
+    team.external_data_workspace_last_synced_at = now
+
+    for job in ExternalDataJob.objects.filter(team_id=team_id, created_at__gte=begin).order_by("created_at").all():
+        ph_client.capture(
+            "external data sync job",
+            {
+                "team_id": team_id,
+                "workspace_id": team.external_data_workspace_id,
+                "count": job.rows_synced,
+                "start_time": job.created_at,
+                "job_id": str(job.pk),
+            },
+        )
+
+        team.external_data_workspace_last_synced_at = job.created_at
+
+    team.save()
+
+    ph_client.shutdown()
