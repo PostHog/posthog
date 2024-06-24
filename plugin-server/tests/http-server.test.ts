@@ -1,9 +1,9 @@
-import http from 'http'
-
 import { DEFAULT_HTTP_SERVER_PORT } from '../src/config/config'
-import { startPluginsServer } from '../src/main/pluginsServer'
+import { ServerInstance, startPluginsServer } from '../src/main/pluginsServer'
 import { makePiscina } from '../src/worker/piscina'
 import { resetTestDatabase } from './helpers/sql'
+
+const fetch = jest.requireActual('node-fetch')
 
 jest.mock('../src/utils/status')
 jest.mock('../src/main/utils', () => {
@@ -20,18 +20,27 @@ jest.mock('../src/main/utils', () => {
 jest.setTimeout(60000) // 60 sec timeout
 
 describe('http server', () => {
-    // these should simply pass under normal conditions
-    describe('health and readiness checks', () => {
-        test('_health', async () => {
-            const testCode = `
+    let pluginsServer: ServerInstance | undefined
+
+    beforeEach(async () => {
+        const testCode = `
                 async function processEvent (event) {
                     return event
                 }
             `
 
-            await resetTestDatabase(testCode)
+        await resetTestDatabase(testCode)
+    })
 
-            const pluginsServer = await startPluginsServer(
+    afterEach(async () => {
+        if (pluginsServer) {
+            await pluginsServer.stop()
+        }
+    })
+    // these should simply pass under normal conditions
+    describe('health and readiness checks', () => {
+        test('_health', async () => {
+            pluginsServer = await startPluginsServer(
                 {
                     WORKER_CONCURRENCY: 0,
                 },
@@ -39,27 +48,13 @@ describe('http server', () => {
                 { http: true }
             )
 
-            await new Promise((resolve) =>
-                http.get(`http://localhost:${DEFAULT_HTTP_SERVER_PORT}/_health`, (res) => {
-                    const { statusCode } = res
-                    expect(statusCode).toEqual(200)
-                    resolve(null)
-                })
-            )
-
-            await pluginsServer.stop()
+            const res = await fetch(`http://localhost:${DEFAULT_HTTP_SERVER_PORT}/_health`)
+            expect(res.status).toEqual(200)
+            expect(await res.json()).toEqual({ status: 'ok', checks: {} })
         })
 
         test('_ready', async () => {
-            const testCode = `
-                async function processEvent (event) {
-                    return event
-                }
-            `
-
-            await resetTestDatabase(testCode)
-
-            const pluginsServer = await startPluginsServer(
+            pluginsServer = await startPluginsServer(
                 {
                     WORKER_CONCURRENCY: 0,
                 },
@@ -67,16 +62,14 @@ describe('http server', () => {
                 { http: true, ingestion: true }
             )
 
-            await new Promise((resolve) =>
-                http.get(`http://localhost:${DEFAULT_HTTP_SERVER_PORT}/_ready`, (res) => {
-                    const { statusCode } = res
-                    expect(statusCode).toEqual(200)
-                    resolve(null)
-                })
-            )
-
-            expect(pluginsServer.queue?.consumerReady).toBeTruthy()
-            await pluginsServer.stop()
+            const res = await fetch(`http://localhost:${DEFAULT_HTTP_SERVER_PORT}/_ready`)
+            expect(res.status).toEqual(200)
+            expect(await res.json()).toEqual({
+                status: 'ok',
+                checks: {
+                    'analytics-ingestion': true,
+                },
+            })
         })
     })
 })

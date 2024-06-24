@@ -1,6 +1,5 @@
 import express, { Request, Response } from 'express'
 import { DateTime } from 'luxon'
-import { IngestionConsumer, KafkaJSIngestionConsumer } from 'main/ingestion-queues/kafka-queue'
 import * as prometheus from 'prom-client'
 
 import { status } from '../../utils/status'
@@ -16,10 +15,10 @@ expressApp.use(express.json())
 
 export function setupCommonRoutes(
     healthChecks: { [service: string]: () => Promise<boolean> | boolean },
-    analyticsEventsIngestionConsumer?: KafkaJSIngestionConsumer | IngestionConsumer
+    readyChecks: { [service: string]: () => Promise<boolean> | boolean }
 ): express.Application {
-    expressApp.get('/_health', buildGetHealth(healthChecks))
-    expressApp.get('/_ready', buildGetReady(analyticsEventsIngestionConsumer))
+    expressApp.get('/_health', buildHealthChecks('liveness', healthChecks))
+    expressApp.get('/_ready', buildHealthChecks('readiness', readyChecks))
     expressApp.get('/_metrics', getMetrics)
     expressApp.get('/metrics', getMetrics)
     expressApp.get('/_profile/:type', getProfileByType)
@@ -27,38 +26,14 @@ export function setupCommonRoutes(
     return expressApp
 }
 
-const buildGetHealth =
-    (healthChecks: { [service: string]: () => Promise<boolean> | boolean }) => async (req: Request, res: Response) => {
-        // Check that all health checks pass. Note that a failure of these
-        // _may_ result in the process being terminated by e.g. Kubernetes
-        // so the stakes are high.
-        //
-        // Also, Kubernetes will call this endpoint frequently, on each pod,
-        // so we want to make sure it's fast and doesn't put any stress on
-        // other services. Ideally it shouldn't make any calls to other
-        // services.
-        //
-        // Here we take all of the health checks we are given, run them in
-        // parallel, and return the results. If any of the checks fail, we
-        // return a 503 status code, otherwise we return a 200 status code.
-        //
-        // In all cases we should return a JSON object with the following
-        // structure:
-        //
-        // {
-        //   "status": "ok" | "error",
-        //   "checks": {
-        //     "service1": "ok" | "error",
-        //     "service2": "ok" | "error",
-        //     ...
-        //   }
-        // }
+const buildHealthChecks = (kind: string, checks: { [service: string]: () => Promise<boolean> | boolean }) => {
+    return async (req: Request, res: Response) => {
         const checkResults = await Promise.all(
             // Note that we do not use `Promise.allSettled` here so we can
             // assume that all promises have resolved. If there was a
             // rejected promise, the http server should catch it and return
             // a 500 status code.
-            Object.entries(healthChecks).map(async ([service, check]) => {
+            Object.entries(checks).map(async ([service, check]) => {
                 try {
                     return { service, status: (await check()) ? 'ok' : 'error' }
                 } catch (error) {
@@ -68,38 +43,17 @@ const buildGetHealth =
         )
 
         const statusCode = checkResults.every((result) => result.status === 'ok') ? 200 : 503
-
         const checkResultsMapping = Object.fromEntries(checkResults.map((result) => [result.service, result.status]))
 
         if (statusCode === 200) {
-            status.info('💚', 'Server liveness check succeeded')
+            status.info('💚', `Server ${kind} check succeeded`)
         } else {
-            status.info('💔', 'Server liveness check failed', checkResultsMapping)
+            status.info('💔', `Server ${kind} check failed`, checkResultsMapping)
         }
 
         return res.status(statusCode).json({ status: statusCode === 200 ? 'ok' : 'error', checks: checkResultsMapping })
     }
-
-const buildGetReady =
-    (analyticsEventsIngestionConsumer?: KafkaJSIngestionConsumer | IngestionConsumer) =>
-    (req: Request, res: Response) => {
-        // Check that, if the server should have a kafka queue,
-        // the Kafka consumer is ready to consume messages
-        if (!analyticsEventsIngestionConsumer || analyticsEventsIngestionConsumer.consumerReady) {
-            status.info('💚', 'Server readiness check succeeded')
-            const responseBody = {
-                status: 'ok',
-            }
-            res.statusCode = 200
-            return res.status(200).json(responseBody)
-        }
-
-        status.info('💔', 'Server readiness check failed')
-        const responseBody = {
-            status: 'error',
-        }
-        return res.status(503).json(responseBody)
-    }
+}
 
 const getMetrics = async (req: Request, res: Response) => {
     try {

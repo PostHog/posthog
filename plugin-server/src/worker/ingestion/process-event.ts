@@ -1,4 +1,3 @@
-import ClickHouse from '@posthog/clickhouse'
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import { DateTime } from 'luxon'
@@ -8,10 +7,10 @@ import {
     ClickHouseTimestamp,
     Element,
     GroupTypeIndex,
-    Hub,
     ISOTimestamp,
     Person,
     PersonMode,
+    PluginsServerConfig,
     PreIngestionEvent,
     RawClickHouseEvent,
     Team,
@@ -44,26 +43,20 @@ const elementsOrElementsChainCounter = new Counter({
 })
 
 export class EventsProcessor {
-    pluginsServer: Hub
-    db: DB
-    clickhouse: ClickHouse
-    kafkaProducer: KafkaProducerWrapper
-    teamManager: TeamManager
-    groupTypeManager: GroupTypeManager
-    propertyDefinitionsManager: PropertyDefinitionsManager
+    private propertyDefinitionsManager: PropertyDefinitionsManager
 
-    constructor(pluginsServer: Hub) {
-        this.pluginsServer = pluginsServer
-        this.db = pluginsServer.db
-        this.clickhouse = pluginsServer.clickhouse
-        this.kafkaProducer = pluginsServer.kafkaProducer
-        this.teamManager = pluginsServer.teamManager
-        this.groupTypeManager = new GroupTypeManager(pluginsServer.postgres, this.teamManager, pluginsServer.SITE_URL)
+    constructor(
+        private config: PluginsServerConfig,
+        private db: DB,
+        private kafkaProducer: KafkaProducerWrapper,
+        private teamManager: TeamManager,
+        private groupTypeManager: GroupTypeManager
+    ) {
         this.propertyDefinitionsManager = new PropertyDefinitionsManager(
             this.teamManager,
             this.groupTypeManager,
-            pluginsServer.db,
-            pluginsServer
+            this.db,
+            config
         )
     }
 
@@ -155,7 +148,7 @@ export class EventsProcessor {
             delete properties['$ip']
         }
 
-        if (this.pluginsServer.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP === false) {
+        if (this.config.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP === false) {
             try {
                 await this.propertyDefinitionsManager.updateEventNamesAndProperties(team.id, event, properties)
             } catch (err) {
@@ -265,7 +258,7 @@ export class EventsProcessor {
 
         const ack = this.kafkaProducer
             .produce({
-                topic: this.pluginsServer.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+                topic: this.config.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
                 key: uuid,
                 value: Buffer.from(JSON.stringify(rawEvent)),
                 waitForAck: true,

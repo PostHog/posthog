@@ -9,16 +9,14 @@ import { createRdConnectionConfigFromEnvVars, createRdProducerConfigFromEnvVars 
 import { createKafkaProducer } from '../kafka/producer'
 import { addSentryBreadcrumbsEventListeners } from '../main/ingestion-queues/kafka-metrics'
 import { runInstrumentedFunction } from '../main/utils'
-import { GroupTypeToColumnIndex, Hub, PluginsServerConfig, RawClickHouseEvent, TeamId, TimestampFormat } from '../types'
+import { GroupTypeToColumnIndex, Hub, RawClickHouseEvent, TeamId, TimestampFormat } from '../types'
 import { KafkaProducerWrapper } from '../utils/db/kafka-producer-wrapper'
-import { PostgresRouter } from '../utils/db/postgres'
 import { status } from '../utils/status'
 import { castTimestampOrNow } from '../utils/utils'
 import { AppMetrics } from '../worker/ingestion/app-metrics'
 import { GroupTypeManager } from '../worker/ingestion/group-type-manager'
 import { OrganizationManager } from '../worker/ingestion/organization-manager'
 import { TeamManager } from '../worker/ingestion/team-manager'
-import { RustyHook } from '../worker/rusty-hook'
 import { AsyncFunctionExecutor } from './async-function-executor'
 import { addLog, HogExecutor } from './hog-executor'
 import { HogFunctionManager } from './hog-function-manager'
@@ -63,7 +61,7 @@ abstract class CdpConsumerBase {
     hogFunctionManager: HogFunctionManager
     asyncFunctionExecutor?: AsyncFunctionExecutor
     hogExecutor: HogExecutor
-    appMetrics?: AppMetrics
+    appMetrics: AppMetrics
     isStopping = false
 
     protected kafkaProducer?: KafkaProducerWrapper
@@ -71,14 +69,13 @@ abstract class CdpConsumerBase {
     protected abstract topic: string
     protected abstract consumerGroupId: string
 
-    constructor(protected config: PluginsServerConfig, protected hub?: Hub) {
-        const postgres = hub?.postgres ?? new PostgresRouter(config)
-
-        this.teamManager = new TeamManager(postgres, config)
-        this.organizationManager = new OrganizationManager(postgres, this.teamManager)
-        this.groupTypeManager = new GroupTypeManager(postgres, this.teamManager)
-        this.hogFunctionManager = new HogFunctionManager(postgres, config)
-        this.hogExecutor = new HogExecutor(this.config, this.hogFunctionManager)
+    constructor(protected hub: Hub) {
+        this.teamManager = hub.teamManager
+        this.organizationManager = hub.organizationManager
+        this.groupTypeManager = hub.groupTypeManager
+        this.hogFunctionManager = new HogFunctionManager(hub.postgres, hub)
+        this.hogExecutor = new HogExecutor(hub, this.hogFunctionManager)
+        this.appMetrics = hub.appMetrics
     }
 
     public abstract handleEachBatch(messages: Message[], heartbeat: () => void): Promise<void>
@@ -146,8 +143,8 @@ abstract class CdpConsumerBase {
         })
 
         // NOTE: This is the only place where we need to use the shared server config
-        const globalConnectionConfig = createRdConnectionConfigFromEnvVars(this.config)
-        const globalProducerConfig = createRdProducerConfigFromEnvVars(this.config)
+        const globalConnectionConfig = createRdConnectionConfigFromEnvVars(this.hub)
+        const globalProducerConfig = createRdProducerConfigFromEnvVars(this.hub)
 
         await this.hogFunctionManager.start()
 
@@ -155,37 +152,28 @@ abstract class CdpConsumerBase {
             await createKafkaProducer(globalConnectionConfig, globalProducerConfig)
         )
 
-        const rustyHook = this.hub?.rustyHook ?? new RustyHook(this.config)
-        this.asyncFunctionExecutor = new AsyncFunctionExecutor(this.config, rustyHook)
-
-        this.appMetrics =
-            this.hub?.appMetrics ??
-            new AppMetrics(
-                this.kafkaProducer,
-                this.config.APP_METRICS_FLUSH_FREQUENCY_MS,
-                this.config.APP_METRICS_FLUSH_MAX_QUEUE_SIZE
-            )
+        this.asyncFunctionExecutor = new AsyncFunctionExecutor(this.hub, this.hub.rustyHook)
         this.kafkaProducer.producer.connect()
 
         this.batchConsumer = await startBatchConsumer({
-            connectionConfig: createRdConnectionConfigFromEnvVars(this.config),
+            connectionConfig: createRdConnectionConfigFromEnvVars(this.hub),
             groupId: this.consumerGroupId,
             topic: this.topic,
             autoCommit: true,
-            sessionTimeout: this.config.KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS,
-            maxPollIntervalMs: this.config.KAFKA_CONSUMPTION_MAX_POLL_INTERVAL_MS,
+            sessionTimeout: this.hub.KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS,
+            maxPollIntervalMs: this.hub.KAFKA_CONSUMPTION_MAX_POLL_INTERVAL_MS,
             // the largest size of a message that can be fetched by the consumer.
             // the largest size our MSK cluster allows is 20MB
             // we only use 9 or 10MB but there's no reason to limit this 🤷️
-            consumerMaxBytes: this.config.KAFKA_CONSUMPTION_MAX_BYTES,
-            consumerMaxBytesPerPartition: this.config.KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION,
+            consumerMaxBytes: this.hub.KAFKA_CONSUMPTION_MAX_BYTES,
+            consumerMaxBytesPerPartition: this.hub.KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION,
             // our messages are very big, so we don't want to buffer too many
-            // queuedMinMessages: this.config.KAFKA_QUEUE_SIZE,
-            consumerMaxWaitMs: this.config.KAFKA_CONSUMPTION_MAX_WAIT_MS,
-            consumerErrorBackoffMs: this.config.KAFKA_CONSUMPTION_ERROR_BACKOFF_MS,
-            fetchBatchSize: this.config.INGESTION_BATCH_SIZE,
-            batchingTimeoutMs: this.config.KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS,
-            topicCreationTimeoutMs: this.config.KAFKA_TOPIC_CREATION_TIMEOUT_MS,
+            // queuedMinMessages: this.hub.KAFKA_QUEUE_SIZE,
+            consumerMaxWaitMs: this.hub.KAFKA_CONSUMPTION_MAX_WAIT_MS,
+            consumerErrorBackoffMs: this.hub.KAFKA_CONSUMPTION_ERROR_BACKOFF_MS,
+            fetchBatchSize: this.hub.INGESTION_BATCH_SIZE,
+            batchingTimeoutMs: this.hub.KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS,
+            topicCreationTimeoutMs: this.hub.KAFKA_TOPIC_CREATION_TIMEOUT_MS,
             eachBatch: async (messages, { heartbeat }) => {
                 status.info('🔁', `${this.name} - handling batch`, {
                     size: messages.length,
@@ -302,7 +290,7 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
                         convertToHogFunctionInvocationGlobals(
                             convertToParsedClickhouseEvent(clickHouseEvent),
                             team,
-                            this.config.SITE_URL ?? 'http://localhost:8000',
+                            this.hub.SITE_URL ?? 'http://localhost:8000',
                             groupTypes
                         )
                     )
@@ -408,7 +396,7 @@ export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
                 const globals = convertToHogFunctionInvocationGlobals(
                     event,
                     team,
-                    this.config.SITE_URL ?? 'http://localhost:8000',
+                    this.hub.SITE_URL ?? 'http://localhost:8000',
                     groupTypes
                 )
 
