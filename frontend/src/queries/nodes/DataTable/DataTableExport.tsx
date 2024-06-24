@@ -23,6 +23,8 @@ import { dataTableLogic, DataTableRow } from './dataTableLogic'
 // Sync with posthog/hogql/constants.py
 export const MAX_SELECT_RETURNED_ROWS = 50000
 
+const columnDisallowList = ['person.$delete', '*']
+
 export async function startDownload(
     query: DataTableNode,
     onlySelectedColumns: boolean,
@@ -52,6 +54,9 @@ export async function startDownload(
                 removeExpressionComment(c) === 'person' ? 'email' : c
             )
         }
+        if (exportContext['columns'].includes('person')) {
+            exportContext['columns'] = exportContext['columns'].map((c: string) => (c === 'person' ? 'person.id' : c))
+        }
         exportContext['columns'] = exportContext['columns'].filter((n: string) => !columnDisallowList.includes(n))
     }
     exportCall({
@@ -60,7 +65,6 @@ export async function startDownload(
     })
 }
 
-const columnDisallowList = ['person.$delete', '*']
 const getCsvTableData = (dataTableRows: DataTableRow[], columns: string[], query: DataTableNode): string[][] => {
     if (isPersonsNode(query.source)) {
         const filteredColumns = columns.filter((n) => !columnDisallowList.includes(n))
@@ -197,7 +201,8 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
         (isEventsQuery(source) || isPersonsNode(source) ? source.properties?.length || 0 : 0) +
         (isEventsQuery(source) && source.event ? 1 : 0) +
         (isPersonsNode(source) && source.search ? 1 : 0)
-    const canExportAllColumns = (isEventsQuery(source) && source.select.includes('*')) || isPersonsNode(source)
+    const canExportAllColumns =
+        (isEventsQuery(source) && source.select.includes('*')) || isPersonsNode(source) || isActorsQuery(source)
     const showExportClipboardButtons = isPersonsNode(source) || isEventsQuery(source) || isHogQLQuery(source)
 
     return (
