@@ -316,7 +316,32 @@ class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
 class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
     def test_all(self):
         results = get_lazy_session_table_properties_v2(None)
-        self.assertEqual(len(results), 20)
+        self.assertEqual(
+            {r["id"] for r in results},
+            {
+                "$autocapture_count",
+                "$channel_type",
+                "$end_current_url",
+                "$end_pathname",
+                "$end_timestamp",
+                "$entry_current_url",
+                "$entry_gad_source",
+                "$entry_gclid",
+                "$entry_pathname",
+                "$entry_referring_domain",
+                "$entry_utm_campaign",
+                "$entry_utm_content",
+                "$entry_utm_medium",
+                "$entry_utm_source",
+                "$entry_utm_term",
+                "$is_bounce",
+                "$last_external_click_url",
+                "$pageview_count",
+                "$screen_count",
+                "$session_duration",
+                "$start_timestamp",
+            },
+        )
         self.assertEqual(
             results[0],
             {
