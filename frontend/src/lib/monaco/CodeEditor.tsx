@@ -6,6 +6,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { hogQLAutocompleteProvider } from 'lib/monaco/hogQLAutocompleteProvider'
 import { hogQLMetadataProvider } from 'lib/monaco/hogQLMetadataProvider'
+import * as ehog from 'lib/monaco/languages/ehog'
 import * as hog from 'lib/monaco/languages/hog'
 import * as hogQL from 'lib/monaco/languages/hogql'
 import { inStorybookTestRunner } from 'lib/utils'
@@ -57,6 +58,8 @@ export function CodeEditor({ queryKey, options, onMount, value, ...editorProps }
                 scrollBeyondLastLine: false,
                 automaticLayout: true,
                 fixedOverflowWidgets: true,
+                glyphMargin: false,
+                folding: true,
                 wordWrap: 'off',
                 lineNumbers: 'on',
                 ...options,
@@ -71,6 +74,20 @@ export function CodeEditor({ queryKey, options, onMount, value, ...editorProps }
             {...editorProps}
             onMount={(editor, monaco) => {
                 setMonacoAndEditor([monaco, editor])
+                if (editorProps?.language === 'ehog') {
+                    if (!monaco.languages.getLanguages().some(({ id }) => id === 'ehog')) {
+                        monaco.languages.register({
+                            id: 'ehog',
+                            extensions: ['.ehog'],
+                            mimetypes: ['application/e+hog'],
+                        })
+                        monaco.languages.setLanguageConfiguration('ehog', ehog.conf)
+                        monaco.languages.setMonarchTokensProvider('ehog', ehog.language)
+                    }
+                    monacoDisposables.current.push(
+                        monaco.languages.registerCodeActionProvider('ehog', hogQLMetadataProvider(builtCodeEditorLogic))
+                    )
+                }
                 if (editorProps?.language === 'hog') {
                     if (!monaco.languages.getLanguages().some(({ id }) => id === 'hog')) {
                         monaco.languages.register({ id: 'hog', extensions: ['.hog'], mimetypes: ['application/hog'] })
