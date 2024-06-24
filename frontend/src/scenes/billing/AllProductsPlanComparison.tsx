@@ -273,7 +273,7 @@ export const AllProductsPlanComparison = ({
                             <React.Fragment key={`inclusion-only-product-features-${includedProduct.type}`}>
                                 <tr className="border-b">
                                     {/* Inclusion product title row */}
-                                    <th colSpan={3} className="bg-side justify-left rounded text-left mb-2 py-6">
+                                    <th colSpan={3} className="justify-left rounded text-left mb-2 py-6">
                                         <div className="flex items-center gap-x-2 my-2">
                                             {getProductIcon(includedProduct.name, includedProduct.icon_key, 'text-2xl')}
                                             <Tooltip title={includedProduct.description}>

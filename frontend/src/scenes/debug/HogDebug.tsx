@@ -1,9 +1,9 @@
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
-import { CodeEditor } from 'lib/components/CodeEditors'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { CodeEditor } from 'lib/monaco/CodeEditor'
 import type { IDisposable } from 'monaco-editor'
 import { useEffect, useRef, useState } from 'react'
 
@@ -15,7 +15,10 @@ import { HogQuery, HogQueryResponse } from '~/queries/schema'
 export interface HogQueryEditorProps {
     query: HogQuery
     setQuery?: (query: HogQuery) => void
+    queryKey?: string
 }
+
+let uniqueNode = 0
 
 export function HogQueryEditor(props: HogQueryEditorProps): JSX.Element {
     // Using useRef, not useState, as we don't want to reload the component when this changes.
@@ -29,6 +32,7 @@ export function HogQueryEditor(props: HogQueryEditorProps): JSX.Element {
     useEffect(() => {
         setQueryInput(props.query?.code)
     }, [props.query?.code])
+    const [realKey] = useState(() => uniqueNode++)
 
     function saveQuery(): void {
         if (props.setQuery) {
@@ -43,6 +47,7 @@ export function HogQueryEditor(props: HogQueryEditorProps): JSX.Element {
                     {/* eslint-disable-next-line react/forbid-dom-props */}
                     <div className="resize-y overflow-hidden" style={{ height: 222 }}>
                         <CodeEditor
+                            queryKey={props.queryKey ?? `new/${realKey}`}
                             className="border rounded overflow-hidden h-full"
                             language="hog"
                             value={queryInput}
@@ -111,7 +116,7 @@ export function HogDebug({ query, setQuery, queryKey, debug }: HogDebugProps): J
             <div className="space-y-2">
                 {setQuery ? (
                     <>
-                        <HogQueryEditor query={query} setQuery={setQuery} />
+                        <HogQueryEditor query={query} setQuery={setQuery} queryKey={queryKey} />
                         <LemonDivider className="my-4" />
                         <div className="flex gap-2">
                             <Reload />
