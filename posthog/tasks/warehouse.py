@@ -39,30 +39,19 @@ def check_synced_row_limits() -> None:
 @shared_task(ignore_result=True)
 def check_synced_row_limits_of_team(team_id: int) -> None:
     logger.info("Checking synced row limits of team", team_id=team_id)
-    org = Team.objects.get(pk=team_id).organization
 
-    # get row limit from organization
-    usd_limit = org.get_billing_limit_by_product("data_warehouse")
-
-    if usd_limit is None:
-        return
-
-    row_limit = usd_limit / 0.00001
-    billing_period_start = org.get_billing_period_start()
-    if billing_period_start is None:
-        # TODO: add logging that this team is syncing rows without a billing period
-        return
-
+    # TODO: Can change this to be billing period based once billing is integrated
+    start_of_month = datetime.datetime.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     rows_synced_list = [
         x
-        for x in ExternalDataJob.objects.filter(team_id=team_id, created_at__gte=billing_period_start).values_list(
+        for x in ExternalDataJob.objects.filter(team_id=team_id, created_at__gte=start_of_month).values_list(
             "rows_synced", flat=True
         )
         if x
     ]
     total_rows_synced = sum(rows_synced_list)
 
-    if total_rows_synced > row_limit:
+    if total_rows_synced > MONTHLY_LIMIT:
         running_jobs = ExternalDataJob.objects.filter(team_id=team_id, status=ExternalDataJob.Status.RUNNING)
         for job in running_jobs:
             try:
