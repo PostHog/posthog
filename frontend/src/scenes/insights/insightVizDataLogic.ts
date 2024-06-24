@@ -97,6 +97,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         updateBreakdownFilter: (breakdownFilter: BreakdownFilter) => ({ breakdownFilter }),
         updateCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
         updateDisplay: (display: ChartDisplayType | undefined) => ({ display }),
+        updateHiddenLegendIndexes: (hiddenLegendIndexes: number[] | undefined) => ({ hiddenLegendIndexes }),
         setTimedOutQueryId: (id: string | null) => ({ id }),
     }),
 
@@ -360,47 +361,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
     }),
 
     listeners(({ actions, values, props }) => ({
-        updateDateRange: async ({ dateRange }, breakpoint) => {
-            await breakpoint(300)
-            actions.updateQuerySource({
-                dateRange: {
-                    ...values.dateRange,
-                    ...dateRange,
-                },
-                ...(dateRange.date_from == 'all' ? ({ compareFilter: undefined } as Partial<TrendsQuery>) : {}),
-            })
-        },
-        updateBreakdownFilter: async ({ breakdownFilter }, breakpoint) => {
-            await breakpoint(500) // extra debounce time because of number input
-            actions.updateQuerySource({
-                breakdownFilter: { ...values.breakdownFilter, ...breakdownFilter },
-            } as Partial<TrendsQuery>)
-        },
-        updateCompareFilter: async ({ compareFilter }, breakpoint) => {
-            await breakpoint(500) // extra debounce time because of number input
-            actions.updateQuerySource({
-                compareFilter: { ...values.compareFilter, ...compareFilter },
-            } as Partial<TrendsQuery>)
-        },
-        updateInsightFilter: async ({ insightFilter }, breakpoint) => {
-            await breakpoint(300)
-            const filterProperty = filterKeyForQuery(values.localQuerySource)
-            actions.updateQuerySource({
-                [filterProperty]: { ...values.localQuerySource[filterProperty], ...insightFilter },
-            })
-        },
-        updateDisplay: ({ display }) => {
-            actions.updateInsightFilter({ display })
-        },
-        updateQuerySource: ({ querySource }) => {
-            actions.setQuery({
-                ...values.query,
-                source: {
-                    ...values.querySource,
-                    ...handleQuerySourceUpdateSideEffects(querySource, values.querySource as InsightQueryNode),
-                },
-            } as Node)
-        },
+        // query
         setQuery: ({ query }) => {
             if (isInsightVizNode(query)) {
                 if (query.source.kind === NodeKind.TrendsQuery) {
@@ -421,6 +382,58 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 actions.setFilters(filters)
             }
         },
+
+        // query source
+        updateQuerySource: ({ querySource }) => {
+            actions.setQuery({
+                ...values.query,
+                source: {
+                    ...values.querySource,
+                    ...handleQuerySourceUpdateSideEffects(querySource, values.querySource as InsightQueryNode),
+                },
+            } as Node)
+        },
+
+        // query source properties
+        updateDateRange: async ({ dateRange }, breakpoint) => {
+            await breakpoint(300)
+            actions.updateQuerySource({
+                dateRange: {
+                    ...values.dateRange,
+                    ...dateRange,
+                },
+                ...(dateRange.date_from == 'all' ? ({ compareFilter: undefined } as Partial<TrendsQuery>) : {}),
+            })
+        },
+        updateBreakdownFilter: async ({ breakdownFilter }, breakpoint) => {
+            await breakpoint(500) // extra debounce time because of number input
+            const update: Partial<TrendsQuery> = { breakdownFilter: { ...values.breakdownFilter, ...breakdownFilter } }
+            actions.updateQuerySource(update)
+        },
+        updateCompareFilter: async ({ compareFilter }, breakpoint) => {
+            await breakpoint(500) // extra debounce time because of number input
+            const update: Partial<TrendsQuery> = { compareFilter: { ...values.compareFilter, ...compareFilter } }
+            actions.updateQuerySource(update)
+        },
+
+        // insight filter
+        updateInsightFilter: async ({ insightFilter }, breakpoint) => {
+            await breakpoint(300)
+            const filterProperty = filterKeyForQuery(values.localQuerySource)
+            actions.updateQuerySource({
+                [filterProperty]: { ...values.localQuerySource[filterProperty], ...insightFilter },
+            })
+        },
+
+        // insight filter properties
+        updateDisplay: ({ display }) => {
+            actions.updateInsightFilter({ display })
+        },
+        updateHiddenLegendIndexes: ({ hiddenLegendIndexes }) => {
+            actions.updateInsightFilter({ hiddenLegendIndexes })
+        },
+
+        // data loading side effects i.e. diplaying loading screens for queries with longer duration
         loadData: async ({ queryId }, breakpoint) => {
             actions.setTimedOutQueryId(null)
 

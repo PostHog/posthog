@@ -802,7 +802,7 @@ describe('set response-based survey branching', () => {
                 logic.actions.setResponseBasedBranchingForQuestion(
                     questionIndex,
                     0,
-                    SurveyQuestionBranchingType.ConfirmationMessage,
+                    SurveyQuestionBranchingType.End,
                     undefined
                 )
                 logic.actions.setResponseBasedBranchingForQuestion(
@@ -824,12 +824,512 @@ describe('set response-based survey branching', () => {
                                 ...SURVEY.questions[0],
                                 branching: {
                                     type: SurveyQuestionBranchingType.ResponseBased,
-                                    responseValues: { 0: SurveyQuestionBranchingType.ConfirmationMessage }, // Branching out to "Next question" is implicit
+                                    responseValues: { 0: SurveyQuestionBranchingType.End }, // Branching out to "Next question" is implicit
                                 },
                             },
                             { ...SURVEY.questions[1] },
                         ],
                     }),
+                })
+        })
+
+        it('should detect a cycle', async () => {
+            SURVEY.questions = [
+                {
+                    type: SurveyQuestionType.Rating,
+                    question: '0',
+                    description: '',
+                    display: 'number',
+                    scale: 5,
+                    lowerBoundLabel: 'Unlikely',
+                    upperBoundLabel: 'Very likely',
+                    branching: {
+                        type: SurveyQuestionBranchingType.SpecificQuestion,
+                        index: 1,
+                    },
+                },
+                {
+                    type: SurveyQuestionType.Rating,
+                    question: '1',
+                    description: '',
+                    display: 'number',
+                    scale: 5,
+                    lowerBoundLabel: 'Unlikely',
+                    upperBoundLabel: 'Very likely',
+                    branching: {
+                        type: SurveyQuestionBranchingType.SpecificQuestion,
+                        index: 0,
+                    },
+                },
+            ]
+            await expectLogic(logic, () => {
+                logic.actions.loadSurveySuccess(SURVEY)
+            })
+                .toDispatchActions(['loadSurveySuccess'])
+                .toMatchValues({
+                    hasCycle: true,
+                })
+
+            SURVEY.questions = [
+                {
+                    type: SurveyQuestionType.Rating,
+                    question: '0',
+                    description: '',
+                    display: 'number',
+                    scale: 5,
+                    lowerBoundLabel: 'Unlikely',
+                    upperBoundLabel: 'Very likely',
+                    branching: {
+                        type: SurveyQuestionBranchingType.SpecificQuestion,
+                        index: 1,
+                    },
+                },
+                {
+                    type: SurveyQuestionType.Rating,
+                    question: '1',
+                    description: '',
+                    display: 'number',
+                    scale: 5,
+                    lowerBoundLabel: 'Unlikely',
+                    upperBoundLabel: 'Very likely',
+                    branching: {
+                        type: SurveyQuestionBranchingType.SpecificQuestion,
+                        index: 2,
+                    },
+                },
+                {
+                    type: SurveyQuestionType.Rating,
+                    question: '2',
+                    description: '',
+                    display: 'number',
+                    scale: 5,
+                    lowerBoundLabel: 'Unlikely',
+                    upperBoundLabel: 'Very likely',
+                    branching: {
+                        type: SurveyQuestionBranchingType.SpecificQuestion,
+                        index: 1,
+                    },
+                },
+            ]
+
+            await expectLogic(logic, () => {
+                logic.actions.loadSurveySuccess(SURVEY)
+            })
+                .toDispatchActions(['loadSurveySuccess'])
+                .toMatchValues({
+                    hasCycle: true,
+                })
+
+            SURVEY.questions = [
+                {
+                    type: SurveyQuestionType.Rating,
+                    question: '0',
+                    description: '',
+                    display: 'number',
+                    scale: 5,
+                    lowerBoundLabel: 'Unlikely',
+                    upperBoundLabel: 'Very likely',
+                    branching: {
+                        type: SurveyQuestionBranchingType.ResponseBased,
+                        responseValues: { 2: 1 },
+                    },
+                },
+                {
+                    type: SurveyQuestionType.Rating,
+                    question: '1',
+                    description: '',
+                    display: 'number',
+                    scale: 5,
+                    lowerBoundLabel: 'Unlikely',
+                    upperBoundLabel: 'Very likely',
+                    branching: {
+                        type: SurveyQuestionBranchingType.ResponseBased,
+                        responseValues: { 3: 0 },
+                    },
+                },
+            ]
+            await expectLogic(logic, () => {
+                logic.actions.loadSurveySuccess(SURVEY)
+            })
+                .toDispatchActions(['loadSurveySuccess'])
+                .toMatchValues({
+                    hasCycle: true,
+                })
+
+            SURVEY.questions = [
+                {
+                    type: SurveyQuestionType.Rating,
+                    question: '0',
+                    description: '',
+                    display: 'number',
+                    scale: 5,
+                    lowerBoundLabel: 'Unlikely',
+                    upperBoundLabel: 'Very likely',
+                    branching: {
+                        type: SurveyQuestionBranchingType.ResponseBased,
+                        responseValues: { 2: 3 },
+                    },
+                },
+                {
+                    type: SurveyQuestionType.Rating,
+                    question: '1',
+                    description: '',
+                    display: 'number',
+                    scale: 5,
+                    lowerBoundLabel: 'Unlikely',
+                    upperBoundLabel: 'Very likely',
+                },
+                {
+                    type: SurveyQuestionType.Rating,
+                    question: '2',
+                    description: '',
+                    display: 'number',
+                    scale: 5,
+                    lowerBoundLabel: 'Unlikely',
+                    upperBoundLabel: 'Very likely',
+                },
+                {
+                    type: SurveyQuestionType.Rating,
+                    question: '3',
+                    description: '',
+                    display: 'number',
+                    scale: 5,
+                    lowerBoundLabel: 'Unlikely',
+                    upperBoundLabel: 'Very likely',
+                    branching: {
+                        type: SurveyQuestionBranchingType.ResponseBased,
+                        responseValues: { 3: 5 },
+                    },
+                },
+                {
+                    type: SurveyQuestionType.Rating,
+                    question: '4',
+                    description: '',
+                    display: 'number',
+                    scale: 5,
+                    lowerBoundLabel: 'Unlikely',
+                    upperBoundLabel: 'Very likely',
+                    branching: {
+                        type: SurveyQuestionBranchingType.SpecificQuestion,
+                        index: 2,
+                    },
+                },
+                {
+                    type: SurveyQuestionType.Rating,
+                    question: '5',
+                    description: '',
+                    display: 'number',
+                    scale: 5,
+                    lowerBoundLabel: 'Unlikely',
+                    upperBoundLabel: 'Very likely',
+                },
+            ]
+            await expectLogic(logic, () => {
+                logic.actions.loadSurveySuccess(SURVEY)
+            })
+                .toDispatchActions(['loadSurveySuccess'])
+                .toMatchValues({
+                    hasCycle: true,
+                })
+        })
+
+        it('should not detect a cycle', async () => {
+            SURVEY.questions = [
+                {
+                    type: SurveyQuestionType.Rating,
+                    question: '0',
+                    description: '',
+                    display: 'number',
+                    scale: 5,
+                    lowerBoundLabel: 'Unlikely',
+                    upperBoundLabel: 'Very likely',
+                },
+            ]
+            await expectLogic(logic, () => {
+                logic.actions.loadSurveySuccess(SURVEY)
+            })
+                .toDispatchActions(['loadSurveySuccess'])
+                .toMatchValues({
+                    hasCycle: false,
+                })
+
+            SURVEY.questions = [
+                {
+                    type: SurveyQuestionType.Rating,
+                    question: '0',
+                    description: '',
+                    display: 'number',
+                    scale: 5,
+                    lowerBoundLabel: 'Unlikely',
+                    upperBoundLabel: 'Very likely',
+                },
+                {
+                    type: SurveyQuestionType.Rating,
+                    question: '1',
+                    description: '',
+                    display: 'number',
+                    scale: 5,
+                    lowerBoundLabel: 'Unlikely',
+                    upperBoundLabel: 'Very likely',
+                },
+                {
+                    type: SurveyQuestionType.Rating,
+                    question: '2',
+                    description: '',
+                    display: 'number',
+                    scale: 5,
+                    lowerBoundLabel: 'Unlikely',
+                    upperBoundLabel: 'Very likely',
+                },
+            ]
+            await expectLogic(logic, () => {
+                logic.actions.loadSurveySuccess(SURVEY)
+            })
+                .toDispatchActions(['loadSurveySuccess'])
+                .toMatchValues({
+                    hasCycle: false,
+                })
+
+            SURVEY.questions = [
+                {
+                    type: SurveyQuestionType.Rating,
+                    question: '0',
+                    description: '',
+                    display: 'number',
+                    scale: 5,
+                    lowerBoundLabel: 'Unlikely',
+                    upperBoundLabel: 'Very likely',
+                    branching: {
+                        type: SurveyQuestionBranchingType.SpecificQuestion,
+                        index: 1,
+                    },
+                },
+                {
+                    type: SurveyQuestionType.Rating,
+                    question: '1',
+                    description: '',
+                    display: 'number',
+                    scale: 5,
+                    lowerBoundLabel: 'Unlikely',
+                    upperBoundLabel: 'Very likely',
+                },
+            ]
+            await expectLogic(logic, () => {
+                logic.actions.loadSurveySuccess(SURVEY)
+            })
+                .toDispatchActions(['loadSurveySuccess'])
+                .toMatchValues({
+                    hasCycle: false,
+                })
+
+            SURVEY.questions = [
+                {
+                    type: SurveyQuestionType.Rating,
+                    question: '0',
+                    description: '',
+                    display: 'number',
+                    scale: 5,
+                    lowerBoundLabel: 'Unlikely',
+                    upperBoundLabel: 'Very likely',
+                    branching: {
+                        type: SurveyQuestionBranchingType.SpecificQuestion,
+                        index: 1,
+                    },
+                },
+                {
+                    type: SurveyQuestionType.Rating,
+                    question: '1',
+                    description: '',
+                    display: 'number',
+                    scale: 5,
+                    lowerBoundLabel: 'Unlikely',
+                    upperBoundLabel: 'Very likely',
+                    branching: {
+                        type: SurveyQuestionBranchingType.SpecificQuestion,
+                        index: 2,
+                    },
+                },
+                {
+                    type: SurveyQuestionType.Rating,
+                    question: '2',
+                    description: '',
+                    display: 'number',
+                    scale: 5,
+                    lowerBoundLabel: 'Unlikely',
+                    upperBoundLabel: 'Very likely',
+                },
+            ]
+
+            await expectLogic(logic, () => {
+                logic.actions.loadSurveySuccess(SURVEY)
+            })
+                .toDispatchActions(['loadSurveySuccess'])
+                .toMatchValues({
+                    hasCycle: false,
+                })
+
+            SURVEY.questions = [
+                {
+                    type: SurveyQuestionType.Rating,
+                    question: '0',
+                    description: '',
+                    display: 'number',
+                    scale: 5,
+                    lowerBoundLabel: 'Unlikely',
+                    upperBoundLabel: 'Very likely',
+                    branching: {
+                        type: SurveyQuestionBranchingType.ResponseBased,
+                        responseValues: { 2: 1, 5: SurveyQuestionBranchingType.End },
+                    },
+                },
+                {
+                    type: SurveyQuestionType.Rating,
+                    question: '1',
+                    description: '',
+                    display: 'number',
+                    scale: 5,
+                    lowerBoundLabel: 'Unlikely',
+                    upperBoundLabel: 'Very likely',
+                    branching: {
+                        type: SurveyQuestionBranchingType.ResponseBased,
+                        responseValues: { 3: SurveyQuestionBranchingType.End },
+                    },
+                },
+            ]
+            await expectLogic(logic, () => {
+                logic.actions.loadSurveySuccess(SURVEY)
+            })
+                .toDispatchActions(['loadSurveySuccess'])
+                .toMatchValues({
+                    hasCycle: false,
+                })
+
+            SURVEY.questions = [
+                {
+                    type: SurveyQuestionType.Rating,
+                    question: '0',
+                    description: '',
+                    display: 'number',
+                    scale: 5,
+                    lowerBoundLabel: 'Unlikely',
+                    upperBoundLabel: 'Very likely',
+                    branching: {
+                        type: SurveyQuestionBranchingType.ResponseBased,
+                        responseValues: { 2: 3 },
+                    },
+                },
+                {
+                    type: SurveyQuestionType.Rating,
+                    question: '1',
+                    description: '',
+                    display: 'number',
+                    scale: 5,
+                    lowerBoundLabel: 'Unlikely',
+                    upperBoundLabel: 'Very likely',
+                },
+                {
+                    type: SurveyQuestionType.Rating,
+                    question: '2',
+                    description: '',
+                    display: 'number',
+                    scale: 5,
+                    lowerBoundLabel: 'Unlikely',
+                    upperBoundLabel: 'Very likely',
+                },
+                {
+                    type: SurveyQuestionType.Rating,
+                    question: '3',
+                    description: '',
+                    display: 'number',
+                    scale: 5,
+                    lowerBoundLabel: 'Unlikely',
+                    upperBoundLabel: 'Very likely',
+                    branching: {
+                        type: SurveyQuestionBranchingType.ResponseBased,
+                        responseValues: { 3: 5 },
+                    },
+                },
+                {
+                    type: SurveyQuestionType.Rating,
+                    question: '4',
+                    description: '',
+                    display: 'number',
+                    scale: 5,
+                    lowerBoundLabel: 'Unlikely',
+                    upperBoundLabel: 'Very likely',
+                    branching: { type: SurveyQuestionBranchingType.End },
+                },
+                {
+                    type: SurveyQuestionType.Rating,
+                    question: '5',
+                    description: '',
+                    display: 'number',
+                    scale: 5,
+                    lowerBoundLabel: 'Unlikely',
+                    upperBoundLabel: 'Very likely',
+                },
+            ]
+            await expectLogic(logic, () => {
+                logic.actions.loadSurveySuccess(SURVEY)
+            })
+                .toDispatchActions(['loadSurveySuccess'])
+                .toMatchValues({
+                    hasCycle: false,
+                })
+
+            SURVEY.questions = [
+                {
+                    type: SurveyQuestionType.SingleChoice,
+                    choices: ['Yes', 'No'],
+                    question: '0',
+                    description: '',
+                    branching: {
+                        type: SurveyQuestionBranchingType.ResponseBased,
+                        responseValues: { 0: 1, 1: 2 },
+                    },
+                },
+                {
+                    type: SurveyQuestionType.SingleChoice,
+                    choices: ['Yes', 'No'],
+                    question: '1',
+                    description: '',
+                    branching: {
+                        type: SurveyQuestionBranchingType.ResponseBased,
+                        responseValues: { 0: 2, 1: 3 },
+                    },
+                },
+                {
+                    type: SurveyQuestionType.SingleChoice,
+                    choices: ['Yes', 'No'],
+                    question: '2',
+                    description: '',
+                    branching: {
+                        type: SurveyQuestionBranchingType.SpecificQuestion,
+                        index: 4,
+                    },
+                },
+                {
+                    type: SurveyQuestionType.SingleChoice,
+                    choices: ['Yes', 'No'],
+                    question: '3',
+                    description: '',
+                    branching: {
+                        type: SurveyQuestionBranchingType.End,
+                    },
+                },
+                {
+                    type: SurveyQuestionType.SingleChoice,
+                    choices: ['Yes', 'No'],
+                    question: '4',
+                    description: '',
+                },
+            ]
+            await expectLogic(logic, () => {
+                logic.actions.loadSurveySuccess(SURVEY)
+            })
+                .toDispatchActions(['loadSurveySuccess'])
+                .toMatchValues({
+                    hasCycle: false,
                 })
         })
     })

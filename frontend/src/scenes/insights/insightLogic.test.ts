@@ -237,36 +237,6 @@ describe('insightLogic', () => {
         })
     })
 
-    describe('insight legend', () => {
-        it('initialize insight with hidden keys', async () => {
-            logic = insightLogic({
-                dashboardItemId: undefined,
-                cachedInsight: {
-                    filters: { insight: InsightType.FUNNELS, hidden_legend_keys: { 0: true, 10: true } },
-                },
-            })
-            logic.mount()
-            await expectLogic(logic).toMatchValues({
-                filters: partial({ hidden_legend_keys: { 0: true, 10: true } }),
-            })
-        })
-
-        it('toggleVisibility', async () => {
-            logic = insightLogic({
-                dashboardItemId: undefined,
-            })
-            logic.mount()
-
-            expectLogic(logic, () => {
-                logic.actions.toggleVisibility(1)
-            }).toMatchValues({ hiddenLegendKeys: { 1: true } })
-
-            expectLogic(logic, () => {
-                logic.actions.toggleVisibility(1)
-            }).toMatchValues({ hiddenLegendKeys: { 1: undefined } })
-        })
-    })
-
     describe('as dashboard item', () => {
         describe('props with filters and cached results', () => {
             beforeEach(() => {
@@ -603,39 +573,6 @@ describe('insightLogic', () => {
             .toMatchValues({
                 location: partial({ pathname: '/insights/12/edit' }),
             })
-    })
-
-    describe('hiddenLegendKeys selector', () => {
-        it('properly migrates pre-#12113 visibility keys', async () => {
-            logic = insightLogic({
-                dashboardItemId: Insight42,
-                cachedInsight: {
-                    short_id: Insight42,
-                    results: undefined,
-                    filters: {
-                        insight: InsightType.FUNNELS,
-                        hidden_legend_keys: {
-                            // Pre-#12113 funnel visibility key style
-                            'events/$pageview/0/Baseline': true,
-                            'events/$pageview/1/Baseline': undefined,
-                            // Post-#12113 funnel visibility key style
-                            'Chrome OS': undefined,
-                            Windows: true,
-                        },
-                    },
-                },
-            })
-            logic.mount()
-
-            expectLogic(logic).toMatchValues({
-                hiddenLegendKeys: {
-                    // 'events/$pageview/0/Baseline' should be transformed to 'Baseline'
-                    Baseline: true,
-                    'Chrome OS': undefined,
-                    Windows: true,
-                },
-            })
-        })
     })
 
     describe('emptyFilters', () => {
