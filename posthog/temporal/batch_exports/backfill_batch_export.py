@@ -114,7 +114,7 @@ class BackfillScheduleInputs:
 def get_utcnow():
     """Return the current time in UTC. This function is only required for mocking during tests,
     because mocking the global datetime breaks Temporal."""
-    return dt.datetime.now(dt.timezone.utc)
+    return dt.datetime.now(dt.UTC)
 
 
 @temporalio.activity.defn

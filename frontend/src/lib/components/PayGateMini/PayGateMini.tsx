@@ -2,6 +2,8 @@ import { IconInfo, IconOpenSidebar } from '@posthog/icons'
 import { LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import posthog from 'posthog-js'
 import { useEffect } from 'react'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -14,6 +16,7 @@ import {
     BillingProductV2AddonType,
     BillingProductV2Type,
     BillingV2FeatureType,
+    BillingV2Type,
 } from '~/types'
 
 import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
@@ -107,6 +110,7 @@ export function PayGateMini({
                 productWithFeature={productWithFeature}
                 isGrandfathered={isGrandfathered}
                 isAddonProduct={isAddonProduct}
+                billing={billing}
                 featureInfoOnNextPlan={featureInfoOnNextPlan}
                 handleCtaClick={handleCtaClick}
             >
@@ -118,6 +122,7 @@ export function PayGateMini({
                         onCtaClick={handleCtaClick}
                         billing={billing}
                         scrollToProduct={!!scrollToProduct}
+                        isAddonProduct={isAddonProduct}
                     />
                     {docsLink && isCloudOrDev && (
                         <LemonButton
@@ -147,6 +152,7 @@ interface PayGateContentProps {
     productWithFeature: BillingProductV2AddonType | BillingProductV2Type
     isGrandfathered?: boolean
     isAddonProduct?: boolean
+    billing: BillingV2Type | null
     featureInfoOnNextPlan?: BillingV2FeatureType
     children: React.ReactNode
     handleCtaClick: () => void
@@ -161,10 +167,12 @@ function PayGateContent({
     productWithFeature,
     isGrandfathered,
     isAddonProduct,
+    billing,
     featureInfoOnNextPlan,
     children,
     handleCtaClick,
 }: PayGateContentProps): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
     return (
         <div
             className={clsx(
@@ -183,6 +191,8 @@ function PayGateContent({
                 gateVariant,
                 featureInfo,
                 productWithFeature,
+                billing,
+                featureFlags,
                 isAddonProduct,
                 handleCtaClick
             )}
@@ -199,6 +209,8 @@ const renderUsageLimitMessage = (
     gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
     featureInfo: BillingV2FeatureType,
     productWithFeature: BillingProductV2AddonType | BillingProductV2Type,
+    billing: BillingV2Type | null,
+    featureFlags: FeatureFlagsSet,
     isAddonProduct?: boolean,
     handleCtaClick?: () => void
 ): JSX.Element => {
@@ -275,7 +287,7 @@ const renderUsageLimitMessage = (
     return (
         <>
             <p className="max-w-140">{featureInfo.description}</p>
-            <p>{renderGateVariantMessage(gateVariant, productWithFeature, isAddonProduct)}</p>
+            <p>{renderGateVariantMessage(gateVariant, productWithFeature, billing, featureFlags, isAddonProduct)}</p>
         </>
     )
 }
@@ -283,6 +295,8 @@ const renderUsageLimitMessage = (
 const renderGateVariantMessage = (
     gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
     productWithFeature: BillingProductV2AddonType | BillingProductV2Type,
+    billing: BillingV2Type | null,
+    featureFlags: FeatureFlagsSet,
     isAddonProduct?: boolean
 ): JSX.Element => {
     if (gateVariant === 'move-to-cloud') {
@@ -293,7 +307,13 @@ const renderGateVariantMessage = (
                 Subscribe to the <b>{productWithFeature?.name}</b> addon to use this feature.
             </>
         )
+    } else if (
+        featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' &&
+        billing?.subscription_level === 'free'
+    ) {
+        return <>Upgrade to use this feature.</>
     }
+
     return (
         <>
             Upgrade your <b>{productWithFeature?.name}</b> plan to use this feature.

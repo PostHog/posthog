@@ -66,6 +66,8 @@ import {
 } from '~/queries/utils'
 import { EventType, InsightLogicProps } from '~/types'
 
+import { DataTableOpenEditor } from './DataTableOpenEditor'
+
 interface DataTableProps {
     uniqueKey?: string | number
     query: DataTableNode
@@ -444,6 +446,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
             <ColumnConfigurator key="column-configurator" query={query} setQuery={setQuery} />
         ) : null,
         showExport ? <DataTableExport key="data-table-export" query={query} setQuery={setQuery} /> : null,
+        showOpenEditorButton ? <DataTableOpenEditor key="data-table-export" query={query} setQuery={setQuery} /> : null,
     ].filter((x) => !!x)
 
     const showFirstRow = !isReadOnly && (firstRowLeft.length > 0 || firstRowRight.length > 0)

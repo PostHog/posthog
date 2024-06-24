@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from unittest import mock
 from uuid import UUID, uuid4
 
@@ -143,7 +143,7 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
         wraps=posthog.management.commands.sync_persons_to_clickhouse.raw_create_group_ch,
     )
     def test_group_sync(self, mocked_ch_call):
-        ts = datetime.now(timezone.utc)
+        ts = datetime.now(UTC)
         Group.objects.create(
             team_id=self.team.pk,
             group_type_index=2,
@@ -183,12 +183,12 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
             2,
             "group-key",
             {"a": 5},
-            timestamp=datetime.now(timezone.utc) - timedelta(hours=3),
+            timestamp=datetime.now(UTC) - timedelta(hours=3),
         )
         group.group_properties = {"a": 5, "b": 3}
         group.save()
 
-        ts_before = datetime.now(timezone.utc)
+        ts_before = datetime.now(UTC)
         run_group_sync(self.team.pk, live_run=True, sync=True)
         mocked_ch_call.assert_called_once()
 
@@ -213,7 +213,7 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
         )
         self.assertLessEqual(
             ch_group[4].strftime("%Y-%m-%d %H:%M:%S"),
-            datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+            datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
         )
 
         # second time it's a no-op
@@ -225,7 +225,7 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
         wraps=posthog.management.commands.sync_persons_to_clickhouse.raw_create_group_ch,
     )
     def test_group_sync_multiple_entries(self, mocked_ch_call):
-        ts = datetime.now(timezone.utc)
+        ts = datetime.now(UTC)
         Group.objects.create(
             team_id=self.team.pk,
             group_type_index=2,
@@ -430,7 +430,7 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
             group_type_index=2,
             group_key="group-key",
             group_properties={"a": 1234},
-            created_at=datetime.now(timezone.utc) - timedelta(hours=3),
+            created_at=datetime.now(UTC) - timedelta(hours=3),
             version=5,
         )
 

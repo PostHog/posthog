@@ -8,7 +8,7 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 from posthog.models.action.action import Action
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDModel
-from posthog.plugins.reload import reload_hog_functions_on_workers
+from posthog.plugins.plugin_server_api import reload_hog_functions_on_workers
 
 
 class HogFunction(UUIDModel):
@@ -44,28 +44,10 @@ class HogFunction(UUIDModel):
         except KeyError:
             return []
 
-    def compile_filters_bytecode(self, actions: Optional[dict[int, Action]] = None):
-        from .utils import hog_function_filters_to_expr
-        from posthog.hogql.bytecode import create_bytecode
-
-        self.filters = self.filters or {}
-
-        if actions is None:
-            # If not provided as an optimization we fetch all actions
-            actions_list = (
-                Action.objects.select_related("team").filter(team_id=self.team_id).filter(id__in=self.filter_action_ids)
-            )
-            actions = {action.id: action for action in actions_list}
-
-        try:
-            self.filters["bytecode"] = create_bytecode(hog_function_filters_to_expr(self.filters, self.team, actions))
-        except Exception as e:
-            # TODO: Better reporting of this issue
-            self.filters["bytecode"] = None
-            self.filters["bytecode_error"] = str(e)
-
     def save(self, *args, **kwargs):
-        self.compile_filters_bytecode()
+        from posthog.cdp.filters import compile_filters_bytecode
+
+        self.filters = compile_filters_bytecode(self.filters, self.team)
         return super().save(*args, **kwargs)
 
     def __str__(self):

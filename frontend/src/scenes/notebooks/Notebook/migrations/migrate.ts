@@ -123,7 +123,7 @@ function convertInsightQueriesToNewSchema(content: JSONContent[]): JSONContent[]
 
             query.trendsFilter = Object.fromEntries(
                 Object.entries(query.trendsFilter as TrendsFilter)
-                    .filter(([k, _]) => TRENDS_FILTER_PROPERTIES.has(k))
+                    .filter(([k, _]) => TRENDS_FILTER_PROPERTIES.has(k as keyof TrendsFilter))
                     .concat(Object.entries(trendsFilterToQuery(query.trendsFilter as any)))
             )
         }
@@ -160,7 +160,7 @@ function convertInsightQueriesToNewSchema(content: JSONContent[]): JSONContent[]
             // This has to come after compare, because it removes compare
             query.stickinessFilter = Object.fromEntries(
                 Object.entries(query.stickinessFilter as StickinessFilter)
-                    .filter(([k, _]) => STICKINESS_FILTER_PROPERTIES.has(k))
+                    .filter(([k, _]) => STICKINESS_FILTER_PROPERTIES.has(k as keyof StickinessFilter))
                     .concat(Object.entries(stickinessFilterToQuery(query.stickinessFilter as any)))
             )
         }

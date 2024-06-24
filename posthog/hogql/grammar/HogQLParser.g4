@@ -12,7 +12,7 @@ declaration: varDecl | statement ;
 expression: columnExpr;
 
 varDecl: LET identifier ( COLON EQ_SINGLE expression )? ;
-identifierList: identifier (COMMA identifier)*;
+identifierList: identifier (COMMA identifier)* COMMA?;
 
 statement      : returnStmt
                | ifStmt
@@ -20,9 +20,10 @@ statement      : returnStmt
                | forStmt
                | funcStmt
                | varAssignment
+               | block
                | exprStmt
                | emptyStmt
-               | block ;
+               ;
 
 returnStmt     : RETURN expression? SEMICOLON?;
 ifStmt         : IF LPAREN expression RPAREN statement ( ELSE statement )? ;
@@ -39,7 +40,7 @@ emptyStmt      : SEMICOLON ;
 block          : LBRACE declaration* RBRACE ;
 
 kvPair: expression ':' expression ;
-kvPairList: kvPair (COMMA kvPair)* ;
+kvPairList: kvPair (COMMA kvPair)* COMMA?;
 
 
 // SELECT statement
@@ -128,12 +129,12 @@ winFrameBound: (CURRENT ROW | UNBOUNDED PRECEDING | UNBOUNDED FOLLOWING | number
 expr: columnExpr EOF;
 columnTypeExpr
     : identifier                                                                             # ColumnTypeExprSimple   // UInt64
-    | identifier LPAREN identifier columnTypeExpr (COMMA identifier columnTypeExpr)* RPAREN  # ColumnTypeExprNested   // Nested
-    | identifier LPAREN enumValue (COMMA enumValue)* RPAREN                                  # ColumnTypeExprEnum     // Enum
-    | identifier LPAREN columnTypeExpr (COMMA columnTypeExpr)* RPAREN                        # ColumnTypeExprComplex  // Array, Tuple
+    | identifier LPAREN identifier columnTypeExpr (COMMA identifier columnTypeExpr)* COMMA? RPAREN  # ColumnTypeExprNested   // Nested
+    | identifier LPAREN enumValue (COMMA enumValue)* COMMA? RPAREN                                  # ColumnTypeExprEnum     // Enum
+    | identifier LPAREN columnTypeExpr (COMMA columnTypeExpr)* COMMA? RPAREN                        # ColumnTypeExprComplex  // Array, Tuple
     | identifier LPAREN columnExprList? RPAREN                                               # ColumnTypeExprParam    // FixedString(N)
     ;
-columnExprList: columnExpr (COMMA columnExpr)*;
+columnExprList: columnExpr (COMMA columnExpr)* COMMA?;
 columnExpr
     : CASE caseExpr=columnExpr? (WHEN whenExpr=columnExpr THEN thenExpr=columnExpr)+ (ELSE elseExpr=columnExpr)? END          # ColumnExprCase
     | CAST LPAREN columnExpr AS columnTypeExpr RPAREN                                     # ColumnExprCast
@@ -198,11 +199,11 @@ columnExpr
     | columnIdentifier                                                                    # ColumnExprIdentifier
     ;
 
-columnArgList: columnArgExpr (COMMA columnArgExpr)*;
+columnArgList: columnArgExpr (COMMA columnArgExpr)* COMMA?;
 columnArgExpr: columnLambdaExpr | columnExpr;
 columnLambdaExpr:
-    ( LPAREN identifier (COMMA identifier)* RPAREN
-    |        identifier (COMMA identifier)*
+    ( LPAREN identifier (COMMA identifier)* COMMA? RPAREN
+    |        identifier (COMMA identifier)* COMMA?
     )
     ARROW columnExpr
     ;
@@ -218,7 +219,7 @@ hogqlxTagAttribute
     |   identifier
     ;
 
-withExprList: withExpr (COMMA withExpr)*;
+withExprList: withExpr (COMMA withExpr)* COMMA?;
 withExpr
     : identifier AS LPAREN selectUnionStmt RPAREN    # WithExprSubquery
     // NOTE: asterisk and subquery goes before |columnExpr| so that we can mark them as multi-column expressions.
@@ -242,7 +243,7 @@ tableExpr
     ;
 tableFunctionExpr: identifier LPAREN tableArgList? RPAREN;
 tableIdentifier: (databaseIdentifier DOT)? identifier;
-tableArgList: columnExpr (COMMA columnExpr)*;
+tableArgList: columnExpr (COMMA columnExpr)* COMMA?;
 
 // Databases
 

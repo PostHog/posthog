@@ -369,31 +369,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide().json()
         self.assertEqual(
             response["autocaptureExceptions"],
-            {"errors_to_ignore": [], "endpoint": "/e/"},
-        )
-
-    def test_exception_autocapture_errors_to_ignore(self, *args):
-        # :TRICKY: Test for regression around caching
-        response = self._post_decide().json()
-        self.assertEqual(response["autocaptureExceptions"], False)
-
-        self._update_team({"autocapture_exceptions_opt_in": True})
-        self._update_team(
-            {
-                "autocapture_exceptions_errors_to_ignore": [
-                    "ResizeObserver loop limit exceeded",
-                    ".* bot .*",
-                ]
-            }
-        )
-
-        response = self._post_decide().json()
-        self.assertEqual(
-            response["autocaptureExceptions"],
-            {
-                "errors_to_ignore": ["ResizeObserver loop limit exceeded", ".* bot .*"],
-                "endpoint": "/e/",
-            },
+            {"endpoint": "/e/"},
         )
 
     def test_user_session_recording_opt_in_wildcard_domain(self, *args):
@@ -2719,7 +2695,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.assertEqual(response["featureFlags"], {})
         self.assertEqual(
             response["autocaptureExceptions"],
-            {"errors_to_ignore": [], "endpoint": "/e/"},
+            {"endpoint": "/e/"},
         )
 
         # now database is down
@@ -2743,7 +2719,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             self.assertEqual(response["capturePerformance"], True)
             self.assertEqual(
                 response["autocaptureExceptions"],
-                {"errors_to_ignore": [], "endpoint": "/e/"},
+                {"endpoint": "/e/"},
             )
             self.assertEqual(response["featureFlags"], {})
 

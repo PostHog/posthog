@@ -3,7 +3,7 @@ import { ASYNC_STL, STL } from './stl/stl'
 import { convertHogToJS, convertJSToHog, getNestedValue, like, setNestedValue } from './utils'
 
 const DEFAULT_MAX_ASYNC_STEPS = 100
-const DEFAULT_TIMEOUT = 5 // seconds
+const DEFAULT_TIMEOUT_MS = 5000 // ms
 
 export interface VMState {
     /** Bytecode running in the VM */
@@ -25,10 +25,13 @@ export interface VMState {
 }
 
 export interface ExecOptions {
+    /** Global variables to be passed into the function */
     globals?: Record<string, any>
     functions?: Record<string, (...args: any[]) => any>
     asyncFunctions?: Record<string, (...args: any[]) => Promise<any>>
+    /** Timeout in milliseconds */
     timeout?: number
+    /** Max number of async function that can happen. When reached the function will throw */
     maxAsyncSteps?: number
 }
 
@@ -39,6 +42,9 @@ export interface ExecResult {
     asyncFunctionArgs?: any[]
     state?: VMState
 }
+
+/** Maximum function arguments allowed */
+const MAX_ARGS_LENGTH = 300
 
 export function execSync(bytecode: any[], options?: ExecOptions): any {
     const response = exec(bytecode, options)
@@ -66,7 +72,7 @@ export async function execAsync(bytecode: any[], options?: ExecOptions): Promise
                 const result = await ASYNC_STL[response.asyncFunctionName](
                     response.asyncFunctionArgs,
                     response.asyncFunctionName,
-                    options?.timeout ?? DEFAULT_TIMEOUT
+                    options?.timeout ?? DEFAULT_TIMEOUT_MS
                 )
                 vmState.stack.push(result)
             } else {
@@ -105,7 +111,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
     const declaredFunctions: Record<string, [number, number]> = vmState ? vmState.declaredFunctions : {}
     let ip = vmState ? vmState.ip : 1
     let ops = vmState ? vmState.ops : 0
-    const timeout = options?.timeout ?? DEFAULT_TIMEOUT
+    const timeout = options?.timeout ?? DEFAULT_TIMEOUT_MS
     const maxAsyncSteps = options?.maxAsyncSteps ?? DEFAULT_MAX_ASYNC_STEPS
 
     function popStack(): any {
@@ -122,8 +128,8 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
         return bytecode![++ip]
     }
     function checkTimeout(): void {
-        if (syncDuration + Date.now() - startTime > timeout * 1000) {
-            throw new Error(`Execution timed out after ${timeout} seconds. Performed ${ops} ops.`)
+        if (syncDuration + Date.now() - startTime > timeout) {
+            throw new Error(`Execution timed out after ${timeout / 1000} seconds. Performed ${ops} ops.`)
         }
     }
 
@@ -331,14 +337,24 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                     callStack.push([ip + 1, stack.length - argLen, argLen])
                     ip = funcIp
                 } else {
-                    const args = Array(next())
+                    temp = next() // args.length
+                    if (temp > stack.length) {
+                        throw new Error('Not enough arguments on the stack')
+                    }
+                    if (temp > MAX_ARGS_LENGTH) {
+                        throw new Error('Too many arguments')
+                    }
+                    const args = Array(temp)
                         .fill(null)
                         .map(() => popStack())
-                    if (options?.functions && options.functions[name] && name !== 'toString') {
+                    if (options?.functions && options.functions.hasOwnProperty(name) && options.functions[name]) {
                         stack.push(convertJSToHog(options.functions[name](...args.map(convertHogToJS))))
                     } else if (
                         name !== 'toString' &&
-                        ((options?.asyncFunctions && options.asyncFunctions[name]) || name in ASYNC_STL)
+                        ((options?.asyncFunctions &&
+                            options.asyncFunctions.hasOwnProperty(name) &&
+                            options.asyncFunctions[name]) ||
+                            name in ASYNC_STL)
                     ) {
                         if (asyncSteps >= maxAsyncSteps) {
                             throw new Error(`Exceeded maximum number of async steps: ${maxAsyncSteps}`)

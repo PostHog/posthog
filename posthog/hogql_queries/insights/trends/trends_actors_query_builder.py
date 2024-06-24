@@ -244,10 +244,11 @@ class TrendsActorsQueryBuilder:
                     )
                 )
 
-            if self.entity.properties is not None and self.entity.properties != []:
-                conditions.append(property_to_expr(self.entity.properties, self.team))
         else:
             raise ValueError(f"Invalid entity kind {self.entity.kind}")
+
+        if self.entity.properties is not None and self.entity.properties != []:
+            conditions.append(property_to_expr(self.entity.properties, self.team))
 
         return conditions
 
