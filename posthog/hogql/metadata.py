@@ -46,7 +46,6 @@ def get_hogql_metadata(
                 enable_select_queries=True,
                 debug=query.debug or False,
             )
-
             select_ast = parse_select(query.select)
             if query.filters:
                 select_ast = replace_filters(select_ast, query.filters, team)
@@ -57,14 +56,14 @@ def get_hogql_metadata(
                 context=context,
                 dialect="clickhouse",
             )
+            response.warnings = context.warnings
+            response.notices = context.notices
+            response.errors = context.errors
         elif isinstance(query.program, str):
             program = parse_program(query.program)
             create_bytecode(program, supported_functions={"fetch"}, args=[])
         else:
             raise ValueError("Either expr or select must be provided")
-        response.warnings = context.warnings
-        response.notices = context.notices
-        response.errors = context.errors
         response.isValid = len(response.errors) == 0
     except Exception as e:
         response.isValid = False
