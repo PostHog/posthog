@@ -2,7 +2,7 @@ import base64
 import gzip
 import json
 from collections import defaultdict
-from datetime import datetime, UTC
+from datetime import datetime, timezone
 from typing import Any
 from collections.abc import Callable, Generator
 
@@ -268,7 +268,7 @@ def is_active_event(event: SessionRecordingEventSummary) -> bool:
 
 
 def parse_snapshot_timestamp(timestamp: int):
-    return datetime.fromtimestamp(timestamp / 1000, UTC)
+    return datetime.fromtimestamp(timestamp / 1000, timezone.utc)
 
 
 def convert_to_timestamp(source: str) -> int:
