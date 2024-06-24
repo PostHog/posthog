@@ -1,27 +1,32 @@
 import equal from 'fast-deep-equal'
 import { getEventNamesForAction, isEmptyObject } from 'lib/utils'
 
-import { InsightQueryNode, InsightVizNode, Node, NodeKind, TrendsQuery } from '~/queries/schema'
+import { InsightQueryNode, InsightVizNode, Node, NodeKind } from '~/queries/schema'
+import { isInsightQueryWithSeries } from '~/queries/utils'
 import { ActionType, FilterType, InsightModel, QueryBasedInsightModel } from '~/types'
 
 import { filtersToQueryNode } from '../InsightQuery/utils/filtersToQueryNode'
-import { seriesToActionsAndEvents } from '../InsightQuery/utils/queryNodeToFilter'
 
 export const getAllEventNames = (query: InsightQueryNode, allActions: ActionType[]): string[] => {
-    const { actions, events } = seriesToActionsAndEvents((query as TrendsQuery).series || [])
-
-    // If there's a "All events" entity, don't filter by event names.
-    if (events.find((e) => e.id === null)) {
+    if (!isInsightQueryWithSeries(query)) {
         return []
     }
 
-    const allEvents = [
-        ...events.map((e) => String(e.id)),
-        ...actions.flatMap((action) => getEventNamesForAction(action.id as string | number, allActions)),
-    ]
+    const allEvents = query.series.flatMap((e) => {
+        if (e.kind == NodeKind.EventsNode) {
+            return e.event
+        } else if (e.kind == NodeKind.ActionsNode) {
+            return getEventNamesForAction(e.id, allActions)
+        }
+    })
+
+    // has one "all events" event
+    if (allEvents.some((e) => e === null)) {
+        return []
+    }
 
     // remove duplicates and empty events
-    return Array.from(new Set(allEvents.filter((a): a is string => !!a)))
+    return Array.from(new Set(allEvents.filter((e): e is string => !!e)))
 }
 
 export const getCachedResults = (

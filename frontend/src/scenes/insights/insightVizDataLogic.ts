@@ -14,7 +14,9 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
 import { BASE_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
 
+import { actionsModel } from '~/models/actionsModel'
 import { queryNodeToFilter, seriesNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { getAllEventNames } from '~/queries/nodes/InsightViz/utils'
 import {
     BreakdownFilter,
     CompareFilter,
@@ -357,6 +359,12 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     ...seriesNodeToFilter(rest),
                 })),
             }),
+        ],
+
+        // all events used in the insight (useful for fetching only relevant property definitions)
+        allEventNames: [
+            (s) => [s.querySource, actionsModel.selectors.actions],
+            (querySource, actions) => getAllEventNames(querySource, actions),
         ],
     }),
 
