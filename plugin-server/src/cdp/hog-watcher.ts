@@ -110,13 +110,24 @@ export const getAverageRating = (observations: HogWatcherObservationPeriod[]): n
     return observations.length ? observations.reduce((acc, x) => acc + calculateRating(x), 0) / observations.length : 1
 }
 
+export const periodTimestamp = (timestamp?: number): number => {
+    // Returns the timestamp but rounded to the nearest period (e.g. 1 minute)
+    return Math.floor((timestamp ?? now()) / OBSERVATION_PERIOD) * OBSERVATION_PERIOD
+}
+
 export const deriveCurrentState = (
     _observations: HogWatcherObservationPeriod[],
     states: HogWatcherStatePeriod[]
 ): HogWatcherState => {
+    const period = periodTimestamp()
     // TODO: Prune old observations and states
     // Observations are pruned by age
-    const observations = _observations.filter((x) => now() - x.timestamp < EVALUATION_PERIOD)
+    const observations = _observations.filter((x) => {
+        // Filter out observations that are older than the evaluation period
+        // and also that are the same as the last period (we wan to allow for
+        // a settlement period for each worker to update their states)
+        return x.timestamp >= period - EVALUATION_PERIOD && x.timestamp !== period
+    })
 
     // States are pruned by a max length rather than time
     if (states.length > MAX_RECORDED_STATES) {
@@ -127,8 +138,6 @@ export const deriveCurrentState = (
         timestamp: now(),
         state: HogWatcherState.healthy,
     }
-
-    const averageRating = getAverageRating(observations)
 
     if (currentState.state === HogWatcherState.disabledIndefinitely) {
         return HogWatcherState.disabledIndefinitely
@@ -145,6 +154,8 @@ export const deriveCurrentState = (
         // We need to give the function a chance to run before we can evaluate it
         return currentState.state
     }
+
+    const averageRating = getAverageRating(observations)
 
     if (currentState.state === HogWatcherState.overflowed) {
         if (averageRating > OVERFLOW_THRESHOLD) {
@@ -172,11 +183,6 @@ export const deriveCurrentState = (
     }
 
     return currentState.state
-}
-
-const periodTimestamp = (timestamp?: number): number => {
-    // Returns the timestamp but rounded to the nearest period (e.g. 1 minute)
-    return Math.floor((timestamp ?? now()) / OBSERVATION_PERIOD) * OBSERVATION_PERIOD
 }
 
 async function runRedis<T>(redisPool: RedisPool, description: string, fn: (client: Redis) => Promise<T>): Promise<T> {
@@ -257,7 +263,6 @@ export class HogWatcher {
         this.instanceId = randomUUID()
         this.pubSub = new PubSub(hub, {
             'hog-watcher-observations': async (message) => {
-                console.log('RECEIVED', message)
                 const { instanceId, observations }: EmittedHogWatcherObservations = JSON.parse(message)
 
                 if (instanceId === this.instanceId) {
@@ -266,6 +271,18 @@ export class HogWatcher {
 
                 observations.forEach(async ({ id, observation }) => {
                     const observationsForId = (this.observations[id] = this.observations[id] ?? [])
+                    // Merge or append
+
+                    const existingObservation = observationsForId.find((x) => x.timestamp === observation.timestamp)
+                    if (existingObservation) {
+                        // We already have an observation for this period so we should merge them
+                        existingObservation.successes += observation.successes
+                        existingObservation.failures += observation.failures
+                        existingObservation.asyncFunctionFailures += observation.asyncFunctionFailures
+                        existingObservation.asyncFunctionSuccesses += observation.asyncFunctionSuccesses
+                        return
+                    }
+
                     observationsForId.push(observation)
                 })
             },

@@ -18,6 +18,7 @@ import {
     HogWatcherStatePeriod,
     OBSERVATION_PERIOD,
     OVERFLOW_THRESHOLD,
+    periodTimestamp,
 } from '../../src/cdp/hog-watcher'
 import { HogFunctionInvocationAsyncResponse, HogFunctionInvocationResult } from '../../src/cdp/types'
 import { Hub } from '../../src/types'
@@ -27,7 +28,7 @@ import { deleteKeysWithPrefix } from '../helpers/redis'
 
 const mockNow: jest.Mock = require('../../src/utils/now').now as any
 
-const createResult = (id: string, finished = true, error = 'error'): HogFunctionInvocationResult => {
+const createResult = (id: string, finished = true, error?: string): HogFunctionInvocationResult => {
     return {
         hogFunctionId: id,
         finished,
@@ -99,7 +100,7 @@ describe('HogWatcher', () => {
                   "id1": Object {
                     "asyncFunctionFailures": 0,
                     "asyncFunctionSuccesses": 1,
-                    "failures": 2,
+                    "failures": 1,
                     "successes": 1,
                     "timestamp": 1719229670000,
                   },
@@ -120,7 +121,7 @@ describe('HogWatcher', () => {
                   "id1": Object {
                     "asyncFunctionFailures": 0,
                     "asyncFunctionSuccesses": 1,
-                    "failures": 2,
+                    "failures": 1,
                     "successes": 1,
                     "timestamp": 1719229670000,
                   },
@@ -142,7 +143,7 @@ describe('HogWatcher', () => {
         let states: HogWatcherStatePeriod[]
 
         beforeEach(() => {
-            now = Date.now()
+            now = periodTimestamp()
             observations = []
             states = []
 
@@ -159,24 +160,27 @@ describe('HogWatcher', () => {
         }
 
         const updateState = (ratings: number[], newStates: HogWatcherState[]) => {
-            newStates.forEach((state) => {
-                states.push({
-                    timestamp: Date.now(),
-                    state,
-                })
-            })
-
-            ratings.forEach((rating) => {
+            for (let i = 0; i < Math.max(ratings.length, newStates.length); i++) {
                 advanceTime(OBSERVATION_PERIOD)
-                observations.push({
-                    // Simulate rating as ratio of success and failures
-                    timestamp: Date.now(),
-                    successes: 1000 * rating,
-                    failures: 1000 * (1 - rating),
-                    asyncFunctionFailures: 0,
-                    asyncFunctionSuccesses: 0,
-                })
-            })
+
+                if (newStates[i]) {
+                    states.push({
+                        timestamp: periodTimestamp(),
+                        state: newStates[i],
+                    })
+                }
+
+                if (typeof ratings[i] === 'number') {
+                    observations.push({
+                        // Simulate rating as ratio of success and failures
+                        timestamp: Date.now(),
+                        successes: 1000 * ratings[i],
+                        failures: 1000 * (1 - ratings[i]),
+                        asyncFunctionFailures: 0,
+                        asyncFunctionSuccesses: 0,
+                    })
+                }
+            }
         }
 
         const currentState = () => deriveCurrentState(observations, states)
@@ -270,7 +274,7 @@ describe('HogWatcher', () => {
             it('should stay disabled for period until the period has passed ', () => {
                 updateState([], [HogWatcherState.disabledForPeriod])
                 expect(currentState()).toBe(HogWatcherState.disabledForPeriod)
-                expect(states).toEqual([{ state: HogWatcherState.disabledForPeriod, timestamp: now }])
+                expect(states).toEqual([{ state: HogWatcherState.disabledForPeriod, timestamp: periodTimestamp() }])
                 advanceTime(DISABLED_PERIOD - 1)
                 expect(currentState()).toBe(HogWatcherState.disabledForPeriod)
                 advanceTime(2)
@@ -290,7 +294,7 @@ describe('HogWatcher', () => {
         })
     })
 
-    describe.only('integration', () => {
+    describe('integration', () => {
         let now: number
         let hub: Hub
         let closeHub: () => Promise<void>
@@ -345,12 +349,12 @@ describe('HogWatcher', () => {
 
                 expect(watcher1.currentObservations.observations).toMatchObject({
                     id1: {
-                        failures: 4,
+                        failures: 1,
                         successes: 3,
                         timestamp: now,
                     },
                     id2: {
-                        failures: 1,
+                        failures: 0,
                         successes: 1,
                         timestamp: now,
                     },
@@ -379,14 +383,14 @@ describe('HogWatcher', () => {
                 const expectation = {
                     id1: [
                         {
-                            failures: 1,
+                            failures: 0,
                             successes: 1,
                             timestamp: 1720000000000,
                         },
                     ],
                     id2: [
                         {
-                            failures: 1,
+                            failures: 0,
                             successes: 1,
                             timestamp: 1720000000000,
                         },
@@ -410,12 +414,12 @@ describe('HogWatcher', () => {
                         Object {
                           "asyncFunctionFailures": 0,
                           "asyncFunctionSuccesses": 0,
-                          "failures": 1,
+                          "failures": 0,
                           "successes": 1,
                           "timestamp": 1720000000000,
                         },
                       ],
-                      "rating": 0.5,
+                      "rating": 1,
                       "state": 1,
                       "states": Array [],
                     }
@@ -458,6 +462,84 @@ describe('HogWatcher', () => {
                         timestamp: 1720000640000, // After enough time passing it is moved back to overflow
                     },
                 ])
+            })
+
+            it('should save the states to redis so another watcher can grab it', async () => {
+                for (let i = 0; i < 4; i++) {
+                    watcher1.currentObservations.observeResults([createResult('id1', false, 'error')])
+                    advanceTime(OBSERVATION_PERIOD)
+                    await watcher1.sync()
+                }
+                await delay(100)
+                const fromRedis = await watcher2.fetchWatcher('id1')
+                expect(fromRedis).toMatchObject({
+                    rating: 0,
+                    state: 3,
+                    states: [
+                        {
+                            state: 2,
+                            timestamp: 1720000030000,
+                        },
+                        {
+                            state: 3,
+                            timestamp: 1720000040000,
+                        },
+                    ],
+                })
+            })
+
+            it('should gather the observations of other watchers before saving', async () => {
+                expect(watcher1.observations).toEqual({})
+                for (let i = 0; i < 4; i++) {
+                    // Create only bad on watcher1 and only good on watcher2
+                    watcher1.currentObservations.observeResults([createResult('id1', false, 'error')])
+                    watcher2.currentObservations.observeResults([
+                        createResult('id1', true),
+                        createResult('id1', true),
+                        createResult('id1', true),
+                    ])
+                    advanceTime(OBSERVATION_PERIOD)
+                    await watcher1.sync()
+                    await watcher2.sync()
+                }
+
+                await delay(100)
+
+                expect(watcher1.observations['id1']).toMatchObject([
+                    {
+                        failures: 1,
+                        successes: 3,
+                        timestamp: 1720000000000,
+                    },
+                    {
+                        failures: 1,
+                        successes: 3,
+                        timestamp: 1720000010000,
+                    },
+                    {
+                        failures: 1,
+                        successes: 3,
+                        timestamp: 1720000020000,
+                    },
+                    {
+                        failures: 1,
+                        successes: 3,
+                        timestamp: 1720000030000,
+                    },
+                ])
+
+                expect(watcher1.states['id1']).toMatchInlineSnapshot(`
+                    Array [
+                      Object {
+                        "state": 2,
+                        "timestamp": 1720000030000,
+                      },
+                    ]
+                `)
+            })
+
+            it('should load existing states from redis', () => {
+                expect(1).toEqual('NOT IMPLEMENTED')
             })
         })
     })
