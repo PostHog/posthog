@@ -1,22 +1,14 @@
 # This module is responsible for adding tags/metadata to outgoing clickhouse queries in a thread-safe manner
 
 import threading
-from enum import StrEnum
 from typing import Any, Optional
 
 thread_local_storage = threading.local()
 
 
-class NonSerializableTags(StrEnum):
-    FILTERABLE_PERSONS = "filterable_persons"
-
-
-NON_SERIALIZABLE_TAGS = {x.value for x in NonSerializableTags}
-
-
 def get_query_tags():
     try:
-        return {k: v for k, v in thread_local_storage.query_tags.items() if k not in NON_SERIALIZABLE_TAGS}
+        return thread_local_storage.query_tags.items()
     except AttributeError:
         return {}
 

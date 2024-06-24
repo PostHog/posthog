@@ -2,7 +2,6 @@ import itertools
 from typing import Optional
 from collections.abc import Sequence, Iterator
 
-from posthog.clickhouse.query_tagging import tag_queries, NonSerializableTags
 from posthog.hogql import ast
 from posthog.hogql.ast import SelectQuery
 from posthog.hogql.constants import HogQLQuerySettings
@@ -252,9 +251,6 @@ class ActorsQueryRunner(QueryRunner):
 
                 origin = self.strategy.origin
                 if isinstance(self.strategy, PersonStrategy):
-                    # if isinstance(self.strategy, PersonStrategy) and any(
-                    #    isinstance(x, C) for x in [getattr(self.query.source, "source", None)] for C in (TrendsQuery,)
-                    # ):
                     # SelectUnionQuery (used by Stickiness) doesn't have settings
                     for select_query in (
                         [source_query] if isinstance(source_query, SelectQuery) else source_query.select_queries
@@ -263,18 +259,6 @@ class ActorsQueryRunner(QueryRunner):
                             select_query.settings = HogQLQuerySettings()
                         select_query.settings.use_query_cache = True
                         select_query.settings.query_cache_ttl = HOGQL_INCREASED_MAX_EXECUTION_TIME
-                    tag_queries(
-                        **{
-                            NonSerializableTags.FILTERABLE_PERSONS.value: ast.CompareOperation(
-                                left=ast.Field(chain=["id"]),
-                                right=ast.SelectQuery(
-                                    select=[ast.Field(chain=[source_alias, *self.source_id_column(source_query)])],
-                                    select_from=ast.JoinExpr(table=source_query, alias=source_alias),
-                                ),
-                                op=ast.CompareOperationOp.In,
-                            )
-                        }
-                    )
                     origin = "filterable_persons"
 
                 join_expr = ast.JoinExpr(
@@ -284,10 +268,24 @@ class ActorsQueryRunner(QueryRunner):
                         table=ast.Field(chain=[origin]),
                         join_type="INNER JOIN",
                         constraint=ast.JoinConstraint(
-                            expr=ast.CompareOperation(
-                                op=ast.CompareOperationOp.Eq,
-                                left=ast.Field(chain=[origin, self.strategy.origin_id]),
-                                right=ast.Field(chain=[source_alias, *source_id_chain]),
+                            expr=ast.And(
+                                exprs=[
+                                    ast.CompareOperation(
+                                        op=ast.CompareOperationOp.Eq,
+                                        left=ast.Field(chain=[origin, self.strategy.origin_id]),
+                                        right=ast.Field(chain=[source_alias, *source_id_chain]),
+                                    ),
+                                    ast.CompareOperation(
+                                        left=ast.Field(chain=["id"]),
+                                        right=ast.SelectQuery(
+                                            select=[
+                                                ast.Field(chain=[source_alias, *self.source_id_column(source_query)])
+                                            ],
+                                            select_from=ast.JoinExpr(table=source_query, alias=source_alias),
+                                        ),
+                                        op=ast.CompareOperationOp.In,
+                                    ),
+                                ]
                             ),
                             constraint_type="ON",
                         ),

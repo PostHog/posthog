@@ -94,6 +94,7 @@ class HogQLQuerySettings(BaseModel):
     optimize_aggregation_in_order: Optional[bool] = None
     use_query_cache: Optional[bool] = None
     query_cache_ttl: Optional[int] = None
+    allow_experimental_analyzer: Optional[bool] = None
 
 
 # Settings applied on top of all HogQL queries.

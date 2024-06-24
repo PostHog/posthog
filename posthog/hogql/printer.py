@@ -112,6 +112,7 @@ def prepare_ast_for_printing(
         # resolve_property_types has to come after lazy tables otherwise expressions on lazy tables don't get handled properly
         with context.timings.measure("resolve_property_types"):
             node = resolve_property_types(node, context)
+
         # We support global query settings, and local subquery settings.
         # If the global query is a select query with settings, merge the two.
         if isinstance(node, ast.SelectQuery) and node.settings is not None and settings is not None:

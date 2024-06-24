@@ -1,8 +1,7 @@
 from typing import cast, Optional
 import posthoganalytics
 
-from posthog.clickhouse.query_tagging import get_query_tag_value, NonSerializableTags
-from posthog.hogql.ast import SelectQuery, And
+from posthog.hogql.ast import SelectQuery, And, CompareOperation, CompareOperationOp, Field
 from posthog.hogql.base import Expr
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
@@ -194,12 +193,19 @@ class PersonsTable(LazyTable):
 # This is useful for certain users and queries where we might not want to pull everything
 class FilterablePersonsTable(LazyTable):
     fields: dict[str, FieldOrTable] = PERSONS_FIELDS
+    filter: Optional[Expr] = None
+
+    @staticmethod
+    def is_promotable_expr(expr):
+        return (
+            isinstance(expr, CompareOperation) and expr.op == CompareOperationOp.In and expr.left == Field(chain=["id"])
+        )
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context, node):
-        filter = get_query_tag_value(NonSerializableTags.FILTERABLE_PERSONS.value)
-        if filter is not None:
-            filter = clone_expr(filter, clear_types=True, clear_locations=True)
-        return select_from_persons_table(table_to_add, context, node, filter)
+        if self.filter is not None:
+            return select_from_persons_table(table_to_add, context, node, clone_expr(self.filter, True, True))
+
+        return select_from_persons_table(table_to_add, context, node, None)
 
     def to_printed_clickhouse(self, context):
         return "person"
