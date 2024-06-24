@@ -16,7 +16,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { JSONContent } from '@tiptap/core'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 
-export const DEFAULT_QUERY: QuerySchema = {
+const DEFAULT_QUERY: QuerySchema = {
     kind: NodeKind.DataTableNode,
     source: {
         kind: NodeKind.EventsQuery,

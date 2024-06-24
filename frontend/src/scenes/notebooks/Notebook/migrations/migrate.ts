@@ -1,6 +1,5 @@
 import { JSONContent } from '@tiptap/core'
 import { isEmptyObject } from 'lib/utils'
-import { DEFAULT_QUERY } from 'scenes/notebooks/Nodes/NotebookNodeQuery'
 
 import {
     breakdownFilterToQuery,
@@ -88,7 +87,16 @@ function convertInsightQueryStringsToObjects(content: JSONContent[]): JSONConten
         try {
             query = JSON.parse(node.attrs.query)
         } catch (e) {
-            query = DEFAULT_QUERY
+            query = {
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.EventsQuery,
+                    select: ['*', 'event', 'person', 'timestamp'],
+                    orderBy: ['timestamp DESC'],
+                    after: '-24h',
+                    limit: 100,
+                },
+            }
         }
 
         return {
