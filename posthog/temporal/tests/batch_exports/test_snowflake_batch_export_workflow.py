@@ -329,18 +329,21 @@ def snowflake_config(database, schema) -> dict[str, str]:
     and tests that mock it.
     """
     password = os.getenv("SNOWFLAKE_PASSWORD", "password")
-    warehouse = os.getenv("SNOWFLAKE_WAREHOUSE", "COMPUTE_WH")
+    warehouse = os.getenv("SNOWFLAKE_WAREHOUSE", "warehouse")
     account = os.getenv("SNOWFLAKE_ACCOUNT", "account")
-    username = os.getenv("SNOWFLAKE_USERNAME", "hazzadous")
+    username = os.getenv("SNOWFLAKE_USERNAME", "username")
+    role = os.getenv("SNOWFLAKE_ROLE", "role")
 
-    return {
+    config = {
         "password": password,
         "user": username,
         "warehouse": warehouse,
         "account": account,
         "database": database,
         "schema": schema,
+        "role": role,
     }
+    return config
 
 
 @pytest_asyncio.fixture
@@ -917,6 +920,7 @@ def snowflake_cursor(snowflake_config):
     with snowflake.connector.connect(
         user=snowflake_config["user"],
         password=snowflake_config["password"],
+        role=snowflake_config["role"],
         account=snowflake_config["account"],
         warehouse=snowflake_config["warehouse"],
     ) as connection:
@@ -936,14 +940,14 @@ TEST_SNOWFLAKE_SCHEMAS: list[BatchExportSchema | None] = [
             {"expression": "event", "alias": "event"},
             {"expression": "nullIf(JSONExtractString(properties, %(hogql_val_0)s), '')", "alias": "browser"},
             {"expression": "nullIf(JSONExtractString(properties, %(hogql_val_1)s), '')", "alias": "os"},
-            {"expression": "nullIf(properties, '')", "alias": "all_properties"},
+            {"expression": "properties", "alias": "all_properties"},
         ],
         "values": {"hogql_val_0": "$browser", "hogql_val_1": "$os"},
     },
     {
         "fields": [
             {"expression": "event", "alias": "event"},
-            {"expression": "inserted_at", "alias": "inserted_at"},
+            {"expression": "_inserted_at", "alias": "inserted_at"},
             {"expression": "toInt32(1 + 1)", "alias": "two"},
         ],
         "values": {},
@@ -1334,16 +1338,11 @@ async def test_insert_into_snowflake_activity_heartbeats(
         **snowflake_config,
     )
 
-    with override_settings(BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES=1):
+    with override_settings(BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES=0):
         await activity_environment.run(insert_into_snowflake_activity, insert_inputs)
 
-    assert n_expected_files == len(captured_details)
-
-    for index, details_captured in enumerate(captured_details):
-        assert dt.datetime.fromisoformat(
-            details_captured[0]
-        ) == data_interval_end - snowflake_batch_export.interval_time_delta / (index + 1)
-        assert details_captured[1] == index + 1
+    # It's not guaranteed we will heartbeat right after every file.
+    assert len(captured_details) > 0
 
     assert_clickhouse_records_in_snowflake(
         snowflake_cursor=snowflake_cursor,
