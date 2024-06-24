@@ -120,7 +120,7 @@ export const insightLogic = kea<insightLogicType>([
         highlightSeries: (seriesIndex: number | null) => ({ seriesIndex }),
     }),
     loaders(({ actions, values, props }) => ({
-        insight: [
+        legacyInsight: [
             props.cachedInsight ??
                 createEmptyInsight(
                     props.dashboardItemId || 'new',
@@ -244,7 +244,7 @@ export const insightLogic = kea<insightLogicType>([
                 highlightSeries: (_, { seriesIndex }) => seriesIndex,
             },
         ],
-        insight: {
+        legacyInsight: {
             loadInsight: (state, { shortId }) =>
                 shortId === state.short_id
                     ? state
