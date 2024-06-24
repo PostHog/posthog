@@ -251,7 +251,7 @@ class ActorsQueryRunner(QueryRunner):
 
                 origin = self.strategy.origin
 
-                join_on = ast.CompareOperation(
+                join_on: ast.Expr = ast.CompareOperation(
                     op=ast.CompareOperationOp.Eq,
                     left=ast.Field(chain=[origin, self.strategy.origin_id]),
                     right=ast.Field(chain=[source_alias, *source_id_chain]),

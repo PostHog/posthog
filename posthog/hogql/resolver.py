@@ -321,7 +321,11 @@ class Resolver(CloningVisitor):
 
             if isinstance(database_table, LazyTable):
                 node_table_type = ast.LazyTableType(table=database_table)
-                if isinstance(database_table, FilterablePersonsTable) and isinstance(node.constraint.expr, ast.And):
+                if (
+                    isinstance(database_table, FilterablePersonsTable)
+                    and node.constraint is not None
+                    and isinstance(node.constraint.expr, ast.And)
+                ):
                     # Push `IN` conditions down into the subselect
                     exprs = cast(ast.And, node.constraint.expr).exprs
                     promotable, not_promotable = FilterablePersonsTable.partition_exprs(exprs)
