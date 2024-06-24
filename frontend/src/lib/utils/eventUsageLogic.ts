@@ -5,20 +5,28 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import type { Dayjs } from 'lib/dayjs'
 import { now } from 'lib/dayjs'
 import { isCoreFilter, PROPERTY_KEYS } from 'lib/taxonomy'
+import { objectClean } from 'lib/utils'
 import posthog from 'posthog-js'
-import {
-    isFilterWithDisplay,
-    isFunnelsFilter,
-    isPathsFilter,
-    isRetentionFilter,
-    isStickinessFilter,
-    isTrendsFilter,
-} from 'scenes/insights/sharedUtils'
+import { isFilterWithDisplay, isFunnelsFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { EventIndex } from 'scenes/session-recordings/player/eventIndex'
 import { NewSurvey, SurveyTemplateType } from 'scenes/surveys/constants'
 import { userLogic } from 'scenes/userLogic'
 
+import { Node } from '~/queries/schema'
+import {
+    getBreakdown,
+    getCompareFilter,
+    getDisplay,
+    getFormula,
+    getInterval,
+    getSeries,
+    isActionsNode,
+    isDataWarehouseNode,
+    isEventsNode,
+    isFunnelsQuery,
+    isInsightQueryNode,
+} from '~/queries/utils'
 import {
     AccessLevel,
     AnyPartialFilterType,
@@ -35,7 +43,6 @@ import {
     InsightModel,
     InsightShortId,
     InsightType,
-    ItemMode,
     MultipleSurveyQuestion,
     PersonType,
     PropertyFilterType,
@@ -228,28 +235,19 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportPersonsModalViewed: (params: any) => ({
             params,
         }),
-        reportCohortCreatedFromPersonsModal: (filters: Partial<FilterType>) => ({ filters }),
         // insights
         reportInsightCreated: (insightType: InsightType | null) => ({ insightType }),
         reportInsightSaved: (filters: Partial<FilterType>, isNewInsight: boolean) => ({ filters, isNewInsight }),
         reportInsightViewed: (
             insightModel: Partial<InsightModel>,
-            filters: Partial<FilterType>,
-            insightMode: ItemMode,
+            query: Node | null,
             isFirstLoad: boolean,
-            fromDashboard: boolean,
-            delay?: number,
-            changedFilters?: Record<string, any>,
-            isUsingSessionAnalysis?: boolean
+            delay?: number
         ) => ({
             insightModel,
-            filters,
-            insightMode,
+            query,
             isFirstLoad,
-            fromDashboard,
             delay,
-            changedFilters,
-            isUsingSessionAnalysis,
         }),
         reportFunnelCalculated: (
             eventCount: number,
@@ -588,94 +586,61 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 is_new_insight: isNewInsight,
             })
         },
-        reportInsightViewed: ({
-            insightModel,
-            filters,
-            insightMode,
-            isFirstLoad,
-            fromDashboard,
-            delay,
-            changedFilters,
-            isUsingSessionAnalysis,
-        }) => {
-            const properties: Record<string, any> = {
-                ...sanitizeFilterParams(filters),
+        reportInsightViewed: ({ insightModel, query, isFirstLoad, delay }) => {
+            const payload: Record<string, string | number | boolean | undefined> = {
                 report_delay: delay,
                 is_first_component_load: isFirstLoad,
-                from_dashboard: fromDashboard,
+                viewer_is_creator:
+                    insightModel.created_by?.uuid && values.user?.uuid
+                        ? insightModel.created_by?.uuid === values.user?.uuid
+                        : undefined,
+                is_saved: insightModel.saved,
+                description_length: insightModel.description?.length ?? 0,
+                tags_count: insightModel.tags?.length ?? 0,
+                query_kind: query?.kind,
             }
 
-            properties.total_event_actions_count = (properties.events_count || 0) + (properties.actions_count || 0)
+            if (isInsightQueryNode(query)) {
+                const { dateRange, filterTestAccounts, samplingFactor, properties } = query
 
-            let totalEventActionFilters = 0
-            const entities = (filters.events || []).concat(filters.actions || [])
-            entities.forEach((entity) => {
-                if (entity.properties?.length) {
-                    totalEventActionFilters += entity.properties.length
-                }
-            })
+                // date range and sampling
+                payload.date_from = dateRange?.date_from || undefined
+                payload.date_to = dateRange?.date_to || undefined
+                payload.interval = getInterval(query)
+                payload.samplingFactor = samplingFactor || undefined
 
-            // The total # of filters applied on events and actions.
-            properties.total_event_action_filters_count = totalEventActionFilters
+                // series
+                payload.series_length = getSeries(query)?.length
+                payload.event_entity_count = getSeries(query)?.filter((e) => isEventsNode(e)).length
+                payload.action_entity_count = getSeries(query)?.filter((e) => isActionsNode(e)).length
+                payload.data_warehouse_entity_count = getSeries(query)?.filter((e) => isDataWarehouseNode(e)).length
 
-            // Custom properties for each insight
-            if (isTrendsFilter(filters)) {
-                properties.breakdown_type = filters.breakdown_type
-                properties.breakdown = filters.breakdown
-                properties.using_session_analysis = isUsingSessionAnalysis
-                properties.compare = filters.compare // "Compare previous" option
-                properties.show_legend = filters.show_legend
-            } else if (isRetentionFilter(filters)) {
-                properties.period = filters.period
-                properties.date_to = filters.date_to
-                properties.retention_type = filters.retention_type
-                const cohortizingEvent = filters.target_entity
-                const retainingEvent = filters.returning_entity
-                properties.same_retention_and_cohortizing_event =
-                    cohortizingEvent?.id == retainingEvent?.id && cohortizingEvent?.type == retainingEvent?.type
-            } else if (isPathsFilter(filters)) {
-                properties.path_type = filters.path_type
-                properties.has_start_point = !!filters.start_point
-                properties.has_end_point = !!filters.end_point
-                properties.has_funnel_filter = Object.keys(filters.funnel_filter || {}).length > 0
-                properties.funnel_paths = filters.funnel_paths
-                properties.has_min_edge_weight = !!filters.min_edge_weight
-                properties.has_max_edge_weight = !!filters.max_edge_weight
-                properties.has_edge_limit = !!filters.edge_limit
-                properties.has_local_cleaning_filters = (filters.local_path_cleaning_filters || []).length > 0
-                properties.has_path_replacements = !!filters.path_replacements
-                properties.has_wildcards = (filters.path_groupings || []).length > 0
-                properties.using_advanced_features =
-                    properties.has_min_edge_weight ||
-                    properties.has_max_edge_weight ||
-                    properties.has_edge_limit ||
-                    properties.has_local_cleaning_filters ||
-                    properties.has_path_replacements
-                properties.using_basic_features =
-                    properties.has_start_point ||
-                    properties.has_end_point ||
-                    properties.has_funnel_filter ||
-                    properties.has_wildcards
-            } else if (isStickinessFilter(filters)) {
-                properties.stickiness_days = filters.stickiness_days
+                // properties
+                payload.has_properties = !!properties
+                payload.filter_test_accounts = filterTestAccounts
+
+                // breakdown
+                payload.breakdown_type = getBreakdown(query)?.breakdown_type || undefined
+                payload.breakdown_limit = getBreakdown(query)?.breakdown_limit || undefined
+                payload.breakdown_hide_other_aggregation =
+                    getBreakdown(query)?.breakdown_hide_other_aggregation || undefined
+
+                // trends like
+                payload.has_formula = !!getFormula(query)
+                payload.display = getDisplay(query)
+                payload.compare = getCompareFilter(query)?.compare
+                payload.compare_to = getCompareFilter(query)?.compare_to
+
+                // funnels
+                payload.funnel_viz_type = isFunnelsQuery(query) ? query.funnelsFilter?.funnelVizType : undefined
+                payload.funnel_order_type = isFunnelsQuery(query) ? query.funnelsFilter?.funnelOrderType : undefined
             }
-            properties.mode = insightMode // View or edit
-            properties.viewer_is_creator =
-                insightModel.created_by?.uuid && values.user?.uuid
-                    ? insightModel.created_by?.uuid === values.user?.uuid
-                    : null
-            properties.is_saved = insightModel.saved
-            properties.description_length = insightModel.description?.length ?? 0
-            properties.tags_count = insightModel.tags?.length ?? 0
 
             const eventName = delay ? 'insight analyzed' : 'insight viewed'
-            posthog.capture(eventName, { ...properties, ...(changedFilters ? changedFilters : {}) })
+            posthog.capture(eventName, objectClean(payload))
         },
         reportPersonsModalViewed: async ({ params }) => {
             posthog.capture('insight person modal viewed', params)
-        },
-        reportCohortCreatedFromPersonsModal: async ({ filters }) => {
-            posthog.capture('person modal cohort created', sanitizeFilterParams(filters))
         },
         reportDashboardViewed: async ({ dashboard, lastRefreshed, delay }, breakpoint) => {
             if (!delay) {
