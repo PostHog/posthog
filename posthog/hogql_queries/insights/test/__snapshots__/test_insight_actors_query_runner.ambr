@@ -197,6 +197,39 @@
                      max_bytes_before_external_group_by=0
   '''
 # ---
+# name: TestInsightActorsQueryRunner.test_insight_persons_stickiness_groups_query
+  '''
+  SELECT name AS name
+  FROM
+    (SELECT groups.properties___name AS name
+     FROM
+       (SELECT aggregation_target AS group_key
+        FROM
+          (SELECT e.`$group_0` AS aggregation_target,
+                  count(DISTINCT toStartOfDay(toTimeZone(e.timestamp, 'US/Pacific'))) AS num_intervals
+           FROM events AS e SAMPLE 1
+           WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'US/Pacific')))), lessOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'US/Pacific'))), equals(e.event, '$pageview'), notEquals(e.`$group_0`, ''))
+           GROUP BY aggregation_target)
+        WHERE ifNull(equals(num_intervals, 7), 0)) AS source
+     INNER JOIN
+       (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'US/Pacific')) AS properties___name,
+               groups.group_type_index AS index,
+               groups.group_key AS key
+        FROM groups
+        WHERE equals(groups.team_id, 2)
+        GROUP BY groups.group_type_index,
+                 groups.group_key) AS groups ON equals(groups.key, source.group_key)
+     ORDER BY groups.properties___name ASC)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288,
+                     max_bytes_before_external_group_by=0
+  '''
+# ---
 # name: TestInsightActorsQueryRunner.test_insight_persons_stickiness_query
   '''
   SELECT name AS name
@@ -245,6 +278,40 @@
                                                    GROUP BY person.id
                                                    HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS filterable_persons ON equals(filterable_persons.id, source.actor_id)
      ORDER BY filterable_persons.properties___name ASC)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288,
+                     max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestInsightActorsQueryRunner.test_insight_persons_trends_groups_query
+  '''
+  SELECT name AS name
+  FROM
+    (SELECT groups.properties___name AS name
+     FROM
+       (SELECT actor_id AS actor_id,
+               count() AS event_count
+        FROM
+          (SELECT e.`$group_0` AS actor_id,
+                  toTimeZone(e.timestamp, 'US/Pacific') AS timestamp,
+                  e.uuid AS uuid
+           FROM events AS e
+           WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'), greaterOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), toDateTime64('2020-01-09 00:00:00.000000', 6, 'US/Pacific')), less(toTimeZone(e.timestamp, 'US/Pacific'), toDateTime64('2020-01-10 00:00:00.000000', 6, 'US/Pacific')), notEquals(e.`$group_0`, '')))
+        GROUP BY actor_id) AS source
+     INNER JOIN
+       (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'US/Pacific')) AS properties___name,
+               groups.group_type_index AS index,
+               groups.group_key AS key
+        FROM groups
+        WHERE equals(groups.team_id, 2)
+        GROUP BY groups.group_type_index,
+                 groups.group_key) AS groups ON equals(groups.key, source.actor_id)
+     ORDER BY groups.properties___name ASC)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,

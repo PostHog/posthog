@@ -250,6 +250,13 @@ class ActorsQueryRunner(QueryRunner):
                 source_alias = "source"
 
                 origin = self.strategy.origin
+
+                join_on = ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=[origin, self.strategy.origin_id]),
+                    right=ast.Field(chain=[source_alias, *source_id_chain]),
+                )
+
                 if isinstance(self.strategy, PersonStrategy):
                     # SelectUnionQuery (used by Stickiness) doesn't have settings
                     for select_query in (
@@ -259,7 +266,24 @@ class ActorsQueryRunner(QueryRunner):
                             select_query.settings = HogQLQuerySettings()
                         select_query.settings.use_query_cache = True
                         select_query.settings.query_cache_ttl = HOGQL_INCREASED_MAX_EXECUTION_TIME
-                    origin = "filterable_persons"
+
+                    join_on = ast.And(
+                        exprs=[
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.Eq,
+                                left=ast.Field(chain=["filterable_persons", self.strategy.origin_id]),
+                                right=ast.Field(chain=[source_alias, *source_id_chain]),
+                            ),
+                            ast.CompareOperation(
+                                left=ast.Field(chain=["id"]),
+                                right=ast.SelectQuery(
+                                    select=[ast.Field(chain=[source_alias, *self.source_id_column(source_query)])],
+                                    select_from=ast.JoinExpr(table=source_query, alias=source_alias),
+                                ),
+                                op=ast.CompareOperationOp.In,
+                            ),
+                        ]
+                    )
 
                 join_expr = ast.JoinExpr(
                     table=source_query,
@@ -268,25 +292,7 @@ class ActorsQueryRunner(QueryRunner):
                         table=ast.Field(chain=[origin]),
                         join_type="INNER JOIN",
                         constraint=ast.JoinConstraint(
-                            expr=ast.And(
-                                exprs=[
-                                    ast.CompareOperation(
-                                        op=ast.CompareOperationOp.Eq,
-                                        left=ast.Field(chain=[origin, self.strategy.origin_id]),
-                                        right=ast.Field(chain=[source_alias, *source_id_chain]),
-                                    ),
-                                    ast.CompareOperation(
-                                        left=ast.Field(chain=["id"]),
-                                        right=ast.SelectQuery(
-                                            select=[
-                                                ast.Field(chain=[source_alias, *self.source_id_column(source_query)])
-                                            ],
-                                            select_from=ast.JoinExpr(table=source_query, alias=source_alias),
-                                        ),
-                                        op=ast.CompareOperationOp.In,
-                                    ),
-                                ]
-                            ),
+                            expr=join_on,
                             constraint_type="ON",
                         ),
                     ),
