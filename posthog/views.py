@@ -81,7 +81,9 @@ def stats(request):
 
 def robots_txt(request):
     ROBOTS_TXT_CONTENT = (
-        "User-agent: *\nDisallow: /shared_dashboard/\nDisallow: /shared/" if True else "User-agent: *\nDisallow: /"
+        "User-agent: *\nDisallow: /shared_dashboard/\nDisallow: /shared/"
+        if is_cloud()
+        else "User-agent: *\nDisallow: /"
     )
     return HttpResponse(ROBOTS_TXT_CONTENT, content_type="text/plain")
 
