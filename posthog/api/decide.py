@@ -224,7 +224,6 @@ def get_decide(request: HttpRequest):
             response["autocaptureExceptions"] = (
                 {
                     "endpoint": "/e/",
-                    "errors_to_ignore": team.autocapture_exceptions_errors_to_ignore or [],
                 }
                 if team.autocapture_exceptions_opt_in
                 else False
