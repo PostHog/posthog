@@ -48,7 +48,7 @@ SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS = pytest.mark.skipif(
 
 pytestmark = [SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS, pytest.mark.asyncio, pytest.mark.django_db]
 
-TEST_TIME = dt.datetime.now(dt.UTC)
+TEST_TIME = dt.datetime.now(dt.timezone.utc)
 
 
 def assert_clickhouse_records_in_bigquery(
@@ -133,7 +133,7 @@ def assert_clickhouse_records_in_bigquery(
                 if k in json_columns and v is not None:
                     expected_record[k] = json.loads(v)
                 elif isinstance(v, dt.datetime):
-                    expected_record[k] = v.replace(tzinfo=dt.UTC)
+                    expected_record[k] = v.replace(tzinfo=dt.timezone.utc)
                 else:
                     expected_record[k] = v
 
@@ -250,8 +250,8 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
     Once we have these events, we pass them to the assert_events_in_bigquery function to check
     that they appear in the expected BigQuery table.
     """
-    data_interval_start = dt.datetime(2023, 4, 20, 14, 0, 0, tzinfo=dt.UTC)
-    data_interval_end = dt.datetime(2023, 4, 25, 15, 0, 0, tzinfo=dt.UTC)
+    data_interval_start = dt.datetime(2023, 4, 20, 14, 0, 0, tzinfo=dt.timezone.utc)
+    data_interval_end = dt.datetime(2023, 4, 25, 15, 0, 0, tzinfo=dt.timezone.utc)
 
     # Generate a random team id integer. There's still a chance of a collision,
     # but it's very small.
@@ -311,7 +311,7 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
     with freeze_time(TEST_TIME) as frozen_time:
         await activity_environment.run(insert_into_bigquery_activity, insert_inputs)
 
-        ingested_timestamp = frozen_time().replace(tzinfo=dt.UTC)
+        ingested_timestamp = frozen_time().replace(tzinfo=dt.timezone.utc)
 
         assert_clickhouse_records_in_bigquery(
             bigquery_client=bigquery_client,
@@ -455,7 +455,7 @@ async def test_bigquery_export_workflow(
         assert run.status == "Completed"
         assert run.records_completed == 100
 
-        ingested_timestamp = frozen_time().replace(tzinfo=dt.UTC)
+        ingested_timestamp = frozen_time().replace(tzinfo=dt.timezone.utc)
         assert_clickhouse_records_in_bigquery(
             bigquery_client=bigquery_client,
             clickhouse_client=clickhouse_client,
@@ -691,7 +691,7 @@ async def test_bigquery_export_workflow_handles_cancellation(ateam, bigquery_bat
         ([{"test": 6.0}], [bigquery.SchemaField("test", "FLOAT64")]),
         ([{"test": True}], [bigquery.SchemaField("test", "BOOL")]),
         ([{"test": dt.datetime.now()}], [bigquery.SchemaField("test", "TIMESTAMP")]),
-        ([{"test": dt.datetime.now(tz=dt.UTC)}], [bigquery.SchemaField("test", "TIMESTAMP")]),
+        ([{"test": dt.datetime.now(tz=dt.timezone.utc)}], [bigquery.SchemaField("test", "TIMESTAMP")]),
         (
             [
                 {
@@ -701,7 +701,7 @@ async def test_bigquery_export_workflow_handles_cancellation(ateam, bigquery_bat
                     "test_float": 6.0,
                     "test_bool": False,
                     "test_timestamp": dt.datetime.now(),
-                    "test_timestamptz": dt.datetime.now(tz=dt.UTC),
+                    "test_timestamptz": dt.datetime.now(tz=dt.timezone.utc),
                 }
             ],
             [

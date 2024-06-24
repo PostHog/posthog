@@ -1,4 +1,4 @@
-from datetime import datetime, UTC
+from datetime import timezone, datetime
 
 from dateutil.parser import isoparse
 
@@ -23,7 +23,7 @@ class TestSummarizeSessions(BaseTest):
                     ["$pageview", isoparse("2021-01-01T00:00:02Z")],
                 ],
             ),
-            datetime(2021, 1, 1, 0, 0, 0, tzinfo=UTC),
+            datetime(2021, 1, 1, 0, 0, 0, tzinfo=timezone.utc),
         )
         assert processed.columns == ["event", "milliseconds_since_start"]
         assert processed.results == [["$pageview", 0], ["$pageview", 1000], ["$pageview", 2000]]

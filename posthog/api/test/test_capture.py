@@ -13,7 +13,7 @@ import string
 import structlog
 import zlib
 from datetime import datetime, timedelta
-from datetime import UTC
+from datetime import timezone as tz
 from django.http import HttpResponse
 from django.test.client import MULTIPART_CONTENT, Client
 from django.utils import timezone
@@ -1305,7 +1305,7 @@ class TestCapture(BaseTest):
         # right time sent as sent_at to process_event
 
         sent_at = datetime.fromisoformat(arguments["sent_at"])
-        self.assertEqual(sent_at.tzinfo, UTC)
+        self.assertEqual(sent_at.tzinfo, tz.utc)
 
         timediff = sent_at.timestamp() - tomorrow_sent_at.timestamp()
         self.assertLess(abs(timediff), 1)
