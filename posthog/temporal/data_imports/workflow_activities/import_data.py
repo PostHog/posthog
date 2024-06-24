@@ -219,6 +219,29 @@ async def import_data_activity(inputs: ImportDataActivityInputs) -> tuple[TSchem
             schema=schema,
             reset_pipeline=reset_pipeline,
         )
+    elif model.pipeline.source_type == ExternalDataSource.Type.SALESFORCE:
+        from posthog.temporal.data_imports.pipelines.salesforce import salesforce_source
+
+        subdomain = model.pipeline.job_inputs.get("salesforce_subdomain")
+        api_key = model.pipeline.job_inputs.get("salesforce_api_key")
+
+        source = salesforce_source(
+            subdomain=subdomain,
+            api_key=api_key,
+            endpoint=schema.name,
+            team_id=inputs.team_id,
+            job_id=inputs.run_id,
+            is_incremental=schema.is_incremental,
+        )
+
+        return await _run(
+            job_inputs=job_inputs,
+            source=source,
+            logger=logger,
+            inputs=inputs,
+            schema=schema,
+            reset_pipeline=reset_pipeline,
+        )
 
     elif model.pipeline.source_type == ExternalDataSource.Type.ZENDESK:
         from posthog.temporal.data_imports.pipelines.zendesk import zendesk_source

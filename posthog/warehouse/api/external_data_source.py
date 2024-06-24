@@ -198,6 +198,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             new_source_model = self._handle_hubspot_source(request, *args, **kwargs)
         elif source_type == ExternalDataSource.Type.ZENDESK:
             new_source_model = self._handle_zendesk_source(request, *args, **kwargs)
+        elif source_type == ExternalDataSource.Type.SALESFORCE:
+            new_source_model = self._handle_salesforce_source(request, *args, **kwargs)
         elif source_type == ExternalDataSource.Type.POSTGRES:
             try:
                 new_source_model, postgres_schemas = self._handle_postgres_source(request, *args, **kwargs)
@@ -326,6 +328,29 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "zendesk_api_key": api_key,
                 "zendesk_subdomain": subdomain,
                 "zendesk_email_address": email_address,
+            },
+            prefix=prefix,
+        )
+
+        return new_source_model
+
+    def _handle_salesforce_source(self, request: Request, *args: Any, **kwargs: Any) -> ExternalDataSource:
+        payload = request.data["payload"]
+        api_key = payload.get("api_key")
+        subdomain = payload.get("subdomain")
+        prefix = request.data.get("prefix", None)
+        source_type = request.data["source_type"]
+
+        new_source_model = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            team=self.team,
+            status="Running",
+            source_type=source_type,
+            job_inputs={
+                "salesforce_api_key": api_key,
+                "salesforce_subdomain": subdomain,
             },
             prefix=prefix,
         )

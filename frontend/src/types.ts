@@ -3809,7 +3809,7 @@ export enum DataWarehouseSettingsTab {
     SelfManaged = 'self_managed',
 }
 
-export const externalDataSources = ['Stripe', 'Hubspot', 'Postgres', 'Zendesk', 'Snowflake'] as const
+export const externalDataSources = ['Stripe', 'Hubspot', 'Postgres', 'Zendesk', 'Snowflake', 'Salesforce'] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
 

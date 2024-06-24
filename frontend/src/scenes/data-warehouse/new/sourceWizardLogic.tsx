@@ -288,6 +288,59 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
             },
         ],
     },
+    Salesforce: {
+        name: 'Salesforce',
+        caption: (
+            <>
+                Enter your Salesforce credentials to automatically pull your Salesforce data into the PostHog Data
+                warehouse.
+            </>
+        ),
+        fields: [
+            {
+                name: 'subdomain',
+                label: 'Salesforce subdomain',
+                type: 'text',
+                required: true,
+                placeholder: '',
+            },
+            {
+                name: 'client_id',
+                label: 'Client ID',
+                type: 'text',
+                required: true,
+                placeholder: '',
+            },
+            {
+                name: 'client_secret',
+                label: 'Client secret',
+                type: 'password',
+                required: true,
+                placeholder: '',
+            },
+            {
+                name: 'username',
+                label: 'Username',
+                type: 'text',
+                required: true,
+                placeholder: '',
+            },
+            {
+                name: 'password',
+                label: 'Password',
+                type: 'password',
+                required: true,
+                placeholder: '',
+            },
+            {
+                name: 'security_token',
+                label: 'Security token',
+                type: 'text',
+                required: true,
+                placeholder: '',
+            },
+        ],
+    },
 }
 
 export const buildKeaFormDefaultFromSourceDetails = (
