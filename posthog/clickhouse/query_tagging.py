@@ -8,7 +8,7 @@ thread_local_storage = threading.local()
 
 def get_query_tags():
     try:
-        return thread_local_storage.query_tags.items()
+        return thread_local_storage.query_tags
     except AttributeError:
         return {}
 

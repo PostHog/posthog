@@ -324,14 +324,7 @@ class Resolver(CloningVisitor):
                 if isinstance(database_table, FilterablePersonsTable) and isinstance(node.constraint.expr, ast.And):
                     # Push `IN` conditions down into the subselect
                     exprs = cast(ast.And, node.constraint.expr).exprs
-
-                    not_promotable = []
-                    promotable = []
-                    for expr in exprs:
-                        if FilterablePersonsTable.is_promotable_expr(expr):
-                            promotable.append(expr)
-                        else:
-                            not_promotable.append(expr)
+                    promotable, not_promotable = FilterablePersonsTable.partition_exprs(exprs)
                     node.constraint.expr.exprs = not_promotable
                     if len(promotable) == 1:
                         database_table.filter = promotable[0]

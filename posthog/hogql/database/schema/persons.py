@@ -201,6 +201,16 @@ class FilterablePersonsTable(LazyTable):
             isinstance(expr, CompareOperation) and expr.op == CompareOperationOp.In and expr.left == Field(chain=["id"])
         )
 
+    @staticmethod
+    def partition_exprs(exprs):
+        not_promotable = []
+        promotable = []
+        [
+            promotable.append(expr) if FilterablePersonsTable.is_promotable_expr(expr) else not_promotable.append(expr)
+            for expr in exprs
+        ]
+        return promotable, not_promotable
+
     def lazy_select(self, table_to_add: LazyTableToAdd, context, node):
         if self.filter is not None:
             return select_from_persons_table(table_to_add, context, node, clone_expr(self.filter, True, True))
