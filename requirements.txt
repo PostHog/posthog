@@ -40,7 +40,6 @@ async-generator==1.10
     #   trio-websocket
 async-timeout==4.0.2
     # via
-    #   aiohttp
     #   aiokafka
     #   redis
 attrs==23.2.0
@@ -219,8 +218,6 @@ drf-spectacular==0.27.1
     # via -r requirements.in
 et-xmlfile==1.1.0
     # via openpyxl
-exceptiongroup==1.2.1
-    # via anyio
 filelock==3.12.0
     # via snowflake-connector-python
 frozenlist==1.4.1
@@ -261,6 +258,8 @@ googleapis-common-protos==1.60.0
     # via
     #   google-api-core
     #   grpcio-status
+greenlet==3.0.3
+    # via sqlalchemy
 grpcio==1.57.0
     # via
     #   google-api-core
@@ -437,7 +436,7 @@ pydantic==2.5.3
     #   openai
 pydantic-core==2.14.6
     # via pydantic
-pyjwt==2.7.0
+pyjwt==2.4.0
     # via
     #   -r requirements.in
     #   snowflake-connector-python
@@ -462,14 +461,13 @@ python-dateutil==2.8.2
     #   pandas
     #   pendulum
     #   posthoganalytics
-    #   temporalio
 python-dotenv==0.21.0
     # via webdriver-manager
 python-statsd==2.1.0
     # via django-statsd
 python3-openid==3.1.0
     # via social-auth-core
-python3-saml==1.12.0
+python3-saml==1.16.0
     # via -r requirements.in
 pytz==2023.3
     # via
@@ -575,7 +573,7 @@ snowflake-sqlalchemy==1.5.3
     # via -r requirements.in
 social-auth-app-django==5.0.0
     # via -r requirements.in
-social-auth-core==4.5.0
+social-auth-core==4.3.0
     # via
     #   -r requirements.in
     #   social-auth-app-django
@@ -635,8 +633,6 @@ types-setuptools==69.0.0.0
     # via requirements-parser
 typing-extensions==4.7.1
     # via
-    #   anyio
-    #   asgiref
     #   dlt
     #   openai
     #   psycopg
