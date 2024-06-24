@@ -386,8 +386,9 @@ async def test_run_stripe_job(activity_environment, team, minio_client, **kwargs
             activity_environment.run(import_data_activity, job_1_inputs),
         )
 
+        folder_path = await sync_to_async(job_1.folder_path)()
         job_1_customer_objects = await minio_client.list_objects_v2(
-            Bucket=BUCKET_NAME, Prefix=f"{job_1.folder_path}/customer/"
+            Bucket=BUCKET_NAME, Prefix=f"{folder_path}/customer/"
         )
 
         assert len(job_1_customer_objects["Contents"]) == 1
@@ -409,7 +410,7 @@ async def test_run_stripe_job(activity_environment, team, minio_client, **kwargs
         )
 
         job_2_charge_objects = await minio_client.list_objects_v2(
-            Bucket=BUCKET_NAME, Prefix=f"{job_2.folder_path}/charge/"
+            Bucket=BUCKET_NAME, Prefix=f"{job_2.folder_path()}/charge/"
         )
         assert len(job_2_charge_objects["Contents"]) == 1
 
@@ -491,8 +492,9 @@ async def test_run_stripe_job_cancelled(activity_environment, team, minio_client
             activity_environment.run(import_data_activity, job_1_inputs),
         )
 
+        folder_path = await sync_to_async(job_1.folder_path)()
         job_1_customer_objects = await minio_client.list_objects_v2(
-            Bucket=BUCKET_NAME, Prefix=f"{job_1.folder_path}/customer/"
+            Bucket=BUCKET_NAME, Prefix=f"{folder_path}/customer/"
         )
 
         # if job was not canceled, this job would run indefinitely
@@ -577,8 +579,9 @@ async def test_run_stripe_job_row_count_update(activity_environment, team, minio
             activity_environment.run(import_data_activity, job_1_inputs),
         )
 
+        folder_path = await sync_to_async(job_1.folder_path)()
         job_1_customer_objects = await minio_client.list_objects_v2(
-            Bucket=BUCKET_NAME, Prefix=f"{job_1.folder_path}/customer/"
+            Bucket=BUCKET_NAME, Prefix=f"{folder_path}/customer/"
         )
 
         assert len(job_1_customer_objects["Contents"]) == 1
@@ -716,8 +719,9 @@ async def test_run_postgres_job(
             activity_environment.run(import_data_activity, job_1_inputs),
         )
 
+        folder_path = await sync_to_async(job_1.folder_path)()
         job_1_team_objects = await minio_client.list_objects_v2(
-            Bucket=BUCKET_NAME, Prefix=f"{job_1.folder_path}/posthog_test/"
+            Bucket=BUCKET_NAME, Prefix=f"{folder_path}/posthog_test/"
         )
         assert len(job_1_team_objects["Contents"]) == 1
 
