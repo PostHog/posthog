@@ -84,7 +84,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                     <AddToDashboardModal
                         isOpen={addToDashboardModalOpen}
                         closeModal={() => setAddToDashboardModalOpenModal(false)}
-                        insight={legacyInsight}
+                        insightProps={insightProps}
                         canEditInsight={canEditInsight}
                     />
                     <AlertsModal

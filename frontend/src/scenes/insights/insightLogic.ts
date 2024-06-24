@@ -3,22 +3,12 @@ import { actions, connect, events, kea, key, listeners, path, props, reducers, s
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 import { DashboardPrivilegeLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { getEventNamesForAction, objectsEqual, toParams } from 'lib/utils'
+import { getEventNamesForAction, objectsEqual } from 'lib/utils'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import {
-    filterTrendsClientSideParams,
-    isFunnelsFilter,
-    isLifecycleFilter,
-    isPathsFilter,
-    isRetentionFilter,
-    isStickinessFilter,
-    isTrendsFilter,
-    keyForInsightLogicProps,
-} from 'scenes/insights/sharedUtils'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
@@ -33,7 +23,6 @@ import { groupsModel } from '~/models/groupsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { tagsModel } from '~/models/tagsModel'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { queryExportContext } from '~/queries/query'
 import { InsightVizNode } from '~/queries/schema'
 import { isInsightVizNode } from '~/queries/utils'
 import {
@@ -137,7 +126,7 @@ export const insightLogic = kea<insightLogicType>([
                 },
                 updateInsight: async ({ insight, callback }, breakpoint) => {
                     if (!Object.entries(insight).length) {
-                        return values.insight
+                        return values.legacyInsight
                     }
 
                     if ('filters' in insight && !insight.query && emptyFilters(insight.filters)) {
@@ -146,24 +135,24 @@ export const insightLogic = kea<insightLogicType>([
                             extra: {
                                 filters: JSON.stringify(insight.filters),
                                 insight: JSON.stringify(insight),
-                                valuesInsight: JSON.stringify(values.insight),
+                                valuesInsight: JSON.stringify(values.legacyInsight),
                             },
                         })
                         throw error
                     }
 
                     const response = await api.update(
-                        `api/projects/${teamLogic.values.currentTeamId}/insights/${values.insight.id}`,
+                        `api/projects/${teamLogic.values.currentTeamId}/insights/${values.legacyInsight.id}`,
                         insight
                     )
                     breakpoint()
                     const updatedInsight: InsightModel = {
                         ...response,
-                        result: response.result || values.insight.result,
+                        result: response.result || values.legacyInsight.result,
                     }
                     callback?.(updatedInsight)
 
-                    const removedDashboards = (values.insight.dashboards || []).filter(
+                    const removedDashboards = (values.legacyInsight.dashboards || []).filter(
                         (d) => !updatedInsight.dashboards?.includes(d)
                     )
                     dashboardsModel.actions.updateDashboardInsight(updatedInsight, removedDashboards)
@@ -172,21 +161,16 @@ export const insightLogic = kea<insightLogicType>([
                 setInsightMetadata: async ({ metadata }, breakpoint) => {
                     const editMode =
                         insightSceneLogic.isMounted() &&
-                        insightSceneLogic.values.insight === values.insight &&
+                        insightSceneLogic.values.legacyInsight === values.legacyInsight &&
                         insightSceneLogic.values.insightMode === ItemMode.Edit
 
                     if (editMode) {
-                        return { ...values.insight, ...metadata }
+                        return { ...values.legacyInsight, ...metadata }
                     }
 
-                    if (metadata.filters) {
-                        const error = new Error(`Will not override filters in setInsightMetadata`)
-                        captureException(error, {
-                            extra: {
-                                filters: JSON.stringify(values.insight.filters),
-                                insight: JSON.stringify(values.insight),
-                            },
-                        })
+                    if (metadata.filters || metadata.query) {
+                        const error = new Error(`Will not override filters or query in setInsightMetadata`)
+                        captureException(error)
                         throw error
                     }
 
@@ -196,13 +180,13 @@ export const insightLogic = kea<insightLogicType>([
                     }
 
                     const response = await api.update(
-                        `api/projects/${teamLogic.values.currentTeamId}/insights/${values.insight.id}`,
+                        `api/projects/${teamLogic.values.currentTeamId}/insights/${values.legacyInsight.id}`,
                         metadata
                     )
                     breakpoint()
 
                     // only update the fields that we changed
-                    const updatedInsight = { ...values.insight } as InsightModel
+                    const updatedInsight = { ...values.legacyInsight } as InsightModel
                     for (const key of Object.keys(metadata)) {
                         updatedInsight[key] = response[key]
                     }
@@ -217,11 +201,11 @@ export const insightLogic = kea<insightLogicType>([
                             dataAttr: 'edit-insight-undo',
                             action: async () => {
                                 const response = await api.update(
-                                    `api/projects/${teamLogic.values.currentTeamId}/insights/${values.insight.id}`,
+                                    `api/projects/${teamLogic.values.currentTeamId}/insights/${values.queryBasedInsight.id}`,
                                     beforeUpdates
                                 )
                                 // only update the fields that we changed
-                                const revertedInsight = { ...values.insight } as InsightModel
+                                const revertedInsight = { ...values.legacyInsight } as InsightModel
                                 for (const key of Object.keys(beforeUpdates)) {
                                     revertedInsight[key] = response[key]
                                 }
@@ -306,8 +290,8 @@ export const insightLogic = kea<insightLogicType>([
                 setFilters: (_, { filters }) => cleanFilters(filters),
                 setInsight: (state, { insight: { filters }, options: { overrideFilter } }) =>
                     overrideFilter ? cleanFilters(filters || {}) : state,
-                loadInsightSuccess: (state, { insight }) =>
-                    Object.keys(state).length === 0 && insight.filters ? insight.filters : state,
+                loadInsightSuccess: (state, { legacyInsight }) =>
+                    Object.keys(state).length === 0 && legacyInsight.filters ? legacyInsight.filters : state,
             },
         ],
         /** The insight's state as it is in the database. */
@@ -316,10 +300,13 @@ export const insightLogic = kea<insightLogicType>([
             {
                 setInsight: (state, { insight, options: { fromPersistentApi } }) =>
                     fromPersistentApi ? { ...insight, filters: cleanFilters(insight.filters || {}) } : state,
-                loadInsightSuccess: (_, { insight }) => ({ ...insight, filters: cleanFilters(insight.filters || {}) }),
-                updateInsightSuccess: (_, { insight }) => ({
-                    ...insight,
-                    filters: cleanFilters(insight.filters || {}),
+                loadInsightSuccess: (_, { legacyInsight }) => ({
+                    ...legacyInsight,
+                    filters: cleanFilters(legacyInsight.filters || {}),
+                }),
+                updateInsightSuccess: (_, { legacyInsight }) => ({
+                    ...legacyInsight,
+                    filters: cleanFilters(legacyInsight.filters || {}),
                 }),
             },
         ],
@@ -342,7 +329,7 @@ export const insightLogic = kea<insightLogicType>([
         ],
     })),
     selectors({
-        queryBasedInsight: [(s) => [s.insight], (legacyInsight) => getQueryBasedInsightModel(legacyInsight)],
+        queryBasedInsight: [(s) => [s.legacyInsight], (legacyInsight) => getQueryBasedInsightModel(legacyInsight)],
         insightProps: [() => [(_, props) => props], (props): InsightLogicProps => props],
         isInDashboardContext: [() => [(_, props) => props], ({ dashboardId }) => !!dashboardId],
         hasDashboardItemId: [
@@ -363,18 +350,21 @@ export const insightLogic = kea<insightLogicType>([
                     mathDefinitions,
                 }).slice(0, 400),
         ],
-        insightName: [(s) => [s.insight, s.derivedName], (insight, derivedName) => insight.name || derivedName],
-        insightId: [(s) => [s.insight], (insight) => insight?.id || null],
-        isQueryBasedInsight: [(s) => [s.insight], (insight) => !!insight.query],
-        isInsightVizQuery: [(s) => [s.insight], (insight) => isInsightVizNode(insight.query)],
+        insightName: [
+            (s) => [s.queryBasedInsight, s.derivedName],
+            (insight, derivedName) => insight.name || derivedName,
+        ],
+        insightId: [(s) => [s.queryBasedInsight], (insight) => insight?.id || null],
+        isQueryBasedInsight: [(s) => [s.legacyInsight], (insight) => !!insight.query],
+        isInsightVizQuery: [(s) => [s.legacyInsight], (insight) => isInsightVizNode(insight.query)],
         canEditInsight: [
-            (s) => [s.insight],
+            (s) => [s.queryBasedInsight],
             (insight) =>
                 insight.effective_privilege_level == undefined ||
                 insight.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit,
         ],
         insightChanged: [
-            (s) => [s.insight, s.savedInsight],
+            (s) => [s.queryBasedInsight, s.savedInsight],
             (insight, savedInsight): boolean => {
                 return (
                     (insight.name || '') !== (savedInsight.name || '') ||
@@ -399,68 +389,21 @@ export const insightLogic = kea<insightLogicType>([
             },
         ],
         filtersKnown: [
-            (s) => [s.insight],
+            (s) => [s.legacyInsight],
             ({ filters }) => {
                 // any real filter will have the `insight` key in it
                 return 'insight' in (filters ?? {})
             },
         ],
         intervalUnit: [(s) => [s.filters], (filters) => filters?.interval || 'day'],
-        exporterResourceParams: [
-            (s) => [s.filters, s.currentTeamId, s.insight],
-            (
-                filters: Partial<FilterType>,
-                currentTeamId: number | null,
-                insight: Partial<InsightModel>
-            ): TriggerExportProps['export_context'] | null => {
-                if (!currentTeamId) {
-                    return null
-                }
-
-                const params = { ...filters }
-
-                const filename = ['export', insight.name || insight.derived_name].join('-')
-
-                if (insight.query) {
-                    return { ...queryExportContext(insight.query, undefined, undefined), filename }
-                }
-                if (isTrendsFilter(filters) || isStickinessFilter(filters) || isLifecycleFilter(filters)) {
-                    return {
-                        path: `api/projects/${currentTeamId}/insights/trend/?${toParams(
-                            filterTrendsClientSideParams(params)
-                        )}`,
-                        filename,
-                    }
-                } else if (isRetentionFilter(filters)) {
-                    return {
-                        filename,
-                        path: `api/projects/${currentTeamId}/insights/retention/?${toParams(params)}`,
-                    }
-                } else if (isFunnelsFilter(filters)) {
-                    return {
-                        filename,
-                        method: 'POST',
-                        path: `api/projects/${currentTeamId}/insights/funnel`,
-                        body: params,
-                    }
-                } else if (isPathsFilter(filters)) {
-                    return {
-                        filename,
-                        method: 'POST',
-                        path: `api/projects/${currentTeamId}/insights/path`,
-                        body: params,
-                    }
-                }
-                return null
-            },
-        ],
         showPersonsModal: [() => [(_, p) => p.query], (query?: InsightVizNode) => !query || !query.hidePersonsModal],
     }),
     listeners(({ actions, values }) => ({
         saveInsight: async ({ redirectToViewMode }) => {
             const insightNumericId =
-                values.insight.id || (values.insight.short_id ? await getInsightId(values.insight.short_id) : undefined)
-            const { name, description, favorited, filters, query, deleted, dashboards, tags } = values.insight
+                values.legacyInsight.id ||
+                (values.legacyInsight.short_id ? await getInsightId(values.legacyInsight.short_id) : undefined)
+            const { name, description, favorited, filters, query, deleted, dashboards, tags } = values.legacyInsight
             let savedInsight: InsightModel
 
             try {
@@ -493,7 +436,7 @@ export const insightLogic = kea<insightLogicType>([
 
             // the backend can't return the result for a query based insight,
             // and so we shouldn't copy the result from `values.insight` as it might be stale
-            const result = savedInsight.result || (query ? values.insight.result : null)
+            const result = savedInsight.result || (query ? values.legacyInsight.result : null)
             actions.setInsight({ ...savedInsight, result: result }, { fromPersistentApi: true, overrideFilter: true })
             eventUsageLogic.actions.reportInsightSaved(filters || {}, insightNumericId === undefined)
             lemonToast.success(`Insight saved${dashboards?.length === 1 ? ' & added to dashboard' : ''}`, {
@@ -525,10 +468,14 @@ export const insightLogic = kea<insightLogicType>([
             const insight: InsightModel = await api.create(`api/projects/${teamLogic.values.currentTeamId}/insights/`, {
                 name,
                 filters: values.filters,
-                query: values.insight.query,
+                query: values.legacyInsight.query,
                 saved: true,
             })
-            lemonToast.info(`You're now working on a copy of ${values.insight.name ?? values.insight.derived_name}`)
+            lemonToast.info(
+                `You're now working on a copy of ${
+                    values.queryBasedInsight.name ?? values.queryBasedInsight.derived_name
+                }`
+            )
             actions.setInsight(insight, { fromPersistentApi: true, overrideFilter: true })
             savedInsightsLogic.findMounted()?.actions.loadInsights() // Load insights afresh
             router.actions.push(urls.insightEdit(insight.short_id))
