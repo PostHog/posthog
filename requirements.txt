@@ -437,7 +437,7 @@ pydantic==2.5.3
     #   openai
 pydantic-core==2.14.6
     # via pydantic
-pyjwt==2.4.0
+pyjwt==2.7.0
     # via
     #   -r requirements.in
     #   snowflake-connector-python
@@ -575,7 +575,7 @@ snowflake-sqlalchemy==1.5.3
     # via -r requirements.in
 social-auth-app-django==5.0.0
     # via -r requirements.in
-social-auth-core==4.3.0
+social-auth-core==4.5.0
     # via
     #   -r requirements.in
     #   social-auth-app-django
