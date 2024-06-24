@@ -1,9 +1,17 @@
+jest.mock('../../src/utils/now', () => {
+    return {
+        now: jest.fn(() => Date.now()),
+    }
+})
+
 import {
+    BASE_REDIS_KEY,
     calculateRating,
     deriveCurrentState,
     DISABLE_THRESHOLD,
     DISABLED_PERIOD,
     getAverageRating,
+    HogWatcher,
     HogWatcherActiveObservations,
     HogWatcherObservationPeriod,
     HogWatcherState,
@@ -12,6 +20,27 @@ import {
     OVERFLOW_THRESHOLD,
 } from '../../src/cdp/hog-watcher'
 import { HogFunctionInvocationAsyncResponse, HogFunctionInvocationResult } from '../../src/cdp/types'
+import { Hub } from '../../src/types'
+import { createHub } from '../../src/utils/db/hub'
+import { delay } from '../../src/utils/utils'
+import { deleteKeysWithPrefix } from '../helpers/redis'
+
+const mockNow: jest.Mock = require('../../src/utils/now').now as any
+
+const createResult = (id: string, finished = true, error = 'error'): HogFunctionInvocationResult => {
+    return {
+        hogFunctionId: id,
+        finished,
+        error,
+    } as HogFunctionInvocationResult
+}
+
+const createAsyncResponse = (id: string, success = true): HogFunctionInvocationAsyncResponse => {
+    return {
+        hogFunctionId: id,
+        error: success ? null : 'error',
+    } as HogFunctionInvocationAsyncResponse
+}
 
 describe('HogWatcher', () => {
     describe('calculateRating', () => {
@@ -62,36 +91,15 @@ describe('HogWatcher', () => {
         it('should update the observation', () => {
             expect(observer.observations).toEqual({})
 
-            observer.observeResults([
-                {
-                    hogFunctionId: 'id1',
-                    finished: true,
-                    error: null,
-                },
-                {
-                    hogFunctionId: 'id1',
-                    finished: false,
-                    error: 'error',
-                },
-            ] as HogFunctionInvocationResult[])
-
-            observer.observeAsyncFunctionResponses([
-                {
-                    hogFunctionId: 'id1',
-                    error: null,
-                },
-                {
-                    hogFunctionId: 'id2',
-                    error: 'error',
-                },
-            ] as HogFunctionInvocationAsyncResponse[])
+            observer.observeResults([createResult('id1'), createResult('id1', false, 'error')])
+            observer.observeAsyncFunctionResponses([createAsyncResponse('id1'), createAsyncResponse('id2', false)])
 
             expect(observer.observations).toMatchInlineSnapshot(`
                 Object {
                   "id1": Object {
                     "asyncFunctionFailures": 0,
                     "asyncFunctionSuccesses": 1,
-                    "failures": 1,
+                    "failures": 2,
                     "successes": 1,
                     "timestamp": 1719229670000,
                   },
@@ -105,23 +113,14 @@ describe('HogWatcher', () => {
                 }
             `)
 
-            observer.observeAsyncFunctionResponses([
-                {
-                    hogFunctionId: 'id2',
-                    error: null,
-                },
-                {
-                    hogFunctionId: 'id2',
-                    error: null,
-                },
-            ] as HogFunctionInvocationAsyncResponse[])
+            observer.observeAsyncFunctionResponses([createAsyncResponse('id2'), createAsyncResponse('id2')])
 
             expect(observer.observations).toMatchInlineSnapshot(`
                 Object {
                   "id1": Object {
                     "asyncFunctionFailures": 0,
                     "asyncFunctionSuccesses": 1,
-                    "failures": 1,
+                    "failures": 2,
                     "successes": 1,
                     "timestamp": 1719229670000,
                   },
@@ -287,6 +286,140 @@ describe('HogWatcher', () => {
                 // Technically this wouldn't be possible but still good to test
                 updateState([1, 1, 1, 1, 1, 1, 1], [])
                 expect(currentState()).toBe(HogWatcherState.disabledIndefinitely)
+            })
+        })
+    })
+
+    describe.only('integration', () => {
+        let now: number
+        let hub: Hub
+        let closeHub: () => Promise<void>
+
+        let watcher1: HogWatcher
+        let watcher2: HogWatcher
+
+        const advanceTime = (ms: number) => {
+            now += ms
+            console.log(`[TEST] Advancing time by ${ms}ms to ${now}`)
+            mockNow.mockReturnValue(now)
+        }
+
+        beforeEach(async () => {
+            ;[hub, closeHub] = await createHub()
+
+            now = 1720000000000
+            mockNow.mockReturnValue(now)
+
+            await deleteKeysWithPrefix(hub.redisPool, BASE_REDIS_KEY)
+
+            watcher1 = new HogWatcher(hub)
+            watcher2 = new HogWatcher(hub)
+            await watcher1.start()
+            await watcher2.start()
+        })
+
+        afterEach(async () => {
+            await Promise.all([watcher1, watcher2].map((watcher) => watcher.stop()))
+            jest.useRealTimers()
+            await closeHub()
+            jest.clearAllMocks()
+        })
+
+        describe('fetching', () => {
+            it('should retrieve empty state', async () => {
+                const res = await watcher1.fetchWatcher('id1')
+                expect(res).toEqual({
+                    observations: [],
+                    rating: 1,
+                    state: 1,
+                    states: [],
+                })
+            })
+        })
+
+        describe('with observations', () => {
+            it('should store observations', async () => {
+                watcher1.currentObservations.observeResults([createResult('id1'), createResult('id1', false, 'error')])
+                watcher1.currentObservations.observeResults([createResult('id2'), createResult('id1')])
+                watcher1.currentObservations.observeResults([createResult('id1')])
+
+                expect(watcher1.currentObservations.observations).toMatchObject({
+                    id1: {
+                        failures: 4,
+                        successes: 3,
+                        timestamp: now,
+                    },
+                    id2: {
+                        failures: 1,
+                        successes: 1,
+                        timestamp: now,
+                    },
+                })
+
+                expect(watcher2.currentObservations.observations).toEqual({})
+            })
+
+            it('should sync nothing if still in period', async () => {
+                watcher1.currentObservations.observeResults([createResult('id2'), createResult('id1')])
+
+                expect(watcher1.observations).toEqual({})
+                expect(watcher2.observations).toEqual({})
+                await watcher1.sync()
+                expect(watcher1.observations).toEqual({})
+                expect(watcher2.observations).toEqual({})
+            })
+
+            it('should sync via redis pubsub once period changes', async () => {
+                watcher1.currentObservations.observeResults([createResult('id2'), createResult('id1')])
+                expect(watcher1.observations).toEqual({})
+                await watcher1.sync()
+                expect(watcher1.observations).toEqual({})
+                advanceTime(OBSERVATION_PERIOD)
+
+                const expectation = {
+                    id1: [
+                        {
+                            failures: 1,
+                            successes: 1,
+                            timestamp: 1720000000000,
+                        },
+                    ],
+                    id2: [
+                        {
+                            failures: 1,
+                            successes: 1,
+                            timestamp: 1720000000000,
+                        },
+                    ],
+                }
+
+                await watcher1.sync()
+                expect(watcher1.observations).toMatchObject(expectation)
+                await delay(100) // Allow pubsub to definitely have happenened
+                expect(watcher2.observations).toMatchObject(expectation)
+            })
+
+            it('should also save the observations to redis', async () => {
+                watcher1.currentObservations.observeResults([createResult('id2'), createResult('id1')])
+                advanceTime(OBSERVATION_PERIOD)
+                await watcher1.sync()
+                const fromRedis = await watcher2.fetchWatcher('id1')
+                expect(fromRedis).toMatchInlineSnapshot(`
+                    Object {
+                      "observations": Array [
+                        Object {
+                          "asyncFunctionFailures": 0,
+                          "asyncFunctionSuccesses": 0,
+                          "failures": 1,
+                          "successes": 1,
+                          "timestamp": 1720000000000,
+                        },
+                      ],
+                      "rating": 0.5,
+                      "state": 1,
+                      "states": Array [],
+                    }
+                `)
             })
         })
     })

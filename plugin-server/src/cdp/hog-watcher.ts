@@ -1,10 +1,11 @@
 import { Redis } from 'ioredis'
 
-import { Hub, PluginsServerConfig, RedisPool } from '../types'
+import { Hub, RedisPool } from '../types'
 import { timeoutGuard } from '../utils/db/utils'
 import { HogFunctionInvocationAsyncResponse, HogFunctionInvocationResult, HogFunctionType } from './types'
 import { randomUUID } from 'node:crypto'
 import { PubSub } from '../utils/pubsub'
+import { now } from '../utils/now'
 import { status } from '../utils/status'
 
 /**
@@ -78,23 +79,6 @@ export type EmittedHogWatcherStates = {
     }[]
 }
 
-/*
-This all gets serialized to redis in a way that we can have shared state between multiple instances of the plugin server
-
-# Timestamps are rounded to a period so we can easily group them
-
-ZSET @posthog/hog-watcher/observations/<id>/successes
-# Whenever we pass the threshold for a evaluation period, we increment that period in the ZSET with our successes and failures
-
-
-FIELD @posthog/hog-watcher/observations/<id> = {
-  [uuid]: HogWatcherObservationPeriodDetailed
-}
-
-We set a ttl on the key to the max period we want to keep the data for. This way each pod can fetch all observations and states.
-
-*/
-
 const REDIS_TIMEOUT_SECONDS = 5
 
 export const OBSERVATION_PERIOD = 10000 // Adjust this for more or less granular checking
@@ -123,7 +107,7 @@ export const calculateRating = (observation: HogWatcherObservationPeriod): numbe
 }
 
 export const getAverageRating = (observations: HogWatcherObservationPeriod[]): number => {
-    return observations.reduce((acc, x) => acc + calculateRating(x), 0) / observations.length
+    return observations.length ? observations.reduce((acc, x) => acc + calculateRating(x), 0) / observations.length : 1
 }
 
 export const deriveCurrentState = (
@@ -132,7 +116,7 @@ export const deriveCurrentState = (
 ): HogWatcherState => {
     // TODO: Prune old observations and states
     // Observations are pruned by age
-    const observations = _observations.filter((x) => Date.now() - x.timestamp < EVALUATION_PERIOD)
+    const observations = _observations.filter((x) => now() - x.timestamp < EVALUATION_PERIOD)
 
     // States are pruned by a max length rather than time
     if (states.length > MAX_RECORDED_STATES) {
@@ -140,7 +124,7 @@ export const deriveCurrentState = (
     }
 
     const currentState = states[states.length - 1] ?? {
-        timestamp: Date.now(),
+        timestamp: now(),
         state: HogWatcherState.healthy,
     }
 
@@ -152,7 +136,7 @@ export const deriveCurrentState = (
 
     // If we are disabled for a period then we only check if it should no longer be disabled
     if (currentState.state === HogWatcherState.disabledForPeriod) {
-        if (Date.now() - currentState.timestamp > DISABLED_PERIOD) {
+        if (now() - currentState.timestamp > DISABLED_PERIOD) {
             return HogWatcherState.overflowed
         }
     }
@@ -192,7 +176,7 @@ export const deriveCurrentState = (
 
 const periodTimestamp = (timestamp?: number): number => {
     // Returns the timestamp but rounded to the nearest period (e.g. 1 minute)
-    return Math.floor((timestamp ?? Date.now()) / OBSERVATION_PERIOD) * OBSERVATION_PERIOD
+    return Math.floor((timestamp ?? now()) / OBSERVATION_PERIOD) * OBSERVATION_PERIOD
 }
 
 async function runRedis<T>(redisPool: RedisPool, description: string, fn: (client: Redis) => Promise<T>): Promise<T> {
@@ -260,8 +244,8 @@ export class HogWatcherActiveObservations {
 
 export class HogWatcher {
     public readonly currentObservations = new HogWatcherActiveObservations()
-    private readonly states: Record<HogFunctionType['id'], HogWatcherStatePeriod[]> = {}
-    private readonly observations: Record<HogFunctionType['id'], HogWatcherObservationPeriod[]> = {}
+    public readonly states: Record<HogFunctionType['id'], HogWatcherStatePeriod[]> = {}
+    public readonly observations: Record<HogFunctionType['id'], HogWatcherObservationPeriod[]> = {}
 
     // Only the leader should be able to write to the states
     private isLeader: boolean = false
@@ -273,6 +257,7 @@ export class HogWatcher {
         this.instanceId = randomUUID()
         this.pubSub = new PubSub(hub, {
             'hog-watcher-observations': async (message) => {
+                console.log('RECEIVED', message)
                 const { instanceId, observations }: EmittedHogWatcherObservations = JSON.parse(message)
 
                 if (instanceId === this.instanceId) {
@@ -299,18 +284,20 @@ export class HogWatcher {
                 })
             },
         })
-        // TODO: Receive updates from the pubsub to keep a list of observations and states up to date
-        // Expose methods for determining the state of a function
-
-        // If leader have a regular check that determines the new states and syncs / emits
     }
 
     async start() {
         await this.pubSub.start()
+
+        if (process.env.NODE_ENV === 'test') {
+            // Not setting up loop in test mode
+            return
+        }
+
         const loop = async () => {
             try {
                 // Maybe add a slow function warning here
-                this.syncState()
+                this.sync()
             } finally {
                 this.interval = setTimeout(loop, OBSERVATION_PERIOD)
             }
@@ -320,6 +307,11 @@ export class HogWatcher {
     }
 
     async stop() {
+        await this.pubSub.stop()
+
+        if (this.interval) {
+            clearTimeout(this.interval)
+        }
         if (!this.isLeader) {
             return
         }
@@ -354,7 +346,7 @@ export class HogWatcher {
         }
     }
 
-    private async syncState() {
+    public async sync() {
         // TODO: Implement this
         // 1. Expire all old observations and states
         // 2. Flush any active observations that we need to do redis (and pubsub)
@@ -373,15 +365,16 @@ export class HogWatcher {
             observations: [],
         }
 
+        const period = periodTimestamp()
+
         Object.entries(this.currentObservations.observations).forEach(([id, observation]) => {
-            if (observation.timestamp !== periodTimestamp()) {
+            if (observation.timestamp !== period) {
                 changes.observations.push({ id, observation })
                 this.observations[id] = this.observations[id] ?? []
                 this.observations[id].push(observation)
+                delete this.currentObservations.observations[id]
             }
         })
-
-        this.currentObservations.observations = {}
 
         if (!changes.observations.length) {
             return

@@ -267,8 +267,8 @@ abstract class CdpConsumerBase {
         await this.batchConsumer?.stop()
         status.info('🔁', `${this.name} - stopping kafka producer`)
         await this.kafkaProducer?.disconnect()
-        status.info('🔁', `${this.name} - stopping hog function manager`)
-        await this.hogFunctionManager.stop()
+        status.info('🔁', `${this.name} - stopping hog function manager and hog watcher`)
+        await Promise.all([this.hogFunctionManager.stop(), this.hogWatcher.stop()])
 
         status.info('👍', `${this.name} - stopped!`)
     }
