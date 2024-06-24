@@ -266,12 +266,12 @@ class ActorsQueryRunner(QueryRunner):
                             select_query.settings = HogQLQuerySettings()
                         select_query.settings.use_query_cache = True
                         select_query.settings.query_cache_ttl = HOGQL_INCREASED_MAX_EXECUTION_TIME
-
+                    origin = "filterable_persons"
                     join_on = ast.And(
                         exprs=[
                             ast.CompareOperation(
                                 op=ast.CompareOperationOp.Eq,
-                                left=ast.Field(chain=["filterable_persons", self.strategy.origin_id]),
+                                left=ast.Field(chain=[origin, self.strategy.origin_id]),
                                 right=ast.Field(chain=[source_alias, *source_id_chain]),
                             ),
                             ast.CompareOperation(
