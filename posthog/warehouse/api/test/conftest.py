@@ -5,7 +5,7 @@ from psycopg import sql
 
 @pytest_asyncio.fixture
 async def setup_postgres_test_db(postgres_config):
-    """Fixture to manage a database for Redshift export testing.
+    """Fixture to manage a database for Postgres export testing.
 
     Managing a test database involves the following steps:
     1. Creating a test database.

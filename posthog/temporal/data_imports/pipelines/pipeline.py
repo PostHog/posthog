@@ -48,6 +48,11 @@ class DataImportPipeline:
 
         self._incremental = incremental
         self.refresh_dlt = reset_pipeline
+        self.should_chunk_pipeline = (
+            incremental
+            and inputs.job_type != ExternalDataSource.Type.POSTGRES
+            and inputs.job_type != ExternalDataSource.Type.SNOWFLAKE
+        )
 
     def _get_pipeline_name(self):
         return f"{self.inputs.job_type}_pipeline_{self.inputs.team_id}_run_{self.inputs.schema_id}"
@@ -90,11 +95,7 @@ class DataImportPipeline:
         total_counts: Counter[str] = Counter({})
 
         # Do chunking for incremental syncing on API based endpoints (e.g. not sql databases)
-        if (
-            self._incremental
-            and self.inputs.job_type != ExternalDataSource.Type.POSTGRES
-            and self.inputs.job_type != ExternalDataSource.Type.SNOWFLAKE
-        ):
+        if self.should_chunk_pipeline:
             # will get overwritten
             counts: Counter[str] = Counter({"start": 1})
             pipeline_runs = 0

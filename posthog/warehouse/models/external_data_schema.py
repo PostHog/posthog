@@ -38,7 +38,7 @@ class ExternalDataSchema(CreatedMetaFields, UUIDModel):
     status: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     last_synced_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
     sync_type: models.CharField = models.CharField(max_length=128, choices=SyncType.choices, null=True, blank=True)
-    sync_type_payload: models.JSONField = models.JSONField(
+    sync_type_config: models.JSONField = models.JSONField(
         default=dict,
         blank=True,
     )

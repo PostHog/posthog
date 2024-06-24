@@ -72,10 +72,10 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         return schema.is_incremental
 
     def get_incremental_field(self, schema: ExternalDataSchema) -> str | None:
-        return schema.sync_type_payload.get("incremental_field")
+        return schema.sync_type_config.get("incremental_field")
 
     def get_incremental_field_type(self, schema: ExternalDataSchema) -> str | None:
-        return schema.sync_type_payload.get("incremental_field_type")
+        return schema.sync_type_config.get("incremental_field_type")
 
     def get_sync_type(self, schema: ExternalDataSchema) -> ExternalDataSchema.SyncType | None:
         return schema.sync_type
@@ -111,24 +111,24 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 trigger_refresh = True
 
             # If sync type is incremental and the incremental field changes
-            if sync_type == ExternalDataSchema.SyncType.INCREMENTAL and instance.sync_type_payload.get(
+            if sync_type == ExternalDataSchema.SyncType.INCREMENTAL and instance.sync_type_config.get(
                 "incremental_field"
             ) != data.get("incremental_field"):
                 trigger_refresh = True
 
         # Update the validated_data with incremental fields
         if sync_type == "incremental":
-            payload = instance.sync_type_payload
+            payload = instance.sync_type_config
             payload["incremental_field"] = data.get("incremental_field")
             payload["incremental_field_type"] = data.get("incremental_field_type")
 
-            validated_data["sync_type_payload"] = payload
+            validated_data["sync_type_config"] = payload
         else:
-            payload = instance.sync_type_payload
+            payload = instance.sync_type_config
             payload.pop("incremental_field", None)
             payload.pop("incremental_field_type", None)
 
-            validated_data["sync_type_payload"] = payload
+            validated_data["sync_type_config"] = payload
 
         should_sync = validated_data.get("should_sync", None)
 

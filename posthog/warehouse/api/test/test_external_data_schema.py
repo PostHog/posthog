@@ -24,7 +24,8 @@ def postgres_config():
 
 @pytest_asyncio.fixture
 async def postgres_connection(postgres_config, setup_postgres_test_db):
-    await anext(setup_postgres_test_db)
+    if setup_postgres_test_db:
+        await anext(setup_postgres_test_db)
 
     connection = await psycopg.AsyncConnection.connect(
         user=postgres_config["user"],
@@ -190,7 +191,7 @@ class TestExternalDataSchema(APIBaseTest):
             should_sync=True,
             status=ExternalDataSchema.Status.COMPLETED,
             sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
-            sync_type_payload={"incremental_field": "some_other_field", "incremental_field_type": "datetime"},
+            sync_type_config={"incremental_field": "some_other_field", "incremental_field_type": "datetime"},
         )
 
         with mock.patch(
@@ -208,8 +209,8 @@ class TestExternalDataSchema(APIBaseTest):
             assert source.job_inputs.get("reset_pipeline") == "True"
 
             schema.refresh_from_db()
-            assert schema.sync_type_payload.get("incremental_field") == "field"
-            assert schema.sync_type_payload.get("incremental_field_type") == "integer"
+            assert schema.sync_type_config.get("incremental_field") == "field"
+            assert schema.sync_type_config.get("incremental_field_type") == "integer"
 
     def test_update_schema_change_should_sync_off(self):
         source = ExternalDataSource.objects.create(

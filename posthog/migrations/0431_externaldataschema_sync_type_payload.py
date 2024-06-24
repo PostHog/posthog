@@ -11,7 +11,7 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="externaldataschema",
-            name="sync_type_payload",
+            name="sync_type_config",
             field=models.JSONField(blank=True, default=dict),
         ),
         migrations.AlterField(
@@ -27,7 +27,7 @@ class Migration(migrations.Migration):
         migrations.RunSQL(  # Update Stripe schemas
             sql="""
                 UPDATE posthog_externaldataschema AS schema
-                SET sync_type_payload = '{"incremental_field": "created"}'
+                SET sync_type_config = '{"incremental_field": "created"}'
                 FROM posthog_externaldatasource AS source
                 WHERE schema.source_id = source.id AND source.source_type = 'Stripe' AND schema.sync_type = 'incremental'
             """,
@@ -36,7 +36,7 @@ class Migration(migrations.Migration):
         migrations.RunSQL(  # Update Zendesk schemas
             sql="""
                 UPDATE posthog_externaldataschema AS schema
-                SET sync_type_payload = '{"incremental_field": "generated_timestamp"}'
+                SET sync_type_config = '{"incremental_field": "generated_timestamp"}'
                 FROM posthog_externaldatasource AS source
                 WHERE schema.source_id = source.id AND source.source_type = 'Zendesk' AND schema.sync_type = 'incremental'
             """,

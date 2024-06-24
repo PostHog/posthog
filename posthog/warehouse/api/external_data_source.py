@@ -264,7 +264,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 source=new_source_model,
                 should_sync=schema.get("should_sync"),
                 sync_type=sync_type,
-                sync_type_payload={
+                sync_type_config={
                     "incremental_field": incremental_field,
                     "incremental_field_type": incremental_field_type,
                 }

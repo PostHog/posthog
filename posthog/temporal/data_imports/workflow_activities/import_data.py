@@ -149,10 +149,10 @@ async def import_data_activity(inputs: ImportDataActivityInputs) -> tuple[TSchem
                     sslmode="prefer",
                     schema=pg_schema,
                     table_names=endpoints,
-                    incremental_field=schema.sync_type_payload.get("incremental_field")
+                    incremental_field=schema.sync_type_config.get("incremental_field")
                     if schema.is_incremental
                     else None,
-                    incremental_field_type=schema.sync_type_payload.get("incremental_field_type")
+                    incremental_field_type=schema.sync_type_config.get("incremental_field_type")
                     if schema.is_incremental
                     else None,
                 )
@@ -175,8 +175,8 @@ async def import_data_activity(inputs: ImportDataActivityInputs) -> tuple[TSchem
             sslmode="prefer",
             schema=pg_schema,
             table_names=endpoints,
-            incremental_field=schema.sync_type_payload.get("incremental_field") if schema.is_incremental else None,
-            incremental_field_type=schema.sync_type_payload.get("incremental_field_type")
+            incremental_field=schema.sync_type_config.get("incremental_field") if schema.is_incremental else None,
+            incremental_field_type=schema.sync_type_config.get("incremental_field_type")
             if schema.is_incremental
             else None,
         )
