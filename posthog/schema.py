@@ -841,6 +841,7 @@ class QueryResponseAlternative8(BaseModel):
     )
     errors: list[HogQLNotice]
     inputExpr: Optional[str] = None
+    inputProgram: Optional[str] = None
     inputSelect: Optional[str] = None
     isValid: Optional[bool] = None
     isValidView: Optional[bool] = None
@@ -2035,6 +2036,7 @@ class HogQLMetadataResponse(BaseModel):
     )
     errors: list[HogQLNotice]
     inputExpr: Optional[str] = None
+    inputProgram: Optional[str] = None
     inputSelect: Optional[str] = None
     isValid: Optional[bool] = None
     isValidView: Optional[bool] = None
@@ -4472,6 +4474,7 @@ class HogQLMetadata(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    program: Optional[str] = Field(default=None, description="Full Hog program")
     response: Optional[HogQLMetadataResponse] = None
     select: Optional[str] = Field(
         default=None, description="Full select query to validate (use `select` or `expr`, but not both)"
