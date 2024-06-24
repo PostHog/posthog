@@ -507,7 +507,6 @@ export interface TeamType extends TeamBasicType {
      */
     correlation_config: CorrelationConfigType | null
     person_on_events_querying_enabled: boolean
-    groups_on_events_querying_enabled: boolean
     extra_settings?: Record<string, string | number | boolean | undefined>
     modifiers?: HogQLQueryModifiers
     default_modifiers?: HogQLQueryModifiers
