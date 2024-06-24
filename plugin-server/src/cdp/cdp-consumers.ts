@@ -140,7 +140,7 @@ abstract class CdpConsumerBase {
         return await runInstrumentedFunction({
             statsKey: `cdpConsumer.handleEachBatch.executeAsyncResponses`,
             func: async () => {
-                await this.hogWatcher.observeAsyncFunctionResponses(asyncResponses)
+                this.hogWatcher.currentObservations.observeAsyncFunctionResponses(asyncResponses)
                 // Filter for blocked functions
                 asyncResponses = asyncResponses.filter((e) => {
                     // if (this.hogWatcher.isHogFunctionOverflowed(e.hogFunctionId)) {
@@ -155,7 +155,7 @@ abstract class CdpConsumerBase {
                 })
 
                 const results = await Promise.all(asyncResponses.map((e) => this.hogExecutor.executeAsyncResponse(e)))
-                await this.hogWatcher.observeResults(results)
+                this.hogWatcher.currentObservations.observeResults(results)
                 return results
             },
         })
@@ -179,7 +179,7 @@ abstract class CdpConsumerBase {
                         })
                     )
                 ).flat()
-                await this.hogWatcher.observeResults(results)
+                this.hogWatcher.currentObservations.observeResults(results)
                 return results
             },
         })

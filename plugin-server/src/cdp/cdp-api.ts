@@ -49,8 +49,7 @@ export class CdpApi {
         () =>
         async (req: express.Request, res: express.Response): Promise<void> => {
             const { id } = req.params
-
-            const summary = (await this.hogWatcher.getObserver(id)).getSummary()
+            const summary = await this.hogWatcher.fetchWatcher(id)
 
             res.json(summary)
         }

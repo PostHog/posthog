@@ -1,236 +1,292 @@
 import {
+    calculateRating,
+    deriveCurrentState,
     DISABLE_THRESHOLD,
     DISABLED_PERIOD,
-    HogWatcherObservationPeriodDetailed,
-    HogWatcherObserver,
+    getAverageRating,
+    HogWatcherActiveObservations,
+    HogWatcherObservationPeriod,
     HogWatcherState,
+    HogWatcherStatePeriod,
     OBSERVATION_PERIOD,
     OVERFLOW_THRESHOLD,
 } from '../../src/cdp/hog-watcher'
+import { HogFunctionInvocationAsyncResponse, HogFunctionInvocationResult } from '../../src/cdp/types'
 
 describe('HogWatcher', () => {
-    describe('HogWatcherObserver', () => {
-        describe('observations', () => {
-            let observer: HogWatcherObserver
+    describe('calculateRating', () => {
+        // TODO: Change rating to account for numbers as well - low volume failures can still have a high rating as their impact is not so bad
+        const cases: Array<[Partial<HogWatcherObservationPeriod>, number]> = [
+            [{ successes: 9, failures: 1 }, 0.9],
+            [{ successes: 1, failures: 1 }, 0.5],
+            [{ successes: 0, failures: 1 }, 0],
+            [{ successes: 1, failures: 0 }, 1],
+            [{ asyncFunctionSuccesses: 9, asyncFunctionFailures: 1 }, 0.9],
+            [{ asyncFunctionSuccesses: 1, asyncFunctionFailures: 1 }, 0.5],
+            [{ asyncFunctionSuccesses: 0, asyncFunctionFailures: 1 }, 0],
+            [{ asyncFunctionSuccesses: 1, asyncFunctionFailures: 0 }, 1],
 
-            beforeEach(() => {
-                observer = new HogWatcherObserver('1')
+            // Mixed results - currently whichever is worse is the rating
+            [{ successes: 9, failures: 1, asyncFunctionSuccesses: 1, asyncFunctionFailures: 1 }, 0.5],
+            [{ successes: 1, failures: 1, asyncFunctionSuccesses: 9, asyncFunctionFailures: 1 }, 0.5],
+            [{ successes: 1, failures: 1, asyncFunctionSuccesses: 1, asyncFunctionFailures: 1 }, 0.5],
+            [{ successes: 0, failures: 0, asyncFunctionSuccesses: 9, asyncFunctionFailures: 1 }, 0.9],
+        ]
+
+        it.each(cases)('should calculate the rating %s of %s', (vals, rating) => {
+            const observation: HogWatcherObservationPeriod = {
+                timestamp: Date.now(),
+                successes: 0,
+                failures: 0,
+                asyncFunctionFailures: 0,
+                asyncFunctionSuccesses: 0,
+                ...vals,
+            }
+            expect(calculateRating(observation)).toBe(rating)
+        })
+    })
+
+    describe('HogWatcherActiveObservations', () => {
+        let observer: HogWatcherActiveObservations
+
+        beforeEach(() => {
+            observer = new HogWatcherActiveObservations()
+            jest.useFakeTimers()
+            jest.setSystemTime(1719229670000)
+        })
+
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        it('should update the observation', () => {
+            expect(observer.observations).toEqual({})
+
+            observer.observeResults([
+                {
+                    hogFunctionId: 'id1',
+                    finished: true,
+                    error: null,
+                },
+                {
+                    hogFunctionId: 'id1',
+                    finished: false,
+                    error: 'error',
+                },
+            ] as HogFunctionInvocationResult[])
+
+            observer.observeAsyncFunctionResponses([
+                {
+                    hogFunctionId: 'id1',
+                    error: null,
+                },
+                {
+                    hogFunctionId: 'id2',
+                    error: 'error',
+                },
+            ] as HogFunctionInvocationAsyncResponse[])
+
+            expect(observer.observations).toMatchInlineSnapshot(`
+                Object {
+                  "id1": Object {
+                    "asyncFunctionFailures": 0,
+                    "asyncFunctionSuccesses": 1,
+                    "failures": 1,
+                    "successes": 1,
+                    "timestamp": 1719229670000,
+                  },
+                  "id2": Object {
+                    "asyncFunctionFailures": 1,
+                    "asyncFunctionSuccesses": 0,
+                    "failures": 0,
+                    "successes": 0,
+                    "timestamp": 1719229670000,
+                  },
+                }
+            `)
+
+            observer.observeAsyncFunctionResponses([
+                {
+                    hogFunctionId: 'id2',
+                    error: null,
+                },
+                {
+                    hogFunctionId: 'id2',
+                    error: null,
+                },
+            ] as HogFunctionInvocationAsyncResponse[])
+
+            expect(observer.observations).toMatchInlineSnapshot(`
+                Object {
+                  "id1": Object {
+                    "asyncFunctionFailures": 0,
+                    "asyncFunctionSuccesses": 1,
+                    "failures": 1,
+                    "successes": 1,
+                    "timestamp": 1719229670000,
+                  },
+                  "id2": Object {
+                    "asyncFunctionFailures": 1,
+                    "asyncFunctionSuccesses": 2,
+                    "failures": 0,
+                    "successes": 0,
+                    "timestamp": 1719229670000,
+                  },
+                }
+            `)
+        })
+    })
+
+    describe('deriveCurrentState', () => {
+        let now: number
+        let observations: HogWatcherObservationPeriod[]
+        let states: HogWatcherStatePeriod[]
+
+        beforeEach(() => {
+            now = Date.now()
+            observations = []
+            states = []
+
+            jest.useFakeTimers()
+            jest.setSystemTime(now)
+        })
+
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        const advanceTime = (ms: number) => {
+            jest.advanceTimersByTime(ms)
+        }
+
+        const updateState = (ratings: number[], newStates: HogWatcherState[]) => {
+            newStates.forEach((state) => {
+                states.push({
+                    timestamp: Date.now(),
+                    state,
+                })
             })
 
-            it('should update the observation', () => {
-                expect(observer.observations).toEqual([])
-
-                observer.addObservations({
-                    successes: 10,
-                    failures: 1,
-                    asyncFunctionFailures: 2,
-                    asyncFunctionSuccesses: 3,
+            ratings.forEach((rating) => {
+                advanceTime(OBSERVATION_PERIOD)
+                observations.push({
+                    // Simulate rating as ratio of success and failures
+                    timestamp: Date.now(),
+                    successes: 1000 * rating,
+                    failures: 1000 * (1 - rating),
+                    asyncFunctionFailures: 0,
+                    asyncFunctionSuccesses: 0,
                 })
+            })
+        }
 
-                expect(observer.observations).toMatchObject([
-                    {
-                        timestamp: Math.floor(Date.now() / 10000) * 10000,
-                        successes: 10,
-                        failures: 1,
-                        asyncFunctionFailures: 2,
-                        asyncFunctionSuccesses: 3,
-                    },
-                ])
+        const currentState = () => deriveCurrentState(observations, states)
 
-                observer.addObservations({
-                    asyncFunctionSuccesses: 11,
-                })
-
-                expect(observer.observations).toMatchObject([
-                    {
-                        timestamp: Math.floor(Date.now() / 10000) * 10000,
-                        successes: 10,
-                        failures: 1,
-                        asyncFunctionFailures: 2,
-                        asyncFunctionSuccesses: 14,
-                    },
-                ])
+        describe('1 - healthy', () => {
+            it('should be healthy with no observations or previous states', () => {
+                expect(currentState()).toBe(HogWatcherState.healthy)
             })
 
-            // TODO: Change rating to account for numbers as well - low volume failures can still have a high rating as their impact is not so bad
-            const cases: Array<[Partial<HogWatcherObservationPeriodDetailed>, number]> = [
-                [{ successes: 9, failures: 1 }, 0.9],
-                [{ successes: 1, failures: 1 }, 0.5],
-                [{ successes: 0, failures: 1 }, 0],
-                [{ successes: 1, failures: 0 }, 1],
-                [{ asyncFunctionSuccesses: 9, asyncFunctionFailures: 1 }, 0.9],
-                [{ asyncFunctionSuccesses: 1, asyncFunctionFailures: 1 }, 0.5],
-                [{ asyncFunctionSuccesses: 0, asyncFunctionFailures: 1 }, 0],
-                [{ asyncFunctionSuccesses: 1, asyncFunctionFailures: 0 }, 1],
+            it.each(Object.values(HogWatcherState))(
+                'should be whatever the last state is (%s) if no observations',
+                (lastState) => {
+                    updateState([], [lastState as any])
+                    expect(currentState()).toBe(lastState)
+                }
+            )
 
-                // Mixed results - currently whichever is worse is the rating
-                [{ successes: 9, failures: 1, asyncFunctionSuccesses: 1, asyncFunctionFailures: 1 }, 0.5],
-                [{ successes: 1, failures: 1, asyncFunctionSuccesses: 9, asyncFunctionFailures: 1 }, 0.5],
-                [{ successes: 1, failures: 1, asyncFunctionSuccesses: 1, asyncFunctionFailures: 1 }, 0.5],
-                [{ successes: 0, failures: 0, asyncFunctionSuccesses: 9, asyncFunctionFailures: 1 }, 0.9],
-            ]
+            it('should not change if too few observations', () => {
+                updateState([0, 0], [])
+                expect(getAverageRating(observations)).toEqual(0)
+                expect(currentState()).toBe(HogWatcherState.healthy)
+            })
 
-            it.each(cases)('should calculate the rating %s of %s', (vals, rating) => {
-                const res = observer.addObservations(vals)
-                expect(res.rating).toBe(rating)
+            it('should move to overflow if enough observations are unhealthy', () => {
+                updateState([1, 1, 0.8, 0.6, 0.6, 0.6, 0.6], [])
+                expect(states).toMatchObject([])
+                expect(getAverageRating(observations)).toBeLessThan(OVERFLOW_THRESHOLD)
+                expect(currentState()).toBe(HogWatcherState.overflowed)
             })
         })
 
-        describe('states', () => {
-            let now: number
-            beforeEach(() => {
-                now = Date.now()
+        describe('2 - overflow', () => {
+            it('should stay in overflow if the rating does not change ', () => {
+                updateState([1, 1, 0.8, 0.6, 0.6, 0.6, 0.6], [])
+                expect(currentState()).toBe(HogWatcherState.overflowed)
+                expect(getAverageRating(observations)).toBeLessThan(OVERFLOW_THRESHOLD)
+                expect(getAverageRating(observations)).toBeGreaterThan(DISABLE_THRESHOLD)
 
-                jest.useFakeTimers()
-                jest.setSystemTime(now)
+                updateState([0.5, 0.5, 0.6, 0.7, 0.8, 1, 0.8], [])
+                expect(getAverageRating(observations)).toBeLessThan(OVERFLOW_THRESHOLD)
+                expect(getAverageRating(observations)).toBeGreaterThan(DISABLE_THRESHOLD)
+                expect(currentState()).toBe(HogWatcherState.overflowed)
             })
 
-            afterEach(() => {
-                jest.useRealTimers()
+            it('should move back to healthy with enough healthy activity ', () => {
+                updateState([], [HogWatcherState.overflowed])
+                expect(currentState()).toBe(HogWatcherState.overflowed)
+                updateState([0.5, 0.8, 0.9, 0.9, 1, 0.9, 1], [])
+                expect(getAverageRating(observations)).toBeGreaterThan(OVERFLOW_THRESHOLD)
+                expect(currentState()).toBe(HogWatcherState.healthy)
             })
 
-            const advanceTime = (ms: number) => {
-                jest.advanceTimersByTime(ms)
-            }
+            it('should move to overflow if enough observations are unhealthy', () => {
+                updateState([1, 1, 0.8, 0.6, 0.6, 0.6, 0.6], [])
+                expect(states).toMatchObject([])
+                expect(getAverageRating(observations)).toBeLessThan(OVERFLOW_THRESHOLD)
+                expect(currentState()).toBe(HogWatcherState.overflowed)
+            })
 
-            const updateObserver = (observer: HogWatcherObserver, ratings: number[], states: HogWatcherState[]) => {
-                states.forEach((state) => {
-                    observer.states.push({
-                        timestamp: Date.now(),
-                        state,
-                    })
-                })
+            it('should move to disabledForPeriod if sustained lower', () => {
+                updateState([], [HogWatcherState.overflowed])
+                expect(currentState()).toBe(HogWatcherState.overflowed)
+                updateState([0.5, 0.4, 0.4, 0.2], [])
+                expect(getAverageRating(observations)).toBeLessThan(DISABLE_THRESHOLD)
+                expect(currentState()).toBe(HogWatcherState.disabledForPeriod)
+            })
 
-                ratings.forEach((rating) => {
-                    advanceTime(OBSERVATION_PERIOD)
-                    observer.addObservations({
-                        // Simulate rating as ratio of success and failures
-                        successes: 1000 * rating,
-                        failures: 1000 * (1 - rating),
-                    })
-                })
-            }
-
-            const createObserver = (ratings: number[] = [], states: HogWatcherState[] = []): HogWatcherObserver => {
-                const observer = new HogWatcherObserver('1')
-                updateObserver(observer, ratings, states)
-                return observer
-            }
-
-            describe('1 - healthy', () => {
-                it('should be healthy with no observations or previous states', () => {
-                    const observer = createObserver([])
-                    expect(observer.currentState()).toBe(HogWatcherState.healthy)
-                })
-
-                it.each(Object.values(HogWatcherState))(
-                    'should be whatever the last state is (%s) if no observations',
-                    (lastState) => {
-                        const observer = createObserver([], [lastState as any])
-                        expect(observer.currentState()).toBe(lastState)
-                    }
+            it('should go to disabledIndefinitely with enough bad states', () => {
+                updateState(
+                    [],
+                    [
+                        HogWatcherState.disabledForPeriod,
+                        HogWatcherState.overflowed,
+                        HogWatcherState.disabledForPeriod,
+                        HogWatcherState.overflowed,
+                        HogWatcherState.disabledForPeriod,
+                        HogWatcherState.overflowed,
+                        HogWatcherState.disabledForPeriod,
+                        HogWatcherState.overflowed,
+                        HogWatcherState.disabledForPeriod,
+                        HogWatcherState.overflowed,
+                    ]
                 )
-
-                it('should not change if too few observations', () => {
-                    const observer = createObserver([0, 0])
-                    expect(observer.averageRating()).toEqual(0)
-                    expect(observer.currentState()).toBe(HogWatcherState.healthy)
-                })
-
-                it('should move to overflow if enough observations are unhealthy', () => {
-                    const observer = createObserver([1, 1, 0.8, 0.6, 0.6, 0.6, 0.6])
-                    expect(observer.states).toMatchObject([])
-                    expect(observer.averageRating()).toBeLessThan(OVERFLOW_THRESHOLD)
-                    expect(observer.currentState()).toBe(HogWatcherState.overflowed)
-                    expect(observer.states).toMatchObject([{ state: HogWatcherState.overflowed }])
-                })
+                expect(currentState()).toBe(HogWatcherState.overflowed)
+                updateState([0.2, 0.2, 0.2, 0.2], [])
+                expect(currentState()).toBe(HogWatcherState.disabledIndefinitely)
             })
+        })
 
-            describe('2 - overflow', () => {
-                it('should stay in overflow if the rating does not change ', () => {
-                    const observer = createObserver([1, 1, 0.8, 0.6, 0.6, 0.6, 0.6])
-                    expect(observer.currentState()).toBe(HogWatcherState.overflowed)
-                    expect(observer.averageRating()).toBeLessThan(OVERFLOW_THRESHOLD)
-                    expect(observer.averageRating()).toBeGreaterThan(DISABLE_THRESHOLD)
-
-                    updateObserver(observer, [0.5, 0.5, 0.6, 0.7, 0.8, 1, 0.8], [])
-                    expect(observer.averageRating()).toBeLessThan(OVERFLOW_THRESHOLD)
-                    expect(observer.averageRating()).toBeGreaterThan(DISABLE_THRESHOLD)
-                    expect(observer.currentState()).toBe(HogWatcherState.overflowed)
-                })
-
-                it('should move back to healthy with enough healthy activity ', () => {
-                    const observer = createObserver([], [HogWatcherState.overflowed])
-                    expect(observer.currentState()).toBe(HogWatcherState.overflowed)
-                    updateObserver(observer, [0.5, 0.8, 0.9, 0.9, 1, 0.9, 1], [])
-                    expect(observer.averageRating()).toBeGreaterThan(OVERFLOW_THRESHOLD)
-                    expect(observer.currentState()).toBe(HogWatcherState.healthy)
-                })
-
-                it('should move to overflow if enough observations are unhealthy', () => {
-                    const observer = createObserver([1, 1, 0.8, 0.6, 0.6, 0.6, 0.6])
-                    expect(observer.states).toMatchObject([])
-                    expect(observer.averageRating()).toBeLessThan(OVERFLOW_THRESHOLD)
-                    expect(observer.currentState()).toBe(HogWatcherState.overflowed)
-                    expect(observer.states).toMatchObject([{ state: HogWatcherState.overflowed }])
-                })
-
-                it('should move to disabledForPeriod if sustained lower', () => {
-                    const observer = createObserver([], [HogWatcherState.overflowed])
-                    expect(observer.currentState()).toBe(HogWatcherState.overflowed)
-
-                    updateObserver(observer, [0.5, 0.4, 0.4, 0.2], [])
-                    expect(observer.averageRating()).toBeLessThan(DISABLE_THRESHOLD)
-                    expect(observer.currentState()).toBe(HogWatcherState.disabledForPeriod)
-                })
-
-                it('should go to disabledIndefinitely with enough bad states', () => {
-                    const observer = createObserver(
-                        [],
-                        [
-                            HogWatcherState.disabledForPeriod,
-                            HogWatcherState.overflowed,
-                            HogWatcherState.disabledForPeriod,
-                            HogWatcherState.overflowed,
-                            HogWatcherState.disabledForPeriod,
-                            HogWatcherState.overflowed,
-                            HogWatcherState.disabledForPeriod,
-                            HogWatcherState.overflowed,
-                            HogWatcherState.disabledForPeriod,
-                            HogWatcherState.overflowed,
-                        ]
-                    )
-                    expect(observer.currentState()).toBe(HogWatcherState.overflowed)
-                    updateObserver(observer, [0.2, 0.2, 0.2, 0.2], [])
-                    expect(observer.currentState()).toBe(HogWatcherState.disabledIndefinitely)
-                })
+        describe('3 - disabledForPeriod', () => {
+            it('should stay disabled for period until the period has passed ', () => {
+                updateState([], [HogWatcherState.disabledForPeriod])
+                expect(currentState()).toBe(HogWatcherState.disabledForPeriod)
+                expect(states).toEqual([{ state: HogWatcherState.disabledForPeriod, timestamp: now }])
+                advanceTime(DISABLED_PERIOD - 1)
+                expect(currentState()).toBe(HogWatcherState.disabledForPeriod)
+                advanceTime(2)
+                expect(currentState()).toBe(HogWatcherState.overflowed)
             })
+        })
 
-            describe('3 - disabledForPeriod', () => {
-                it('should stay disabled for period until the period has passed ', () => {
-                    const observer = createObserver([], [HogWatcherState.disabledForPeriod])
-                    expect(observer.currentState()).toBe(HogWatcherState.disabledForPeriod)
-                    expect(observer.states).toEqual([{ state: HogWatcherState.disabledForPeriod, timestamp: now }])
-                    advanceTime(DISABLED_PERIOD - 1)
-                    expect(observer.currentState()).toBe(HogWatcherState.disabledForPeriod)
-                    advanceTime(2)
-                    expect(observer.currentState()).toBe(HogWatcherState.overflowed)
-                    expect(observer.states).toEqual([
-                        { state: HogWatcherState.disabledForPeriod, timestamp: now },
-                        { state: HogWatcherState.overflowed, timestamp: now + DISABLED_PERIOD + 1 },
-                    ])
-                })
-            })
+        describe('4 - disabledIndefinitely', () => {
+            it('should stay in disabledIndefinitely no matter what', () => {
+                updateState([], [HogWatcherState.disabledIndefinitely])
 
-            describe('4 - disabledIndefinitely', () => {
-                it('should stay in disabledIndefinitely no matter what', () => {
-                    const observer = createObserver([], [HogWatcherState.disabledIndefinitely])
-
-                    expect(observer.currentState()).toBe(HogWatcherState.disabledIndefinitely)
-                    // Technically this wouldn't be possible but still good to test
-                    updateObserver(observer, [1, 1, 1, 1, 1, 1, 1], [])
-                    expect(observer.currentState()).toBe(HogWatcherState.disabledIndefinitely)
-                })
+                expect(currentState()).toBe(HogWatcherState.disabledIndefinitely)
+                // Technically this wouldn't be possible but still good to test
+                updateState([1, 1, 1, 1, 1, 1, 1], [])
+                expect(currentState()).toBe(HogWatcherState.disabledIndefinitely)
             })
         })
     })

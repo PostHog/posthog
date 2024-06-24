@@ -5,6 +5,7 @@ import { timeoutGuard } from '../utils/db/utils'
 import { HogFunctionInvocationAsyncResponse, HogFunctionInvocationResult, HogFunctionType } from './types'
 import { randomUUID } from 'node:crypto'
 import { PubSub } from '../utils/pubsub'
+import { status } from '../utils/status'
 
 /**
  * General approach:
@@ -48,10 +49,6 @@ export type HogWatcherStatePeriod = {
 
 export type HogWatcherObservationPeriod = {
     timestamp: number
-    rating: number
-}
-
-export type HogWatcherObservationPeriodDetailed = HogWatcherObservationPeriod & {
     successes: number
     failures: number
     asyncFunctionFailures: number
@@ -65,14 +62,20 @@ export type HogWatcherSummary = {
     observations: HogWatcherObservationPeriod[]
 }
 
-export type PersistedHogWatcherObservations = {
-    [key: string]: HogWatcherObservationPeriodDetailed
+export type EmittedHogWatcherObservations = {
+    instanceId: string
+    observations: {
+        id: HogFunctionType['id']
+        observation: HogWatcherObservationPeriod
+    }[]
 }
 
-export type EmittedHogWatcherObservation = {
-    id: HogFunctionType['id']
-    observerId: string
-    observation: HogWatcherObservationPeriodDetailed
+export type EmittedHogWatcherStates = {
+    instanceId: string
+    states: {
+        id: HogFunctionType['id']
+        state: HogWatcherStatePeriod
+    }[]
 }
 
 /*
@@ -104,143 +107,124 @@ export const MIN_OBSERVATIONS = 3
 export const OVERFLOW_THRESHOLD = 0.8
 export const DISABLE_THRESHOLD = 0.5
 
-export class HogWatcherObserver {
-    observations: HogWatcherObservationPeriodDetailed[] = []
-    states: HogWatcherStatePeriod[] = []
-    observerId: string
+export const BASE_REDIS_KEY = '@posthog/hog-watcher'
 
-    // The current observation period
-    observation?: HogWatcherObservationPeriodDetailed
+export const calculateRating = (observation: HogWatcherObservationPeriod): number => {
+    // Rating is from 0 to 1
+    // 1 - Function is working perfectly
+    // 0 - Function is not working at all
 
-    constructor(public hogFunctionId: HogFunctionType['id']) {
-        this.observerId = randomUUID()
+    const totalInvocations = observation.successes + observation.failures
+    const totalAsyncInvocations = observation.asyncFunctionSuccesses + observation.asyncFunctionFailures
+    const successRate = totalInvocations ? observation.successes / totalInvocations : 1
+    const asyncSuccessRate = totalAsyncInvocations ? observation.asyncFunctionSuccesses / totalAsyncInvocations : 1
+
+    return Math.min(1, successRate, asyncSuccessRate)
+}
+
+export const getAverageRating = (observations: HogWatcherObservationPeriod[]): number => {
+    return observations.reduce((acc, x) => acc + calculateRating(x), 0) / observations.length
+}
+
+export const deriveCurrentState = (
+    _observations: HogWatcherObservationPeriod[],
+    states: HogWatcherStatePeriod[]
+): HogWatcherState => {
+    // TODO: Prune old observations and states
+    // Observations are pruned by age
+    const observations = _observations.filter((x) => Date.now() - x.timestamp < EVALUATION_PERIOD)
+
+    // States are pruned by a max length rather than time
+    if (states.length > MAX_RECORDED_STATES) {
+        states = states.slice(states.length - MAX_RECORDED_STATES)
     }
 
-    public getSummary(): HogWatcherSummary {
-        return {
-            state: this.currentState(),
-            rating: this.averageRating(),
-            states: this.states,
-            observations: this.observations.map((x) => ({
-                timestamp: x.timestamp,
-                rating: x.rating,
-            })),
+    const currentState = states[states.length - 1] ?? {
+        timestamp: Date.now(),
+        state: HogWatcherState.healthy,
+    }
+
+    const averageRating = getAverageRating(observations)
+
+    if (currentState.state === HogWatcherState.disabledIndefinitely) {
+        return HogWatcherState.disabledIndefinitely
+    }
+
+    // If we are disabled for a period then we only check if it should no longer be disabled
+    if (currentState.state === HogWatcherState.disabledForPeriod) {
+        if (Date.now() - currentState.timestamp > DISABLED_PERIOD) {
+            return HogWatcherState.overflowed
         }
     }
 
-    public currentState(): HogWatcherState {
-        // TODO: Prune old observations and states
-        // Observations are pruned by age
-        this.observations = this.observations.filter((x) => Date.now() - x.timestamp < EVALUATION_PERIOD)
-
-        // States are pruned by a max length rather than time
-        if (this.states.length > MAX_RECORDED_STATES) {
-            this.states = this.states.slice(this.states.length - MAX_RECORDED_STATES)
-        }
-
-        const currentState = this.states[this.states.length - 1] ?? {
-            timestamp: Date.now(),
-            state: HogWatcherState.healthy,
-        }
-
-        const averageRating = this.averageRating()
-
-        if (currentState.state === HogWatcherState.disabledIndefinitely) {
-            return HogWatcherState.disabledIndefinitely
-        }
-
-        // If we are disabled for a period then we only check if it should no longer be disabled
-        if (currentState.state === HogWatcherState.disabledForPeriod) {
-            if (Date.now() - currentState.timestamp > DISABLED_PERIOD) {
-                return this.moveToState(HogWatcherState.overflowed)
-            }
-        }
-
-        if (this.observations.length < MIN_OBSERVATIONS) {
-            // We need to give the function a chance to run before we can evaluate it
-            return currentState.state
-        }
-
-        if (currentState.state === HogWatcherState.overflowed) {
-            if (averageRating > OVERFLOW_THRESHOLD) {
-                // The function is behaving well again - move it to healthy
-                return this.moveToState(HogWatcherState.healthy)
-            }
-
-            if (averageRating < DISABLE_THRESHOLD) {
-                // The function is behaving worse than overflow can accept - disable it
-                const disabledStates = this.states.filter((x) => x.state === HogWatcherState.disabledForPeriod)
-
-                if (disabledStates.length >= MAX_ALLOWED_TEMPORARY_DISABLES) {
-                    // this function has spent half of the time in temporary disabled so we disable it indefinitely
-                    return this.moveToState(HogWatcherState.disabledIndefinitely)
-                }
-
-                return this.moveToState(HogWatcherState.disabledForPeriod)
-            }
-        }
-
-        if (currentState.state === HogWatcherState.healthy) {
-            if (averageRating < OVERFLOW_THRESHOLD) {
-                return this.moveToState(HogWatcherState.overflowed)
-            }
-        }
-
+    if (observations.length < MIN_OBSERVATIONS) {
+        // We need to give the function a chance to run before we can evaluate it
         return currentState.state
     }
 
-    private moveToState(state: HogWatcherState): HogWatcherState {
-        this.states.push({
-            timestamp: Date.now(),
-            state,
-        })
+    if (currentState.state === HogWatcherState.overflowed) {
+        if (averageRating > OVERFLOW_THRESHOLD) {
+            // The function is behaving well again - move it to healthy
+            return HogWatcherState.healthy
+        }
 
-        // TODO: Somehow report this back to PostHog so we can display it in the UI
+        if (averageRating < DISABLE_THRESHOLD) {
+            // The function is behaving worse than overflow can accept - disable it
+            const disabledStates = states.filter((x) => x.state === HogWatcherState.disabledForPeriod)
 
-        return state
-    }
+            if (disabledStates.length >= MAX_ALLOWED_TEMPORARY_DISABLES) {
+                // this function has spent half of the time in temporary disabled so we disable it indefinitely
+                return HogWatcherState.disabledIndefinitely
+            }
 
-    public addObservations(
-        incrs: Pick<
-            Partial<HogWatcherObservationPeriodDetailed>,
-            'successes' | 'failures' | 'asyncFunctionFailures' | 'asyncFunctionSuccesses'
-        >
-    ): HogWatcherObservationPeriodDetailed {
-        const observation = this.getOrCreateCurrentObservation()
-
-        observation.successes += incrs.successes ?? 0
-        observation.failures += incrs.failures ?? 0
-        observation.asyncFunctionFailures += incrs.asyncFunctionFailures ?? 0
-        observation.asyncFunctionSuccesses += incrs.asyncFunctionSuccesses ?? 0
-
-        observation.rating = this.calculateRating(observation)
-        return observation
-    }
-
-    public receiveObservation(observation: HogWatcherObservationPeriodDetailed) {
-        // TODO: We should probably merge the observations instead of just replacing them
-        const existing = this.observations.find((x) => x.timestamp === observation.timestamp)
-        if (existing) {
-            existing.successes += observation.successes
-            existing.failures += observation.failures
-            existing.asyncFunctionFailures += observation.asyncFunctionFailures
-            existing.asyncFunctionSuccesses += observation.asyncFunctionSuccesses
-            existing.rating = this.calculateRating(existing)
-        } else {
-            this.observations.push(observation)
+            return HogWatcherState.disabledForPeriod
         }
     }
 
-    private periodTimestamp(): number {
-        // Returns the timestamp but rounded to the nearest period (e.g. 1 minute)
-        return Math.floor(Date.now() / OBSERVATION_PERIOD) * OBSERVATION_PERIOD
+    if (currentState.state === HogWatcherState.healthy) {
+        if (averageRating < OVERFLOW_THRESHOLD) {
+            return HogWatcherState.overflowed
+        }
     }
 
-    private getOrCreateCurrentObservation(): HogWatcherObservationPeriodDetailed {
-        if (!this.observation) {
-            this.observation = {
-                timestamp: this.periodTimestamp(),
-                rating: 0,
+    return currentState.state
+}
+
+const periodTimestamp = (timestamp?: number): number => {
+    // Returns the timestamp but rounded to the nearest period (e.g. 1 minute)
+    return Math.floor((timestamp ?? Date.now()) / OBSERVATION_PERIOD) * OBSERVATION_PERIOD
+}
+
+async function runRedis<T>(redisPool: RedisPool, description: string, fn: (client: Redis) => Promise<T>): Promise<T> {
+    const client = await redisPool.acquire()
+    const timeout = timeoutGuard(
+        `${description} delayed. Waiting over ${REDIS_TIMEOUT_SECONDS} seconds.`,
+        undefined,
+        REDIS_TIMEOUT_SECONDS * 1000
+    )
+    try {
+        return await fn(client)
+    } finally {
+        clearTimeout(timeout)
+        await redisPool.release(client)
+    }
+}
+
+export class HogWatcherActiveObservations {
+    observations: Record<HogFunctionType['id'], HogWatcherObservationPeriod> = {}
+
+    constructor() {}
+
+    private addObservations(
+        id: HogFunctionType['id'],
+        incrs: Pick<
+            Partial<HogWatcherObservationPeriod>,
+            'successes' | 'failures' | 'asyncFunctionFailures' | 'asyncFunctionSuccesses'
+        >
+    ): void {
+        if (!this.observations[id]) {
+            this.observations[id] = {
+                timestamp: periodTimestamp(),
                 successes: 0,
                 failures: 0,
                 asyncFunctionFailures: 0,
@@ -248,159 +232,270 @@ export class HogWatcherObserver {
             }
         }
 
-        return this.observation
+        this.observations[id].successes += incrs.successes ?? 0
+        this.observations[id].failures += incrs.failures ?? 0
+        this.observations[id].asyncFunctionFailures += incrs.asyncFunctionFailures ?? 0
+        this.observations[id].asyncFunctionSuccesses += incrs.asyncFunctionSuccesses ?? 0
     }
 
-    private calculateRating(observation: HogWatcherObservationPeriodDetailed): number {
-        // Rating is from 0 to 1
-        // 1 - Function is working perfectly
-        // 0 - Function is not working at all
-
-        const totalInvocations = observation.successes + observation.failures
-        const totalAsyncInvocations = observation.asyncFunctionSuccesses + observation.asyncFunctionFailures
-
-        const successRate = totalInvocations ? observation.successes / totalInvocations : 1
-        const asyncSuccessRate = totalAsyncInvocations ? observation.asyncFunctionSuccesses / totalAsyncInvocations : 1
-
-        return Math.min(1, successRate, asyncSuccessRate)
+    observeResults(results: HogFunctionInvocationResult[]) {
+        results.forEach((result) =>
+            this.addObservations(result.hogFunctionId, {
+                successes: result.finished ? 1 : 0,
+                failures: result.error ? 1 : 0,
+            })
+        )
     }
 
-    public averageRating(): number {
-        return this.observations.reduce((acc, x) => acc + x.rating, 0) / this.observations.length
+    observeAsyncFunctionResponses(responses: HogFunctionInvocationAsyncResponse[]) {
+        // NOTE: This probably wants to be done using the response status instead :thinking:
+        responses.forEach((response) =>
+            this.addObservations(response.hogFunctionId, {
+                asyncFunctionSuccesses: response.error ? 0 : 1,
+                asyncFunctionFailures: response.error ? 1 : 0,
+            })
+        )
     }
 }
 
-/**
- * HogWatcher is responsible for observing metrics of running hog functions, including their async calls.
- * It build a rating for each function and decides whether that function is _hogging_ resources.
- * If so, it marks it as such and then can be used to control the flow of the function.
- */
 export class HogWatcher {
-    observers: Record<HogFunctionType['id'], HogWatcherObserver> = {}
-    pubSub: PubSub
-    interval?: NodeJS.Timeout
+    public readonly currentObservations = new HogWatcherActiveObservations()
+    private readonly states: Record<HogFunctionType['id'], HogWatcherStatePeriod[]> = {}
+    private readonly observations: Record<HogFunctionType['id'], HogWatcherObservationPeriod[]> = {}
+
+    // Only the leader should be able to write to the states
+    private isLeader: boolean = false
+    private pubSub: PubSub
+    private instanceId: string
+    private interval?: NodeJS.Timeout
 
     constructor(private hub: Hub) {
+        this.instanceId = randomUUID()
         this.pubSub = new PubSub(hub, {
             'hog-watcher-observations': async (message) => {
-                const observationsList: EmittedHogWatcherObservation[] = JSON.parse(message)
+                const { instanceId, observations }: EmittedHogWatcherObservations = JSON.parse(message)
 
-                observationsList.map(async ({ id, observerId, observation }) => {
-                    const observer = this.observers[id]
-                    if (observer && observer.observerId !== observerId) {
-                        observer.receiveObservation(observation)
-                    }
+                if (instanceId === this.instanceId) {
+                    return
+                }
+
+                observations.forEach(async ({ id, observation }) => {
+                    const observationsForId = (this.observations[id] = this.observations[id] ?? [])
+                    observationsForId.push(observation)
+                })
+            },
+
+            'hog-watcher-states': async (message) => {
+                // NOTE: This is only emitted by the leader so we can immediately add it to the list of states
+                const { instanceId, states }: EmittedHogWatcherStates = JSON.parse(message)
+
+                if (instanceId === this.instanceId) {
+                    return
+                }
+
+                states.forEach(async ({ id, state }) => {
+                    const statesForId = (this.states[id] = this.states[id] ?? [])
+                    statesForId.push(state)
                 })
             },
         })
+        // TODO: Receive updates from the pubsub to keep a list of observations and states up to date
+        // Expose methods for determining the state of a function
+
+        // If leader have a regular check that determines the new states and syncs / emits
     }
 
     async start() {
         await this.pubSub.start()
-
-        this.interval = setInterval(() => this.syncObservations())
-    }
-
-    async observeResults(results: HogFunctionInvocationResult[]) {
-        // TODO: Actually measure something and store the result
-        await Promise.all(
-            results.map(async (result) =>
-                this.getObserver(result.hogFunctionId).then((x) =>
-                    x.addObservations({
-                        successes: result.finished ? 1 : 0,
-                        failures: result.error ? 1 : 0,
-                    })
-                )
-            )
-        )
-    }
-
-    async observeAsyncFunctionResponses(responses: HogFunctionInvocationAsyncResponse[]) {
-        // NOTE: This probably wants to be done using the response status instead :thinking:
-        await Promise.all(
-            responses.map(async (response) =>
-                this.getObserver(response.hogFunctionId).then((x) =>
-                    x.addObservations({
-                        asyncFunctionSuccesses: response.error ? 0 : 1,
-                        asyncFunctionFailures: response.error ? 1 : 0,
-                    })
-                )
-            )
-        )
-    }
-
-    async isHogFunctionOverflowed(hogFunctionId: HogFunctionType['id']): Promise<boolean> {
-        return (await this.getObserver(hogFunctionId)).currentState() === HogWatcherState.overflowed
-    }
-
-    async isHogFunctionDisabled(hogFunctionId: HogFunctionType['id']): Promise<boolean> {
-        return (await this.getObserver(hogFunctionId)).currentState() >= HogWatcherState.disabledForPeriod
-    }
-
-    public async getObserver(id: HogFunctionType['id']): Promise<HogWatcherObserver> {
-        if (!this.observers[id]) {
-            this.observers[id] = new HogWatcherObserver(id)
+        const loop = async () => {
+            try {
+                // Maybe add a slow function warning here
+                this.syncState()
+            } finally {
+                this.interval = setTimeout(loop, OBSERVATION_PERIOD)
+            }
         }
 
-        return await Promise.resolve(this.observers[id])
+        loop()
     }
 
-    private async syncObservations() {
-        /**
-         * NOTE on Redis syncing
-         *
-         * We want to make sure that multiple consumers are kept up to date with each other with the least number of operations necessary.
-         * We periodically (inline with the observation period) write the observations to redis so that we can retrieve the state of the functions.
-         * We then need to get updates whenever they happen. We could do this by polling the redis instance for changes.
-         *
-         * Or we could use pubsub to notify all instances of changes, recording the change in memory, meaning we only need to read from redis on the initial startup.
-         */
+    async stop() {
+        if (!this.isLeader) {
+            return
+        }
 
-        const items: EmittedHogWatcherObservation[] = []
+        await runRedis(this.hub.redisPool, 'stop', async (client) => {
+            return client.del(`${BASE_REDIS_KEY}/leader`)
+        })
+        // TODO: Maybe flush all active observations?
+        await this.flushActiveObservations()
+    }
 
-        Object.values(this.observers).forEach((observer) => {
-            if (observer.observation) {
-                items.push({
-                    id: observer.hogFunctionId,
-                    observerId: observer.observerId,
-                    observation: observer.observation,
-                })
+    private async checkIsLeader() {
+        const leaderId = await runRedis(this.hub.redisPool, 'getLeader', async (client) => {
+            // Set the leader to this instance if it is not set and add an expiry to it of twice our observation period
+            const pipeline = client.pipeline()
 
-                observer.observations.push(observer.observation)
-                observer.observation = undefined
+            // TODO: This can definitely be done in a single command - just need to make sure the ttl is always extended if the ID is the same
+
+            // @ts-ignore - IORedis types don't allow for NX and EX in the same command
+            pipeline.set(`${BASE_REDIS_KEY}/leader`, this.instanceId, 'NX', 'EX', (OBSERVATION_PERIOD * 3) / 1000)
+            pipeline.get(`${BASE_REDIS_KEY}/leader`)
+            const [_, res] = await pipeline.exec()
+
+            // NOTE: IORedis types don't allow for NX and GET in the same command so we have to cast it to any
+            return res[1] as string
+        })
+
+        this.isLeader = leaderId === this.instanceId
+
+        if (this.isLeader) {
+            status.info('👀', '[HogWatcher] I am the leader')
+        }
+    }
+
+    private async syncState() {
+        // TODO: Implement this
+        // 1. Expire all old observations and states
+        // 2. Flush any active observations that we need to do redis (and pubsub)
+
+        await this.checkIsLeader()
+        await this.flushActiveObservations()
+
+        if (this.isLeader) {
+            await this.flushStates()
+        }
+    }
+
+    private async flushActiveObservations() {
+        const changes: EmittedHogWatcherObservations = {
+            instanceId: this.instanceId,
+            observations: [],
+        }
+
+        Object.entries(this.currentObservations.observations).forEach(([id, observation]) => {
+            if (observation.timestamp !== periodTimestamp()) {
+                changes.observations.push({ id, observation })
+                this.observations[id] = this.observations[id] ?? []
+                this.observations[id].push(observation)
             }
         })
 
+        this.currentObservations.observations = {}
+
+        if (!changes.observations.length) {
+            return
+        }
+
         // Write all the info to redis
-        await this.run('syncWithRedis', async (client) => {
+        await runRedis(this.hub.redisPool, 'syncWithRedis', async (client) => {
             const pipeline = client.pipeline()
 
-            items.forEach(({ id, observerId, observation }) => {
-                pipeline.hset(`@posthog/hog-watcher/observations/${id}`, observerId, JSON.stringify(observation))
+            changes.observations.forEach(({ id, observation }) => {
+                // We key the observations by observerId and timestamp with a ttl of the max period we want to keep the data for
+                const subKey = `${this.instanceId}/${observation.timestamp}`
+                pipeline.hset(`@posthog/hog-watcher/observations/${id}`, subKey, JSON.stringify(observation))
+                pipeline.expire(`@posthog/hog-watcher/observations/${id}`, EVALUATION_PERIOD / 1000)
             })
 
             return pipeline.exec()
         })
 
-        if (!items.length) {
+        // Now we can emit to the others so they can update their state
+        await this.pubSub.publish('hog-watcher-observations', JSON.stringify(changes))
+    }
+
+    private async flushStates() {
+        // Flushing states involves a couple of things and is only done by the leader to avoid clashes
+
+        // 1. Prune old states that are no longer relevant (we only keep the last N states)
+        // 2. Calculate the state for each function based on their existing observations and previous states
+        // 3. If the state has changed, write it to redis and emit it to the others
+
+        if (!this.isLeader) {
+            status.warn('👀', '[HogWatcher] Only the leader can flush states')
             return
         }
 
-        await this.pubSub.publish('hog-watcher-observations', JSON.stringify(items))
+        const changes: EmittedHogWatcherStates = {
+            instanceId: this.instanceId,
+            states: [],
+        }
+
+        Object.entries(this.observations).forEach(([id, observations]) => {
+            const states = this.states[id] ?? []
+            const currentState = states[states.length - 1]?.state ?? HogWatcherState.healthy
+            const newState = deriveCurrentState(observations, states)
+
+            if (currentState !== newState) {
+                const state: HogWatcherStatePeriod = {
+                    timestamp: periodTimestamp(),
+                    state: newState,
+                }
+
+                this.states[id] = this.states[id] ?? []
+                this.states[id].push(state)
+                changes.states.push({ id, state })
+            }
+        })
+
+        if (!changes.states.length) {
+            return
+        }
+
+        status.info('👀', '[HogWatcher] Functions changed state', {
+            changes: changes,
+        })
+
+        // Write all the info to redis
+        await runRedis(this.hub.redisPool, 'syncWithRedis', async (client) => {
+            const pipeline = client.pipeline()
+
+            changes.states.forEach(({ id, state }) => {
+                // We key the value with the timestamp as we want to keep a history of the states
+                pipeline.zadd(`@posthog/hog-watcher/states/${id}`, state.timestamp, `${state.state}:${state.timestamp}`)
+                // Limit to only MAX_RECORDED_STATES
+                pipeline.zremrangebyrank(`@posthog/hog-watcher/states/${id}`, 0, -MAX_RECORDED_STATES)
+            })
+
+            return pipeline.exec()
+        })
+
+        // Now we can emit to the others so they can update their state
+        await this.pubSub.publish('hog-watcher-states', JSON.stringify(changes))
     }
 
-    private async run<T>(description: string, fn: (client: Redis) => Promise<T>): Promise<T> {
-        const client = await this.hub.redisPool.acquire()
-        const timeout = timeoutGuard(
-            `${description} delayed. Waiting over ${REDIS_TIMEOUT_SECONDS} seconds.`,
-            undefined,
-            REDIS_TIMEOUT_SECONDS * 1000
-        )
-        try {
-            return await fn(client)
-        } finally {
-            clearTimeout(timeout)
-            await this.hub.redisPool.release(client)
+    async fetchWatcher(id: HogFunctionType['id']): Promise<HogWatcherSummary> {
+        const [states, observations] = await runRedis(this.hub.redisPool, 'fetchWatcher', async (client) => {
+            const pipeline = client.pipeline()
+
+            pipeline.zrange(`@posthog/hog-watcher/states/${id}`, 0, -1, 'WITHSCORES')
+            pipeline.hgetall(`@posthog/hog-watcher/observations/${id}`)
+            return pipeline.exec()
+        })
+
+        const statesParsed = states[1] as string[]
+        const observationsParsed = observations[1] as Record<string, string>
+
+        const statesArray: HogWatcherStatePeriod[] = []
+        const observationsArray: HogWatcherObservationPeriod[] = []
+
+        for (let i = 0; i < statesParsed.length; i += 2) {
+            statesArray.push({
+                timestamp: parseInt(statesParsed[i + 1]),
+                state: parseInt(statesParsed[i].split(':')[0]) as HogWatcherState,
+            })
+        }
+
+        for (const [timestamp, observation] of Object.entries(observationsParsed)) {
+            observationsArray.push(JSON.parse(observation))
+        }
+
+        return {
+            state: statesArray[statesArray.length - 1]?.state ?? HogWatcherState.healthy,
+            rating: getAverageRating(observationsArray),
+            states: statesArray,
+            observations: observationsArray,
         }
     }
 }
