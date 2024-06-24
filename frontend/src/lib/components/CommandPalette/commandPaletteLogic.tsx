@@ -38,6 +38,7 @@ import {
     IconTrends,
     IconUnlock,
     IconUserPaths,
+    IconWarning,
     IconX,
 } from '@posthog/icons'
 import { Parser } from 'expr-eval'
@@ -559,17 +560,13 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                             push(urls.cohorts())
                         },
                     },
-                    ...(values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS]
-                        ? [
-                              {
-                                  icon: IconPieChart,
-                                  display: 'Go to Web analytics',
-                                  executor: () => {
-                                      push(urls.webAnalytics())
-                                  },
-                              },
-                          ]
-                        : []),
+                    {
+                        icon: IconPieChart,
+                        display: 'Go to Web analytics',
+                        executor: () => {
+                            push(urls.webAnalytics())
+                        },
+                    },
                     ...(values.featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE]
                         ? [
                               {
@@ -577,6 +574,17 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                                   display: 'Go to Data warehouse',
                                   executor: () => {
                                       push(urls.dataWarehouse())
+                                  },
+                              },
+                          ]
+                        : []),
+                    ...(values.featureFlags[FEATURE_FLAGS.ERROR_TRACKING]
+                        ? [
+                              {
+                                  icon: IconWarning,
+                                  display: 'Go to Error tracking',
+                                  executor: () => {
+                                      push(urls.errorTracking())
                                   },
                               },
                           ]

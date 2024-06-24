@@ -6,7 +6,6 @@ import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { compare as compareFn } from 'natural-orderby'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
@@ -49,20 +48,21 @@ export function InsightsTable({
     isMainInsightView = false,
 }: InsightsTableProps): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
-    const { insightProps, isInDashboardContext, insight, hiddenLegendKeys } = useValues(insightLogic)
-    const { toggleVisibility } = useActions(insightLogic)
+    const { insightProps, isInDashboardContext, insight } = useValues(insightLogic)
     const {
         insightDataLoading,
         indexedResults,
         isNonTimeSeriesDisplay,
-        compare,
+        compareFilter,
         isTrends,
         display,
         interval,
         breakdownFilter,
         trendsFilter,
         isSingleSeries,
+        hiddenLegendIndexes,
     } = useValues(trendsDataLogic(insightProps))
+    const { toggleHiddenLegendIndex, updateHiddenLegendIndexes } = useActions(trendsDataLogic(insightProps))
     const { aggregation, allowAggregation } = useValues(insightsTableDataLogic(insightProps))
     const { setAggregationType } = useActions(insightsTableDataLogic(insightProps))
 
@@ -91,8 +91,8 @@ export function InsightsTable({
                     <SeriesCheckColumnTitle
                         indexedResults={indexedResults}
                         canCheckUncheckSeries={canCheckUncheckSeries}
-                        hiddenLegendKeys={hiddenLegendKeys}
-                        toggleVisibility={toggleVisibility}
+                        hiddenLegendIndexes={hiddenLegendIndexes}
+                        updateHiddenLegendIndexes={updateHiddenLegendIndexes}
                     />
                 )}
                 <span>Series</span>
@@ -104,7 +104,7 @@ export function InsightsTable({
                     item={item}
                     indexedResults={indexedResults}
                     canEditSeriesNameInline={canEditSeriesNameInline}
-                    compare={compare}
+                    compare={!!compareFilter?.compare}
                     handleEditClick={handleSeriesEditClick}
                     hasMultipleSeries={!isSingleSeries}
                 />
@@ -113,8 +113,8 @@ export function InsightsTable({
                 <SeriesCheckColumnItem
                     item={item}
                     canCheckUncheckSeries={canCheckUncheckSeries}
-                    hiddenLegendKeys={hiddenLegendKeys}
-                    toggleVisibility={toggleVisibility}
+                    hiddenLegendIndexes={hiddenLegendIndexes}
+                    toggleHiddenLegendIndex={toggleHiddenLegendIndex}
                     label={<div className="ml-2 font-normal">{label}</div>}
                 />
             ) : (
@@ -131,14 +131,7 @@ export function InsightsTable({
 
     if (breakdownFilter?.breakdown) {
         const formatItemBreakdownLabel = (item: IndexedTrendResult): string =>
-            formatBreakdownLabel(
-                cohorts,
-                formatPropertyValueForDisplay,
-                item.breakdown_value,
-                item.filter?.breakdown,
-                item.filter?.breakdown_type,
-                item.filter && isTrendsFilter(item.filter) && item.filter?.breakdown_histogram_bin_count !== undefined
-            )
+            formatBreakdownLabel(item.breakdown_value, breakdownFilter, cohorts, formatPropertyValueForDisplay)
 
         columns.push({
             title: <BreakdownColumnTitle breakdownFilter={breakdownFilter} />,
@@ -147,7 +140,7 @@ export function InsightsTable({
                     item={item}
                     canCheckUncheckSeries={canCheckUncheckSeries}
                     isMainInsightView={isMainInsightView}
-                    toggleVisibility={toggleVisibility}
+                    toggleHiddenLegendIndex={toggleHiddenLegendIndex}
                     formatItemBreakdownLabel={formatItemBreakdownLabel}
                 />
             ),
@@ -206,7 +199,7 @@ export function InsightsTable({
                     <ValueColumnTitle
                         index={index}
                         indexedResults={indexedResults}
-                        compare={compare}
+                        compare={!!compareFilter?.compare}
                         interval={interval}
                     />
                 ),
@@ -226,7 +219,9 @@ export function InsightsTable({
         <LemonTable
             id={isInDashboardContext ? insight.short_id : undefined}
             dataSource={
-                isLegend || isMainInsightView ? indexedResults : indexedResults.filter((r) => !hiddenLegendKeys?.[r.id])
+                isLegend || isMainInsightView
+                    ? indexedResults
+                    : indexedResults.filter((r) => !hiddenLegendIndexes?.includes(r.id))
             }
             embedded={embedded}
             columns={columns}
@@ -235,7 +230,7 @@ export function InsightsTable({
             emptyState="No insight results"
             data-attr="insights-table-graph"
             useURLForSorting={insightMode !== ItemMode.Edit}
-            rowRibbonColor={isLegend ? (item) => getSeriesColor(item.seriesIndex, compare || false) : undefined}
+            rowRibbonColor={isLegend ? (item) => getSeriesColor(item.seriesIndex, !!compareFilter?.compare) : undefined}
             firstColumnSticky
             maxHeaderWidth="20rem"
         />

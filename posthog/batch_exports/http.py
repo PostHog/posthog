@@ -76,11 +76,11 @@ def validate_date_input(date_input: Any, team: Team | None = None) -> dt.datetim
 
     if parsed.tzinfo is None:
         if team:
-            parsed = parsed.replace(tzinfo=team.timezone_info).astimezone(dt.timezone.utc)
+            parsed = parsed.replace(tzinfo=team.timezone_info).astimezone(dt.UTC)
         else:
-            parsed = parsed.replace(tzinfo=dt.timezone.utc)
+            parsed = parsed.replace(tzinfo=dt.UTC)
     else:
-        parsed = parsed.astimezone(dt.timezone.utc)
+        parsed = parsed.astimezone(dt.UTC)
 
     return parsed
 
@@ -199,6 +199,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
             "id",
             "team_id",
             "name",
+            "model",
             "destination",
             "interval",
             "paused",

@@ -21,6 +21,7 @@ import { ExportContext, FilterType, InsightLogicProps, InsightType } from '~/typ
 import type { insightDataLogicType } from './insightDataLogicType'
 import { insightDataTimingLogic } from './insightDataTimingLogic'
 import { insightLogic } from './insightLogic'
+import { insightUsageLogic } from './insightUsageLogic'
 import { cleanFilters, setTestAccountFilterForNewInsight } from './utils/cleanFilters'
 import { compareFilters } from './utils/compareFilters'
 
@@ -74,7 +75,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             dataNodeLogic({ key: insightVizDataNodeKey(props) } as DataNodeLogicProps),
             ['loadData', 'loadDataSuccess', 'loadDataFailure', 'setResponse as setInsightData'],
         ],
-        logic: [insightDataTimingLogic(props)],
+        logic: [insightDataTimingLogic(props), insightUsageLogic(props)],
     })),
 
     actions({
@@ -102,12 +103,6 @@ export const insightDataLogic = kea<insightDataLogicType>([
     }),
 
     selectors({
-        isHogQLInsight: [
-            (s) => [s.query],
-            (query) => {
-                return isInsightVizNode(query)
-            },
-        ],
         useQueryDashboardCards: [
             (s) => [s.featureFlags],
             (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_DASHBOARD_CARDS],
@@ -137,8 +132,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
 
         exportContext: [
-            (s) => [s.query, s.insight, s.isHogQLInsight],
-            (query, insight, isHogQLInsight) => {
+            (s) => [s.query, s.insight],
+            (query, insight) => {
                 if (!query) {
                     // if we're here without a query then an empty query context is not the problem
                     return undefined
@@ -151,7 +146,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 }
 
                 return {
-                    ...queryExportContext(sourceQuery, undefined, undefined, !isHogQLInsight),
+                    ...queryExportContext(sourceQuery, undefined, undefined),
                     filename,
                 } as ExportContext
             },

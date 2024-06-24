@@ -27,9 +27,8 @@ from posthog.temporal.batch_exports.batch_exports import (
     StartBatchExportRunInputs,
     default_fields,
     execute_batch_export_insert_activity,
-    finish_batch_export_run,
     get_data_interval,
-    iter_records,
+    iter_model_records,
     start_batch_export_run,
 )
 from posthog.temporal.batch_exports.metrics import (
@@ -39,7 +38,7 @@ from posthog.temporal.batch_exports.metrics import (
 from posthog.temporal.batch_exports.temporary_file import (
     BatchExportTemporaryFile,
 )
-from posthog.temporal.batch_exports.utils import peek_first_and_rewind, try_set_batch_export_run_to_running
+from posthog.temporal.batch_exports.utils import apeek_first_and_rewind, try_set_batch_export_run_to_running
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import bind_temporal_worker_logger
@@ -205,17 +204,11 @@ def snowflake_default_fields() -> list[BatchExportField]:
     batch_export_fields.pop(batch_export_fields.index({"expression": "created_at", "alias": "created_at"}))
 
     # For historical reasons, 'set' and 'set_once' are prefixed with 'people_'.
-    set_field = batch_export_fields.pop(
-        batch_export_fields.index(
-            BatchExportField(expression="nullIf(JSONExtractString(properties, '$set'), '')", alias="set")
-        )
-    )
+    set_field = batch_export_fields.pop(batch_export_fields.index(BatchExportField(expression="set", alias="set")))
     set_field["alias"] = "people_set"
 
     set_once_field = batch_export_fields.pop(
-        batch_export_fields.index(
-            BatchExportField(expression="nullIf(JSONExtractString(properties, '$set_once'), '')", alias="set_once")
-        )
+        batch_export_fields.index(BatchExportField(expression="set_once", alias="set_once"))
     )
     set_once_field["alias"] = "people_set_once"
 
@@ -463,8 +456,9 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
                 fields = inputs.batch_export_schema["fields"]
                 query_parameters = inputs.batch_export_schema["values"]
 
-            record_iterator = iter_records(
+            record_iterator = iter_model_records(
                 client=client,
+                model="events",
                 team_id=inputs.team_id,
                 interval_start=data_interval_start,
                 interval_end=inputs.data_interval_end,
@@ -474,6 +468,10 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
                 extra_query_parameters=query_parameters,
                 is_backfill=inputs.is_backfill,
             )
+            first_record_batch, record_iterator = await apeek_first_and_rewind(record_iterator)
+
+            if first_record_batch is None:
+                return 0
 
             known_variant_columns = ["properties", "people_set", "people_set_once", "person_properties"]
             if inputs.batch_export_schema is None:
@@ -492,10 +490,8 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
                 ]
 
             else:
-                first_record, record_iterator = peek_first_and_rewind(record_iterator)
-
-                column_names = [column for column in first_record.schema.names if column != "_inserted_at"]
-                record_schema = first_record.select(column_names).schema
+                column_names = [column for column in first_record_batch.schema.names if column != "_inserted_at"]
+                record_schema = first_record_batch.select(column_names).schema
                 table_fields = get_snowflake_fields_from_record_schema(
                     record_schema,
                     known_variant_columns=known_variant_columns,
@@ -509,7 +505,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
                 inserted_at = None
 
                 with BatchExportTemporaryFile() as local_results_file:
-                    for record_batch in record_iterator:
+                    async for record_batch in record_iterator:
                         for record in record_batch.select(record_columns).to_pylist():
                             inserted_at = record.pop("_inserted_at")
 
@@ -572,7 +568,7 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
             include_events=inputs.include_events,
             is_backfill=inputs.is_backfill,
         )
-        run_id, records_total_count = await workflow.execute_activity(
+        run_id = await workflow.execute_activity(
             start_batch_export_run,
             start_batch_export_run_inputs,
             start_to_close_timeout=dt.timedelta(minutes=5),
@@ -590,20 +586,6 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
             status=BatchExportRun.Status.COMPLETED,
             team_id=inputs.team_id,
         )
-
-        if records_total_count == 0:
-            await workflow.execute_activity(
-                finish_batch_export_run,
-                finish_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=5),
-                retry_policy=RetryPolicy(
-                    initial_interval=dt.timedelta(seconds=10),
-                    maximum_interval=dt.timedelta(seconds=60),
-                    maximum_attempts=0,
-                    non_retryable_error_types=["NotNullViolation", "IntegrityError"],
-                ),
-            )
-            return
 
         insert_inputs = SnowflakeInsertInputs(
             team_id=inputs.team_id,

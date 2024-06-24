@@ -25,13 +25,13 @@ import { createPlaylist } from './playlist/playlistUtils'
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
 import { SavedSessionRecordingPlaylists } from './saved-playlists/SavedSessionRecordingPlaylists'
 import { savedSessionRecordingPlaylistsLogic } from './saved-playlists/savedSessionRecordingPlaylistsLogic'
-import { humanFriendlyTabName, sessionRecordingsLogic } from './sessionRecordingsLogic'
+import { humanFriendlyTabName, sessionReplaySceneLogic } from './sessionReplaySceneLogic'
 
 function Header(): JSX.Element {
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const playlistsLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Recent })
     const { playlists } = useValues(playlistsLogic)
-    const { tab } = useValues(sessionRecordingsLogic)
+    const { tab } = useValues(sessionReplaySceneLogic)
     const { currentTeam } = useValues(teamLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
     const { reportRecordingPlaylistCreated } = useActions(eventUsageLogic)
@@ -176,7 +176,7 @@ function Warnings(): JSX.Element {
 }
 
 function MainPanel(): JSX.Element {
-    const { tab } = useValues(sessionRecordingsLogic)
+    const { tab } = useValues(sessionReplaySceneLogic)
 
     return (
         <div className="space-y-2">
@@ -198,7 +198,7 @@ function MainPanel(): JSX.Element {
 }
 
 function PageTabs(): JSX.Element {
-    const { tab, tabs } = useValues(sessionRecordingsLogic)
+    const { tab, tabs } = useValues(sessionReplaySceneLogic)
 
     return (
         <LemonTabs
@@ -225,5 +225,5 @@ export function SessionsRecordings(): JSX.Element {
 
 export const scene: SceneExport = {
     component: SessionsRecordings,
-    logic: sessionRecordingsLogic,
+    logic: sessionReplaySceneLogic,
 }

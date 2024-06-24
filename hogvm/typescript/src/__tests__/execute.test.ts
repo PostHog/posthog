@@ -15,8 +15,8 @@ const tuple = (array: any[]): any[] => {
 
 describe('HogQL Bytecode', () => {
     test('execution results', async () => {
-        const fields = { properties: { foo: 'bar', nullValue: null } }
-        const options = { fields }
+        const globals = { properties: { foo: 'bar', nullValue: null } }
+        const options = { globals }
         expect(execSync(['_h'], options)).toBe(null)
         expect(execSync(['_h', op.INTEGER, 2, op.INTEGER, 1, op.PLUS], options)).toBe(3)
         expect(execSync(['_h', op.INTEGER, 2, op.INTEGER, 1, op.MINUS], options)).toBe(-1)
@@ -60,17 +60,29 @@ describe('HogQL Bytecode', () => {
         expect(execSync(['_h', op.STRING, '.*', op.STRING, 'kala', op.NOT_IREGEX], options)).toBe(false)
         expect(execSync(['_h', op.STRING, 'b', op.STRING, 'kala', op.NOT_IREGEX], options)).toBe(true)
         expect(execSync(['_h', op.STRING, 'AL', op.STRING, 'kala', op.NOT_IREGEX], options)).toBe(false)
-        expect(execSync(['_h', op.STRING, 'bla', op.STRING, 'properties', op.FIELD, 2], options)).toBe(null)
-        expect(execSync(['_h', op.STRING, 'foo', op.STRING, 'properties', op.FIELD, 2], options)).toBe('bar')
+        expect(execSync(['_h', op.STRING, 'bla', op.STRING, 'properties', op.GET_GLOBAL, 2], options)).toBe(null)
+        expect(execSync(['_h', op.STRING, 'foo', op.STRING, 'properties', op.GET_GLOBAL, 2], options)).toBe('bar')
         expect(
             execSync(
-                ['_h', op.FALSE, op.STRING, 'foo', op.STRING, 'properties', op.FIELD, 2, op.CALL, 'ifNull', 2],
+                ['_h', op.FALSE, op.STRING, 'foo', op.STRING, 'properties', op.GET_GLOBAL, 2, op.CALL, 'ifNull', 2],
                 options
             )
         ).toBe('bar')
         expect(
             execSync(
-                ['_h', op.FALSE, op.STRING, 'nullValue', op.STRING, 'properties', op.FIELD, 2, op.CALL, 'ifNull', 2],
+                [
+                    '_h',
+                    op.FALSE,
+                    op.STRING,
+                    'nullValue',
+                    op.STRING,
+                    'properties',
+                    op.GET_GLOBAL,
+                    2,
+                    op.CALL,
+                    'ifNull',
+                    2,
+                ],
                 options
             )
         ).toBe(false)
@@ -98,23 +110,24 @@ describe('HogQL Bytecode', () => {
     })
 
     test('error handling', async () => {
-        const fields = { properties: { foo: 'bar' } }
-        const options = { fields }
-        expect(() => execSync([], options)).toThrowError("Invalid HogQL bytecode, must start with '_h'")
-        await expect(execAsync([], options)).rejects.toThrowError("Invalid HogQL bytecode, must start with '_h'")
-        expect(() => execSync(['_h', op.INTEGER, 2, op.INTEGER, 1, 'InvalidOp'], options)).toThrowError(
+        const globals = { properties: { foo: 'bar' } }
+        const options = { globals }
+        expect(() => execSync([], options)).toThrow("Invalid HogQL bytecode, must start with '_h'")
+        await expect(execAsync([], options)).rejects.toThrow("Invalid HogQL bytecode, must start with '_h'")
+        expect(() => execSync(['_h', op.INTEGER, 2, op.INTEGER, 1, 'InvalidOp'], options)).toThrow(
             'Unexpected node while running bytecode: InvalidOp'
         )
         expect(() =>
             execSync(['_h', op.STRING, 'another', op.STRING, 'arg', op.CALL, 'invalidFunc', 2], options)
-        ).toThrowError('Unsupported function call: invalidFunc')
-        expect(() => execSync(['_h', op.INTEGER], options)).toThrowError('Unexpected end of bytecode')
-        expect(() => execSync(['_h', op.CALL, 'match', 1], options)).toThrowError(
-            'Invalid HogQL bytecode, stack is empty'
-        )
-        expect(() => execSync(['_h', op.TRUE, op.TRUE, op.NOT], options)).toThrowError(
+        ).toThrow('Unsupported function call: invalidFunc')
+        expect(() => execSync(['_h', op.INTEGER], options)).toThrow('Unexpected end of bytecode')
+        expect(() => execSync(['_h', op.CALL, 'match', 1], options)).toThrow('Not enough arguments on the stack')
+        expect(() => execSync(['_h', op.TRUE, op.TRUE, op.NOT], options)).toThrow(
             'Invalid bytecode. More than one value left on stack'
         )
+    })
+
+    test('async limits', async () => {
         const callSleep = [
             33,
             0.002, // seconds to sleep
@@ -126,10 +139,22 @@ describe('HogQL Bytecode', () => {
         for (let i = 0; i < 200; i++) {
             bytecode.push(...callSleep)
         }
-        await expect(execAsync(bytecode, options)).rejects.toThrowError('Exceeded maximum number of async steps: 100')
-        await expect(execAsync(bytecode, { ...options, maxAsyncSteps: 55 })).rejects.toThrowError(
+        await expect(execAsync(bytecode)).rejects.toThrow('Exceeded maximum number of async steps: 100')
+        await expect(execAsync(bytecode, { maxAsyncSteps: 55 })).rejects.toThrow(
             'Exceeded maximum number of async steps: 55'
         )
+    })
+
+    test('call arg limits', async () => {
+        const bytecode = ['_h', 33, 0.002, 2, 'sleep', 301]
+        expect(() => execSync(bytecode)).toThrow('Not enough arguments on the stack')
+
+        const bytecode2: any[] = ['_h']
+        for (let i = 0; i < 301; i++) {
+            bytecode2.push(33, 0.002)
+        }
+        bytecode2.push(2, 'sleep', 301)
+        expect(() => execSync(bytecode2)).toThrow('Too many arguments')
     })
 
     test('should execute user-defined stringify function correctly', async () => {
@@ -438,9 +463,9 @@ describe('HogQL Bytecode', () => {
         ).toEqual(map({ key: map({ otherKey: 'value' }) }))
 
         // return {key: 'value'};
-        expect(exec(['_h', op.STRING, 'key', op.FIELD, 1, op.STRING, 'value', op.DICT, 1, op.RETURN]).result).toEqual(
-            new Map([[null, 'value']])
-        )
+        expect(
+            exec(['_h', op.STRING, 'key', op.GET_GLOBAL, 1, op.STRING, 'value', op.DICT, 1, op.RETURN]).result
+        ).toEqual(new Map([[null, 'value']]))
 
         // var key := 3; return {key: 'value'};
         expect(
@@ -1545,5 +1570,31 @@ describe('HogQL Bytecode', () => {
         expect(execSync(['_h', op.INTEGER, 2, ...dict, op.CALL, 'jsonStringify', 2])).toEqual(
             JSON.stringify({ event: '$pageview', properties: { $browser: 'Chrome', $os: 'Windows' } }, null, 2)
         )
+    })
+
+    test('can not modify globals', () => {
+        const globals = { globalEvent: { event: '$pageview', properties: { $browser: 'Chrome' } } }
+        expect(
+            // let event := globalEvent;
+            // event.event := '$autocapture';
+            // return event;
+            exec(['_h', 32, 'globalEvent', 1, 1, 36, 0, 32, 'event', 32, '$autocapture', 46, 36, 0, 38, 35], {
+                globals,
+            }).result
+        ).toEqual(map({ event: '$autocapture', properties: map({ $browser: 'Chrome' }) }))
+        expect(globals.globalEvent).toEqual({ event: '$pageview', properties: { $browser: 'Chrome' } })
+    })
+
+    test('can modify globals after reading and copying', () => {
+        const globals = { globalEvent: { event: '$pageview', properties: { $browser: 'Chrome' } } }
+        expect(
+            // let event := globalEvent;
+            // event.event := '$autocapture';
+            // return event;
+            exec(['_h', 32, 'globalEvent', 1, 1, 36, 0, 32, 'event', 32, '$autocapture', 46, 36, 0, 38, 35], {
+                globals,
+            }).result
+        ).toEqual(map({ event: '$autocapture', properties: map({ $browser: 'Chrome' }) }))
+        expect(globals.globalEvent).toEqual({ event: '$pageview', properties: { $browser: 'Chrome' } })
     })
 })

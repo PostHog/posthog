@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Optional, Literal, TypeAlias
 from uuid import UUID
 from pydantic import ConfigDict, BaseModel
@@ -36,6 +36,8 @@ MAX_SELECT_RETURNED_ROWS = 50000
 MAX_SELECT_HEATMAPS_LIMIT = 1000000  # 1m datapoints
 # Max limit for all cohort calculations
 MAX_SELECT_COHORT_CALCULATION_LIMIT = 1000000000  # 1b persons
+# Max amount of memory usage when doing group by before swapping to disk. Only used in certain queries
+MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY = 22 * 1024 * 1024 * 1024
 
 CSV_EXPORT_LIMIT = MAX_SELECT_RETURNED_ROWS
 CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL = 512
@@ -45,7 +47,7 @@ BREAKDOWN_VALUES_LIMIT = 25
 BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES = 300
 
 
-class LimitContext(str, Enum):
+class LimitContext(StrEnum):
     QUERY = "query"
     QUERY_ASYNC = "query_async"
     EXPORT = "export"
@@ -102,3 +104,4 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     max_ast_elements: Optional[int] = 50000 * 20  # default value 50000
     max_expanded_ast_elements: Optional[int] = 1000000
     max_query_size: Optional[int] = 262144 * 2  # default value 262144 (= 256 KiB)
+    max_bytes_before_external_group_by: Optional[int] = 0  # default value means we don't swap ordering by to disk

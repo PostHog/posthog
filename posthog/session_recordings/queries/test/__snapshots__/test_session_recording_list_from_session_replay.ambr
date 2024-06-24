@@ -2250,57 +2250,6 @@
   OFFSET 0
   '''
 # ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_person_properties
-  '''
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.min_first_timestamp <= '2021-01-01 13:46:23'
-    AND s.distinct_id in
-      (select distinct_id
-       from
-         (SELECT distinct_id,
-                 argMax(person_id, version) as current_person_id
-          FROM person_distinct_id2 as pdi
-          INNER JOIN
-            (SELECT id
-             FROM person
-             WHERE team_id = 2
-               AND id IN
-                 (SELECT id
-                  FROM person
-                  WHERE team_id = 2
-                    AND (has(['bla'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))) )
-             GROUP BY id
-             HAVING max(is_deleted) = 0
-             AND (has(['bla'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
-          WHERE team_id = 2
-          GROUP BY distinct_id
-          HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)
-  GROUP BY session_id
-  HAVING 1=1
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '''
-# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_properties
   '''
   
@@ -3473,6 +3422,108 @@
           GROUP BY `$session_id`
           HAVING 1=1
           AND hasAll(event_names, ['custom_event'])) as session_events_sub_query)
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '''
+# ---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_with_person_properties_exact
+  '''
+  
+  SELECT s.session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(s.min_first_timestamp) as start_time,
+         max(s.max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(s.first_url) as first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         sum(s.active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
+  FROM session_replay_events s
+  WHERE s.team_id = 2
+    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
+    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
+    AND s.min_first_timestamp <= '2021-01-01 13:46:23'
+    AND s.distinct_id in
+      (select distinct_id
+       from
+         (SELECT distinct_id,
+                 argMax(person_id, version) as current_person_id
+          FROM person_distinct_id2 as pdi
+          INNER JOIN
+            (SELECT id
+             FROM person
+             WHERE team_id = 2
+               AND id IN
+                 (SELECT id
+                  FROM person
+                  WHERE team_id = 2
+                    AND (has(['bla@gmail.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))) )
+             GROUP BY id
+             HAVING max(is_deleted) = 0
+             AND (has(['bla@gmail.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
+          WHERE team_id = 2
+          GROUP BY distinct_id
+          HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '''
+# ---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_with_person_properties_not_contains
+  '''
+  
+  SELECT s.session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(s.min_first_timestamp) as start_time,
+         max(s.max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(s.first_url) as first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         sum(s.active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
+  FROM session_replay_events s
+  WHERE s.team_id = 2
+    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
+    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
+    AND s.min_first_timestamp <= '2021-01-01 13:46:23'
+    AND s.distinct_id in
+      (select distinct_id
+       from
+         (SELECT distinct_id,
+                 argMax(person_id, version) as current_person_id
+          FROM person_distinct_id2 as pdi
+          INNER JOIN
+            (SELECT id
+             FROM person
+             WHERE team_id = 2
+               AND id IN
+                 (SELECT id
+                  FROM person
+                  WHERE team_id = 2
+                    AND (NOT (replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%gmail.com%')) )
+             GROUP BY id
+             HAVING max(is_deleted) = 0
+             AND (NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%gmail.com%')) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
+          WHERE team_id = 2
+          GROUP BY distinct_id
+          HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC

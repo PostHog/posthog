@@ -43,9 +43,13 @@ import {
     FeatureFlagType,
     Group,
     GroupListParams,
+    HogFunctionIconResponse,
+    HogFunctionTemplateType,
+    HogFunctionType,
     InsightModel,
     IntegrationType,
     ListOrganizationMembersParams,
+    LogEntry,
     MediaUploadResponse,
     NewEarlyAccessFeatureType,
     NotebookListItemType,
@@ -69,6 +73,7 @@ import {
     RolesListParams,
     RoleType,
     ScheduledChangeType,
+    SchemaIncrementalFieldsResponse,
     SearchListParams,
     SearchResponse,
     SessionRecordingPlaylistType,
@@ -119,6 +124,7 @@ export interface ActivityLogPaginatedResponse<T> extends PaginatedResponse<T> {
 export interface ApiMethodOptions {
     signal?: AbortSignal
     headers?: Record<string, any>
+    async?: boolean
 }
 
 export class ApiError extends Error {
@@ -318,6 +324,22 @@ class ApiRequest {
 
     public pluginLogs(pluginConfigId: number, teamId?: TeamType['id']): ApiRequest {
         return this.pluginConfig(pluginConfigId, teamId).addPathComponent('logs')
+    }
+
+    public hogFunctions(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('hog_functions')
+    }
+
+    public hogFunction(id: HogFunctionType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.hogFunctions(teamId).addPathComponent(id)
+    }
+
+    public hogFunctionTemplates(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('hog_function_templates')
+    }
+
+    public hogFunctionTemplate(id: HogFunctionTemplateType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.hogFunctionTemplates(teamId).addPathComponent(id)
     }
 
     // # Actions
@@ -868,7 +890,6 @@ const api = {
                 .withQueryString(
                     toParams({
                         short_id: encodeURIComponent(shortId),
-                        include_query_insights: true,
                         basic: basic,
                     })
                 )
@@ -1634,6 +1655,49 @@ const api = {
         },
     },
 
+    hogFunctions: {
+        async list(): Promise<PaginatedResponse<HogFunctionType>> {
+            return await new ApiRequest().hogFunctions().get()
+        },
+        async get(id: HogFunctionType['id']): Promise<HogFunctionType> {
+            return await new ApiRequest().hogFunction(id).get()
+        },
+        async create(data: Partial<HogFunctionType>): Promise<HogFunctionType> {
+            return await new ApiRequest().hogFunctions().create({ data })
+        },
+        async update(id: HogFunctionType['id'], data: Partial<HogFunctionType>): Promise<HogFunctionType> {
+            return await new ApiRequest().hogFunction(id).update({ data })
+        },
+        async searchLogs(
+            id: HogFunctionType['id'],
+            params: Record<string, any> = {}
+        ): Promise<PaginatedResponse<LogEntry>> {
+            return await new ApiRequest().hogFunction(id).withAction('logs').withQueryString(params).get()
+        },
+
+        async listTemplates(): Promise<PaginatedResponse<HogFunctionTemplateType>> {
+            return await new ApiRequest().hogFunctionTemplates().get()
+        },
+        async getTemplate(id: HogFunctionTemplateType['id']): Promise<HogFunctionTemplateType> {
+            return await new ApiRequest().hogFunctionTemplate(id).get()
+        },
+
+        async listIcons(params: { query?: string } = {}): Promise<HogFunctionIconResponse[]> {
+            return await new ApiRequest().hogFunctions().withAction('icons').withQueryString(params).get()
+        },
+
+        async createTestInvocation(
+            id: HogFunctionType['id'],
+            data: {
+                configuration: Partial<HogFunctionType>
+                mock_async_functions: boolean
+                event: any
+            }
+        ): Promise<any> {
+            return await new ApiRequest().hogFunction(id).withAction('invocations').create({ data })
+        },
+    },
+
     annotations: {
         async get(annotationId: RawAnnotationType['id']): Promise<RawAnnotationType> {
             return await new ApiRequest().annotation(annotationId).get()
@@ -1978,6 +2042,12 @@ const api = {
         async reload(sourceId: ExternalDataStripeSource['id']): Promise<void> {
             await new ApiRequest().externalDataSource(sourceId).withAction('reload').create()
         },
+        async update(
+            sourceId: ExternalDataStripeSource['id'],
+            data: Partial<ExternalDataStripeSource>
+        ): Promise<ExternalDataStripeSource> {
+            return await new ApiRequest().externalDataSource(sourceId).update({ data })
+        },
         async database_schema(
             source_type: ExternalDataSourceType,
             payload: Record<string, any>
@@ -2010,6 +2080,9 @@ const api = {
         },
         async resync(schemaId: ExternalDataSourceSchema['id']): Promise<void> {
             await new ApiRequest().externalDataSourceSchema(schemaId).withAction('resync').create()
+        },
+        async incremental_fields(schemaId: ExternalDataSourceSchema['id']): Promise<SchemaIncrementalFieldsResponse> {
+            return await new ApiRequest().externalDataSourceSchema(schemaId).withAction('incremental_fields').create()
         },
     },
 

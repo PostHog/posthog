@@ -53,7 +53,7 @@ import { LocalFilter } from '../entityFilterLogic'
 import { entityFilterLogicType } from '../entityFilterLogicType'
 
 const DragHandle = (props: DraggableSyntheticListeners | undefined): JSX.Element => (
-    <span className="ActionFilterRowDragHandle" {...props}>
+    <span className="ActionFilterRowDragHandle" key="drag-handle" {...props}>
         <SortableDragIcon />
     </span>
 )

@@ -33,7 +33,6 @@ def join_replay_table_to_sessions_table(
     if not join_to_add.fields_accessed:
         raise ResolutionError("No fields requested from replay")
 
-    # TODO i think this should be fixed in the where_clause_extractor so that it grabs time bounds for us
     join_expr = ast.JoinExpr(table=select_from_sessions_table(join_to_add.fields_accessed, node, context))
     join_expr.join_type = "LEFT JOIN"
     join_expr.alias = join_to_add.to_table
@@ -156,6 +155,7 @@ SESSION_REPLAY_EVENTS_COMMON_FIELDS: dict[str, FieldOrTable] = {
     "size": IntegerDatabaseField(name="size"),
     "event_count": IntegerDatabaseField(name="event_count"),
     "message_count": IntegerDatabaseField(name="message_count"),
+    "snapshot_source": StringDatabaseField(name="snapshot_source"),
     "events": LazyJoin(
         from_field=["session_id"],
         join_table=EventsTable(),

@@ -2,6 +2,7 @@ import asyncio
 import collections.abc
 import typing
 import uuid
+
 from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import update_batch_export_run
 
@@ -10,7 +11,7 @@ T = typing.TypeVar("T")
 
 def peek_first_and_rewind(
     gen: collections.abc.Generator[T, None, None],
-) -> tuple[T, collections.abc.Generator[T, None, None]]:
+) -> tuple[T | None, collections.abc.Generator[T, None, None]]:
     """Peek into the first element in a generator and rewind the advance.
 
     The generator is advanced and cannot be reversed, so we create a new one that first
@@ -19,12 +20,53 @@ def peek_first_and_rewind(
     Returns:
         A tuple with the first element of the generator and the generator itself.
     """
-    first = next(gen)
+    try:
+        first = next(gen)
+    except StopIteration:
+        first = None
 
     def rewind_gen() -> collections.abc.Generator[T, None, None]:
-        """Yield the item we popped to rewind the generator."""
+        """Yield the item we popped to rewind the generator.
+
+        Return early if the generator is empty.
+        """
+        if first is None:
+            return
+
         yield first
         yield from gen
+
+    return (first, rewind_gen())
+
+
+async def apeek_first_and_rewind(
+    gen: collections.abc.AsyncGenerator[T, None],
+) -> tuple[T | None, collections.abc.AsyncGenerator[T, None]]:
+    """Peek into the first element in a generator and rewind the advance.
+
+    The generator is advanced and cannot be reversed, so we create a new one that first
+    yields the element we popped before yielding the rest of the generator.
+
+    Returns:
+        A tuple with the first element of the generator and the generator itself.
+    """
+    try:
+        first = await anext(gen)
+    except StopAsyncIteration:
+        first = None
+
+    async def rewind_gen() -> collections.abc.AsyncGenerator[T, None]:
+        """Yield the item we popped to rewind the generator.
+
+        Return early if the generator is empty.
+        """
+        if first is None:
+            return
+
+        yield first
+
+        async for value in gen:
+            yield value
 
     return (first, rewind_gen())
 

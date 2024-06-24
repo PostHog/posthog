@@ -1,5 +1,4 @@
 import itertools
-from datetime import timedelta
 from typing import Optional
 from collections.abc import Sequence, Iterator
 from posthog.hogql import ast
@@ -253,9 +252,6 @@ class ActorsQueryRunner(QueryRunner):
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
         if self.source_query_runner:
             self.source_query_runner.apply_dashboard_filters(dashboard_filter)
-
-    def _refresh_frequency(self):
-        return timedelta(minutes=1)
 
     def _remove_aliases(self, node: ast.Expr) -> ast.Expr:
         if isinstance(node, ast.Alias):

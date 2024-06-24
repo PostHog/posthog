@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { PayGatePage } from 'lib/components/PayGatePage/PayGatePage'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { IconUploadFile } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
@@ -28,15 +28,9 @@ export function SessionRecordingFilePlaybackScene(): JSX.Element {
 
     if (!filePlaybackEnabled) {
         return (
-            <PayGatePage
-                featureKey={AvailableFeature.RECORDINGS_FILE_EXPORT}
-                featureName="Recording Exports"
-                header={
-                    <>
-                        Export and playback <span className="highlight">Recordings from file</span>!
-                    </>
-                }
-                caption="Store your recordings outside of PostHog wherever you like."
+            <PayGateMini
+                feature={AvailableFeature.RECORDINGS_FILE_EXPORT}
+                className="py-8"
                 docsLink="https://posthog.com/docs/user-guides/session-recordings"
             />
         )

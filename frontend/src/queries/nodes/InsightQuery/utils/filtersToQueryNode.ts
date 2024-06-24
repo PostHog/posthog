@@ -15,6 +15,7 @@ import {
     ActionsNode,
     AnalyticsQueryResponseBase,
     BreakdownFilter,
+    CompareFilter,
     DataWarehouseNode,
     EventsNode,
     FunnelExclusionActionsNode,
@@ -35,6 +36,7 @@ import {
 import {
     isFunnelsQuery,
     isInsightQueryWithBreakdown,
+    isInsightQueryWithCompare,
     isInsightQueryWithSeries,
     isLifecycleQuery,
     isPathsQuery,
@@ -176,7 +178,13 @@ export const actionsAndEventsToSeries = (
     return series
 }
 
-export const cleanHiddenLegendIndexes = (
+/**
+ * Converts `hidden_legend_keys` in trends and stickiness insights to an array of hidden indexes.
+ * Example: `{1: true, 2: false}` will become `[1]`.
+ *
+ * Note: `hidden_legend_keys` in funnel insights follow a different format.
+ */
+export const hiddenLegendKeysToIndexes = (
     hidden_legend_keys: Record<string, boolean | undefined> | undefined
 ): number[] | undefined => {
     return hidden_legend_keys
@@ -186,7 +194,16 @@ export const cleanHiddenLegendIndexes = (
         : undefined
 }
 
-export const cleanHiddenLegendSeries = (
+/**
+ * Converts `hidden_legend_keys` in funnel insights to an array of hidden breakdowns.
+ * Example: `{Chrome: true, Firefox: false}` will become: `["Chrome"]`.
+ *
+ * Also handles pre-#12123 legacy format.
+ * Example: {`events/$pageview/0/Baseline`: true} will become `['Baseline']`.
+ *
+ * Note: `hidden_legend_keys` in trends and stickiness insights follow a different format.
+ */
+export const hiddenLegendKeysToBreakdowns = (
     hidden_legend_keys: Record<string, boolean | undefined> | undefined
 ): string[] | undefined => {
     return hidden_legend_keys
@@ -195,6 +212,7 @@ export const cleanHiddenLegendSeries = (
               .map(([k]) => k)
         : undefined
 }
+
 export const sanitizeRetentionEntity = (entity: RetentionEntity | undefined): RetentionEntity | undefined => {
     if (!entity) {
         return undefined
@@ -300,6 +318,11 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
         query.breakdownFilter = breakdownFilterToQuery(filters, isTrendsFilter(filters))
     }
 
+    // compare filter
+    if (isInsightQueryWithCompare(query)) {
+        query.compareFilter = compareFilterToQuery(filters)
+    }
+
     // group aggregation
     if (filters.aggregation_group_type_index !== undefined) {
         query.aggregation_group_type_index = filters.aggregation_group_type_index
@@ -344,8 +367,7 @@ export const trendsFilterToQuery = (filters: Partial<TrendsFilterType>): TrendsF
     return objectCleanWithEmpty({
         smoothingIntervals: filters.smoothing_intervals,
         showLegend: filters.show_legend,
-        hidden_legend_indexes: cleanHiddenLegendIndexes(filters.hidden_legend_keys),
-        compare: filters.compare,
+        hiddenLegendIndexes: hiddenLegendKeysToIndexes(filters.hidden_legend_keys),
         aggregationAxisFormat: filters.aggregation_axis_format,
         aggregationAxisPrefix: filters.aggregation_axis_prefix,
         aggregationAxisPostfix: filters.aggregation_axis_postfix,
@@ -375,7 +397,7 @@ export const funnelsFilterToQuery = (filters: Partial<FunnelsFilterType>): Funne
                 ? filters.exclusions.map((entity) => exlusionEntityToNode(entity))
                 : undefined,
         layout: filters.layout,
-        hidden_legend_breakdowns: cleanHiddenLegendSeries(filters.hidden_legend_keys),
+        hiddenLegendBreakdowns: hiddenLegendKeysToBreakdowns(filters.hidden_legend_keys),
         funnelAggregateByHogQL: filters.funnel_aggregate_by_hogql,
     })
 }
@@ -425,9 +447,8 @@ export const filtersToFunnelPathsQuery = (filters: Partial<PathsFilterType>): Fu
 export const stickinessFilterToQuery = (filters: Record<string, any>): StickinessFilter => {
     return objectCleanWithEmpty({
         display: filters.display,
-        compare: filters.compare,
         showLegend: filters.show_legend,
-        hidden_legend_indexes: cleanHiddenLegendIndexes(filters.hidden_legend_keys),
+        hiddenLegendIndexes: hiddenLegendKeysToIndexes(filters.hidden_legend_keys),
         showValuesOnSeries: filters.show_values_on_series,
     })
 }
@@ -454,5 +475,12 @@ export const breakdownFilterToQuery = (filters: Record<string, any>, isTrends: b
                   breakdown_hide_other_aggregation: filters.breakdown_hide_other_aggregation,
               }
             : {}),
+    })
+}
+
+export const compareFilterToQuery = (filters: Record<string, any>): CompareFilter => {
+    return objectCleanWithEmpty({
+        compare: filters.compare,
+        compare_to: filters.compare_to,
     })
 }

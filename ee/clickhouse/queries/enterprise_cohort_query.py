@@ -319,7 +319,7 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
 
         event_param_name = f"{self._cohort_pk}_event_ids"
 
-        if self.should_pushdown_persons and self._person_on_events_mode != PersonsOnEventsMode.disabled:
+        if self.should_pushdown_persons and self._person_on_events_mode != PersonsOnEventsMode.DISABLED:
             person_prop_query, person_prop_params = self._get_prop_groups(
                 self._inner_property_groups,
                 person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS,

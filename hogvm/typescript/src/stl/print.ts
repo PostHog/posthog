@@ -42,6 +42,9 @@ export function escapeIdentifier(identifier: string | number): string {
 export function printHogValue(obj: any): string {
     if (Array.isArray(obj)) {
         if ((obj as any).__isHogTuple) {
+            if (obj.length < 2) {
+                return `tuple(${obj.map(printHogValue).join(', ')})`
+            }
             return `(${obj.map(printHogValue).join(', ')})`
         } else {
             return `[${obj.map(printHogValue).join(', ')}]`

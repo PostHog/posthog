@@ -1,5 +1,3 @@
-import './SessionRecordingsPlaylist.scss'
-
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { EditableField } from 'lib/components/EditableField/EditableField'

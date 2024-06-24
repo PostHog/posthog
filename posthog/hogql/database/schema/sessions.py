@@ -198,13 +198,14 @@ def select_from_sessions_table(
         args=[aggregate_fields["$urls"]],
     )
 
-    if context.modifiers.bounceRatePageViewMode == BounceRatePageViewMode.uniq_urls:
+    if context.modifiers.bounceRatePageViewMode == BounceRatePageViewMode.UNIQ_URLS:
         bounce_pageview_count = aggregate_fields["$num_uniq_urls"]
     else:
         bounce_pageview_count = aggregate_fields["$pageview_count"]
     aggregate_fields["$is_bounce"] = ast.Call(
         name="if",
         args=[
+            # if pageview_count is 0, return NULL so it doesn't contribute towards the bounce rate either way
             ast.Call(name="equals", args=[bounce_pageview_count, ast.Constant(value=0)]),
             ast.Constant(value=None),
             ast.Call(
@@ -213,10 +214,13 @@ def select_from_sessions_table(
                     ast.Call(
                         name="or",
                         args=[
-                            ast.Call(name="greater", args=[aggregate_fields["$pageview_count"], ast.Constant(value=1)]),
+                            # if > 1 pageview, not a bounce
+                            ast.Call(name="greater", args=[bounce_pageview_count, ast.Constant(value=1)]),
+                            # if > 0 autocapture events, not a bounce
                             ast.Call(
                                 name="greater", args=[aggregate_fields["$autocapture_count"], ast.Constant(value=0)]
                             ),
+                            # if session duration >= 10 seconds, not a bounce
                             ast.Call(
                                 name="greaterOrEquals",
                                 args=[aggregate_fields["$session_duration"], ast.Constant(value=10)],

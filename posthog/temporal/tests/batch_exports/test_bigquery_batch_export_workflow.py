@@ -48,7 +48,7 @@ SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS = pytest.mark.skipif(
 
 pytestmark = [SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS, pytest.mark.asyncio, pytest.mark.django_db]
 
-TEST_TIME = dt.datetime.now(dt.timezone.utc)
+TEST_TIME = dt.datetime.now(dt.UTC)
 
 
 def assert_clickhouse_records_in_bigquery(
@@ -133,7 +133,7 @@ def assert_clickhouse_records_in_bigquery(
                 if k in json_columns and v is not None:
                     expected_record[k] = json.loads(v)
                 elif isinstance(v, dt.datetime):
-                    expected_record[k] = v.replace(tzinfo=dt.timezone.utc)
+                    expected_record[k] = v.replace(tzinfo=dt.UTC)
                 else:
                     expected_record[k] = v
 
@@ -216,7 +216,6 @@ TEST_SCHEMAS = [
     {
         "fields": [
             {"expression": "event", "alias": "event"},
-            {"expression": "inserted_at", "alias": "inserted_at"},
             {"expression": "toInt8(1 + 1)", "alias": "two"},
         ],
         "values": {},
@@ -251,8 +250,8 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
     Once we have these events, we pass them to the assert_events_in_bigquery function to check
     that they appear in the expected BigQuery table.
     """
-    data_interval_start = dt.datetime(2023, 4, 20, 14, 0, 0, tzinfo=dt.timezone.utc)
-    data_interval_end = dt.datetime(2023, 4, 25, 15, 0, 0, tzinfo=dt.timezone.utc)
+    data_interval_start = dt.datetime(2023, 4, 20, 14, 0, 0, tzinfo=dt.UTC)
+    data_interval_end = dt.datetime(2023, 4, 25, 15, 0, 0, tzinfo=dt.UTC)
 
     # Generate a random team id integer. There's still a chance of a collision,
     # but it's very small.
@@ -312,7 +311,7 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
     with freeze_time(TEST_TIME) as frozen_time:
         await activity_environment.run(insert_into_bigquery_activity, insert_inputs)
 
-        ingested_timestamp = frozen_time().replace(tzinfo=dt.timezone.utc)
+        ingested_timestamp = frozen_time().replace(tzinfo=dt.UTC)
 
         assert_clickhouse_records_in_bigquery(
             bigquery_client=bigquery_client,
@@ -455,9 +454,8 @@ async def test_bigquery_export_workflow(
         run = runs[0]
         assert run.status == "Completed"
         assert run.records_completed == 100
-        assert run.records_total_count == 100
 
-        ingested_timestamp = frozen_time().replace(tzinfo=dt.timezone.utc)
+        ingested_timestamp = frozen_time().replace(tzinfo=dt.UTC)
         assert_clickhouse_records_in_bigquery(
             bigquery_client=bigquery_client,
             clickhouse_client=clickhouse_client,
@@ -472,6 +470,65 @@ async def test_bigquery_export_workflow(
             use_json_type=use_json_type,
             min_ingested_timestamp=ingested_timestamp,
         )
+
+
+@pytest.mark.parametrize("interval", ["hour"])
+@pytest.mark.parametrize("exclude_events", [None], indirect=True)
+@pytest.mark.parametrize("batch_export_schema", TEST_SCHEMAS)
+async def test_bigquery_export_workflow_without_events(
+    clickhouse_client,
+    bigquery_batch_export,
+    interval,
+    exclude_events,
+    ateam,
+    table_id,
+    use_json_type,
+    batch_export_schema,
+):
+    """Test the BigQuery Export Workflow without any events to export.
+
+    The workflow should update the batch export run status to completed and set 0 as `records_completed`.
+    """
+    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+
+    workflow_id = str(uuid4())
+    inputs = BigQueryBatchExportInputs(
+        team_id=ateam.pk,
+        batch_export_id=str(bigquery_batch_export.id),
+        data_interval_end=data_interval_end.isoformat(),
+        interval=interval,
+        batch_export_schema=batch_export_schema,
+        **bigquery_batch_export.destination.config,
+    )
+
+    with freeze_time(TEST_TIME):
+        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+            async with Worker(
+                activity_environment.client,
+                task_queue=settings.TEMPORAL_TASK_QUEUE,
+                workflows=[BigQueryBatchExportWorkflow],
+                activities=[
+                    start_batch_export_run,
+                    insert_into_bigquery_activity,
+                    finish_batch_export_run,
+                ],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ):
+                await activity_environment.client.execute_workflow(
+                    BigQueryBatchExportWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    execution_timeout=dt.timedelta(seconds=10),
+                )
+
+        runs = await afetch_batch_export_runs(batch_export_id=bigquery_batch_export.id)
+        assert len(runs) == 1
+
+        run = runs[0]
+        assert run.status == "Completed"
+        assert run.records_completed == 0
 
 
 async def test_bigquery_export_workflow_handles_insert_activity_errors(ateam, bigquery_batch_export, interval):
@@ -570,7 +627,6 @@ async def test_bigquery_export_workflow_handles_insert_activity_non_retryable_er
     assert run.status == "Failed"
     assert run.latest_error == "RefreshError: A useful error message"
     assert run.records_completed is None
-    assert run.records_total_count == 1
 
 
 async def test_bigquery_export_workflow_handles_cancellation(ateam, bigquery_batch_export, interval):
@@ -635,7 +691,7 @@ async def test_bigquery_export_workflow_handles_cancellation(ateam, bigquery_bat
         ([{"test": 6.0}], [bigquery.SchemaField("test", "FLOAT64")]),
         ([{"test": True}], [bigquery.SchemaField("test", "BOOL")]),
         ([{"test": dt.datetime.now()}], [bigquery.SchemaField("test", "TIMESTAMP")]),
-        ([{"test": dt.datetime.now(tz=dt.timezone.utc)}], [bigquery.SchemaField("test", "TIMESTAMP")]),
+        ([{"test": dt.datetime.now(tz=dt.UTC)}], [bigquery.SchemaField("test", "TIMESTAMP")]),
         (
             [
                 {
@@ -645,7 +701,7 @@ async def test_bigquery_export_workflow_handles_cancellation(ateam, bigquery_bat
                     "test_float": 6.0,
                     "test_bool": False,
                     "test_timestamp": dt.datetime.now(),
-                    "test_timestamptz": dt.datetime.now(tz=dt.timezone.utc),
+                    "test_timestamptz": dt.datetime.now(tz=dt.UTC),
                 }
             ],
             [
