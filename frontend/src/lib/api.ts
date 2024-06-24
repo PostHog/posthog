@@ -890,7 +890,6 @@ const api = {
                 .withQueryString(
                     toParams({
                         short_id: encodeURIComponent(shortId),
-                        include_query_insights: true,
                         basic: basic,
                     })
                 )

@@ -1,7 +1,7 @@
 import { IconPencil } from '@posthog/icons'
 import { LemonButton, LemonFileInput, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold/src/types'
-import { CodeEditor } from 'lib/components/CodeEditors'
+import { CodeEditor } from 'lib/monaco/CodeEditor'
 import { useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { SECRET_FIELD_VALUE } from 'scenes/pipeline/configUtils'

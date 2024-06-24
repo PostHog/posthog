@@ -283,7 +283,9 @@ async def test_run_stripe_job(activity_environment, team, minio_client, **kwargs
             schema=customer_schema,
         )
 
-        new_job = await sync_to_async(ExternalDataJob.objects.filter(id=new_job.id).prefetch_related("pipeline").get)()
+        new_job = await sync_to_async(
+            ExternalDataJob.objects.filter(id=new_job.id).prefetch_related("pipeline").prefetch_related("schema").get
+        )()
 
         inputs = ImportDataActivityInputs(
             team_id=team.id,
@@ -439,7 +441,9 @@ async def test_run_stripe_job_cancelled(activity_environment, team, minio_client
             schema=customer_schema,
         )
 
-        new_job = await sync_to_async(ExternalDataJob.objects.filter(id=new_job.id).prefetch_related("pipeline").get)()
+        new_job = await sync_to_async(
+            ExternalDataJob.objects.filter(id=new_job.id).prefetch_related("pipeline").prefetch_related("schema").get
+        )()
 
         inputs = ImportDataActivityInputs(
             team_id=team.id,
@@ -524,7 +528,9 @@ async def test_run_stripe_job_row_count_update(activity_environment, team, minio
             schema=customer_schema,
         )
 
-        new_job = await sync_to_async(ExternalDataJob.objects.filter(id=new_job.id).prefetch_related("pipeline").get)()
+        new_job = await sync_to_async(
+            ExternalDataJob.objects.filter(id=new_job.id).prefetch_related("pipeline").prefetch_related("schema").get
+        )()
 
         inputs = ImportDataActivityInputs(
             team_id=team.id,
@@ -691,7 +697,9 @@ async def test_run_postgres_job(
             schema=posthog_test_schema,
         )
 
-        new_job = await sync_to_async(ExternalDataJob.objects.filter(id=new_job.id).prefetch_related("pipeline").get)()
+        new_job = await sync_to_async(
+            ExternalDataJob.objects.filter(id=new_job.id).prefetch_related("pipeline").prefetch_related("schema").get
+        )()
 
         inputs = ImportDataActivityInputs(
             team_id=team.id, run_id=str(new_job.pk), source_id=new_source.pk, schema_id=posthog_test_schema.id
