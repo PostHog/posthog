@@ -5,6 +5,11 @@ from posthog.clickhouse.table_engines import (
     ReplicationScheme,
     AggregatingMergeTree,
 )
+from posthog.settings import TEST
+
+INGEST_FROM_DATE = "toYYYYMMDD(timestamp) >= 20240625"
+if TEST:
+    INGEST_FROM_DATE = "toYYYYMMDD(timestamp) >= 0"
 
 TABLE_BASE_NAME = "raw_sessions"
 RAW_SESSIONS_DATA_TABLE = lambda: f"sharded_{TABLE_BASE_NAME}"
@@ -322,7 +327,10 @@ SELECT
     -- replay
     false as maybe_has_session_replay
 FROM {database}.sharded_events
-WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7
+WHERE and(
+    bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7, -- has a session id and is valid uuidv7
+    {INGEST_FROM_DATE}
+)
 GROUP BY session_id_v7, team_id
 """.format(
         database=settings.CLICKHOUSE_DATABASE,
@@ -360,6 +368,7 @@ GROUP BY session_id_v7, team_id
         mc_cid=source_string_column("mc_cid"),
         igshid=source_string_column("igshid"),
         ttclid=source_string_column("ttclid"),
+        INGEST_FROM_DATE=INGEST_FROM_DATE,
     )
 )
 
