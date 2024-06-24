@@ -93,6 +93,9 @@ export const DISABLE_THRESHOLD = 0.5
 
 export const BASE_REDIS_KEY = '@posthog/hog-watcher'
 
+const redisKeyObservations = (id: HogFunctionType['id']) => `${BASE_REDIS_KEY}/observations/${id}`
+const redisKeyStates = (id: HogFunctionType['id']) => `${BASE_REDIS_KEY}/states/${id}`
+
 export const calculateRating = (observation: HogWatcherObservationPeriod): number => {
     // Rating is from 0 to 1
     // 1 - Function is working perfectly
@@ -404,8 +407,8 @@ export class HogWatcher {
             changes.observations.forEach(({ id, observation }) => {
                 // We key the observations by observerId and timestamp with a ttl of the max period we want to keep the data for
                 const subKey = `${this.instanceId}/${observation.timestamp}`
-                pipeline.hset(`@posthog/hog-watcher/observations/${id}`, subKey, JSON.stringify(observation))
-                pipeline.expire(`@posthog/hog-watcher/observations/${id}`, EVALUATION_PERIOD / 1000)
+                pipeline.hset(redisKeyObservations(id), subKey, JSON.stringify(observation))
+                pipeline.expire(redisKeyObservations(id), EVALUATION_PERIOD / 1000)
             })
 
             return pipeline.exec()
@@ -463,9 +466,9 @@ export class HogWatcher {
 
             changes.states.forEach(({ id, state }) => {
                 // We key the value with the timestamp as we want to keep a history of the states
-                pipeline.zadd(`@posthog/hog-watcher/states/${id}`, state.timestamp, `${state.state}:${state.timestamp}`)
+                pipeline.zadd(redisKeyStates(id), state.timestamp, `${state.state}:${state.timestamp}`)
                 // Limit to only MAX_RECORDED_STATES
-                pipeline.zremrangebyrank(`@posthog/hog-watcher/states/${id}`, 0, -MAX_RECORDED_STATES)
+                pipeline.zremrangebyrank(redisKeyStates(id), 0, -MAX_RECORDED_STATES)
             })
 
             return pipeline.exec()
@@ -479,8 +482,8 @@ export class HogWatcher {
         const [states, observations] = await runRedis(this.hub.redisPool, 'fetchWatcher', async (client) => {
             const pipeline = client.pipeline()
 
-            pipeline.zrange(`@posthog/hog-watcher/states/${id}`, 0, -1, 'WITHSCORES')
-            pipeline.hgetall(`@posthog/hog-watcher/observations/${id}`)
+            pipeline.zrange(redisKeyStates(id), 0, -1, 'WITHSCORES')
+            pipeline.hgetall(redisKeyObservations(id))
             return pipeline.exec()
         })
 
