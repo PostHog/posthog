@@ -90,7 +90,9 @@ class AppMetricsViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixin, views
         after = self.request.GET.get("date_from", "-30d")
         before = self.request.GET.get("date_to", None)
         after_datetime = relative_date_parse(after, self.team.timezone_info)
-        before_datetime = relative_date_parse(before, self.team.timezone_info) if before else dt.datetime.now(dt.UTC)
+        before_datetime = (
+            relative_date_parse(before, self.team.timezone_info) if before else dt.datetime.now(dt.timezone.utc)
+        )
         date_range = (after_datetime, before_datetime)
         runs = (
             BatchExportRun.objects.select_related("batch_export__destination")
