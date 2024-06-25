@@ -10,6 +10,8 @@ import pyarrow as pa
 import requests
 from django.conf import settings
 
+from posthog.temporal.common.asyncpa import AsyncRecordBatchReader
+
 
 def encode_clickhouse_data(data: typing.Any, quote_char="'") -> bytes:
     """Encode data for ClickHouse.
@@ -356,6 +358,23 @@ class ClickHouseClient:
         with self.post_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
             with pa.ipc.open_stream(pa.PythonFile(response.raw)) as reader:
                 yield from reader
+
+    async def astream_query_as_arrow(
+        self,
+        query,
+        *data,
+        query_parameters=None,
+        query_id: str | None = None,
+    ) -> typing.AsyncGenerator[pa.RecordBatch, None]:
+        """Execute the given query in ClickHouse and stream back the response as Arrow record batches.
+
+        This method makes sense when running with FORMAT ArrowStream, although we currently do not enforce this.
+        As pyarrow doesn't support async/await buffers, this method is sync and utilizes requests instead of aiohttp.
+        """
+        async with self.apost_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
+            reader = AsyncRecordBatchReader(response.content.iter_any())
+            async for batch in reader:
+                yield batch
 
     async def __aenter__(self):
         """Enter method part of the AsyncContextManager protocol."""

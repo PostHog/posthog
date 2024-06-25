@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto'
 import { Message } from 'node-rdkafka'
 
-import { HogFunctionInvocationGlobals, HogFunctionType } from '../../src/cdp/types'
+import { HogFunctionInvocationGlobals, HogFunctionType, IntegrationType } from '../../src/cdp/types'
 import { ClickHouseTimestamp, RawClickHouseEvent, Team } from '../../src/types'
 import { PostgresRouter } from '../../src/utils/db/postgres'
 import { insertRow } from '../helpers/sql'
@@ -18,6 +18,18 @@ export const createHogFunction = (hogFunction: Partial<HogFunctionType>) => {
         description: '',
         hog: '',
         ...hogFunction,
+    }
+
+    return item
+}
+
+export const createIntegration = (integration: Partial<IntegrationType>) => {
+    const item: IntegrationType = {
+        team_id: 1,
+        errors: '',
+        created_at: new Date().toISOString(),
+        created_by_id: 1001,
+        ...integration,
     }
 
     return item
@@ -55,12 +67,28 @@ export const insertHogFunction = async (
     postgres: PostgresRouter,
     team_id: Team['id'],
     hogFunction: Partial<HogFunctionType> = {}
-) => {
+): Promise<HogFunctionType> => {
     const res = await insertRow(
         postgres,
         'posthog_hogfunction',
         createHogFunction({
             ...hogFunction,
+            team_id: team_id,
+        })
+    )
+    return res
+}
+
+export const insertIntegration = async (
+    postgres: PostgresRouter,
+    team_id: Team['id'],
+    integration: Partial<IntegrationType> = {}
+): Promise<IntegrationType> => {
+    const res = await insertRow(
+        postgres,
+        'posthog_integration',
+        createIntegration({
+            ...integration,
             team_id: team_id,
         })
     )

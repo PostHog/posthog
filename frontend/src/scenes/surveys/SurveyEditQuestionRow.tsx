@@ -4,7 +4,7 @@ import { DraggableSyntheticListeners } from '@dnd-kit/core'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonDialog, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Group } from 'kea-forms'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -38,6 +38,8 @@ export function SurveyEditQuestionHeader({
     setSelectedPageIndex,
     setSurveyValue,
 }: SurveyQuestionHeaderProps): JSX.Element {
+    const { hasBranchingLogic } = useValues(surveyLogic)
+    const { deleteBranchingLogic } = useActions(surveyLogic)
     const { setNodeRef, attributes, transform, transition, listeners, isDragging } = useSortable({
         id: index.toString(),
     })
@@ -71,12 +73,39 @@ export function SurveyEditQuestionHeader({
                     icon={<IconTrash />}
                     data-attr={`delete-survey-question-${index}`}
                     onClick={(e) => {
-                        e.stopPropagation()
-                        setSelectedPageIndex(index <= 0 ? 0 : index - 1)
-                        setSurveyValue(
-                            'questions',
-                            survey.questions.filter((_, i) => i !== index)
-                        )
+                        const deleteQuestion = (): void => {
+                            e.stopPropagation()
+                            setSelectedPageIndex(index <= 0 ? 0 : index - 1)
+                            setSurveyValue(
+                                'questions',
+                                survey.questions.filter((_, i) => i !== index)
+                            )
+                        }
+
+                        if (hasBranchingLogic) {
+                            LemonDialog.open({
+                                title: 'Your survey has active branching logic',
+                                description: (
+                                    <p className="py-2">
+                                        Deleting the question will remove your branching logic. Are you sure you want to
+                                        continue?
+                                    </p>
+                                ),
+                                primaryButton: {
+                                    children: 'Continue',
+                                    status: 'danger',
+                                    onClick: () => {
+                                        deleteBranchingLogic()
+                                        deleteQuestion()
+                                    },
+                                },
+                                secondaryButton: {
+                                    children: 'Cancel',
+                                },
+                            })
+                        } else {
+                            deleteQuestion()
+                        }
                     }}
                     tooltipPlacement="top-end"
                 />

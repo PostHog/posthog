@@ -1,6 +1,7 @@
 """Zendesk source settings and constants"""
 
 from dlt.common import pendulum
+from posthog.warehouse.types import IncrementalField, IncrementalFieldType
 
 DEFAULT_START_DATE = pendulum.datetime(year=2000, month=1, day=1)
 PAGE_SIZE = 100
@@ -12,6 +13,16 @@ CUSTOM_FIELDS_STATE_KEY = "ticket_custom_fields_v2"
 # Resources that will always get pulled
 BASE_ENDPOINTS = ["ticket_fields", "ticket_events", "tickets", "ticket_metric_events"]
 INCREMENTAL_ENDPOINTS = ["tickets"]
+INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
+    "tickets": [
+        {
+            "label": "generated_timestamp",
+            "type": IncrementalFieldType.Integer,
+            "field": "generated_timestamp",
+            "field_type": IncrementalFieldType.Integer,
+        }
+    ],
+}
 
 # Tuples of (Resource name, endpoint URL, data_key, supports pagination)
 # data_key is the key which data list is nested under in responses

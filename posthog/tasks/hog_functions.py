@@ -2,8 +2,9 @@ from typing import Optional
 
 from celery import shared_task
 
+from posthog.cdp.filters import compile_filters_bytecode
 from posthog.models.action.action import Action
-from posthog.plugins.reload import reload_hog_functions_on_workers
+from posthog.plugins.plugin_server_api import reload_hog_functions_on_workers
 from posthog.tasks.utils import CeleryQueue
 
 
@@ -47,7 +48,7 @@ def refresh_affected_hog_functions(team_id: Optional[int] = None, action_id: Opt
     actions_by_id = {action.id: action for action in all_related_actions}
 
     for hog_function in affected_hog_functions:
-        hog_function.compile_filters_bytecode(actions=actions_by_id)
+        hog_function.filters = compile_filters_bytecode(hog_function.filters, hog_function.team, actions_by_id)
 
     updates = HogFunction.objects.bulk_update(affected_hog_functions, ["filters"])
 
