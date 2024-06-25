@@ -116,7 +116,6 @@ abstract class CdpConsumerBase {
     }
 
     protected async processInvocationResults(results: HogFunctionInvocationResult[]): Promise<void> {
-        // TODO: Follow up - process metrics from the invocationResults
         await runInstrumentedFunction({
             statsKey: `cdpConsumer.handleEachBatch.produceResults`,
             func: async () => {
@@ -167,10 +166,10 @@ abstract class CdpConsumerBase {
                 this.hogWatcher.currentObservations.observeAsyncFunctionResponses(asyncResponses)
                 // Filter for blocked functions
                 asyncResponses = asyncResponses.filter((item) => {
-                    // TODO: Filter things out and move to overflow
                     const functionState = this.hogWatcher.getFunctionState(item.hogFunctionId)
 
                     if (functionState === HogWatcherState.overflowed) {
+                        // TODO: _Maybe_ report to AppMetrics 2 when it is ready
                         this.messagesToProduce.push({
                             topic: KAFKA_CDP_OVERFLOW,
                             value: {
@@ -182,7 +181,7 @@ abstract class CdpConsumerBase {
                         return false
                     }
                     if (functionState > HogWatcherState.disabledForPeriod) {
-                        // TODO: We probably want to log some metric that it was blocked
+                        // TODO: Report to AppMetrics 2 when it is ready
                         return false
                     }
                     return true
@@ -224,9 +223,8 @@ abstract class CdpConsumerBase {
                             )
 
                             if (overflowed.length) {
-                                // Add message to overflow queue
-                                // Log something
-                                status.info('🔁', `Oveflowing functions`, {
+                                // TODO: Report to AppMetrics 2 when it is ready
+                                status.debug('🔁', `Oveflowing functions`, {
                                     count: overflowed.length,
                                 })
 
@@ -244,16 +242,11 @@ abstract class CdpConsumerBase {
                             }
 
                             if (disabled.length) {
-                                // Log something
+                                // TODO: Report to AppMetrics 2 when it is ready
                                 status.debug('🔁', `Disabled functions skipped`, {
                                     count: disabled.length,
                                 })
                             }
-
-                            // TODO: Load all functions related to this event
-                            // Check if they are overflowed - if so move to the overflow queue
-                            // BUT only one event and a list of hog function IDs, as we don't want to duplicate the overflow situation
-                            // Check if they are disabled - if so we log and drop it entirely
 
                             return this.hogExecutor.executeFunctions(globals, healthy)
                         })
