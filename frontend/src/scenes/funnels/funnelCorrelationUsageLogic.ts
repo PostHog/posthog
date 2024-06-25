@@ -26,7 +26,7 @@ export const funnelCorrelationUsageLogic = kea<funnelCorrelationUsageLogicType>(
 
         actions: [
             insightVizDataLogic(props),
-            ['loadDataSuccess'],
+            ['loadDataSuccess', 'querySource'],
             funnelPersonsModalLogic(props),
             ['openCorrelationPersonsModal'],
             funnelDataLogic(props),
