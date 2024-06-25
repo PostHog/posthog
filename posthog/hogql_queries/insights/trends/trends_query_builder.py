@@ -496,12 +496,10 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                     ]
 
                 breakdown_aliases_with_histograms = [
-                    breakdown_alias for breakdown_alias in breakdown_aliases if "histogram_bin_count" in breakdown_alias
+                    breakdown_alias
+                    for breakdown_alias in breakdown_aliases
+                    if isinstance(breakdown_alias.get("histogram_bin_count"), int)
                 ]
-                alias_to_index = {
-                    breakdown_alias["alias"]: idx
-                    for idx, breakdown_alias in enumerate(breakdown_aliases_with_histograms)
-                }
 
                 query.select.extend(
                     [
@@ -563,9 +561,14 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
                 bucketed_breakdowns: list[ast.Expr] = []
                 for breakdown_alias in breakdown_aliases:
-                    if "histogram_bin_count" not in breakdown_alias:
+                    if not isinstance(breakdown_alias.get("histogram_bin_count"), int):
                         bucketed_breakdowns.append(ast.Field(chain=[breakdown_alias["alias"]]))
                     else:
+                        alias_to_index = {
+                            breakdown_alias["alias"]: idx
+                            for idx, breakdown_alias in enumerate(breakdown_aliases_with_histograms)
+                        }
+
                         filter_expr = parse_expr(
                             """
                                 arrayFilter(

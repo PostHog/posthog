@@ -1,3 +1,4 @@
+import itertools
 import zoneinfo
 from dataclasses import dataclass
 from datetime import datetime
@@ -3342,6 +3343,64 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert len(breakdown_labels) == 1
         # must return the placeholder value to ensure the frontend doesn't show an empty cell
         assert breakdown_labels == [[BREAKDOWN_NULL_STRING_LABEL]]
+
+    def test_trends_event_breakdowns_can_combine_bool_sting_and_numeric_in_any_order(self):
+        self._create_test_events()
+        flush_persons_and_events()
+
+        breakdowns = [
+            Breakdown(property="prop", histogram_bin_count=2),
+            Breakdown(property="$browser"),
+            Breakdown(property="bool_field"),
+        ]
+        for breakdown_filter in itertools.combinations(breakdowns, 3):
+            response = self._run_trends_query(
+                "2020-01-09",
+                "2020-01-20",
+                IntervalType.DAY,
+                [EventsNode(event="$pageview")],
+                None,
+                BreakdownFilter(breakdowns=breakdown_filter),
+            )
+            breakdown_labels = [sorted(result["breakdown_value"]) for result in response.results]
+
+            assert len(response.results) == 4
+            assert len(breakdown_labels) == 4
+            assert breakdown_labels == [
+                sorted(["[10,25]", "Chrome", "true"]),
+                sorted(["[10,25]", "Firefox", "false"]),
+                sorted(["[25,40.01]", "Edge", "true"]),
+                sorted(["[25,40.01]", "Safari", "false"]),
+            ]
+
+    def test_trends_event_breakdowns_handle_none_histogram_bin_count(self):
+        self._create_test_events()
+        flush_persons_and_events()
+
+        # multiple
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(
+                breakdowns=[
+                    Breakdown(property="prop", histogram_bin_count=2),
+                    Breakdown(property="$browser", histogram_bin_count=None),
+                ]
+            ),
+        )
+        breakdown_labels = [result["breakdown_value"] for result in response.results]
+
+        assert len(response.results) == 4
+        assert len(breakdown_labels) == 4
+        assert breakdown_labels == [
+            ["[10,25]", "Chrome"],
+            ["[10,25]", "Firefox"],
+            ["[25,40.01]", "Edge"],
+            ["[25,40.01]", "Safari"],
+        ]
 
     def test_trends_event_math_session_duration_with_breakdowns(self):
         self._create_test_events()
