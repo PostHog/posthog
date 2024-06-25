@@ -127,6 +127,7 @@ async def assert_clickhouse_records_in_postgres(
     expected_column_names = list(expected_records[0].keys()).sort()
 
     assert inserted_column_names == expected_column_names
+    assert len(inserted_records) == len(expected_records)
     assert inserted_records[0] == expected_records[0]
     assert inserted_records == expected_records
 
@@ -171,7 +172,7 @@ TEST_SCHEMAS = [
     {
         "fields": [
             {"expression": "event", "alias": "event"},
-            {"expression": "inserted_at", "alias": "inserted_at"},
+            {"expression": "_inserted_at", "alias": "inserted_at"},
             {"expression": "toInt8(1 + 1)", "alias": "two"},
         ],
         "values": {},

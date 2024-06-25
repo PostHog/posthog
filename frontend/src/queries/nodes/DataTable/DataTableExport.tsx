@@ -6,7 +6,6 @@ import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import Papa from 'papaparse'
 import { asDisplay } from 'scenes/persons/person-utils'
-import { urls } from 'scenes/urls'
 
 import {
     defaultDataTableColumns,
@@ -14,7 +13,7 @@ import {
     removeExpressionComment,
 } from '~/queries/nodes/DataTable/utils'
 import { getPersonsEndpoint } from '~/queries/query'
-import { DataNode, DataTableNode, NodeKind } from '~/queries/schema'
+import { DataNode, DataTableNode } from '~/queries/schema'
 import { isActorsQuery, isEventsQuery, isHogQLQuery, isPersonsNode } from '~/queries/utils'
 import { ExporterFormat } from '~/types'
 
@@ -193,7 +192,7 @@ interface DataTableExportProps {
 }
 
 export function DataTableExport({ query }: DataTableExportProps): JSX.Element | null {
-    const { dataTableRows, columnsInResponse, columnsInQuery, queryWithDefaults, response } = useValues(dataTableLogic)
+    const { dataTableRows, columnsInResponse, columnsInQuery, queryWithDefaults } = useValues(dataTableLogic)
     const { startExport } = useActions(exportsLogic)
 
     const source: DataNode = query.source
@@ -268,24 +267,6 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                             'data-attr': 'copy-json-to-clipboard',
                         },
                     ],
-                },
-                queryWithDefaults.showOpenEditorButton && {
-                    label: 'Open table as a new insight',
-                    to: query ? urls.insightNew(undefined, undefined, JSON.stringify(query)) : undefined,
-                    'data-attr': 'open-json-editor-button',
-                },
-                response?.hogql && {
-                    label: 'Edit SQL directly',
-                    to: urls.insightNew(
-                        undefined,
-                        undefined,
-                        JSON.stringify({
-                            kind: NodeKind.DataTableNode,
-                            full: true,
-                            source: { kind: NodeKind.HogQLQuery, query: response.hogql },
-                        })
-                    ),
-                    'data-attr': 'open-sql-editor-button',
                 },
             ].filter(Boolean)}
         >
