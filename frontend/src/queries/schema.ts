@@ -1263,7 +1263,7 @@ export interface InsightActorsQuery<S extends InsightsQueryBase<AnalyticsQueryRe
     /** An interval selected out of available intervals in source query. */
     interval?: integer
     series?: integer
-    breakdown?: string | BreakdownValueInt
+    breakdown?: string | BreakdownValueInt | string[]
     compare?: 'current' | 'previous'
 }
 
@@ -1551,7 +1551,7 @@ export type MultipleBreakdownType = Extract<BreakdownType, 'person' | 'event' | 
 
 export interface Breakdown {
     type?: MultipleBreakdownType | null
-    property: string | integer
+    property: string
     normalize_url?: boolean
     group_type_index?: integer | null
     histogram_bin_count?: integer // trends breakdown histogram bin

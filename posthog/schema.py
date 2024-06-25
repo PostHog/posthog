@@ -1325,7 +1325,7 @@ class Breakdown(BaseModel):
     group_type_index: Optional[int] = None
     histogram_bin_count: Optional[int] = None
     normalize_url: Optional[bool] = None
-    property: Union[str, int]
+    property: str
     type: Optional[MultipleBreakdownType] = None
 
 
@@ -4326,7 +4326,7 @@ class InsightActorsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    breakdown: Optional[Union[str, int]] = None
+    breakdown: Optional[Union[str, list[str], int]] = None
     compare: Optional[Compare] = None
     day: Optional[Union[str, int]] = None
     includeRecordings: Optional[bool] = None

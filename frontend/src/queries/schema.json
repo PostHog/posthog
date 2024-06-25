@@ -421,14 +421,7 @@
                     "type": "boolean"
                 },
                 "property": {
-                    "anyOf": [
-                        {
-                            "type": "string"
-                        },
-                        {
-                            "type": "integer"
-                        }
-                    ]
+                    "type": "string"
                 },
                 "type": {
                     "anyOf": [
@@ -4527,6 +4520,12 @@
                         },
                         {
                             "$ref": "#/definitions/BreakdownValueInt"
+                        },
+                        {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
                         }
                     ]
                 },
