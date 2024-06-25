@@ -238,7 +238,7 @@ type CdpOverflowMessageFunctionCallback = {
 
 export type CdpOverflowMessage = CdpOverflowMessageInvocations | CdpOverflowMessageFunctionCallback
 
-export type HogFunctionMessageToQueue = {
+export type HogFunctionMessageToProduce = {
     topic: string
     value: CdpOverflowMessage | HogFunctionLogEntrySerialized | HogFunctionInvocationAsyncResponse
     key: string
