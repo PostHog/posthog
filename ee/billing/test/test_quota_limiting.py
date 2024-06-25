@@ -31,12 +31,12 @@ class TestQuotaLimiting(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.redis_client = get_client()
-        self.redis_client.delete(f"@posthog/quota-limits/.events")
-        self.redis_client.delete(f"@posthog/quota-limits/.recordings")
-        self.redis_client.delete(f"@posthog/quota-limits/.rows_synced")
-        self.redis_client.delete(f"@posthog/quota-limiting-suspended/.events")
-        self.redis_client.delete(f"@posthog/quota-limiting-suspended/.recordings")
-        self.redis_client.delete(f"@posthog/quota-limiting-suspended/.rows_synced")
+        self.redis_client.delete(f"@posthog/quota-limits/events")
+        self.redis_client.delete(f"@posthog/quota-limits/recordings")
+        self.redis_client.delete(f"@posthog/quota-limits/rows_synced")
+        self.redis_client.delete(f"@posthog/quota-limiting-suspended/events")
+        self.redis_client.delete(f"@posthog/quota-limiting-suspended/recordings")
+        self.redis_client.delete(f"@posthog/quota-limiting-suspended/rows_synced")
 
     @patch("posthoganalytics.capture")
     @patch("posthoganalytics.feature_enabled", return_value=True)
