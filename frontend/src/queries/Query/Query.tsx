@@ -135,7 +135,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                             <QueryEditor
                                 query={JSON.stringify(query)}
                                 setQuery={(stringQuery) =>
-                                    setQuery?.(JSON.parse(stringQuery), /* isSourceUpdate= */ true)
+                                    setQuery?.(JSON.parse(stringQuery), true)
                                 }
                                 context={queryContext}
                             />
