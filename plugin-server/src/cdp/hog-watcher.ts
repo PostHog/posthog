@@ -265,14 +265,14 @@ export class HogWatcher {
     constructor(private hub: Hub) {
         this.instanceId = randomUUID()
         this.pubSub = new PubSub(hub, {
-            'hog-watcher-observations': async (message) => {
+            'hog-watcher-observations': (message) => {
                 const { instanceId, observations }: EmittedHogWatcherObservations = JSON.parse(message)
 
                 if (instanceId === this.instanceId) {
                     return
                 }
 
-                observations.forEach(async ({ id, observation }) => {
+                observations.forEach(({ id, observation }) => {
                     const observationsForId = (this.observations[id] = this.observations[id] ?? [])
                     // Merge or append
 
@@ -290,7 +290,7 @@ export class HogWatcher {
                 })
             },
 
-            'hog-watcher-states': async (message) => {
+            'hog-watcher-states': (message) => {
                 // NOTE: This is only emitted by the leader so we can immediately add it to the list of states
                 const { instanceId, states }: EmittedHogWatcherStates = JSON.parse(message)
 
@@ -298,7 +298,7 @@ export class HogWatcher {
                     return
                 }
 
-                states.forEach(async ({ id, state }) => {
+                states.forEach(({ id, state }) => {
                     const statesForId = (this.states[id] = this.states[id] ?? [])
                     statesForId.push(state)
                 })
@@ -317,13 +317,13 @@ export class HogWatcher {
         const loop = async () => {
             try {
                 // Maybe add a slow function warning here
-                this.sync()
+                await this.sync()
             } finally {
                 this.interval = setTimeout(loop, OBSERVATION_PERIOD)
             }
         }
 
-        loop()
+        await loop()
     }
 
     async stop() {
@@ -500,7 +500,7 @@ export class HogWatcher {
             })
         }
 
-        for (const [timestamp, observation] of Object.entries(observationsParsed)) {
+        for (const observation of Object.values(observationsParsed)) {
             observationsArray.push(JSON.parse(observation))
         }
 
