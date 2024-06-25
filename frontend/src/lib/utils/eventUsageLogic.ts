@@ -614,6 +614,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 payload.event_entity_count = getSeries(query)?.filter((e) => isEventsNode(e)).length
                 payload.action_entity_count = getSeries(query)?.filter((e) => isActionsNode(e)).length
                 payload.data_warehouse_entity_count = getSeries(query)?.filter((e) => isDataWarehouseNode(e)).length
+                payload.has_data_warehouse_series = !!getSeries(query)?.find((e) => isDataWarehouseNode(e))
 
                 // properties
                 payload.has_properties = !!properties
