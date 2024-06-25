@@ -98,9 +98,9 @@
 # ---
 # name: TestFOSSFunnel.test_funnel_conversion_window_seconds.1
   '''
-  SELECT filterable_persons.id,
-         filterable_persons.id AS id,
-         filterable_persons.created_at AS created_at,
+  SELECT persons.id,
+         persons.id AS id,
+         persons.created_at AS created_at,
          1
   FROM
     (SELECT aggregation_target AS actor_id
@@ -183,8 +183,7 @@
         HAVING ifNull(equals(steps, max_steps), isNull(steps)
                       and isNull(max_steps)))
      WHERE ifNull(in(steps, [2, 3]), 0)
-     ORDER BY aggregation_target ASC SETTINGS use_query_cache=1,
-                                              query_cache_ttl=600) AS source
+     ORDER BY aggregation_target ASC) AS source
   INNER JOIN
     (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
@@ -223,10 +222,10 @@
                                                       HAVING ifNull(equals(steps, max_steps), isNull(steps)
                                                                     and isNull(max_steps)))
                                                    WHERE ifNull(in(steps, [2, 3]), 0)
-                                                   ORDER BY aggregation_target ASC SETTINGS use_query_cache=1, query_cache_ttl=600) AS source)))
+                                                   ORDER BY aggregation_target ASC) AS source)))
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS filterable_persons ON equals(filterable_persons.id, source.actor_id)
-  ORDER BY filterable_persons.created_at DESC
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+  ORDER BY persons.created_at DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -542,9 +541,9 @@
 # ---
 # name: TestFOSSFunnel.test_funnel_with_property_groups.1
   '''
-  SELECT filterable_persons.id,
-         filterable_persons.id AS id,
-         filterable_persons.created_at AS created_at,
+  SELECT persons.id,
+         persons.id AS id,
+         persons.created_at AS created_at,
          1
   FROM
     (SELECT aggregation_target AS actor_id
@@ -639,8 +638,7 @@
         HAVING ifNull(equals(steps, max_steps), isNull(steps)
                       and isNull(max_steps)))
      WHERE ifNull(in(steps, [1, 2, 3]), 0)
-     ORDER BY aggregation_target ASC SETTINGS use_query_cache=1,
-                                              query_cache_ttl=600) AS source
+     ORDER BY aggregation_target ASC) AS source
   INNER JOIN
     (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
@@ -688,10 +686,10 @@
                                                       HAVING ifNull(equals(steps, max_steps), isNull(steps)
                                                                     and isNull(max_steps)))
                                                    WHERE ifNull(in(steps, [1, 2, 3]), 0)
-                                                   ORDER BY aggregation_target ASC SETTINGS use_query_cache=1, query_cache_ttl=600) AS source)))
+                                                   ORDER BY aggregation_target ASC) AS source)))
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS filterable_persons ON equals(filterable_persons.id, source.actor_id)
-  ORDER BY filterable_persons.created_at DESC
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+  ORDER BY persons.created_at DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -705,9 +703,9 @@
 # ---
 # name: TestFOSSFunnel.test_funnel_with_property_groups.2
   '''
-  SELECT filterable_persons.id,
-         filterable_persons.id AS id,
-         filterable_persons.created_at AS created_at,
+  SELECT persons.id,
+         persons.id AS id,
+         persons.created_at AS created_at,
          1
   FROM
     (SELECT aggregation_target AS actor_id
@@ -802,8 +800,7 @@
         HAVING ifNull(equals(steps, max_steps), isNull(steps)
                       and isNull(max_steps)))
      WHERE ifNull(in(steps, [2, 3]), 0)
-     ORDER BY aggregation_target ASC SETTINGS use_query_cache=1,
-                                              query_cache_ttl=600) AS source
+     ORDER BY aggregation_target ASC) AS source
   INNER JOIN
     (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
@@ -851,10 +848,10 @@
                                                       HAVING ifNull(equals(steps, max_steps), isNull(steps)
                                                                     and isNull(max_steps)))
                                                    WHERE ifNull(in(steps, [2, 3]), 0)
-                                                   ORDER BY aggregation_target ASC SETTINGS use_query_cache=1, query_cache_ttl=600) AS source)))
+                                                   ORDER BY aggregation_target ASC) AS source)))
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS filterable_persons ON equals(filterable_persons.id, source.actor_id)
-  ORDER BY filterable_persons.created_at DESC
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+  ORDER BY persons.created_at DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -868,9 +865,9 @@
 # ---
 # name: TestFOSSFunnel.test_funnel_with_property_groups.3
   '''
-  SELECT filterable_persons.id,
-         filterable_persons.id AS id,
-         filterable_persons.created_at AS created_at,
+  SELECT persons.id,
+         persons.id AS id,
+         persons.created_at AS created_at,
          1
   FROM
     (SELECT aggregation_target AS actor_id
@@ -965,8 +962,7 @@
         HAVING ifNull(equals(steps, max_steps), isNull(steps)
                       and isNull(max_steps)))
      WHERE ifNull(in(steps, [3]), 0)
-     ORDER BY aggregation_target ASC SETTINGS use_query_cache=1,
-                                              query_cache_ttl=600) AS source
+     ORDER BY aggregation_target ASC) AS source
   INNER JOIN
     (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
@@ -1014,10 +1010,10 @@
                                                       HAVING ifNull(equals(steps, max_steps), isNull(steps)
                                                                     and isNull(max_steps)))
                                                    WHERE ifNull(in(steps, [3]), 0)
-                                                   ORDER BY aggregation_target ASC SETTINGS use_query_cache=1, query_cache_ttl=600) AS source)))
+                                                   ORDER BY aggregation_target ASC) AS source)))
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS filterable_persons ON equals(filterable_persons.id, source.actor_id)
-  ORDER BY filterable_persons.created_at DESC
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+  ORDER BY persons.created_at DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
