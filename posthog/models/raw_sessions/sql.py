@@ -7,7 +7,9 @@ from posthog.clickhouse.table_engines import (
 )
 from posthog.settings import TEST
 
-INGEST_FROM_DATE = "toYYYYMMDD(timestamp) >= 20240625"
+# the date of the day after this PR will be merged, this allows us to run the backfill script on complete days
+# with a condition like toYYYYMMDD(timestamp) < X
+INGEST_FROM_DATE = "toYYYYMMDD(timestamp) >= 20240626"
 if TEST:
     INGEST_FROM_DATE = "toYYYYMMDD(timestamp) >= 0"
 
