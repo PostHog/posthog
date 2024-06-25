@@ -1,4 +1,5 @@
 import json
+from typing import Any
 
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.clickhouse.client.connection import Workload
@@ -256,7 +257,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
     @patch("posthog.clickhouse.client.async_task_chain.execute_task_chain")
     @patch("django.db.transaction.on_commit")
     def test_context_manager_exit(self, on_commit_mock, execute_task_chain_mock):
-        mock_chain = []
+        mock_chain: list[Any] = []
         with patch("posthog.clickhouse.client.async_task_chain.get_task_chain", return_value=mock_chain):
             with transaction.atomic():
                 with task_chain_context():
