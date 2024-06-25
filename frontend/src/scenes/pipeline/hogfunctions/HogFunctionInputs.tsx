@@ -14,8 +14,8 @@ import {
     LemonTextArea,
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { CodeEditorResizeable } from 'lib/components/CodeEditors'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { languages } from 'monaco-editor'
 import { useEffect, useMemo, useState } from 'react'

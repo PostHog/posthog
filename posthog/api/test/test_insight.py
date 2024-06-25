@@ -2438,7 +2438,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         assert [r["id"] for r in response_data] == [insight_1_id]
 
-    def test_get_recently_viewed_insights_excludes_query_based_insights_by_default(self) -> None:
+    def test_get_recently_viewed_insights_include_query_based_insights(self) -> None:
         insight_1_id, _ = self.dashboard_api.create_insight({"short_id": "12345678"})
         insight_2_id, _ = self.dashboard_api.create_insight(
             {
@@ -2475,48 +2475,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/projects/{self.team.id}/insights/my_last_viewed")
         response_data = response.json()
 
-        # No results if no insights have been viewed
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        assert [r["id"] for r in response_data] == [insight_1_id]
-
-    def test_get_recently_viewed_insights_can_include_query_based_insights(self) -> None:
-        insight_1_id, _ = self.dashboard_api.create_insight({"short_id": "12345678"})
-        insight_2_id, _ = self.dashboard_api.create_insight(
-            {
-                "short_id": "3456",
-                "query": {
-                    "kind": "DataTableNode",
-                    "source": {
-                        "kind": "EventsQuery",
-                        "select": [
-                            "*",
-                            "event",
-                            "person",
-                            "coalesce(properties.$current_url, properties.$screen_name)",
-                            "properties.$lib",
-                            "timestamp",
-                        ],
-                        "properties": [
-                            {
-                                "type": "event",
-                                "key": "$browser",
-                                "operator": "exact",
-                                "value": "Chrome",
-                            }
-                        ],
-                        "limit": 100,
-                    },
-                },
-            }
-        )
-
-        self.client.post(f"/api/projects/{self.team.id}/insights/{insight_1_id}/viewed")
-        self.client.post(f"/api/projects/{self.team.id}/insights/{insight_2_id}/viewed")
-
-        response = self.client.get(f"/api/projects/{self.team.id}/insights/my_last_viewed?include_query_insights=true")
-        response_data = response.json()
-
-        # No results if no insights have been viewed
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         assert [r["id"] for r in response_data] == [insight_2_id, insight_1_id]
 

@@ -22,7 +22,6 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import FiltersSerializer
-from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer
 from posthog.models import Plugin, PluginAttachment, PluginConfig, User
 from posthog.models.activity_logging.activity_log import (
     ActivityPage,
@@ -586,8 +585,6 @@ class PluginConfigSerializer(serializers.ModelSerializer):
     plugin_info = serializers.SerializerMethodField()
     delivery_rate_24h = serializers.SerializerMethodField()
     error = serializers.SerializerMethodField()
-
-    deleted = ClassicBehaviorBooleanFieldSerializer()
 
     class Meta:
         model = PluginConfig

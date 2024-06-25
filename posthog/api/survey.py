@@ -5,8 +5,10 @@ from urllib.parse import urlparse
 import nh3
 from django.db.models import Min
 from django.http import JsonResponse
+from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
-from rest_framework import status
+from nanoid import generate
+from rest_framework import request, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -20,13 +22,10 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import get_token
 from posthog.client import sync_execute
-from posthog.exceptions import generate_exception_response
-from posthog.models.feedback.survey import Survey
-from django.utils.text import slugify
-from nanoid import generate
-from rest_framework import request, serializers, viewsets
 from posthog.constants import AvailableFeature
+from posthog.exceptions import generate_exception_response
 from posthog.models.feature_flag.feature_flag import FeatureFlag
+from posthog.models.feedback.survey import Survey
 from posthog.models.team.team import Team
 from posthog.utils_cors import cors_response
 
@@ -133,6 +132,10 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
             raise serializers.ValidationError(
                 "You need to upgrade to PostHog Enterprise to use HTML in survey thank you message"
             )
+
+        survey_popup_delay_seconds = value.get("surveyPopupDelaySeconds")
+        if survey_popup_delay_seconds and survey_popup_delay_seconds < 0:
+            raise serializers.ValidationError("Survey popup delay seconds must be a positive integer")
 
         return value
 
