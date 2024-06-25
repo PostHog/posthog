@@ -48,7 +48,7 @@ export function InsightsTable({
     isMainInsightView = false,
 }: InsightsTableProps): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
-    const { insightProps, isInDashboardContext, insight } = useValues(insightLogic)
+    const { insightProps, isInDashboardContext, queryBasedInsight } = useValues(insightLogic)
     const {
         insightDataLoading,
         indexedResults,
@@ -257,7 +257,7 @@ export function InsightsTable({
 
     return (
         <LemonTable
-            id={isInDashboardContext ? insight.short_id : undefined}
+            id={isInDashboardContext ? queryBasedInsight.short_id : undefined}
             dataSource={
                 isLegend || isMainInsightView
                     ? indexedResults

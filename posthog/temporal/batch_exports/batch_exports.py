@@ -13,6 +13,8 @@ from temporalio.common import RetryPolicy
 from posthog.batch_exports.models import BatchExportBackfill, BatchExportRun
 from posthog.batch_exports.service import (
     BatchExportField,
+    BatchExportModel,
+    BatchExportSchema,
     acount_failed_batch_export_runs,
     acreate_batch_export_backfill,
     acreate_batch_export_run,
@@ -111,26 +113,53 @@ def default_fields() -> list[BatchExportField]:
     ]
 
 
-DEFAULT_MODELS = {"events", "persons"}
-
-
 async def iter_model_records(
-    client: ClickHouseClient, model: str, team_id: int, is_backfill: bool, **parameters
+    client: ClickHouseClient,
+    model: BatchExportModel | BatchExportSchema | None,
+    team_id: int,
+    is_backfill: bool,
+    destination_default_fields: list[BatchExportField] | None = None,
+    **parameters,
 ) -> AsyncRecordsGenerator:
-    if model in DEFAULT_MODELS:
+    if destination_default_fields is None:
+        batch_export_default_fields = default_fields()
+    else:
+        batch_export_default_fields = destination_default_fields
+
+    if isinstance(model, BatchExportModel):
         async for record in iter_records_from_model_view(
-            client=client, model=model, team_id=team_id, is_backfill=is_backfill, **parameters
+            client=client,
+            model_name=model.name,
+            team_id=team_id,
+            is_backfill=is_backfill,
+            fields=model.schema["fields"] if model.schema is not None else batch_export_default_fields,
+            extra_query_parameters=model.schema["values"] if model.schema is not None else None,
+            **parameters,
         ):
             yield record
+
     else:
-        for record in iter_records(client, team_id=team_id, is_backfill=is_backfill, **parameters):
+        for record in iter_records(
+            client,
+            team_id=team_id,
+            is_backfill=is_backfill,
+            fields=model["fields"] if model is not None else batch_export_default_fields,
+            extra_query_parameters=model["values"] if model is not None else None,
+            **parameters,
+        ):
             yield record
 
 
 async def iter_records_from_model_view(
-    client: ClickHouseClient, model: str, is_backfill: bool, team_id: int, **parameters
+    client: ClickHouseClient,
+    model_name: str,
+    is_backfill: bool,
+    team_id: int,
+    interval_start: str,
+    interval_end: str,
+    **parameters,
 ) -> AsyncRecordsGenerator:
-    if model == "persons":
+    if model_name == "persons":
         view = SELECT_FROM_PERSONS_VIEW
     else:
         # TODO: Let this model be exported by `astream_query_as_arrow`.
@@ -138,10 +167,20 @@ async def iter_records_from_model_view(
         # without battle testing it first.
         # There are already changes going out to the queries themselves that will impact events in a
         # positive way. So, we can come back later and drop this block.
-        for record_batch in iter_records(client, team_id=team_id, is_backfill=is_backfill, **parameters):
+        for record_batch in iter_records(
+            client,
+            team_id=team_id,
+            is_backfill=is_backfill,
+            interval_start=interval_start,
+            interval_end=interval_end,
+            **parameters,
+        ):
             yield record_batch
         return
 
+    parameters["team_id"] = team_id
+    parameters["interval_start"] = dt.datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
+    parameters["interval_end"] = dt.datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
     async for record_batch in client.astream_query_as_arrow(view, query_parameters=parameters):
         yield record_batch
 
