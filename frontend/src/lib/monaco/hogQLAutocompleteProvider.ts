@@ -79,11 +79,17 @@ const kindToSortText = (kind: AutocompleteCompletionItem['kind'], label: string)
 }
 
 export const hogQLAutocompleteProvider = (
-    type: 'hogQL' | 'hogTemplate' | 'hogQLExpr',
-    logic: BuiltLogic<codeEditorLogicType>
+    type: 'hogQL' | 'hogTemplate' | 'hogExpr'
 ): languages.CompletionItemProvider => ({
     triggerCharacters: [' ', ',', '.', '{'],
     provideCompletionItems: async (model, position) => {
+        const logic: BuiltLogic<codeEditorLogicType> | undefined = (model as any).codeEditorLogic
+        if (!logic || !logic.isMounted()) {
+            return {
+                suggestions: [],
+                incomplete: false,
+            }
+        }
         const word = model.getWordUntilPosition(position)
         const startOffset = model.getOffsetAt({
             lineNumber: position.lineNumber,
@@ -98,7 +104,7 @@ export const hogQLAutocompleteProvider = (
             // Use the text from the model instead of logic due to a race condition on the logic values updating quick enough
             ...(type === 'hogQL'
                 ? { select: model.getValue() }
-                : type === 'hogQLExpr'
+                : type === 'hogExpr'
                 ? { expr: model.getValue(), exprSource: 'select * from events' }
                 : { template: model.getValue(), exprSource: 'select * from events' }),
             filters: logic.isMounted() ? logic.props.metadataFilters : undefined,
@@ -106,9 +112,7 @@ export const hogQLAutocompleteProvider = (
             endPosition: endOffset,
         }
         const response = await performQuery<HogQLAutocomplete>(query)
-
         const completionItems = response.suggestions
-
         const suggestions = completionItems.map<languages.CompletionItem>((item) => {
             const kind = convertCompletionItemKind(item.kind)
             const sortText = kindToSortText(item.kind, item.label)

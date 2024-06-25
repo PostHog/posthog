@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { CLICK_OUTSIDE_BLOCK_CLASS } from 'lib/hooks/useOutsideClickHandler'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
+import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import { useRef, useState } from 'react'
 
 import { AnyDataNode } from '~/queries/schema'
@@ -29,8 +29,8 @@ export function HogQLEditor({
     value,
     metadataSource,
     disablePersonProperties,
-    disableAutoFocus,
-    disableCmdEnter,
+    // disableAutoFocus,
+    // disableCmdEnter,
     submitText,
     placeholder,
 }: HogQLEditorProps): JSX.Element {
@@ -42,25 +42,32 @@ export function HogQLEditor({
 
     return (
         <>
-            <LemonTextArea
+            <CodeEditorInline
                 data-attr="inline-hogql-editor"
                 value={localValue || ''}
-                onChange={(newValue) => setLocalValue(newValue)}
-                autoFocus={!disableAutoFocus}
-                ref={textareaRef}
-                onFocus={
-                    disableAutoFocus
-                        ? undefined
-                        : (e) => {
-                              e.target.selectionStart = localValue.length // Focus at the end of the input
-                          }
-                }
-                onPressCmdEnter={disableCmdEnter ? undefined : submit}
-                className={`font-mono ${CLICK_OUTSIDE_BLOCK_CLASS}`}
-                minRows={3}
-                maxRows={6}
-                placeholder="properties.$browser"
+                language="hogExpr"
+                onChange={(newValue) => setLocalValue(newValue ?? '')}
+                minHeight="6rem"
             />
+            {/*<LemonTextArea*/}
+            {/*data-attr="inline-hogql-editor"*/}
+            {/*    value={localValue || ''}*/}
+            {/*    onChange={(newValue) => setLocalValue(newValue)}*/}
+            {/*    autoFocus={!disableAutoFocus}*/}
+            {/*    ref={textareaRef}*/}
+            {/*    onFocus={*/}
+            {/*        disableAutoFocus*/}
+            {/*            ? undefined*/}
+            {/*            : (e) => {*/}
+            {/*                  e.target.selectionStart = localValue.length // Focus at the end of the input*/}
+            {/*              }*/}
+            {/*    }*/}
+            {/*    onPressCmdEnter={disableCmdEnter ? undefined : submit}*/}
+            {/*    className={`font-mono ${CLICK_OUTSIDE_BLOCK_CLASS}`}*/}
+            {/*    minRows={3}*/}
+            {/*    maxRows={6}*/}
+            {/*    placeholder="properties.$browser"*/}
+            {/*/>*/}
             <div className="text-muted pt-2 text-xs">
                 <pre>
                     {placeholder ??

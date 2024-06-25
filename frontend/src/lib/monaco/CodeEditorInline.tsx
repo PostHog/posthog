@@ -1,11 +1,14 @@
 import { CodeEditorProps } from 'lib/monaco/CodeEditor'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 
-export function CodeEditorInline(props: Omit<CodeEditorProps, 'height'>): JSX.Element {
+export interface CodeEditorInlineProps extends Omit<CodeEditorProps, 'height'> {
+    minHeight?: string
+}
+export function CodeEditorInline(props: CodeEditorInlineProps): JSX.Element {
     return (
         <CodeEditorResizeable
-            {...props}
             minHeight="29px"
+            {...props}
             options={{
                 // Note: duplicate anything you add here with its default into <CodeEditor />
                 lineNumbers: 'off',

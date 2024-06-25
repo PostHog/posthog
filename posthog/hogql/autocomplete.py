@@ -287,7 +287,6 @@ MATCH_ANY_CHARACTER = "$$_POSTHOG_ANY_$$"
 PROPERTY_DEFINITION_LIMIT = 220
 
 
-# TODO: Support ast.SelectUnionQuery nodes
 def get_hogql_autocomplete(
     query: HogQLAutocomplete, team: Team, database_arg: Optional[Database] = None
 ) -> HogQLAutocompleteResponse:
@@ -301,12 +300,29 @@ def get_hogql_autocomplete(
 
     context = HogQLContext(team_id=team.pk, team=team, database=database)
 
-    original_query_select = copy(query.select)
-    original_end_position = copy(query.endPosition)
+    if query.expr is not None and query.expr != "":
+        expr_source = query.exprSource or "select * from events"
+        shift_result_pos = expr_source.find("*")
+        original_query_select = expr_source.replace("*", query.expr)
+        original_start_position = query.startPosition + shift_result_pos
+        original_end_position = query.endPosition + shift_result_pos
+    elif query.template is not None and query.template != "":
+        expr_source = query.exprSource or "select * from events"
+        shift_result_pos = expr_source.find("*") + 2
+        original_query_select = expr_source.replace("*", "f'" + query.template + "'")
+        original_start_position = query.startPosition + shift_result_pos
+        original_end_position = query.endPosition + shift_result_pos
+    else:
+        shift_result_pos = 0
+        original_query_select = copy(query.select)
+        original_start_position = query.startPosition
+        original_end_position = query.endPosition
 
     for extra_characters, length_to_add in [
         ("", 0),
         (MATCH_ANY_CHARACTER, len(MATCH_ANY_CHARACTER)),
+        ("}", 0),
+        (MATCH_ANY_CHARACTER + "}", len(MATCH_ANY_CHARACTER)),
         (" FROM events", 0),
         (f"{MATCH_ANY_CHARACTER} FROM events", len(MATCH_ANY_CHARACTER)),
     ]:
@@ -316,6 +332,7 @@ def get_hogql_autocomplete(
                 + extra_characters
                 + original_query_select[original_end_position:]
             )
+            query.startPosition = original_start_position
             query.endPosition = original_end_position + length_to_add
 
             with timings.measure("parse_select"):
@@ -377,7 +394,7 @@ def get_hogql_autocomplete(
                                 last_table = aliased_table
                                 continue
                             else:
-                                # Dont continue if the alias is not found in the query
+                                # Don't continue if the alias is not found in the query
                                 break
 
                         # Ignore last chain part, it's likely an incomplete word or added characters
@@ -404,7 +421,7 @@ def get_hogql_autocomplete(
                                     property_type = None
 
                                 if property_type is not None:
-                                    match_term = query.select[query.startPosition : query.endPosition]
+                                    match_term = query.select[(query.startPosition) : query.endPosition]
                                     if match_term == MATCH_ANY_CHARACTER:
                                         match_term = ""
 
@@ -430,7 +447,7 @@ def get_hogql_autocomplete(
                                     )
                                     response.incomplete_list = total_property_count > PROPERTY_DEFINITION_LIMIT
                             elif isinstance(field, VirtualTable) or isinstance(field, LazyTable):
-                                fields = list(last_table.fields.items())
+                                fields = list(field.fields.items())
                                 extend_responses(
                                     keys=[key for key, field in fields],
                                     suggestions=response.suggestions,

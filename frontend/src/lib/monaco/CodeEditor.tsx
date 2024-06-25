@@ -19,6 +19,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> {
     queryKey?: string
+    autocompleteContext?: string
 }
 let codeEditorIndex = 0
 
@@ -27,21 +28,24 @@ function initEditor(
     editor: importedEditor.IStandaloneCodeEditor,
     editorProps: Omit<CodeEditorProps, 'options' | 'onMount' | 'queryKey' | 'value'>,
     options: editor.IStandaloneEditorConstructionOptions,
-    monacoDisposables: React.MutableRefObject<IDisposable[]>,
+    _monacoDisposables: React.MutableRefObject<IDisposable[]>,
     builtCodeEditorLogic: BuiltLogic<codeEditorLogicType>
 ): void {
+    // This gives autocomplete access to the specific editor
+    const model = editor.getModel()
+    ;(model as any).codeEditorLogic = builtCodeEditorLogic
+
     if (editorProps?.language === 'hog') {
         if (!monaco.languages.getLanguages().some(({ id }) => id === 'hog')) {
             monaco.languages.register({ id: 'hog', extensions: ['.hog'], mimetypes: ['application/hog'] })
             monaco.languages.setLanguageConfiguration('hog', hog.conf)
             monaco.languages.setMonarchTokensProvider('hog', hog.language)
+            monaco.languages.registerCodeActionProvider('hog', hogQLMetadataProvider())
         }
-        monacoDisposables.current.push(
-            monaco.languages.registerCodeActionProvider('hog', hogQLMetadataProvider(builtCodeEditorLogic))
-        )
+        // monacoDisposables.current.push(monaco.languages.registerCodeActionProvider('hog', hogQLMetadataProvider()))
     }
-    if (editorProps?.language === 'hogQL' || editorProps?.language === 'hogQLExpr') {
-        const language: 'hogQL' | 'hogQLExpr' = editorProps.language
+    if (editorProps?.language === 'hogQL' || editorProps?.language === 'hogExpr') {
+        const language: 'hogQL' | 'hogExpr' = editorProps.language
         if (!monaco.languages.getLanguages().some(({ id }) => id === language)) {
             monaco.languages.register(
                 language === 'hogQL'
@@ -57,16 +61,10 @@ function initEditor(
             )
             monaco.languages.setLanguageConfiguration(language, hogQL.conf)
             monaco.languages.setMonarchTokensProvider(language, hogQL.language)
+            monaco.languages.registerCompletionItemProvider(language, hogQLAutocompleteProvider(language))
+            monaco.languages.registerCodeActionProvider(language, hogQLMetadataProvider())
         }
-        monacoDisposables.current.push(
-            monaco.languages.registerCompletionItemProvider(
-                language,
-                hogQLAutocompleteProvider(language, builtCodeEditorLogic)
-            )
-        )
-        monacoDisposables.current.push(
-            monaco.languages.registerCodeActionProvider(language, hogQLMetadataProvider(builtCodeEditorLogic))
-        )
+        // monacoDisposables.current.push(monaco.languages.registerCodeActionProvider(language, hogQLMetadataProvider()))
     }
     if (editorProps?.language === 'hogTemplate') {
         if (!monaco.languages.getLanguages().some(({ id }) => id === 'hogTemplate')) {
@@ -76,16 +74,9 @@ function initEditor(
             })
             monaco.languages.setLanguageConfiguration('hogTemplate', hogTemplate.conf)
             monaco.languages.setMonarchTokensProvider('hogTemplate', hogTemplate.language)
+            monaco.languages.registerCompletionItemProvider('hogTemplate', hogQLAutocompleteProvider('hogTemplate'))
+            monaco.languages.registerCodeActionProvider('hogTemplate', hogQLMetadataProvider())
         }
-        monacoDisposables.current.push(
-            monaco.languages.registerCompletionItemProvider(
-                'hogTemplate',
-                hogQLAutocompleteProvider('hogTemplate', builtCodeEditorLogic)
-            )
-        )
-        monacoDisposables.current.push(
-            monaco.languages.registerCodeActionProvider('hogTemplate', hogQLMetadataProvider(builtCodeEditorLogic))
-        )
     }
     if (options.tabFocusMode) {
         editor.onKeyDown((evt) => {
