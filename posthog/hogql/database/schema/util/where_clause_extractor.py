@@ -6,6 +6,7 @@ from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp, ArithmeticOperationOp
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField, LazyJoinToAdd, LazyTableToAdd
+from posthog.hogql.errors import NotImplementedHogQLError
 
 from posthog.hogql.visitor import clone_expr, CloningVisitor, Visitor, TraversingVisitor
 
@@ -503,7 +504,7 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
         if node.type and isinstance(node.type, ast.FieldAliasType):
             try:
                 resolved_field = node.type.resolve_database_field(self.context)
-            except NotImplementedError:
+            except NotImplementedHogQLError:
                 return False
 
             table_type = node.type.resolve_table_type(self.context)

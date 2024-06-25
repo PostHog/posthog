@@ -46,7 +46,7 @@ class InternalHogQLError(BaseHogQLError):
 # Specific exceptions
 
 
-class SyntaxError(ExposedHogQLError):
+class SyntaxHogQLError(ExposedHogQLError):
     """The input does not conform to HogQL syntax."""
 
     pass
@@ -58,7 +58,7 @@ class QueryError(ExposedHogQLError):
     pass
 
 
-class NotImplementedError(InternalHogQLError):
+class NotImplementedHogQLError(InternalHogQLError):
     """This feature isn't implemented in HogQL (yet)."""
 
     pass

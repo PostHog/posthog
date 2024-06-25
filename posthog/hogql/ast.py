@@ -17,7 +17,7 @@ from posthog.hogql.database.models import (
     StringArrayDatabaseField,
     ExpressionField,
 )
-from posthog.hogql.errors import NotImplementedError, QueryError, ResolutionError
+from posthog.hogql.errors import NotImplementedHogQLError, QueryError, ResolutionError
 
 # :NOTE: when you add new AST fields or nodes, add them to CloningVisitor and TraversingVisitor in visitor.py as well.
 # :NOTE2: also search for ":TRICKY:" in "resolver.py" when modifying SelectQuery or JoinExpr
@@ -112,20 +112,20 @@ class FieldAliasType(Type):
             return self.type.resolve_database_field(context)
         if isinstance(self.type, PropertyType):
             return self.type.field_type.resolve_database_field(context)
-        raise NotImplementedError("FieldAliasType.resolve_database_field not implemented")
+        raise NotImplementedHogQLError("FieldAliasType.resolve_database_field not implemented")
 
     def resolve_table_type(self, context: HogQLContext):
         if isinstance(self.type, FieldType):
             return self.type.table_type
         if isinstance(self.type, PropertyType):
             return self.type.field_type.table_type
-        raise NotImplementedError("FieldAliasType.resolve_table_type not implemented")
+        raise NotImplementedHogQLError("FieldAliasType.resolve_table_type not implemented")
 
 
 @dataclass(kw_only=True)
 class BaseTableType(Type):
     def resolve_database_table(self, context: HogQLContext) -> Table:
-        raise NotImplementedError("BaseTableType.resolve_database_table not overridden")
+        raise NotImplementedHogQLError("BaseTableType.resolve_database_table not overridden")
 
     def has_child(self, name: str, context: HogQLContext) -> bool:
         return self.resolve_database_table(context).has_field(name)
@@ -478,7 +478,7 @@ class FieldType(Type):
         if isinstance(database_field, DatabaseField):
             return database_field.get_constant_type()
 
-        raise NotImplementedError(
+        raise NotImplementedHogQLError(
             f"FieldType.resolve_constant_type, for BaseTableType: unknown database_field type: {str(database_field.__class__)}"
         )
 

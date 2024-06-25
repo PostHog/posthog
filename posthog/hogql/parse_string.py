@@ -1,6 +1,6 @@
 from antlr4 import ParserRuleContext
 
-from posthog.hogql.errors import SyntaxError
+from posthog.hogql.errors import SyntaxHogQLError
 
 
 def replace_common_escape_characters(text):
@@ -36,7 +36,7 @@ def parse_string_literal_text(text: str) -> str:
         text = text.replace("{{", "{")
         text = text.replace("\\{", "{")
     else:
-        raise SyntaxError(f"Invalid string literal, must start and end with the same quote type: {text}")
+        raise SyntaxHogQLError(f"Invalid string literal, must start and end with the same quote type: {text}")
 
     return replace_common_escape_characters(text)
 

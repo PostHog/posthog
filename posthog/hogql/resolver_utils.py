@@ -3,7 +3,7 @@ from typing import Optional
 from posthog import schema
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.errors import ResolutionError, SyntaxError
+from posthog.hogql.errors import ResolutionError, SyntaxHogQLError
 from posthog.hogql.visitor import clone_expr
 
 
@@ -67,9 +67,9 @@ def ast_to_query_node(expr: ast.Expr | ast.HogQLXTag):
                 attributes.pop("kind")
                 attributes = {key: ast_to_query_node(value) for key, value in attributes.items()}
                 return klass(**attributes)
-        raise SyntaxError(f'Tag of kind "{expr.kind}" not found in schema.')
+        raise SyntaxHogQLError(f'Tag of kind "{expr.kind}" not found in schema.')
     else:
-        raise SyntaxError(f'Expression of type "{type(expr).__name__}". Can\'t convert to constant.')
+        raise SyntaxHogQLError(f'Expression of type "{type(expr).__name__}". Can\'t convert to constant.')
 
 
 def convert_hogqlx_tag(node: ast.HogQLXTag, team_id: int):

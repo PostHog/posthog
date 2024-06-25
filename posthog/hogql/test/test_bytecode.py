@@ -2,7 +2,7 @@ import pytest
 
 from posthog.hogql.bytecode import to_bytecode, execute_hog
 from hogvm.python.operation import Operation as op, HOGQL_BYTECODE_IDENTIFIER as _H
-from posthog.hogql.errors import NotImplementedError, QueryError
+from posthog.hogql.errors import NotImplementedHogQLError, QueryError
 from posthog.test.base import BaseTest
 
 
@@ -177,7 +177,7 @@ class TestBytecode(BaseTest):
         )
 
     def test_bytecode_create_not_implemented_error(self):
-        with self.assertRaises(NotImplementedError) as e:
+        with self.assertRaises(NotImplementedHogQLError) as e:
             to_bytecode("(select 1)")
         self.assertEqual(str(e.exception), "BytecodeBuilder has no method visit_select_query")
 

@@ -4,7 +4,7 @@ from collections.abc import Callable
 from pydantic import ConfigDict, BaseModel
 
 from posthog.hogql.base import Expr
-from posthog.hogql.errors import ResolutionError, NotImplementedError
+from posthog.hogql.errors import ResolutionError, NotImplementedHogQLError
 
 if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
@@ -117,10 +117,10 @@ class Table(FieldOrTable):
         raise Exception(f'Field "{name}" not found on table {self.__class__.__name__}')
 
     def to_printed_clickhouse(self, context: "HogQLContext") -> str:
-        raise NotImplementedError("Table.to_printed_clickhouse not overridden")
+        raise NotImplementedHogQLError("Table.to_printed_clickhouse not overridden")
 
     def to_printed_hogql(self) -> str:
-        raise NotImplementedError("Table.to_printed_hogql not overridden")
+        raise NotImplementedHogQLError("Table.to_printed_hogql not overridden")
 
     def avoid_asterisk_fields(self) -> list[str]:
         return []
@@ -172,7 +172,7 @@ class LazyTable(Table):
         context: "HogQLContext",
         node: "SelectQuery",
     ) -> Any:
-        raise NotImplementedError("LazyTable.lazy_select not overridden")
+        raise NotImplementedHogQLError("LazyTable.lazy_select not overridden")
 
 
 @dataclass
