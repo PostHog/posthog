@@ -3,9 +3,7 @@ import datetime as dt
 import functools
 import json
 import os
-from random import randint
-from unittest import skip
-from uuid import uuid4
+import uuid
 
 import aioboto3
 import botocore.exceptions
@@ -19,10 +17,10 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.batch_exports.service import BatchExportSchema
+from posthog.batch_exports.service import BatchExportModel, BatchExportSchema
 from posthog.temporal.batch_exports.batch_exports import (
     finish_batch_export_run,
-    iter_records,
+    iter_model_records,
     start_batch_export_run,
 )
 from posthog.temporal.batch_exports.s3_batch_export import (
@@ -44,6 +42,10 @@ from posthog.temporal.tests.utils.models import (
     acreate_batch_export,
     adelete_batch_export,
     afetch_batch_export_runs,
+)
+from posthog.temporal.tests.utils.persons import (
+    generate_test_person_distinct_id2_in_clickhouse,
+    generate_test_persons_in_clickhouse,
 )
 from posthog.temporal.tests.utils.s3 import read_parquet_from_s3, read_s3_data_as_json
 
@@ -100,13 +102,16 @@ def bucket_name(request) -> str:
     try:
         return request.param
     except AttributeError:
-        return f"{TEST_ROOT_BUCKET}-{str(uuid4())}"
+        return f"{TEST_ROOT_BUCKET}-{str(uuid.uuid4())}"
 
 
 @pytest.fixture
-def s3_key_prefix():
+def s3_key_prefix(request):
     """An S3 key prefix to use when putting files in a bucket."""
-    return f"posthog-events-{str(uuid4())}"
+    try:
+        return request.param
+    except AttributeError:
+        return f"posthog-data-{str(uuid.uuid4())}"
 
 
 @pytest.fixture
@@ -149,6 +154,28 @@ async def minio_client(bucket_name):
         await minio_client.delete_bucket(Bucket=bucket_name)
 
 
+async def assert_file_in_s3(s3_compatible_client, bucket_name, key_prefix, file_format, compression, json_columns):
+    """Assert a file is in S3 and return its contents."""
+    objects = await s3_compatible_client.list_objects_v2(Bucket=bucket_name, Prefix=key_prefix)
+
+    assert len(objects.get("Contents", [])) == 1
+
+    key = objects["Contents"][0].get("Key")
+    assert key
+
+    if file_format == "Parquet":
+        s3_data = await read_parquet_from_s3(bucket_name, key, json_columns)
+
+    elif file_format == "JSONLines":
+        s3_object = await s3_compatible_client.get_object(Bucket=bucket_name, Key=key)
+        data = await s3_object["Body"].read()
+        s3_data = read_s3_data_as_json(data, compression)
+    else:
+        raise ValueError(f"Unsupported file format: {file_format}")
+
+    return s3_data
+
+
 async def assert_clickhouse_records_in_s3(
     s3_compatible_client,
     clickhouse_client: ClickHouseClient,
@@ -159,9 +186,10 @@ async def assert_clickhouse_records_in_s3(
     data_interval_end: dt.datetime,
     exclude_events: list[str] | None = None,
     include_events: list[str] | None = None,
-    batch_export_schema: BatchExportSchema | None = None,
+    batch_export_model: BatchExportModel | BatchExportSchema | None = None,
     compression: str | None = None,
     file_format: str = "JSONLines",
+    is_backfill: bool = False,
 ):
     """Assert ClickHouse records are written to JSON in key_prefix in S3 bucket_name.
 
@@ -178,43 +206,39 @@ async def assert_clickhouse_records_in_s3(
         batch_export_schema: Custom schema used in the batch export.
         compression: Optional compression used in upload.
     """
-    # List the objects in the bucket with the prefix.
-    objects = await s3_compatible_client.list_objects_v2(Bucket=bucket_name, Prefix=key_prefix)
-
-    # Check that there is only one object.
-    assert len(objects.get("Contents", [])) == 1
-
-    # Get the object.
-    key = objects["Contents"][0].get("Key")
-    assert key
-
     json_columns = ("properties", "person_properties", "set", "set_once")
+    s3_data = await assert_file_in_s3(
+        s3_compatible_client=s3_compatible_client,
+        bucket_name=bucket_name,
+        key_prefix=key_prefix,
+        file_format=file_format,
+        compression=compression,
+        json_columns=json_columns,
+    )
 
-    if file_format == "Parquet":
-        s3_data = await read_parquet_from_s3(bucket_name, key, json_columns)
+    schema_column_names = [field["alias"] for field in s3_default_fields()]
+    if batch_export_model is not None:
+        if isinstance(batch_export_model, BatchExportModel):
+            batch_export_schema = batch_export_model.schema
+        else:
+            batch_export_schema = batch_export_model
 
-    elif file_format == "JSONLines":
-        s3_object = await s3_compatible_client.get_object(Bucket=bucket_name, Key=key)
-        data = await s3_object["Body"].read()
-        s3_data = read_s3_data_as_json(data, compression)
-    else:
-        raise ValueError(f"Unsupported file format: {file_format}")
-
-    if batch_export_schema is not None:
-        schema_column_names = [field["alias"] for field in batch_export_schema["fields"]]
-    else:
-        schema_column_names = [field["alias"] for field in s3_default_fields()]
+        if batch_export_schema is not None:
+            schema_column_names = [field["alias"] for field in batch_export_schema["fields"]]
+        elif isinstance(batch_export_model, BatchExportModel) and batch_export_model.name == "persons":
+            schema_column_names = ["team_id", "distinct_id", "person_id", "properties", "version", "_inserted_at"]
 
     expected_records = []
-    for record_batch in iter_records(
+    async for record_batch in iter_model_records(
         client=clickhouse_client,
+        model=batch_export_model,
         team_id=team_id,
         interval_start=data_interval_start.isoformat(),
         interval_end=data_interval_end.isoformat(),
         exclude_events=exclude_events,
         include_events=include_events,
-        fields=batch_export_schema["fields"] if batch_export_schema is not None else s3_default_fields(),
-        extra_query_parameters=batch_export_schema["values"] if batch_export_schema is not None else None,
+        destination_default_fields=s3_default_fields(),
+        is_backfill=is_backfill,
     ):
         for record in record_batch.to_pylist():
             expected_record = {}
@@ -233,12 +257,29 @@ async def assert_clickhouse_records_in_s3(
 
             expected_records.append(expected_record)
 
-    assert len(s3_data) == len(expected_records)
+    if "team_id" in schema_column_names:
+        assert all(record["team_id"] == team_id for record in s3_data)
+
     assert s3_data[0] == expected_records[0]
-    assert s3_data == expected_records, f"Not all s3 records match expected records. Not printing due to large size."
+    assert len(s3_data) == len(expected_records)
+    assert s3_data == expected_records
 
 
-TEST_S3_SCHEMAS: list[BatchExportSchema | None] = [
+TEST_S3_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
+    BatchExportModel(
+        name="a-custom-model",
+        schema={
+            "fields": [
+                {"expression": "event", "alias": "my_event_name"},
+                {"expression": "nullIf(JSONExtractString(properties, %(hogql_val_0)s), '')", "alias": "browser"},
+                {"expression": "nullIf(JSONExtractString(properties, %(hogql_val_1)s), '')", "alias": "os"},
+                {"expression": "nullIf(properties, '')", "alias": "all_properties"},
+            ],
+            "values": {"hogql_val_0": "$browser", "hogql_val_1": "$os"},
+        },
+    ),
+    BatchExportModel(name="events", schema=None),
+    BatchExportModel(name="persons", schema=None),
     {
         "fields": [
             {"expression": "event", "alias": "my_event_name"},
@@ -248,20 +289,102 @@ TEST_S3_SCHEMAS: list[BatchExportSchema | None] = [
         ],
         "values": {"hogql_val_0": "$browser", "hogql_val_1": "$os"},
     },
-    {
-        "fields": [
-            {"expression": "event", "alias": "my_event_name"},
-            {"expression": "1 + 1", "alias": "two"},
-        ],
-        "values": {},
-    },
     None,
 ]
 
 
+@pytest.fixture
+def data_interval_start(data_interval_end, interval):
+    if interval == "hour":
+        interval_time_delta = dt.timedelta(hours=1)
+    elif interval == "day":
+        interval_time_delta = dt.timedelta(days=1)
+    elif interval == "week":
+        interval_time_delta = dt.timedelta(weeks=1)
+    elif interval.startswith("every"):
+        _, value, unit = interval.split(" ")
+        kwargs = {unit: int(value)}
+        interval_time_delta = dt.timedelta(**kwargs)
+    else:
+        raise ValueError(f"Invalid interval: '{interval}'")
+
+    return data_interval_end - interval_time_delta
+
+
+@pytest.fixture
+def data_interval_end(interval):
+    return dt.datetime(2023, 4, 25, 15, 0, 0, tzinfo=dt.timezone.utc)
+
+
+@pytest_asyncio.fixture
+async def generate_test_data(ateam, clickhouse_client, exclude_events, data_interval_start, data_interval_end):
+    """Generate test data in ClickHouse."""
+    await generate_test_events_in_clickhouse(
+        client=clickhouse_client,
+        team_id=ateam.pk,
+        start_time=data_interval_start,
+        end_time=data_interval_end,
+        count=1000,
+        count_outside_range=10,
+        count_other_team=10,
+        duplicate=True,
+        properties={"$browser": "Chrome", "$os": "Mac OS X"},
+        person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
+    )
+
+    await generate_test_events_in_clickhouse(
+        client=clickhouse_client,
+        team_id=ateam.pk,
+        start_time=data_interval_start,
+        end_time=data_interval_end,
+        count=5,
+        count_outside_range=0,
+        count_other_team=0,
+        properties=None,
+        person_properties=None,
+    )
+    events_to_export_created = 1005
+
+    if exclude_events:
+        for event_name in exclude_events:
+            await generate_test_events_in_clickhouse(
+                client=clickhouse_client,
+                team_id=ateam.pk,
+                start_time=data_interval_start,
+                end_time=data_interval_end,
+                count=5,
+                count_outside_range=0,
+                count_other_team=0,
+                event_name=event_name,
+            )
+
+    persons, _ = await generate_test_persons_in_clickhouse(
+        client=clickhouse_client,
+        team_id=ateam.pk,
+        start_time=data_interval_start,
+        end_time=data_interval_end,
+        count=100,
+        count_other_team=10,
+        properties={"utm_medium": "referral", "$initial_os": "Linux"},
+    )
+
+    for person in persons:
+        await generate_test_person_distinct_id2_in_clickhouse(
+            client=clickhouse_client,
+            team_id=ateam.pk,
+            person_id=uuid.UUID(person["id"]),
+            distinct_id=f"distinct-id-{uuid.UUID(person['id'])}",
+            timestamp=dt.datetime.fromisoformat(person["_timestamp"]),
+        )
+
+    persons_to_export_created = 100
+
+    return (events_to_export_created, persons_to_export_created)
+
+
 @pytest.mark.parametrize("compression", [None, "gzip", "brotli"], indirect=True)
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
-@pytest.mark.parametrize("batch_export_schema", TEST_S3_SCHEMAS)
+@pytest.mark.parametrize("model", TEST_S3_MODELS)
 @pytest.mark.parametrize("file_format", FILE_FORMAT_EXTENSIONS.keys())
 async def test_insert_into_s3_activity_puts_data_into_s3(
     clickhouse_client,
@@ -271,7 +394,11 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
     compression,
     exclude_events,
     file_format,
-    batch_export_schema: BatchExportSchema | None,
+    data_interval_start,
+    data_interval_end,
+    model: BatchExportModel | BatchExportSchema | None,
+    generate_test_data,
+    ateam,
 ):
     """Test that the insert_into_s3_activity function ends up with data into S3.
 
@@ -289,57 +416,20 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
     data_interval_start = dt.datetime(2023, 4, 20, 14, 0, 0, tzinfo=dt.timezone.utc)
     data_interval_end = dt.datetime(2023, 4, 25, 15, 0, 0, tzinfo=dt.timezone.utc)
 
-    # Generate a random team id integer. There's still a chance of a collision,
-    # but it's very small.
-    team_id = randint(1, 1000000)
+    prefix = str(uuid.uuid4())
 
-    await generate_test_events_in_clickhouse(
-        client=clickhouse_client,
-        team_id=team_id,
-        start_time=data_interval_start,
-        end_time=data_interval_end,
-        count=10000,
-        count_outside_range=10,
-        count_other_team=10,
-        duplicate=True,
-        properties={"$browser": "Chrome", "$os": "Mac OS X"},
-        person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
-    )
-
-    await generate_test_events_in_clickhouse(
-        client=clickhouse_client,
-        team_id=team_id,
-        start_time=data_interval_start,
-        end_time=data_interval_end,
-        count=5,
-        count_outside_range=0,
-        count_other_team=0,
-        properties=None,
-        person_properties=None,
-    )
-
-    if exclude_events:
-        for event_name in exclude_events:
-            await generate_test_events_in_clickhouse(
-                client=clickhouse_client,
-                team_id=team_id,
-                start_time=data_interval_start,
-                end_time=data_interval_end,
-                count=5,
-                count_outside_range=0,
-                count_other_team=0,
-                event_name=event_name,
-            )
-
-    # Make a random string to prefix the S3 keys with. This allows us to ensure
-    # isolation of the test, and also to check that the data is being written.
-    prefix = str(uuid4())
+    batch_export_schema: BatchExportSchema | None = None
+    batch_export_model: BatchExportModel | None = None
+    if isinstance(model, BatchExportModel):
+        batch_export_model = model
+    elif model is not None:
+        batch_export_schema = model
 
     insert_inputs = S3InsertInputs(
         bucket_name=bucket_name,
         region="us-east-1",
         prefix=prefix,
-        team_id=team_id,
+        team_id=ateam.pk,
         data_interval_start=data_interval_start.isoformat(),
         data_interval_end=data_interval_end.isoformat(),
         aws_access_key_id="object_storage_root_user",
@@ -347,8 +437,9 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
         endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
         compression=compression,
         exclude_events=exclude_events,
-        batch_export_schema=batch_export_schema,
         file_format=file_format,
+        batch_export_schema=batch_export_schema,
+        batch_export_model=batch_export_model,
     )
 
     with override_settings(
@@ -356,21 +447,23 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
     ):  # 5MB, the minimum for Multipart uploads
         records_exported = await activity_environment.run(insert_into_s3_activity, insert_inputs)
 
-    assert records_exported == 10005
+    (events_to_export_created, persons_to_export_created) = generate_test_data
+    assert records_exported == events_to_export_created or records_exported == persons_to_export_created
 
     await assert_clickhouse_records_in_s3(
         s3_compatible_client=minio_client,
         clickhouse_client=clickhouse_client,
         bucket_name=bucket_name,
         key_prefix=prefix,
-        team_id=team_id,
+        team_id=ateam.pk,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
-        batch_export_schema=batch_export_schema,
+        batch_export_model=model,
         exclude_events=exclude_events,
         include_events=None,
         compression=compression,
         file_format=file_format,
+        is_backfill=False,
     )
 
 
@@ -424,7 +517,7 @@ async def s3_batch_export(
 @pytest.mark.parametrize("interval", ["hour", "day"], indirect=True)
 @pytest.mark.parametrize("compression", [None, "gzip", "brotli"], indirect=True)
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
-@pytest.mark.parametrize("batch_export_schema", TEST_S3_SCHEMAS)
+@pytest.mark.parametrize("model", TEST_S3_MODELS)
 @pytest.mark.parametrize("file_format", FILE_FORMAT_EXTENSIONS.keys(), indirect=True)
 async def test_s3_export_workflow_with_minio_bucket(
     clickhouse_client,
@@ -436,8 +529,11 @@ async def test_s3_export_workflow_with_minio_bucket(
     compression,
     exclude_events,
     s3_key_prefix,
-    batch_export_schema,
     file_format,
+    data_interval_start,
+    data_interval_end,
+    model: BatchExportModel | BatchExportSchema | None,
+    generate_test_data,
 ):
     """Test S3BatchExport Workflow end-to-end by using a local MinIO bucket instead of S3.
 
@@ -448,41 +544,24 @@ async def test_s3_export_workflow_with_minio_bucket(
     will require its prescense in the database when running. This model is indirectly parametrized
     by several fixtures. Refer to them for more information.
     """
-    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
-    data_interval_start = data_interval_end - s3_batch_export.interval_time_delta
+    if isinstance(model, BatchExportModel) and model.name == "person" and exclude_events is not None:
+        # Eventually, this setting should be part of the model via some "filters" attribute.
+        pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
 
-    await generate_test_events_in_clickhouse(
-        client=clickhouse_client,
-        team_id=ateam.pk,
-        start_time=data_interval_start,
-        end_time=data_interval_end,
-        count=100,
-        count_outside_range=10,
-        count_other_team=10,
-        duplicate=True,
-        properties={"$browser": "Chrome", "$os": "Mac OS X"},
-        person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
-    )
+    batch_export_schema: BatchExportSchema | None = None
+    batch_export_model: BatchExportModel | None = None
+    if isinstance(model, BatchExportModel):
+        batch_export_model = model
+    elif model is not None:
+        batch_export_schema = model
 
-    if exclude_events:
-        for event_name in exclude_events:
-            await generate_test_events_in_clickhouse(
-                client=clickhouse_client,
-                team_id=ateam.pk,
-                start_time=data_interval_start,
-                end_time=data_interval_end,
-                count=5,
-                count_outside_range=0,
-                count_other_team=0,
-                event_name=event_name,
-            )
-
-    workflow_id = str(uuid4())
+    workflow_id = str(uuid.uuid4())
     inputs = S3BatchExportInputs(
         team_id=ateam.pk,
         batch_export_id=str(s3_batch_export.id),
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
+        batch_export_model=batch_export_model,
         batch_export_schema=batch_export_schema,
         **s3_batch_export.destination.config,
     )
@@ -522,7 +601,7 @@ async def test_s3_export_workflow_with_minio_bucket(
         team_id=ateam.pk,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
-        batch_export_schema=batch_export_schema,
+        batch_export_model=model,
         exclude_events=exclude_events,
         compression=compression,
         file_format=file_format,
@@ -532,7 +611,7 @@ async def test_s3_export_workflow_with_minio_bucket(
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)
 @pytest.mark.parametrize("compression", [None], indirect=True)
 @pytest.mark.parametrize("exclude_events", [None], indirect=True)
-@pytest.mark.parametrize("batch_export_schema", TEST_S3_SCHEMAS)
+@pytest.mark.parametrize("model", TEST_S3_MODELS)
 async def test_s3_export_workflow_with_minio_bucket_without_events(
     clickhouse_client,
     minio_client,
@@ -543,21 +622,29 @@ async def test_s3_export_workflow_with_minio_bucket_without_events(
     compression,
     exclude_events,
     s3_key_prefix,
-    batch_export_schema,
+    model,
+    data_interval_start,
+    data_interval_end,
 ):
     """Test S3BatchExport Workflow end-to-end without any events to export.
 
     The workflow should update the batch export run status to completed and set 0 as `records_completed`.
     """
-    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+    batch_export_schema: BatchExportSchema | None = None
+    batch_export_model: BatchExportModel | None = None
+    if isinstance(model, BatchExportModel):
+        batch_export_model = model
+    elif model is not None:
+        batch_export_schema = model
 
-    workflow_id = str(uuid4())
+    workflow_id = str(uuid.uuid4())
     inputs = S3BatchExportInputs(
         team_id=ateam.pk,
         batch_export_id=str(s3_batch_export.id),
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
         batch_export_schema=batch_export_schema,
+        batch_export_model=batch_export_model,
         **s3_batch_export.destination.config,
     )
 
@@ -618,7 +705,7 @@ async def s3_client(bucket_name, s3_key_prefix):
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
 @pytest.mark.parametrize("encryption", [None, "AES256", "aws:kms"], indirect=True)
 @pytest.mark.parametrize("bucket_name", [os.getenv("S3_TEST_BUCKET")], indirect=True)
-@pytest.mark.parametrize("batch_export_schema", TEST_S3_SCHEMAS)
+@pytest.mark.parametrize("model", TEST_S3_MODELS)
 @pytest.mark.parametrize("file_format", FILE_FORMAT_EXTENSIONS.keys(), indirect=True)
 async def test_s3_export_workflow_with_s3_bucket(
     s3_client,
@@ -631,8 +718,11 @@ async def test_s3_export_workflow_with_s3_bucket(
     encryption,
     exclude_events,
     ateam,
-    batch_export_schema,
     file_format,
+    data_interval_start,
+    data_interval_end,
+    model: BatchExportModel | BatchExportSchema | None,
+    generate_test_data,
 ):
     """Test S3 Export Workflow end-to-end by using an S3 bucket.
 
@@ -647,36 +737,17 @@ async def test_s3_export_workflow_with_s3_bucket(
     will require its prescense in the database when running. This model is indirectly parametrized
     by several fixtures. Refer to them for more information.
     """
-    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000")
-    data_interval_start = data_interval_end - s3_batch_export.interval_time_delta
+    if isinstance(model, BatchExportModel) and model.name == "person" and exclude_events is not None:
+        pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
 
-    await generate_test_events_in_clickhouse(
-        client=clickhouse_client,
-        team_id=ateam.pk,
-        start_time=data_interval_start,
-        end_time=data_interval_end,
-        count=100,
-        count_outside_range=10,
-        count_other_team=10,
-        duplicate=True,
-        properties={"$browser": "Chrome", "$os": "Mac OS X"},
-        person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
-    )
+    batch_export_schema: BatchExportSchema | None = None
+    batch_export_model: BatchExportModel | None = None
+    if isinstance(model, BatchExportModel):
+        batch_export_model = model
+    elif model is not None:
+        batch_export_schema = model
 
-    if exclude_events:
-        for event_name in exclude_events:
-            await generate_test_events_in_clickhouse(
-                client=clickhouse_client,
-                team_id=ateam.pk,
-                start_time=data_interval_start,
-                end_time=data_interval_end,
-                count=5,
-                count_outside_range=0,
-                count_other_team=0,
-                event_name=event_name,
-            )
-
-    workflow_id = str(uuid4())
+    workflow_id = str(uuid.uuid4())
     destination_config = s3_batch_export.destination.config | {
         "endpoint_url": None,
         "aws_access_key_id": os.getenv("AWS_ACCESS_KEY_ID"),
@@ -688,6 +759,7 @@ async def test_s3_export_workflow_with_s3_bucket(
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
         batch_export_schema=batch_export_schema,
+        batch_export_model=batch_export_model,
         **destination_config,
     )
 
@@ -726,168 +798,11 @@ async def test_s3_export_workflow_with_s3_bucket(
         team_id=ateam.pk,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
-        batch_export_schema=batch_export_schema,
+        batch_export_model=model,
         exclude_events=exclude_events,
         include_events=None,
         compression=compression,
         file_format=file_format,
-    )
-
-
-@skip("Failing in CI, skip for now")
-async def test_s3_export_workflow_with_minio_bucket_and_a_lot_of_data(
-    clickhouse_client,
-    minio_client,
-    bucket_name,
-    ateam,
-    compression,
-    exclude_events,
-    s3_key_prefix,
-    interval,
-    s3_batch_export,
-):
-    """Test the S3BatchExport Workflow end-to-end by using a local MinIO bucket instead of S3.
-
-    This test is the same as test_s3_export_workflow_with_minio_bucket, but we significantly increase the number
-    of rows generated to export to provide some guidance on whether we can perform under load.
-    """
-    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
-    data_interval_start = data_interval_end - s3_batch_export.interval_time_delta
-
-    await generate_test_events_in_clickhouse(
-        client=clickhouse_client,
-        team_id=ateam.pk,
-        start_time=data_interval_start,
-        end_time=data_interval_end,
-        count=100000,
-        count_outside_range=1000,
-        count_other_team=1000,
-        duplicate=True,
-        properties={"$browser": "Chrome", "$os": "Mac OS X"},
-        person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
-    )
-
-    workflow_id = str(uuid4())
-    inputs = S3BatchExportInputs(
-        team_id=ateam.pk,
-        batch_export_id=str(s3_batch_export.id),
-        data_interval_end=data_interval_end.isoformat(),
-        interval=interval,
-        **s3_batch_export.destination.config,
-    )
-
-    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-        async with Worker(
-            activity_environment.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
-            workflows=[S3BatchExportWorkflow],
-            activities=[
-                start_batch_export_run,
-                insert_into_s3_activity,
-                finish_batch_export_run,
-            ],
-            workflow_runner=UnsandboxedWorkflowRunner(),
-        ):
-            await activity_environment.client.execute_workflow(
-                S3BatchExportWorkflow.run,
-                inputs,
-                id=workflow_id,
-                task_queue=settings.TEMPORAL_TASK_QUEUE,
-                retry_policy=RetryPolicy(maximum_attempts=1),
-                execution_timeout=dt.timedelta(seconds=360),
-            )
-
-    runs = await afetch_batch_export_runs(batch_export_id=s3_batch_export.id)
-    assert len(runs) == 1
-
-    run = runs[0]
-    assert run.status == "Completed"
-
-    await assert_clickhouse_records_in_s3(
-        s3_compatible_client=minio_client,
-        clickhouse_client=clickhouse_client,
-        bucket_name=bucket_name,
-        key_prefix=s3_key_prefix,
-        team_id=ateam.pk,
-        data_interval_start=data_interval_start,
-        data_interval_end=data_interval_end,
-        exclude_events=exclude_events,
-        compression=compression,
-    )
-
-
-async def test_s3_export_workflow_defaults_to_timestamp_on_null_inserted_at(
-    clickhouse_client, minio_client, bucket_name, compression, interval, s3_batch_export, s3_key_prefix, ateam
-):
-    """Test the S3BatchExport Workflow end-to-end by using a local MinIO bucket instead of S3.
-
-    This test is the same as test_s3_export_workflow_with_minio_bucket, but we create events with None as
-    inserted_at to assert we properly default to _timestamp. This is relevant for rows inserted before inserted_at
-    was added.
-    """
-    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
-    data_interval_start = data_interval_end - s3_batch_export.interval_time_delta
-
-    await generate_test_events_in_clickhouse(
-        client=clickhouse_client,
-        team_id=ateam.pk,
-        start_time=data_interval_start,
-        end_time=data_interval_end,
-        count=100,
-        count_outside_range=10,
-        count_other_team=10,
-        duplicate=True,
-        properties={"$browser": "Chrome", "$os": "Mac OS X"},
-        person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
-        inserted_at=None,
-    )
-
-    workflow_id = str(uuid4())
-    inputs = S3BatchExportInputs(
-        team_id=ateam.pk,
-        batch_export_id=str(s3_batch_export.id),
-        data_interval_end=data_interval_end.isoformat(),
-        interval=interval,
-        **s3_batch_export.destination.config,
-    )
-
-    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-        async with Worker(
-            activity_environment.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
-            workflows=[S3BatchExportWorkflow],
-            activities=[
-                start_batch_export_run,
-                insert_into_s3_activity,
-                finish_batch_export_run,
-            ],
-            workflow_runner=UnsandboxedWorkflowRunner(),
-        ):
-            await activity_environment.client.execute_workflow(
-                S3BatchExportWorkflow.run,
-                inputs,
-                id=workflow_id,
-                task_queue=settings.TEMPORAL_TASK_QUEUE,
-                retry_policy=RetryPolicy(maximum_attempts=1),
-                execution_timeout=dt.timedelta(seconds=10),
-            )
-
-    runs = await afetch_batch_export_runs(batch_export_id=s3_batch_export.id)
-    assert len(runs) == 1
-
-    run = runs[0]
-    assert run.status == "Completed"
-    assert run.records_completed == 100
-
-    await assert_clickhouse_records_in_s3(
-        s3_compatible_client=minio_client,
-        clickhouse_client=clickhouse_client,
-        bucket_name=bucket_name,
-        key_prefix=s3_key_prefix,
-        team_id=ateam.pk,
-        data_interval_start=data_interval_start,
-        data_interval_end=data_interval_end,
-        compression=compression,
     )
 
 
@@ -902,8 +817,20 @@ async def test_s3_export_workflow_defaults_to_timestamp_on_null_inserted_at(
     ],
     indirect=True,
 )
+@pytest.mark.parametrize("model", [TEST_S3_MODELS[1], TEST_S3_MODELS[2], None])
 async def test_s3_export_workflow_with_minio_bucket_and_custom_key_prefix(
-    clickhouse_client, ateam, minio_client, bucket_name, compression, interval, s3_batch_export, s3_key_prefix
+    clickhouse_client,
+    ateam,
+    minio_client,
+    bucket_name,
+    compression,
+    interval,
+    s3_batch_export,
+    s3_key_prefix,
+    data_interval_end,
+    data_interval_start,
+    model: BatchExportModel | BatchExportSchema | None,
+    generate_test_data,
 ):
     """Test the S3BatchExport Workflow end-to-end by specifying a custom key prefix.
 
@@ -911,27 +838,20 @@ async def test_s3_export_workflow_with_minio_bucket_and_custom_key_prefix(
     inserted_at to assert we properly default to _timestamp. This is relevant for rows inserted before inserted_at
     was added.
     """
-    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
-    data_interval_start = data_interval_end - s3_batch_export.interval_time_delta
+    batch_export_schema: BatchExportSchema | None = None
+    batch_export_model: BatchExportModel | None = None
+    if isinstance(model, BatchExportModel):
+        batch_export_model = model
+    elif model is not None:
+        batch_export_schema = model
 
-    await generate_test_events_in_clickhouse(
-        client=clickhouse_client,
-        team_id=ateam.pk,
-        start_time=data_interval_start,
-        end_time=data_interval_end,
-        count=100,
-        count_outside_range=10,
-        count_other_team=10,
-        duplicate=True,
-        properties={"$browser": "Chrome", "$os": "Mac OS X"},
-        person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
-    )
-
-    workflow_id = str(uuid4())
+    workflow_id = str(uuid.uuid4())
     inputs = S3BatchExportInputs(
         team_id=ateam.pk,
         batch_export_id=str(s3_batch_export.id),
         data_interval_end=data_interval_end.isoformat(),
+        batch_export_model=batch_export_model,
+        batch_export_schema=batch_export_schema,
         interval=interval,
         **s3_batch_export.destination.config,
     )
@@ -961,11 +881,12 @@ async def test_s3_export_workflow_with_minio_bucket_and_custom_key_prefix(
     assert len(runs) == 1
 
     run = runs[0]
+    (events_to_export_created, persons_to_export_created) = generate_test_data
     assert run.status == "Completed"
-    assert run.records_completed == 100
+    assert run.records_completed == events_to_export_created or run.records_completed == persons_to_export_created
 
     expected_key_prefix = s3_key_prefix.format(
-        table="events",
+        table=batch_export_model.name if batch_export_model is not None else "events",
         year=data_interval_end.year,
         # All of these must include leading 0s.
         month=data_interval_end.strftime("%m"),
@@ -974,6 +895,7 @@ async def test_s3_export_workflow_with_minio_bucket_and_custom_key_prefix(
         minute=data_interval_end.strftime("%M"),
         second=data_interval_end.strftime("%S"),
     )
+
     objects = await minio_client.list_objects_v2(Bucket=bucket_name, Prefix=expected_key_prefix)
     key = objects["Contents"][0].get("Key")
     assert len(objects.get("Contents", [])) == 1
@@ -983,11 +905,12 @@ async def test_s3_export_workflow_with_minio_bucket_and_custom_key_prefix(
         s3_compatible_client=minio_client,
         clickhouse_client=clickhouse_client,
         bucket_name=bucket_name,
-        key_prefix=s3_key_prefix,
+        key_prefix=expected_key_prefix,
         team_id=ateam.pk,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
         compression=compression,
+        batch_export_model=model,
     )
 
 
@@ -998,7 +921,7 @@ async def test_s3_export_workflow_handles_insert_activity_errors(ateam, s3_batch
     """
     data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
 
-    workflow_id = str(uuid4())
+    workflow_id = str(uuid.uuid4())
     inputs = S3BatchExportInputs(
         team_id=ateam.pk,
         batch_export_id=str(s3_batch_export.id),
@@ -1048,7 +971,7 @@ async def test_s3_export_workflow_handles_insert_activity_non_retryable_errors(a
     """
     data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
 
-    workflow_id = str(uuid4())
+    workflow_id = str(uuid.uuid4())
     inputs = S3BatchExportInputs(
         team_id=ateam.pk,
         batch_export_id=str(s3_batch_export.id),
@@ -1101,7 +1024,7 @@ async def test_s3_export_workflow_handles_cancellation(ateam, s3_batch_export, i
     """
     data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
 
-    workflow_id = str(uuid4())
+    workflow_id = str(uuid.uuid4())
     inputs = S3BatchExportInputs(
         team_id=ateam.pk,
         batch_export_id=str(s3_batch_export.id),
@@ -1364,7 +1287,7 @@ async def test_insert_into_s3_activity_heartbeats(
             count_other_team=0,
             duplicate=False,
             # We need at least 5MB for a multi-part upload which is what we are testing.
-            properties={"$chonky": ("a" * 5 * 1024**2)},
+            properties={"$chonky": ("a" * 5 * 2048**2)},
             inserted_at=part_inserted_at,
         )
 

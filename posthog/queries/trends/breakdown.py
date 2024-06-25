@@ -30,7 +30,6 @@ from posthog.models.property.util import (
     parse_prop_grouped_clauses,
 )
 from posthog.models.team import Team
-from posthog.models.team.team import groups_on_events_querying_enabled
 from posthog.queries.breakdown_props import (
     ALL_USERS_COHORT_ID,
     format_breakdown_cohort_join_query,
@@ -520,7 +519,6 @@ class TrendsBreakdown:
             from posthog.hogql.hogql import translate_hogql
 
             breakdown_value = translate_hogql(breakdown, self.filter.hogql_context)
-
         elif self.filter.breakdown_type == "session":
             if breakdown == "$session_duration":
                 # Return the session duration expression right away because it's already an number,
@@ -528,20 +526,6 @@ class TrendsBreakdown:
                 breakdown_value = f"{SessionQuery.SESSION_TABLE_ALIAS}.session_duration"
             else:
                 raise ValidationError(f'Invalid breakdown "{breakdown}" for breakdown type "session"')
-
-        elif (
-            self.person_on_events_mode != PersonsOnEventsMode.DISABLED
-            and self.filter.breakdown_type == "group"
-            and groups_on_events_querying_enabled()
-        ):
-            properties_field = f"group{self.filter.breakdown_group_type_index}_properties"
-            breakdown_value, _ = get_property_string_expr(
-                "events",
-                breakdown,
-                "%(key)s",
-                properties_field,
-                materialised_table_column=properties_field,
-            )
         elif self.person_on_events_mode != PersonsOnEventsMode.DISABLED and self.filter.breakdown_type != "group":
             if self.filter.breakdown_type == "person":
                 breakdown_value, _ = get_property_string_expr(

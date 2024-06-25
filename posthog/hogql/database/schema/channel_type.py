@@ -68,6 +68,12 @@ def create_channel_type_expr(
             args=[ast.Call(name="nullIf", args=[expr, ast.Constant(value="")]), ast.Constant(value="null")],
         )
 
+    def wrap_with_lower(expr: ast.Expr) -> ast.Expr:
+        return ast.Call(
+            name="lower",
+            args=[expr],
+        )
+
     # This logic is referenced in our docs https://posthog.com/docs/data/channel-type, be sure to update both if you
     # update either.
     return parse_expr(
@@ -131,9 +137,9 @@ multiIf(
 )""",
         start=None,
         placeholders={
-            "campaign": wrap_with_null_if_empty(campaign),
-            "medium": wrap_with_null_if_empty(medium),
-            "source": wrap_with_null_if_empty(source),
+            "campaign": wrap_with_lower(wrap_with_null_if_empty(campaign)),
+            "medium": wrap_with_lower(wrap_with_null_if_empty(medium)),
+            "source": wrap_with_lower(wrap_with_null_if_empty(source)),
             "referring_domain": referring_domain,
             "gclid": wrap_with_null_if_empty(gclid),
             "gad_source": wrap_with_null_if_empty(gad_source),
