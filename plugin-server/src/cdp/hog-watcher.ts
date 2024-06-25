@@ -1,12 +1,12 @@
 import { Redis } from 'ioredis'
+import { randomUUID } from 'node:crypto'
 
 import { Hub, RedisPool } from '../types'
 import { timeoutGuard } from '../utils/db/utils'
-import { HogFunctionInvocationAsyncResponse, HogFunctionInvocationResult, HogFunctionType } from './types'
-import { randomUUID } from 'node:crypto'
-import { PubSub } from '../utils/pubsub'
 import { now } from '../utils/now'
+import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
+import { HogFunctionInvocationAsyncResponse, HogFunctionInvocationResult, HogFunctionType } from './types'
 
 /**
  * General approach:
@@ -350,7 +350,7 @@ export class HogWatcher {
 
             // TODO: This can definitely be done in a single command - just need to make sure the ttl is always extended if the ID is the same
 
-            // @ts-ignore - IORedis types don't allow for NX and EX in the same command
+            // @ts-expect-error - IORedis types don't allow for NX and EX in the same command
             pipeline.set(`${BASE_REDIS_KEY}/leader`, this.instanceId, 'NX', 'EX', (OBSERVATION_PERIOD * 3) / 1000)
             pipeline.get(`${BASE_REDIS_KEY}/leader`)
             const [_, res] = await pipeline.exec()

@@ -342,7 +342,7 @@ describe('HogWatcher', () => {
         })
 
         describe('with observations', () => {
-            it('should store observations', async () => {
+            it('should store observations', () => {
                 watcher1.currentObservations.observeResults([createResult('id1'), createResult('id1', false, 'error')])
                 watcher1.currentObservations.observeResults([createResult('id2'), createResult('id1')])
                 watcher1.currentObservations.observeResults([createResult('id1')])
