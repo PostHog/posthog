@@ -1,10 +1,12 @@
-from typing import Any, Optional
+from collections import defaultdict
+from typing import Optional
 from django.db import models
 import snowflake.connector
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, UUIDModel, sane_repr
 import uuid
 import psycopg2
+from posthog.warehouse.types import IncrementalFieldType
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
 from posthog.warehouse.util import database_sync_to_async
 
@@ -35,8 +37,10 @@ class ExternalDataSchema(CreatedMetaFields, UUIDModel):
     )
     status: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     last_synced_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
-    sync_type: models.CharField = models.CharField(
-        max_length=128, choices=SyncType.choices, default=SyncType.FULL_REFRESH, blank=True
+    sync_type: models.CharField = models.CharField(max_length=128, choices=SyncType.choices, null=True, blank=True)
+    sync_type_config: models.JSONField = models.JSONField(
+        default=dict,
+        blank=True,
     )
 
     __repr__ = sane_repr("name")
@@ -85,9 +89,25 @@ def sync_old_schemas_with_new_schemas(new_schemas: list, source_id: uuid.UUID, t
         ExternalDataSchema.objects.create(name=schema, team_id=team_id, source_id=source_id, should_sync=False)
 
 
+def filter_snowflake_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str, IncrementalFieldType]]:
+    results: list[tuple[str, IncrementalFieldType]] = []
+    for column_name, type in columns:
+        type = type.lower()
+        if type.startswith("timestamp"):
+            results.append((column_name, IncrementalFieldType.Timestamp))
+        elif type == "date":
+            results.append((column_name, IncrementalFieldType.Date))
+        elif type == "datetime":
+            results.append((column_name, IncrementalFieldType.DateTime))
+        elif type == "numeric":
+            results.append((column_name, IncrementalFieldType.Numeric))
+
+    return results
+
+
 def get_snowflake_schemas(
     account_id: str, database: str, warehouse: str, user: str, password: str, schema: str, role: Optional[str] = None
-) -> list[Any]:
+) -> dict[str, list[tuple[str, str]]]:
     with snowflake.connector.connect(
         user=user,
         password=password,
@@ -102,17 +122,35 @@ def get_snowflake_schemas(
                 raise Exception("Can't create cursor to Snowflake")
 
             cursor.execute(
-                "SELECT table_name FROM information_schema.tables WHERE table_schema = %(schema)s", {"schema": schema}
+                "SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_schema = %(schema)s ORDER BY table_name ASC",
+                {"schema": schema},
             )
-            results = cursor.fetchall()
-            results = [row[0] for row in results]
+            result = cursor.fetchall()
 
-            return results
+            schema_list = defaultdict(list)
+            for row in result:
+                schema_list[row[0]].append((row[1], row[2]))
+
+            return schema_list
+
+
+def filter_postgres_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str, IncrementalFieldType]]:
+    results: list[tuple[str, IncrementalFieldType]] = []
+    for column_name, type in columns:
+        type = type.lower()
+        if type.startswith("timestamp"):
+            results.append((column_name, IncrementalFieldType.Timestamp))
+        elif type == "date":
+            results.append((column_name, IncrementalFieldType.Date))
+        elif type == "integer" or type == "smallint" or type == "bigint":
+            results.append((column_name, IncrementalFieldType.Integer))
+
+    return results
 
 
 def get_postgres_schemas(
     host: str, port: str, database: str, user: str, password: str, schema: str, ssh_tunnel: SSHTunnel
-) -> list[Any]:
+) -> dict[str, list[tuple[str, str]]]:
     def get_schemas(postgres_host: str, postgres_port: int):
         connection = psycopg2.connect(
             host=postgres_host,
@@ -129,14 +167,18 @@ def get_postgres_schemas(
 
         with connection.cursor() as cursor:
             cursor.execute(
-                "SELECT table_name FROM information_schema.tables WHERE table_schema = %(schema)s", {"schema": schema}
+                "SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_schema = %(schema)s ORDER BY table_name ASC",
+                {"schema": schema},
             )
             result = cursor.fetchall()
-            result = [row[0] for row in result]
+
+            schema_list = defaultdict(list)
+            for row in result:
+                schema_list[row[0]].append((row[1], row[2]))
 
         connection.close()
 
-        return result
+        return schema_list
 
     if ssh_tunnel.enabled:
         with ssh_tunnel.get_tunnel(host, int(port)) as tunnel:

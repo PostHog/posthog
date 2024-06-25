@@ -2,6 +2,7 @@ import { LemonButton, LemonCheckbox, LemonDialog, LemonInput, LemonSelect } from
 import { useActions, useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 
 import {
@@ -161,6 +162,40 @@ export function Customization({ appearance, surveyQuestionItem, onAppearanceChan
                         }}
                         checked={appearance?.shuffleQuestions}
                     />
+                </div>
+                <div className="mt-1">
+                    <LemonField.Pure>
+                        <div className="flex flex-row gap-2 items-center font-medium">
+                            <LemonCheckbox
+                                checked={!!appearance?.surveyPopupDelaySeconds}
+                                onChange={(checked) => {
+                                    const surveyPopupDelaySeconds = checked ? 5 : undefined
+                                    onAppearanceChange({ ...appearance, surveyPopupDelaySeconds })
+                                }}
+                            />
+                            Delay survey popup after page load by at least{' '}
+                            <LemonInput
+                                type="number"
+                                data-attr="survey-popup-delay-input"
+                                size="small"
+                                min={1}
+                                max={3600}
+                                value={appearance?.surveyPopupDelaySeconds || NaN}
+                                onChange={(newValue) => {
+                                    if (newValue && newValue > 0) {
+                                        onAppearanceChange({ ...appearance, surveyPopupDelaySeconds: newValue })
+                                    } else {
+                                        onAppearanceChange({
+                                            ...appearance,
+                                            surveyPopupDelaySeconds: undefined,
+                                        })
+                                    }
+                                }}
+                                className="w-12"
+                            />{' '}
+                            seconds.
+                        </div>
+                    </LemonField.Pure>
                 </div>
             </div>
         </>

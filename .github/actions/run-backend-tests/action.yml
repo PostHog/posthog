@@ -6,7 +6,7 @@ name: Run Django tests
 inputs:
     python-version:
         required: true
-        description: Python version, e.g. 3.11.9
+        description: Python version, e.g. 3.10.10
     clickhouse-server-image:
         required: true
         description: ClickHouse server image tag, e.g. clickhouse/clickhouse-server:latest
@@ -148,7 +148,6 @@ runs:
           if: ${{ inputs.segment == 'Core' }}
           env:
               PERSON_ON_EVENTS_V2_ENABLED: ${{ inputs.person-on-events }}
-              GROUPS_ON_EVENTS_ENABLED: ${{ inputs.person-on-events }}
           shell: bash
           run: | # async_migrations covered in ci-async-migrations.yml
               pytest ${{

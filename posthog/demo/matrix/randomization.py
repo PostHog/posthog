@@ -1,11 +1,11 @@
-from enum import StrEnum
+from enum import Enum
 
 import mimesis.random
 
 WeightedPool = tuple[list[str], list[int]]
 
 
-class Industry(StrEnum):
+class Industry(str, Enum):
     TECHNOLOGY = "technology"
     FINANCE = "finance"
     MEDIA = "media"
