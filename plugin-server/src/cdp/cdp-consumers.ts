@@ -21,7 +21,8 @@ import { RustyHook } from '../worker/rusty-hook'
 import { AsyncFunctionExecutor } from './async-function-executor'
 import { HogExecutor } from './hog-executor'
 import { HogFunctionManager } from './hog-function-manager'
-import { HogWatcher, HogWatcherState } from './hog-watcher'
+import { HogWatcher } from './hog-watcher/hog-watcher'
+import { HogWatcherState } from './hog-watcher/types'
 import {
     CdpOverflowMessage,
     HogFunctionInvocationAsyncResponse,

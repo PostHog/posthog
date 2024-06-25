@@ -6,7 +6,7 @@ import { status } from '../utils/status'
 import { AsyncFunctionExecutor } from './async-function-executor'
 import { addLog, HogExecutor } from './hog-executor'
 import { HogFunctionManager } from './hog-function-manager'
-import { HogWatcher } from './hog-watcher'
+import { HogWatcher } from './hog-watcher/hog-watcher'
 import { HogFunctionInvocation, HogFunctionType } from './types'
 import { convertToHogFunctionInvocationGlobals } from './utils'
 
