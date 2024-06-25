@@ -94,7 +94,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             funnel_actors_query = FunnelsActorsQuery(
                 source=funnels_query, funnelStep=funnelStep, funnelStepBreakdown=funnelStepBreakdown
             )
-            actors_query = ActorsQuery(source=funnel_actors_query)
+            actors_query = ActorsQuery(source=funnel_actors_query, select=["actor"])
             response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
             return [val[0]["id"] for val in response.results]
 

@@ -63,7 +63,7 @@ def get_actors(
         funnelCorrelationPersonEntity=funnelCorrelationPersonEntity,
         funnelCorrelationPropertyValues=funnelCorrelationPropertyValues,
     )
-    persons_select = ["id", "person", *(["matched_recordings"] if includeRecordings else [])]
+    persons_select = ["actor", *(["matched_recordings"] if includeRecordings else [])]
     groups_select = ["actor_id"]
     actors_query = ActorsQuery(
         source=correlation_actors_query,
@@ -163,7 +163,7 @@ class TestFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
             funnelCorrelationPersonEntity=EventsNode(event="positively_related"),
         )
 
-        self.assertCountEqual([str(val[1]["id"]) for val in serialized_actors], success_target_persons)
+        self.assertCountEqual([str(val[0]["id"]) for val in serialized_actors], success_target_persons)
 
         # test negatively_related failures
         serialized_actors = get_actors(
@@ -173,7 +173,7 @@ class TestFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
             funnelCorrelationPersonEntity=EventsNode(event="negatively_related"),
         )
 
-        self.assertCountEqual([str(val[1]["id"]) for val in serialized_actors], failure_target_persons)
+        self.assertCountEqual([str(val[0]["id"]) for val in serialized_actors], failure_target_persons)
 
         # test positively_related failures
         serialized_actors = get_actors(
@@ -183,7 +183,7 @@ class TestFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
             funnelCorrelationPersonEntity=EventsNode(event="positively_related"),
         )
 
-        self.assertCountEqual([str(val[1]["id"]) for val in serialized_actors], [str(person_fail.uuid)])
+        self.assertCountEqual([str(val[0]["id"]) for val in serialized_actors], [str(person_fail.uuid)])
 
         # test negatively_related successes
         serialized_actors = get_actors(
@@ -193,7 +193,7 @@ class TestFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
             funnelCorrelationPersonEntity=EventsNode(event="negatively_related"),
         )
 
-        self.assertCountEqual([str(val[1]["id"]) for val in serialized_actors], [str(person_succ.uuid)])
+        self.assertCountEqual([str(val[0]["id"]) for val in serialized_actors], [str(person_succ.uuid)])
 
         # test all positively_related
         serialized_actors = get_actors(
@@ -204,7 +204,7 @@ class TestFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertCountEqual(
-            [str(val[1]["id"]) for val in serialized_actors],
+            [str(val[0]["id"]) for val in serialized_actors],
             [*success_target_persons, str(person_fail.uuid)],
         )
 
@@ -217,7 +217,7 @@ class TestFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertCountEqual(
-            [str(val[1]["id"]) for val in serialized_actors],
+            [str(val[0]["id"]) for val in serialized_actors],
             [*failure_target_persons, str(person_succ.uuid)],
         )
 
@@ -312,7 +312,7 @@ class TestFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
             funnelCorrelationPersonEntity=EventsNode(event="positively_related"),
         )
 
-        self.assertCountEqual([str(val[1]["id"]) for val in serialized_actors], [str(people["user_1"].uuid)])
+        self.assertCountEqual([str(val[0]["id"]) for val in serialized_actors], [str(people["user_1"].uuid)])
 
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-02 00:00:00.000Z")
@@ -370,9 +370,9 @@ class TestFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
             funnelCorrelationPersonEntity=EventsNode(event="insight loaded"),
         )
 
-        self.assertEqual(results[0][1]["id"], p1.uuid)
+        self.assertEqual(results[0][0]["id"], p1.uuid)
         self.assertEqual(
-            list(results[0][2]),
+            list(results[0][1]),
             [
                 {
                     "events": [
@@ -406,9 +406,9 @@ class TestFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
             funnelCorrelationPersonEntity=EventsNode(event="insight loaded"),
         )
 
-        self.assertEqual(results[0][1]["id"], p1.uuid)
+        self.assertEqual(results[0][0]["id"], p1.uuid)
         self.assertEqual(
-            list(results[0][2]),
+            list(results[0][1]),
             [
                 {
                     "events": [
@@ -478,9 +478,9 @@ class TestFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        self.assertEqual(results[0][1]["id"], p1.uuid)
+        self.assertEqual(results[0][0]["id"], p1.uuid)
         self.assertEqual(
-            list(results[0][2]),
+            list(results[0][1]),
             [
                 {
                     "events": [
@@ -592,9 +592,9 @@ class TestFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(len(results), 1)
-        self.assertEqual(results[0][1]["id"], p1.uuid)
+        self.assertEqual(results[0][0]["id"], p1.uuid)
         self.assertEqual(
-            list(results[0][2]),
+            list(results[0][1]),
             [
                 {
                     "events": [
@@ -625,9 +625,9 @@ class TestFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        self.assertEqual(results[0][1]["id"], p2.uuid)
+        self.assertEqual(results[0][0]["id"], p2.uuid)
         self.assertEqual(
-            list(results[0][2]),
+            list(results[0][1]),
             [
                 {
                     "events": [

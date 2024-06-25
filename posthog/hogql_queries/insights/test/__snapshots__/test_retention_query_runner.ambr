@@ -30,39 +30,29 @@
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating.1
   '''
-  SELECT groups.key AS key,
-         source.appearances AS appearances
+  SELECT actor_activity.actor_id AS actor_id,
+         groupArray(actor_activity.intervals_from_base) AS appearance_intervals,
+         arraySort(appearance_intervals) AS appearances,
+         arrayExists(x -> ifNull(equals(x, 0), 0), appearance_intervals) AS week_0,
+         arrayExists(x -> ifNull(equals(x, 1), 0), appearance_intervals) AS week_1,
+         arrayExists(x -> ifNull(equals(x, 2), 0), appearance_intervals) AS week_2,
+         arrayExists(x -> ifNull(equals(x, 3), 0), appearance_intervals) AS week_3,
+         arrayExists(x -> ifNull(equals(x, 4), 0), appearance_intervals) AS week_4,
+         arrayExists(x -> ifNull(equals(x, 5), 0), appearance_intervals) AS week_5,
+         arrayExists(x -> ifNull(equals(x, 6), 0), appearance_intervals) AS week_6
   FROM
-    (SELECT actor_activity.actor_id AS actor_id,
-            groupArray(actor_activity.intervals_from_base) AS appearance_intervals,
-            arraySort(appearance_intervals) AS appearances,
-            arrayExists(x -> ifNull(equals(x, 0), 0), appearance_intervals) AS week_0,
-            arrayExists(x -> ifNull(equals(x, 1), 0), appearance_intervals) AS week_1,
-            arrayExists(x -> ifNull(equals(x, 2), 0), appearance_intervals) AS week_2,
-            arrayExists(x -> ifNull(equals(x, 3), 0), appearance_intervals) AS week_3,
-            arrayExists(x -> ifNull(equals(x, 4), 0), appearance_intervals) AS week_4,
-            arrayExists(x -> ifNull(equals(x, 5), 0), appearance_intervals) AS week_5,
-            arrayExists(x -> ifNull(equals(x, 6), 0), appearance_intervals) AS week_6
-     FROM
-       (SELECT events.`$group_0` AS actor_id,
-               arraySort(groupUniqArrayIf(toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC')))))) AS target_timestamps,
-               arraySort(groupUniqArrayIf(toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0), equals(events.event, '$pageview'))) AS returning_timestamps,
-               arrayMap(x -> plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-06-07 00:00:00', 6, 'UTC')), 0), toIntervalWeek(x)), range(0, 7)) AS date_range,
-               arrayJoin(arrayFilter(x -> ifNull(greater(x, -1), 0), arrayMap((_breakdown_value, breakdown_value_timestamp) -> if(has(target_timestamps, breakdown_value_timestamp), minus(_breakdown_value, 1), -1), arrayEnumerate(date_range), date_range))) AS breakdown_values,
-               arrayJoin(arrayConcat(if(has(target_timestamps, date_range[plus(breakdown_values, 1)]), [0], []), arrayFilter(x -> ifNull(greater(x, 0), 0), arrayMap(_timestamp -> minus(indexOf(arraySlice(date_range, plus(breakdown_values, 1)), _timestamp), 1), returning_timestamps)))) AS intervals_from_base
-        FROM events
-        WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC'))), in(events.event, tuple('$pageview', '$pageview')), not(has([''], events.`$group_0`)))
-        GROUP BY actor_id
-        HAVING ifNull(equals(breakdown_values, 0), 0)) AS actor_activity
-     GROUP BY actor_activity.actor_id) AS source
-  INNER JOIN
-    (SELECT groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 2)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
-  ORDER BY length(source.appearances) DESC, source.actor_id ASC
+    (SELECT events.`$group_0` AS actor_id,
+            arraySort(groupUniqArrayIf(toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC')))))) AS target_timestamps,
+            arraySort(groupUniqArrayIf(toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0), equals(events.event, '$pageview'))) AS returning_timestamps,
+            arrayMap(x -> plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-06-07 00:00:00', 6, 'UTC')), 0), toIntervalWeek(x)), range(0, 7)) AS date_range,
+            arrayJoin(arrayFilter(x -> ifNull(greater(x, -1), 0), arrayMap((_breakdown_value, breakdown_value_timestamp) -> if(has(target_timestamps, breakdown_value_timestamp), minus(_breakdown_value, 1), -1), arrayEnumerate(date_range), date_range))) AS breakdown_values,
+            arrayJoin(arrayConcat(if(has(target_timestamps, date_range[plus(breakdown_values, 1)]), [0], []), arrayFilter(x -> ifNull(greater(x, 0), 0), arrayMap(_timestamp -> minus(indexOf(arraySlice(date_range, plus(breakdown_values, 1)), _timestamp), 1), returning_timestamps)))) AS intervals_from_base
+     FROM events
+     WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC'))), in(events.event, tuple('$pageview', '$pageview')), not(has([''], events.`$group_0`)))
+     GROUP BY actor_id
+     HAVING ifNull(equals(breakdown_values, 0), 0)) AS actor_activity
+  GROUP BY actor_activity.actor_id
+  ORDER BY length(appearances) DESC, actor_activity.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,

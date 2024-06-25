@@ -58,7 +58,6 @@ def get_actors(
         offset=offset,
         select=[
             "actor",
-            "created_at",
             "event_count",
             *(["matched_recordings"] if includeRecordings else []),
         ],
@@ -87,7 +86,7 @@ def get_group_name(result):
 
 
 def get_event_count(result):
-    return result[2]
+    return result[1]
 
 
 @override_settings(IN_UNIT_TESTING=True)

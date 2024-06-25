@@ -8,7 +8,16 @@ from posthog.hogql_queries.actor_strategies import ActorStrategy, PersonStrategy
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
-from posthog.schema import ActorsQuery, ActorsQueryResponse, CachedActorsQueryResponse, DashboardFilter
+from posthog.schema import (
+    ActorsQuery,
+    ActorsQueryResponse,
+    CachedActorsQueryResponse,
+    DashboardFilter,
+    FilterLogicalOperator,
+    PropertyGroupFilter,
+    PropertyGroupFilterValue,
+    HogQLQuery,
+)
 
 
 class ActorsQueryRunner(QueryRunner):
@@ -27,6 +36,26 @@ class ActorsQueryRunner(QueryRunner):
             self.source_query_runner = get_query_runner(self.query.source, self.team, self.timings, self.limit_context)
 
         self.strategy = self.determine_strategy()
+
+        if self.query.source:
+            property_conditions = self.strategy.property_conditions()
+            if (
+                property_conditions
+                and not isinstance(self.query.source, HogQLQuery)
+                and hasattr(self.query.source.source, "properties")
+            ):
+                if isinstance(self.query.source.source.properties, list):
+                    self.query.source.source.properties = PropertyGroupFilter(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            PropertyGroupFilterValue(
+                                type=FilterLogicalOperator.AND_, values=self.query.source.source.properties
+                            ),
+                            property_conditions,
+                        ],
+                    )
+                elif self.query.source.source.properties and self.query.source.source.properties.values:
+                    self.query.source.source.properties.values.append(property_conditions)
 
     @property
     def group_type_index(self) -> int | None:
@@ -75,10 +104,16 @@ class ActorsQueryRunner(QueryRunner):
     def prepare_recordings(
         self, column_name: str, input_columns: list[str]
     ) -> tuple[int | None, dict[str, list[dict]] | None]:
-        if (column_name != "person" and column_name != "actor") or "matched_recordings" not in input_columns:
+        if (
+            (column_name != "person" and column_name != "actor")
+            or "matched_recordings" not in input_columns
+            or not self.paginator.response
+            or not self.paginator.response.columns
+            or "matching_events" not in self.paginator.response.columns
+        ):
             return None, None
 
-        column_index_events = input_columns.index("matched_recordings")
+        column_index_events = self.paginator.response.columns.index("matching_events")
         matching_events_list = itertools.chain.from_iterable(row[column_index_events] for row in self.paginator.results)
         return column_index_events, self.strategy.get_recordings(matching_events_list)
 
@@ -111,7 +146,7 @@ class ActorsQueryRunner(QueryRunner):
             results=results,
             timings=response.timings,
             types=[t for _, t in response.types] if response.types else None,
-            columns=input_columns,
+            columns=["matched_recodings" if col == "matching_events" else col for col in input_columns],
             hogql=response.hogql,
             modifiers=self.modifiers,
             missing_actors_count=missing_actors_count,
@@ -121,7 +156,6 @@ class ActorsQueryRunner(QueryRunner):
     def input_columns(self) -> list[str]:
         if self.query.select:
             return self.query.select
-
         return self.strategy.input_columns()
 
     # TODO: Figure out a more sure way of getting the actor id than using the alias or chain name
@@ -144,53 +178,33 @@ class ActorsQueryRunner(QueryRunner):
                 return [str(part) for part in column.chain]
         raise ValueError("Source query must have an id column")
 
-    def source_table_join(self) -> ast.JoinExpr:
-        assert self.source_query_runner is not None  # For type checking
-        source_query = self.source_query_runner.to_actors_query()
-        source_id_chain = self.source_id_column(source_query)
-        source_alias = "source"
-
-        return ast.JoinExpr(
-            table=source_query,
-            alias=source_alias,
-            next_join=ast.JoinExpr(
-                table=ast.Field(chain=[self.strategy.origin]),
-                join_type="INNER JOIN",
-                constraint=ast.JoinConstraint(
-                    expr=ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(chain=[self.strategy.origin, self.strategy.origin_id]),
-                        right=ast.Field(chain=[source_alias, *source_id_chain]),
-                    ),
-                    constraint_type="ON",
-                ),
-            ),
-        )
-
     def to_query(self) -> ast.SelectQuery:
-        with self.timings.measure("columns"):
-            columns = []
-            group_by = []
-            aggregations = []
-            for expr in self.input_columns():
-                column: ast.Expr = parse_expr(expr)
+        columns = []
+        group_by = []
+        aggregations = []
+        has_any_aggregation = None
 
-                if expr == "person.$delete":
-                    column = ast.Constant(value=1)
-                elif expr == self.strategy.field or expr == "actor":
-                    column = ast.Field(chain=[self.strategy.origin_id])
-                elif expr == "matched_recordings":
-                    # the underlying query used to match recordings compares to a selection of "matched events"
-                    # like `groupUniqArray(100)(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS matching_events`
-                    # we look up valid session ids and match them against the session ids in matching events
-                    column = ast.Field(chain=["matching_events"])
+        if not self.query.source:
+            with self.timings.measure("columns"):
+                for expr in self.input_columns():
+                    column: ast.Expr = parse_expr(expr)
 
-                columns.append(column)
-                if has_aggregation(column):
-                    aggregations.append(column)
-                elif not isinstance(column, ast.Constant):
-                    group_by.append(column)
-            has_any_aggregation = len(aggregations) > 0
+                    if expr == "person.$delete":
+                        column = ast.Constant(value=1)
+                    elif expr == self.strategy.field or expr == "actor":
+                        column = ast.Field(chain=[self.strategy.origin_id])
+                    elif expr == "matched_recordings":
+                        # the underlying query used to match recordings compares to a selection of "matched events"
+                        # like `groupUniqArray(100)(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS matching_events`
+                        # we look up valid session ids and match them against the session ids in matching events
+                        column = ast.Field(chain=["matching_events"])
+
+                    columns.append(column)
+                    if has_aggregation(column):
+                        aggregations.append(column)
+                    elif not isinstance(column, ast.Constant):
+                        group_by.append(column)
+                has_any_aggregation = len(aggregations) > 0
 
         with self.timings.measure("filters"):
             filter_conditions = self.strategy.filter_conditions()
@@ -230,19 +244,22 @@ class ActorsQueryRunner(QueryRunner):
                 order_by = []
 
         with self.timings.measure("select"):
-            if self.query.source:
-                join_expr = self.source_table_join()
-            else:
-                join_expr = ast.JoinExpr(table=ast.Field(chain=[self.strategy.origin]))
-
+            join_expr = ast.JoinExpr(table=ast.Field(chain=[self.strategy.origin]))
             stmt = ast.SelectQuery(
                 select=columns,
                 select_from=join_expr,
                 where=where,
                 having=having,
                 group_by=group_by if has_any_aggregation else None,
-                order_by=order_by,
             )
+
+        if self.query.source and self.source_query_runner:
+            source_query = self.source_query_runner.to_actors_query()
+            if isinstance(source_query, ast.SelectQuery):  # typing fun
+                source_query.order_by = order_by
+                return source_query
+
+        stmt.order_by = order_by
 
         return stmt
 

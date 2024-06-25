@@ -258,7 +258,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = self.select(
             """
                 select * from (
-                    <ActorsQuery select={['properties.name']}>
+                    <ActorsQuery>
                         <FunnelsActorsQuery funnelStep={2}>
                             <FunnelsQuery
                                 dateRange={<InsightDateRange date_from='2020-01-01' date_to='2020-01-19' />}
@@ -270,7 +270,10 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 """
         )
 
-        self.assertEqual([("p1",), ("p2",)], response.results)
+        self.assertEqual(
+            ["00000000-0000-4000-8000-000000000002", "00000000-0000-4000-8000-000000000001"],
+            [str(x[0]) for x in response.results],
+        )
 
     def test_insight_groups_funnels_query(self):
         self._create_test_groups()
@@ -281,7 +284,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = self.select(
             """
                 select * from (
-                    <ActorsQuery select={['properties.name']}>
+                    <ActorsQuery>
                         <FunnelsActorsQuery funnelStep={2}>
                             <FunnelsQuery
                                 aggregation_group_type_index={0}
@@ -296,7 +299,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             [
-                ("org1",),
+                ("org:1",),
             ],
             response.results,
         )
