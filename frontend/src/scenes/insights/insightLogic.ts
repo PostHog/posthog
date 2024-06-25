@@ -369,7 +369,6 @@ export const insightLogic = kea<insightLogicType>([
                 return 'insight' in (filters ?? {})
             },
         ],
-        intervalUnit: [(s) => [s.filters], (filters) => filters?.interval || 'day'],
         showPersonsModal: [() => [(_, p) => p.query], (query?: InsightVizNode) => !query || !query.hidePersonsModal],
     }),
     listeners(({ actions, values }) => ({
