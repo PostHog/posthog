@@ -301,7 +301,14 @@ describe('insightLogic', () => {
                 await expectLogic(logic)
                     .toDispatchActions([])
                     .toMatchValues({
-                        insight: partial({ short_id: Insight42, query: { kind: NodeKind.TimeToSeeDataSessionsQuery } }),
+                        legacyInsight: partial({
+                            short_id: Insight42,
+                            query: { kind: NodeKind.TimeToSeeDataSessionsQuery },
+                        }),
+                        queryBasedInsight: partial({
+                            short_id: Insight42,
+                            query: { kind: NodeKind.TimeToSeeDataSessionsQuery },
+                        }),
                         filters: {},
                     })
                     .delay(1)
@@ -331,7 +338,7 @@ describe('insightLogic', () => {
 
                 await expectLogic(logic)
                     .toMatchValues({
-                        insight: insight,
+                        legacyInsight: insight,
                         filters: partial({
                             events: [partial({ id: 3 })],
                             properties: [partial({ value: 'a' })],
@@ -348,7 +355,7 @@ describe('insightLogic', () => {
             expectLogic(logicUnderTest)
                 .toDispatchActions(['loadInsight'])
                 .toMatchValues({
-                    insight: partial({
+                    queryBasedInsight: partial({
                         short_id: '42',
                     }),
                 })
@@ -411,7 +418,7 @@ describe('insightLogic', () => {
         }
 
         await expectLogic(logic).toMatchValues({
-            insight: partial(expectedPartialInsight),
+            legacyInsight: partial(expectedPartialInsight),
             savedInsight: {},
             insightChanged: false,
         })
@@ -435,7 +442,7 @@ describe('insightLogic', () => {
             },
         }
         await expectLogic(logic).toMatchValues({
-            insight: partial(expectedPartialInsight),
+            legacyInsight: partial(expectedPartialInsight),
             savedInsight: partial(expectedPartialInsight),
             insightChanged: false,
         })
@@ -443,7 +450,7 @@ describe('insightLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.setInsightMetadata({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] })
         }).toMatchValues({
-            insight: partial({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] }),
+            legacyInsight: partial({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] }),
             savedInsight: partial({ name: '', description: '', tags: [] }),
             insightChanged: true,
         })
@@ -453,7 +460,7 @@ describe('insightLogic', () => {
         }).toFinishAllListeners()
 
         await expectLogic(logic).toMatchValues({
-            insight: partial({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] }),
+            legacyInsight: partial({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] }),
             savedInsight: partial({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] }),
             insightChanged: false,
         })
@@ -533,7 +540,8 @@ describe('insightLogic', () => {
             .toMatchValues({
                 savedInsight: partial({ filters: partial({ insight: InsightType.FUNNELS }) }),
                 filters: partial({ insight: InsightType.FUNNELS }),
-                insight: partial({ id: 12, short_id: Insight12, name: 'New Insight (copy)' }),
+                legacyInsight: partial({ id: 12, short_id: Insight12, name: 'New Insight (copy)' }),
+                queryBasedInsight: partial({ id: 12, short_id: Insight12, name: 'New Insight (copy)' }),
                 insightChanged: false,
             })
 
@@ -601,7 +609,10 @@ describe('insightLogic', () => {
             })
                 .toFinishAllListeners()
                 .toMatchValues({
-                    insight: truth(({ name }) => {
+                    legacyInsight: truth(({ name }) => {
+                        return name === 'new name'
+                    }),
+                    queryBasedInsight: truth(({ name }) => {
                         return name === 'new name'
                     }),
                 })
@@ -621,7 +632,10 @@ describe('insightLogic', () => {
             })
                 .toFinishAllListeners()
                 .toMatchValues({
-                    insight: truth(({ name }) => {
+                    legacyInsight: truth(({ name }) => {
+                        return name === 'original name'
+                    }),
+                    queryBasedInsight: truth(({ name }) => {
                         return name === 'original name'
                     }),
                 })
@@ -636,7 +650,8 @@ describe('insightLogic', () => {
             })
                 .toFinishAllListeners()
                 .toMatchValues({
-                    insight: expect.objectContaining({ dashboards: [1, 2] }),
+                    legacyInsight: expect.objectContaining({ dashboards: [1, 2] }),
+                    queryBasedInsight: expect.objectContaining({ dashboards: [1, 2] }),
                 })
         })
 
@@ -649,7 +664,8 @@ describe('insightLogic', () => {
             })
                 .toFinishAllListeners()
                 .toMatchValues({
-                    insight: expect.objectContaining({ dashboards: [1, 2, 3] }),
+                    legacyInsight: expect.objectContaining({ dashboards: [1, 2, 3] }),
+                    queryBasedInsight: expect.objectContaining({ dashboards: [1, 2, 3] }),
                 })
         })
 
@@ -659,7 +675,8 @@ describe('insightLogic', () => {
             })
                 .toFinishAllListeners()
                 .toMatchValues({
-                    insight: expect.objectContaining({ dashboards: [1, 2] }),
+                    legacyInsight: expect.objectContaining({ dashboards: [1, 2] }),
+                    queryBasedInsight: expect.objectContaining({ dashboards: [1, 2] }),
                 })
         })
 
@@ -669,7 +686,8 @@ describe('insightLogic', () => {
             })
                 .toFinishAllListeners()
                 .toMatchValues({
-                    insight: expect.objectContaining({ dashboards: [1, 2, 3] }),
+                    legacyInsight: expect.objectContaining({ dashboards: [1, 2, 3] }),
+                    queryBasedInsight: expect.objectContaining({ dashboards: [1, 2, 3] }),
                 })
         })
 
@@ -679,7 +697,8 @@ describe('insightLogic', () => {
             })
                 .toFinishAllListeners()
                 .toMatchValues({
-                    insight: expect.objectContaining({ dashboards: [1, 2, 3, 1234] }),
+                    legacyInsight: expect.objectContaining({ dashboards: [1, 2, 3, 1234] }),
+                    queryBasedInsight: expect.objectContaining({ dashboards: [1, 2, 3, 1234] }),
                 })
         })
 
@@ -689,7 +708,8 @@ describe('insightLogic', () => {
             })
                 .toFinishAllListeners()
                 .toMatchValues({
-                    insight: expect.objectContaining({ dashboards: [1, 2, 3] }),
+                    legacyInsight: expect.objectContaining({ dashboards: [1, 2, 3] }),
+                    queryBasedInsight: expect.objectContaining({ dashboards: [1, 2, 3] }),
                 })
         })
     })

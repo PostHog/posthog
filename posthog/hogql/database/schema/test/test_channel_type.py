@@ -549,3 +549,23 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
     #             "https://l.facebook.com/",
     #         ),
     #     )
+
+    def test_zendesk_ticket_14945(self):
+        # see https://posthoghelp.zendesk.com/agent/tickets/14945
+
+        # In this ticket, a customer's paid social traffic was incorrect tagged as organic social, because we
+        # didn't recognise the word "Paid" with an uppercase 'P' as a paid source. Really, this should have
+        # been case-insensitive, and that is what the fix was.
+        self.assertEqual(
+            "Paid Social",
+            self._get_session_channel_type(
+                {
+                    "utm_source": "Facebook",
+                    "utm_medium": "Paid",
+                    "utm_campaign": "Foo",
+                    "referring_domain": "l.facebook.com",
+                    "gclid": "",
+                    "gad_source": "",
+                }
+            ),
+        )
