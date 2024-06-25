@@ -16,6 +16,7 @@ from posthog.schema import (
     EventsNode,
     HogQLQueryModifiers,
     InCohortVia,
+    MultipleBreakdownType,
     TrendsQuery,
     Breakdown as BreakdownSchema,
 )
@@ -120,7 +121,14 @@ class Breakdown:
 
             for idx, breakdown in enumerate(breakdown_filter.breakdowns):
                 breakdowns.append(
-                    self._get_breakdown_col_expr(self._get_multiple_breakdown_alias_name(idx + 1), breakdown)
+                    self._get_breakdown_col_expr(
+                        self._get_multiple_breakdown_alias_name(idx + 1),
+                        value=breakdown.property,
+                        breakdown_type=breakdown.type,
+                        normalize_url=breakdown.normalize_url,
+                        histogram_bin_count=breakdown.histogram_bin_count,
+                        group_type_index=breakdown.group_type_index,
+                    )
                 )
             return breakdowns
 
@@ -137,13 +145,11 @@ class Breakdown:
 
         return self._get_breakdown_col_expr(
             self.breakdown_alias,
-            BreakdownSchema(
-                type=breakdown_filter.breakdown_type,
-                property=breakdown_filter.breakdown,
-                normalize_url=breakdown_filter.breakdown_normalize_url,
-                histogram_bin_count=breakdown_filter.breakdown_histogram_bin_count,
-                group_type_index=breakdown_filter.breakdown_group_type_index,
-            ),
+            value=breakdown_filter.breakdown,
+            breakdown_type=breakdown_filter.breakdown_type,
+            normalize_url=breakdown_filter.breakdown_normalize_url,
+            histogram_bin_count=breakdown_filter.breakdown_histogram_bin_count,
+            group_type_index=breakdown_filter.breakdown_group_type_index,
         )
 
     @property
@@ -260,27 +266,33 @@ class Breakdown:
             ),
         )
 
-    def _get_breakdown_col_expr(self, alias: str, breakdown: BreakdownSchema):
-        if breakdown.type == "cohort":
-            cohort_breakdown = 0 if breakdown.property == "all" else int(breakdown.property)
+    def _get_breakdown_col_expr(
+        self,
+        alias: str,
+        value: str | int | float,
+        breakdown_type: BreakdownType | MultipleBreakdownType | None,
+        normalize_url: bool | None = None,
+        histogram_bin_count: int | None = None,
+        group_type_index: int | None = None,
+    ):
+        if breakdown_type == "cohort":
+            cohort_breakdown = 0 if value == "all" else int(value)
 
             return ast.Alias(
                 alias=alias,
                 expr=hogql_to_string(ast.Constant(value=cohort_breakdown)),
             )
 
-        if breakdown.type == "hogql":
-            return ast.Alias(
-                alias=alias, expr=self._get_breakdown_values_transform(parse_expr(cast(str, breakdown.property)))
-            )
+        if breakdown_type == "hogql":
+            return ast.Alias(alias=alias, expr=self._get_breakdown_values_transform(parse_expr(cast(str, value))))
 
         properties_chain = get_properties_chain(
-            breakdown_type=breakdown.type,
-            breakdown_field=str(breakdown.property),
-            group_type_index=breakdown.group_type_index,
+            breakdown_type=breakdown_type,
+            breakdown_field=str(value),
+            group_type_index=group_type_index,
         )
 
-        if breakdown.histogram_bin_count is not None:
+        if histogram_bin_count is not None:
             return ast.Alias(
                 alias=alias,
                 expr=ast.Field(chain=properties_chain),
@@ -288,9 +300,7 @@ class Breakdown:
 
         return ast.Alias(
             alias=alias,
-            expr=self._get_breakdown_values_transform(
-                ast.Field(chain=properties_chain), normalize_url=breakdown.normalize_url
-            ),
+            expr=self._get_breakdown_values_transform(ast.Field(chain=properties_chain), normalize_url=normalize_url),
         )
 
     @staticmethod
