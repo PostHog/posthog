@@ -12,7 +12,7 @@ import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
 
 export const BreakdownTagMenu = (): JSX.Element => {
     const { insightProps } = useValues(insightLogic)
-    const { isHistogramable, isNormalizeable } = useValues(breakdownTagLogic)
+    const { isHistogramable, isNormalizeable, breakdown, breakdownType } = useValues(breakdownTagLogic)
     const { removeBreakdown } = useActions(breakdownTagLogic)
     const { breakdownFilter, isTrends } = useValues(insightVizDataLogic(insightProps))
     const { updateBreakdownFilter } = useActions(insightVizDataLogic(insightProps))
@@ -28,7 +28,7 @@ export const BreakdownTagMenu = (): JSX.Element => {
                 <LemonSwitch
                     checked={!!breakdownFilter?.breakdown_normalize_url} // TODO move global values/actions to taxonomicBreakdownFilterLogic
                     fullWidth={true}
-                    onChange={(checked) => setNormalizeBreakdownURL(checked)}
+                    onChange={(checked) => setNormalizeBreakdownURL(breakdown, breakdownType, checked)}
                     className="min-h-10 px-2"
                     id="normalize-breakdown-url-switch"
                     label={
@@ -60,7 +60,7 @@ export const BreakdownTagMenu = (): JSX.Element => {
                 <>
                     <LemonButton
                         onClick={() => {
-                            setHistogramBinsUsed(true)
+                            setHistogramBinsUsed(breakdown, breakdownType, true)
                         }}
                         active={histogramBinsUsed}
                         fullWidth
@@ -70,7 +70,7 @@ export const BreakdownTagMenu = (): JSX.Element => {
                             min={1}
                             value={histogramBinCount}
                             onChange={(newValue) => {
-                                setHistogramBinCount(newValue)
+                                setHistogramBinCount(breakdown, breakdownType, newValue)
                             }}
                             fullWidth={false}
                             type="number"
@@ -80,7 +80,7 @@ export const BreakdownTagMenu = (): JSX.Element => {
                     </LemonButton>
                     <LemonButton
                         onClick={() => {
-                            setHistogramBinsUsed(false)
+                            setHistogramBinsUsed(breakdown, breakdownType, false)
                         }}
                         active={!histogramBinsUsed}
                         className="mt-2"

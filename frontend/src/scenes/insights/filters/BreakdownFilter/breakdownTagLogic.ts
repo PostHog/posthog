@@ -36,6 +36,8 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
         removeBreakdown: true,
     })),
     selectors({
+        breakdown: [(_, props) => [props.breakdown], (breakdown) => breakdown],
+        breakdownType: [(_, props) => [props.breakdownType], (breakdownType) => breakdownType],
         propertyDefinition: [
             (s, p) => [s.getPropertyDefinition, p.breakdown, p.breakdownType],
             (getPropertyDefinition, breakdown, breakdownType) =>
