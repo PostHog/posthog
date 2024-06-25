@@ -25,10 +25,10 @@ class EventsPersonSubTable(VirtualTable):
     }
 
     def to_printed_clickhouse(self, context):
-        return "person"
+        return "events"
 
     def to_printed_hogql(self):
-        return "persons"
+        return "events"
 
 
 class EventsGroupSubTable(VirtualTable):
@@ -45,10 +45,10 @@ class EventsGroupSubTable(VirtualTable):
         return []
 
     def to_printed_clickhouse(self, context):
-        return "groups"
+        return "events"
 
     def to_printed_hogql(self):
-        return "groups"
+        return "events"
 
 
 class EventsTable(Table):
