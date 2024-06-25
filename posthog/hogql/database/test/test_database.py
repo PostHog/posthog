@@ -101,7 +101,7 @@ class TestDatabase(BaseTest):
 
         table = cast(DatabaseSchemaDataWarehouseTable | None, serialized_database.get("table_1"))
         assert table is not None
-        assert len(table.fields.keys()) == 1
+        assert len(table.fields.keys()) == 2
         assert table.source is None
         assert table.schema_ is None
 
@@ -171,7 +171,7 @@ class TestDatabase(BaseTest):
 
         table = cast(DatabaseSchemaDataWarehouseTable | None, serialized_database.get("table_1"))
         assert table is not None
-        assert len(table.fields.keys()) == 1
+        assert len(table.fields.keys()) == 2
 
         assert table.source is not None
         assert table.source.id == source.source_id
@@ -462,7 +462,7 @@ class TestDatabase(BaseTest):
         sql = "select id from persons"
         query = print_ast(parse_select(sql), context, dialect="clickhouse")
         assert (
-            "ifNull(less(argMax(person.created_at, person.version), plus(now64(6, %(hogql_val_0)s), toIntervalDay(1)))"
+            "ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1)))"
             in query
         ), query
 
@@ -480,6 +480,6 @@ class TestDatabase(BaseTest):
         sql = "select person.id from events"
         query = print_ast(parse_select(sql), context, dialect="clickhouse")
         assert (
-            "ifNull(less(argMax(person.created_at, person.version), plus(now64(6, %(hogql_val_0)s), toIntervalDay(1)))"
+            "ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1)))"
             in query
         ), query
