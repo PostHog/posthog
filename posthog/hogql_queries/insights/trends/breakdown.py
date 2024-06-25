@@ -93,13 +93,6 @@ class Breakdown:
         return False
 
     @cached_property
-    def column_exprs(self) -> list[ast.Alias]:
-        breakdown_expr = self._column_expr()
-        if isinstance(breakdown_expr, list):
-            return breakdown_expr
-        return [breakdown_expr]
-
-    @cached_property
     def field_exprs(self) -> list[ast.Field]:
         if self.is_multiple_breakdown:
             return [ast.Field(chain=[alias]) for alias in self.multiple_breakdowns_aliases]
@@ -111,7 +104,8 @@ class Breakdown:
             return [ast.Alias(alias=alias, expr=ast.Field(chain=[alias])) for alias in self.multiple_breakdowns_aliases]
         return [ast.Alias(alias=self.breakdown_alias, expr=ast.Field(chain=[self.breakdown_alias]))]
 
-    def _column_expr(self) -> list[ast.Alias] | ast.Alias:
+    @cached_property
+    def column_exprs(self) -> list[ast.Alias]:
         breakdown_filter = self._breakdown_filter
 
         if self.is_multiple_breakdown:
@@ -136,21 +130,26 @@ class Breakdown:
             isinstance(breakdown_filter.breakdown, list)
             and self.modifiers.inCohortVia == InCohortVia.LEFTJOIN_CONJOINED
         ):
-            return ast.Alias(
-                alias=self.breakdown_alias,
-                expr=hogql_to_string(ast.Field(chain=["__in_cohort", "cohort_id"])),
+            return [
+                ast.Alias(
+                    alias=self.breakdown_alias,
+                    expr=hogql_to_string(ast.Field(chain=["__in_cohort", "cohort_id"])),
+                )
+            ]
+
+        assert not isinstance(breakdown_filter.breakdown, list)  # type checking
+        assert breakdown_filter.breakdown is not None  # type checking
+
+        return [
+            self._get_breakdown_col_expr(
+                self.breakdown_alias,
+                value=breakdown_filter.breakdown,
+                breakdown_type=breakdown_filter.breakdown_type,
+                normalize_url=breakdown_filter.breakdown_normalize_url,
+                histogram_bin_count=breakdown_filter.breakdown_histogram_bin_count,
+                group_type_index=breakdown_filter.breakdown_group_type_index,
             )
-
-        assert not isinstance(breakdown_filter.breakdown, list)
-
-        return self._get_breakdown_col_expr(
-            self.breakdown_alias,
-            value=breakdown_filter.breakdown,
-            breakdown_type=breakdown_filter.breakdown_type,
-            normalize_url=breakdown_filter.breakdown_normalize_url,
-            histogram_bin_count=breakdown_filter.breakdown_histogram_bin_count,
-            group_type_index=breakdown_filter.breakdown_group_type_index,
-        )
+        ]
 
     @property
     def _breakdown_filter(self) -> BreakdownFilter:
