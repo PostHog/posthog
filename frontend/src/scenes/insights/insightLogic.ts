@@ -3,22 +3,12 @@ import { actions, connect, events, kea, key, listeners, path, props, reducers, s
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 import { DashboardPrivilegeLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { getEventNamesForAction, objectsEqual, toParams } from 'lib/utils'
+import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import {
-    filterTrendsClientSideParams,
-    isFunnelsFilter,
-    isLifecycleFilter,
-    isPathsFilter,
-    isRetentionFilter,
-    isStickinessFilter,
-    isTrendsFilter,
-    keyForInsightLogicProps,
-} from 'scenes/insights/sharedUtils'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
@@ -26,25 +16,15 @@ import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { actionsModel } from '~/models/actionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { tagsModel } from '~/models/tagsModel'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { queryExportContext } from '~/queries/query'
 import { InsightVizNode } from '~/queries/schema'
 import { isInsightVizNode } from '~/queries/utils'
-import {
-    ActionType,
-    FilterType,
-    InsightLogicProps,
-    InsightModel,
-    InsightShortId,
-    ItemMode,
-    SetInsightOptions,
-} from '~/types'
+import { FilterType, InsightLogicProps, InsightModel, InsightShortId, ItemMode, SetInsightOptions } from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import type { insightLogicType } from './insightLogicType'
@@ -381,77 +361,6 @@ export const insightLogic = kea<insightLogicType>([
                     (insight.description || '') !== (savedInsight.description || '') ||
                     !objectsEqual(insight.tags || [], savedInsight.tags || [])
                 )
-            },
-        ],
-        allEventNames: [
-            (s) => [s.filters, actionsModel.selectors.actions],
-            (filters, actions: ActionType[]) => {
-                const allEvents = [
-                    ...(filters.events || []).map((e) => e.id),
-                    ...(filters.actions || []).flatMap((action) => getEventNamesForAction(action.id, actions)),
-                ]
-                // Has one "all events" event.
-                if (allEvents.some((e) => e === null)) {
-                    return []
-                }
-                // remove duplicates and empty events
-                return Array.from(new Set(allEvents.filter((a): a is string => !!a)))
-            },
-        ],
-        filtersKnown: [
-            (s) => [s.insight],
-            ({ filters }) => {
-                // any real filter will have the `insight` key in it
-                return 'insight' in (filters ?? {})
-            },
-        ],
-        intervalUnit: [(s) => [s.filters], (filters) => filters?.interval || 'day'],
-        exporterResourceParams: [
-            (s) => [s.filters, s.currentTeamId, s.insight],
-            (
-                filters: Partial<FilterType>,
-                currentTeamId: number | null,
-                insight: Partial<InsightModel>
-            ): TriggerExportProps['export_context'] | null => {
-                if (!currentTeamId) {
-                    return null
-                }
-
-                const params = { ...filters }
-
-                const filename = ['export', insight.name || insight.derived_name].join('-')
-
-                if (insight.query) {
-                    return { ...queryExportContext(insight.query, undefined, undefined), filename }
-                }
-                if (isTrendsFilter(filters) || isStickinessFilter(filters) || isLifecycleFilter(filters)) {
-                    return {
-                        path: `api/projects/${currentTeamId}/insights/trend/?${toParams(
-                            filterTrendsClientSideParams(params)
-                        )}`,
-                        filename,
-                    }
-                } else if (isRetentionFilter(filters)) {
-                    return {
-                        filename,
-                        path: `api/projects/${currentTeamId}/insights/retention/?${toParams(params)}`,
-                    }
-                } else if (isFunnelsFilter(filters)) {
-                    return {
-                        filename,
-                        method: 'POST',
-                        path: `api/projects/${currentTeamId}/insights/funnel`,
-                        body: params,
-                    }
-                } else if (isPathsFilter(filters)) {
-                    return {
-                        filename,
-                        method: 'POST',
-                        path: `api/projects/${currentTeamId}/insights/path`,
-                        body: params,
-                    }
-                }
-                return null
             },
         ],
         showPersonsModal: [() => [(_, p) => p.query], (query?: InsightVizNode) => !query || !query.hidePersonsModal],
