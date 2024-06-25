@@ -11,6 +11,7 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.action import ActionSerializer
 from posthog.api.feature_flag import (
     BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
     FeatureFlagSerializer,
@@ -452,6 +453,7 @@ class SurveyAPISerializer(serializers.ModelSerializer):
     linked_flag_key = serializers.CharField(source="linked_flag.key", read_only=True)
     targeting_flag_key = serializers.CharField(source="targeting_flag.key", read_only=True)
     internal_targeting_flag_key = serializers.CharField(source="internal_targeting_flag.key", read_only=True)
+    actions = serializers.SerializerMethodField(method_name="get_actions")
 
     class Meta:
         model = Survey
@@ -470,8 +472,13 @@ class SurveyAPISerializer(serializers.ModelSerializer):
             "end_date",
             "current_iteration",
             "current_iteration_start_date",
+            "actions",
         ]
         read_only_fields = fields
+
+    def get_actions(self, obj: Survey):
+        serializer = ActionSerializer(obj.actions.all(), many=True)
+        return serializer.data
 
 
 @csrf_exempt
@@ -506,7 +513,8 @@ def surveys(request: Request):
     surveys = SurveyAPISerializer(
         Survey.objects.filter(team_id=team.id)
         .exclude(archived=True)
-        .select_related("linked_flag", "targeting_flag", "internal_targeting_flag"),
+        .select_related("linked_flag", "targeting_flag", "internal_targeting_flag")
+        .prefetch_related("actions"),
         many=True,
     ).data
 

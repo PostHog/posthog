@@ -13,7 +13,7 @@ from nanoid import generate
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
-from posthog.models import FeatureFlag
+from posthog.models import FeatureFlag, Action
 
 from posthog.models.feedback.survey import Survey
 from posthog.test.base import (
@@ -1773,6 +1773,44 @@ class TestSurveyQuestionValidationWithEnterpriseFeatures(APIBaseTest):
             == "You need to upgrade to PostHog Enterprise to use HTML in survey thank you message"
         )
 
+    def test_can_set_associated_actions(self):
+        Action.objects.create(
+            team=self.team,
+            name="user subscribed",
+            steps_json=[{"event": "$pageview", "url": "docs", "url_matching": "contains"}],
+        )
+
+        Action.objects.create(
+            team=self.team,
+            name="user unsubscribed",
+            steps_json=[{"event": "$pageview", "url": "docs", "url_matching": "contains"}],
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks beta release survey",
+                "description": "Get feedback on the new notebooks feature",
+                "type": "popover",
+                "conditions": {"actionNames": ["user subscribed", "user unsubscribed"]},
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "What's a survey?",
+                        "description": "This is a description",
+                        "descriptionContentType": "text",
+                    }
+                ],
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        survey = Survey.objects.get(id=response_data["id"])
+        assert survey is not None
+        assert len(survey.actions.all()) == 2
+        assert survey.actions.filter(name="user subscribed").exists()
+        assert survey.actions.filter(name="user unsubscribed").exists()
+
 
 class TestSurveysRecurringIterations(APIBaseTest):
     def _create_recurring_survey(self) -> Survey:
@@ -1983,6 +2021,80 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
         )
 
     @snapshot_postgres_queries
+    def test_list_surveys_with_actions(self):
+        Action.objects.create(
+            team=self.team,
+            name="user subscribed",
+            steps_json=[{"event": "$pageview", "url": "docs", "url_matching": "contains"}],
+        )
+
+        survey_with_actions = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="survey with actions",
+            type="popover",
+            questions=[{"type": "open", "question": "Why's a hedgehog?"}],
+        )
+        survey_with_actions.actions.set(Action.objects.filter(name="user subscribed"))
+        survey_with_actions.save()
+        self.client.logout()
+
+        with self.assertNumQueries(3):
+            response = self._get_surveys()
+            assert response.status_code == status.HTTP_200_OK
+            assert response.get("access-control-allow-origin") == "http://127.0.0.1:8000"
+            self.assertListEqual(
+                response.json()["surveys"],
+                [
+                    {
+                        "id": str(survey_with_actions.id),
+                        "name": "survey with actions",
+                        "description": "",
+                        "type": "popover",
+                        "questions": [{"type": "open", "question": "Why's a hedgehog?"}],
+                        "conditions": None,
+                        "appearance": None,
+                        "start_date": None,
+                        "end_date": None,
+                        "current_iteration": None,
+                        "current_iteration_start_date": None,
+                        "actions": [
+                            {
+                                "id": ANY,
+                                "name": "user subscribed",
+                                "description": "",
+                                "post_to_slack": False,
+                                "slack_message_format": "",
+                                "steps": [
+                                    {
+                                        "event": "$pageview",
+                                        "properties": None,
+                                        "selector": None,
+                                        "tag_name": None,
+                                        "text": None,
+                                        "text_matching": None,
+                                        "href": None,
+                                        "href_matching": None,
+                                        "url": "docs",
+                                        "url_matching": "contains",
+                                    }
+                                ],
+                                "created_at": ANY,
+                                "created_by": None,
+                                "deleted": False,
+                                "is_calculating": False,
+                                "last_calculated_at": ANY,
+                                "team_id": self.team.id,
+                                "is_action": True,
+                                "bytecode_error": None,
+                                "tags": [],
+                            }
+                        ],
+                    }
+                ],
+            )
+
+    @snapshot_postgres_queries
     def test_list_surveys(self):
         basic_survey = Survey.objects.create(
             team=self.team,
@@ -2007,6 +2119,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
             internal_targeting_flag=internal_targeting_flag,
             questions=[{"type": "open", "question": "What's a hedgehog?"}],
         )
+
         self.client.logout()
 
         with self.assertNumQueries(2):
