@@ -45,6 +45,7 @@ def select_from_persons_table(
     join_or_table: LazyJoinToAdd | LazyTableToAdd,
     context: HogQLContext,
     node: SelectQuery,
+    *,
     filter: Optional[Expr] = None,
 ):
     version = context.modifiers.personsArgMaxVersion
@@ -180,7 +181,6 @@ class RawPersonsTable(Table):
 # Persons is a lazy table that allows you to insert a where statement inside of the person subselect
 # It pulls any "persons.id in ()" statement inside of the argmax subselect
 # This is useful when executing a query for a large team.
-# It could be useful to set "use_query_cache" if the query is repeated. See `actors_query_runner.py` for an example
 class PersonsTable(LazyTable):
     fields: dict[str, FieldOrTable] = PERSONS_FIELDS
     filter: Optional[Expr] = None
@@ -195,7 +195,7 @@ class PersonsTable(LazyTable):
         )
 
     @staticmethod
-    def partition_exprs(exprs, alias: Optional[str] = None):
+    def _partition_exprs(exprs, alias: Optional[str] = None):
         not_promotable = []
         promotable = []
         for expr in exprs:
@@ -212,7 +212,7 @@ class PersonsTable(LazyTable):
     def create_new_table_with_filter(self, join: JoinExpr) -> Self:
         if join.constraint is not None and isinstance(join.constraint.expr, And):
             exprs = cast(And, join.constraint.expr).exprs
-            promotable, not_promotable = PersonsTable.partition_exprs(exprs, join.alias)
+            promotable, not_promotable = PersonsTable._partition_exprs(exprs, join.alias)
             join.constraint.expr.exprs = not_promotable
             if len(promotable) == 0:
                 return self
@@ -226,9 +226,8 @@ class PersonsTable(LazyTable):
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context, node):
         if self.filter is not None:
-            return select_from_persons_table(table_to_add, context, node, clone_expr(self.filter, True, True))
-
-        return select_from_persons_table(table_to_add, context, node, None)
+            return select_from_persons_table(table_to_add, context, node, filter=clone_expr(self.filter, True, True))
+        return select_from_persons_table(table_to_add, context, node)
 
     def to_printed_clickhouse(self, context):
         return "person"

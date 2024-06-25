@@ -3,8 +3,6 @@ from typing import Optional
 from collections.abc import Sequence, Iterator
 
 from posthog.hogql import ast
-from posthog.hogql.ast import SelectQuery
-from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import has_aggregation
 from posthog.hogql_queries.actor_strategies import ActorStrategy, PersonStrategy, GroupStrategy
@@ -17,7 +15,6 @@ from posthog.schema import (
     CachedActorsQueryResponse,
     DashboardFilter,
 )
-from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 
 class ActorsQueryRunner(QueryRunner):
@@ -256,15 +253,10 @@ class ActorsQueryRunner(QueryRunner):
                     right=ast.Field(chain=[source_alias, *source_id_chain]),
                 )
 
+                # For some of our users, the persons table is large. If we're looking for person,
+                # help make the join smarter by limiting the people it has to look up
+                # The persons table inlines `in` conditions on the join (see `persons.py`)
                 if isinstance(self.strategy, PersonStrategy):
-                    # SelectUnionQuery (used by Stickiness) doesn't have settings
-                    for select_query in (
-                        [source_query] if isinstance(source_query, SelectQuery) else source_query.select_queries
-                    ):
-                        if select_query.settings is None:
-                            select_query.settings = HogQLQuerySettings()
-                        select_query.settings.use_query_cache = True
-                        select_query.settings.query_cache_ttl = HOGQL_INCREASED_MAX_EXECUTION_TIME
                     join_on = ast.And(
                         exprs=[
                             join_on,
