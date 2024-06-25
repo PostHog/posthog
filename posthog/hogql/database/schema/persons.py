@@ -189,9 +189,11 @@ class PersonsTable(LazyTable):
         return "persons"
 
 
-# Filterable Persons is a lazy table that allows you to insert a where statement inside of the person subselect
-# This is useful for certain users and queries where we might not want to pull everything
-class FilterablePersonsTable(LazyTable):
+# Persons is a lazy table that allows you to insert a where statement inside of the person subselect
+# It pulls any "persons.id in ()" statement inside of the argmax subselect
+# This is useful when executing a query for a large team.
+# It could be useful to set "use_query_cache" if the query is repeated. See `actors_query_runner.py` for an example
+class PersonsTable(LazyTable):
     fields: dict[str, FieldOrTable] = PERSONS_FIELDS
     filter: Optional[Expr] = None
 
@@ -200,7 +202,7 @@ class FilterablePersonsTable(LazyTable):
         return (
             isinstance(expr, CompareOperation)
             and expr.op == CompareOperationOp.In
-            and expr.left == Field(chain=["filterable_persons", "id"])
+            and expr.left == Field(chain=["persons", "id"])
         )
 
     @staticmethod
@@ -208,8 +210,8 @@ class FilterablePersonsTable(LazyTable):
         not_promotable = []
         promotable = []
         for expr in exprs:
-            if FilterablePersonsTable.is_promotable_expr(expr):
-                # Erase "filterable_persons" from the chain before bringing inside
+            if PersonsTable.is_promotable_expr(expr):
+                # Erase "persons" from the chain before bringing inside
                 expr.left = Field(chain=["id"])
                 promotable.append(expr)
             else:
@@ -227,4 +229,4 @@ class FilterablePersonsTable(LazyTable):
         return "person"
 
     def to_printed_hogql(self):
-        return "filterable_persons"
+        return "persons"
