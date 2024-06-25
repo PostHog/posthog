@@ -433,8 +433,8 @@ export const insightLogic = kea<insightLogicType>([
         saveAsNamingSuccess: async ({ name }) => {
             const insight: InsightModel = await api.create(`api/projects/${teamLogic.values.currentTeamId}/insights/`, {
                 name,
-                filters: values.filters,
-                query: values.insight.query,
+                filters: values.legacyFilters,
+                query: values.legacyInsight.query,
                 saved: true,
             })
             lemonToast.info(`You're now working on a copy of ${values.insight.name ?? values.insight.derived_name}`)
