@@ -10,6 +10,7 @@ import {
     HogWatcherGlobalState,
     HogWatcherObservationPeriod,
     HogWatcherObservationPeriodWithInstanceId,
+    HogWatcherRatingPeriod,
     HogWatcherState,
     HogWatcherStatePeriod,
     HogWatcherSummary,
@@ -18,6 +19,7 @@ import {
     BASE_REDIS_KEY,
     calculateRating,
     deriveCurrentStateFromRatings,
+    last,
     MAX_RECORDED_RATINGS,
     MAX_RECORDED_STATES,
     OBSERVATION_PERIOD,
@@ -147,11 +149,7 @@ export class HogWatcher {
 
             'hog-watcher-states': (message) => {
                 // NOTE: This is only emitted by the leader so we can immediately add it to the list of states
-                const { instanceId, states }: EmittedHogWatcherStates = JSON.parse(message)
-
-                if (instanceId === this.instanceId) {
-                    return
-                }
+                const { states }: EmittedHogWatcherStates = JSON.parse(message)
 
                 this.states = {
                     ...this.states,
@@ -355,27 +353,45 @@ export class HogWatcher {
             })
         })
 
+        const transitionToState = (id: HogFunctionType['id'], newState: HogWatcherState) => {
+            const state: HogWatcherStatePeriod = {
+                timestamp: periodTimestamp(),
+                state: newState,
+            }
+
+            globalState.states[id] = globalState.states[id] ?? []
+            globalState.states[id].push(state)
+            globalState.states[id] = globalState.states[id].slice(-MAX_RECORDED_STATES)
+            stateChanges.states[id] = newState
+        }
+
         changedHogFunctionRatings.forEach((id) => {
             // Build the new ratings to be written
             // Check if the state has changed and if so add it to the list of changes
             const newRatings = globalState.ratings[id]
-            const currentState = globalState.states[id]?.slice(-1)[0]?.state ?? HogWatcherState.healthy
+            const currentState = last(globalState.states[id])?.state ?? HogWatcherState.healthy
             const newState = deriveCurrentStateFromRatings(newRatings, globalState.states[id] ?? [])
 
             if (currentState !== newState) {
-                const state: HogWatcherStatePeriod = {
-                    timestamp: periodTimestamp(),
-                    state: newState,
-                }
-
-                globalState.states[id] = globalState.states[id] ?? []
-                globalState.states[id].push(state)
-                globalState.states[id] = globalState.states[id].slice(-MAX_RECORDED_STATES)
-                stateChanges.states[id] = newState
+                transitionToState(id, newState)
             }
         })
 
-        if (!changedHogFunctionRatings.size) {
+        // In addition we need to check temporarily disabled functions and move them back to overflow if they are behaving well
+        Object.entries(globalState.states).forEach(([id, states]) => {
+            const currentState = last(states)?.state
+            if (currentState === HogWatcherState.disabledForPeriod) {
+                // Also check the state change here
+                const newState = deriveCurrentStateFromRatings(globalState.ratings[id] ?? [], states)
+
+                console.log('STATE CHANGE', id, currentState, newState)
+                if (newState !== currentState) {
+                    transitionToState(id, newState)
+                }
+            }
+        })
+
+        if (!changedHogFunctionRatings.size && !Object.keys(stateChanges.states).length) {
             // Nothing to do
             return
         }
@@ -386,7 +402,7 @@ export class HogWatcher {
 
         // Finally write the state summary
         const states: Record<HogFunctionType['id'], HogWatcherState> = Object.fromEntries(
-            Object.entries(globalState.states).map(([id, states]) => [id, states.slice(-1)[0].state])
+            Object.entries(globalState.states).map(([id, states]) => [id, last(states)!.state])
         )
 
         // Finally we write the changes to redis and emit them to the others
@@ -437,11 +453,11 @@ export class HogWatcher {
             return client.hmget(`${BASE_REDIS_KEY}/state`, `states:${id}`, `ratings:${id}`)
         })
 
-        const states = statesStr ? JSON.parse(statesStr) : []
-        const ratings = ratingsStr ? JSON.parse(ratingsStr) : []
+        const states: HogWatcherStatePeriod[] = statesStr ? JSON.parse(statesStr) : []
+        const ratings: HogWatcherRatingPeriod[] = ratingsStr ? JSON.parse(ratingsStr) : []
 
         return {
-            state: states.slice(-1)[0]?.state ?? HogWatcherState.healthy,
+            state: last(states)?.state ?? HogWatcherState.healthy,
             states: states,
             ratings: ratings,
         }

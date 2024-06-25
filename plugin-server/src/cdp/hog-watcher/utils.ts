@@ -12,7 +12,7 @@ export const RATINGS_PERIOD_MASK = OBSERVATION_PERIOD * 2 // What number of peri
 export const DISABLED_PERIOD = 1000 * 60 * 10 // 10 minutes
 export const MAX_RECORDED_STATES = 10
 export const MAX_RECORDED_RATINGS = 10
-export const MAX_ALLOWED_TEMPORARY_DISABLES = MAX_RECORDED_STATES / 2
+export const MAX_ALLOWED_TEMPORARY_DISABLES = 3
 export const MIN_OBSERVATIONS = 3
 
 export const OVERFLOW_THRESHOLD = 0.8
@@ -135,4 +135,8 @@ export async function runRedis<T>(
         clearTimeout(timeout)
         await redisPool.release(client)
     }
+}
+
+export function last<T>(array?: T[]): T | undefined {
+    return array?.[array?.length - 1]
 }
