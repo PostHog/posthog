@@ -1,7 +1,7 @@
 import { VMState } from '@posthog/hogvm'
 import { DateTime } from 'luxon'
 
-import { ElementPropertyFilter, EventPropertyFilter, PersonPropertyFilter } from '../types'
+import { ClickHouseTimestamp, ElementPropertyFilter, EventPropertyFilter, PersonPropertyFilter } from '../types'
 
 export type HogBytecode = any[]
 
@@ -95,6 +95,11 @@ export type HogFunctionInvocationGlobals = {
     >
 }
 
+export type HogFunctionOverflowedGlobals = {
+    hogFunctionIds: HogFunctionType['id'][]
+    globals: HogFunctionInvocationGlobals
+}
+
 export type HogFunctionFilterGlobals = {
     // Filter Hog is built in the same way as analytics so the global object is meant to be an event
     event: string
@@ -126,7 +131,7 @@ export type HogFunctionFilterGlobals = {
 export type HogFunctionLogEntrySource = 'system' | 'hog' | 'console'
 export type HogFunctionLogEntryLevel = 'debug' | 'info' | 'warn' | 'error'
 
-export interface HogFunctionLogEntry {
+export type HogFunctionLogEntry = {
     team_id: number
     log_source: string // The kind of source (hog_function)
     log_source_id: string // The id of the hog function
@@ -134,6 +139,10 @@ export interface HogFunctionLogEntry {
     timestamp: DateTime
     level: HogFunctionLogEntryLevel
     message: string
+}
+
+export type HogFunctionLogEntrySerialized = Omit<HogFunctionLogEntry, 'timestamp'> & {
+    timestamp: ClickHouseTimestamp
 }
 
 export interface HogFunctionTiming {
@@ -170,12 +179,6 @@ export type HogFunctionInvocationAsyncResponse = HogFunctionInvocationResult & {
         vmResponse?: any
         timings: HogFunctionTiming[]
     }
-}
-
-export type HogFunctionMessageToQueue = {
-    topic: string
-    value: object
-    key: string
 }
 
 // Mostly copied from frontend types
@@ -225,7 +228,7 @@ export type IntegrationType = {
 
 type CdpOverflowMessageInvocations = {
     source: 'event_invocations'
-    payload: HogFunctionInvocationGlobals
+    payload: HogFunctionOverflowedGlobals
 }
 
 type CdpOverflowMessageFunctionCallback = {
@@ -234,3 +237,9 @@ type CdpOverflowMessageFunctionCallback = {
 }
 
 export type CdpOverflowMessage = CdpOverflowMessageInvocations | CdpOverflowMessageFunctionCallback
+
+export type HogFunctionMessageToQueue = {
+    topic: string
+    value: CdpOverflowMessage | HogFunctionLogEntrySerialized | HogFunctionInvocationAsyncResponse
+    key: string
+}

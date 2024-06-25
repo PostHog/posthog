@@ -72,10 +72,7 @@ export const addLog = (result: HogFunctionInvocationResult, level: HogFunctionLo
 export class HogExecutor {
     constructor(private serverConfig: PluginsServerConfig, private hogFunctionManager: HogFunctionManager) {}
 
-    /**
-     * Intended to be invoked as a starting point from an event
-     */
-    executeMatchingFunctions(event: HogFunctionInvocationGlobals): HogFunctionInvocationResult[] {
+    findMatchingFunctions(event: HogFunctionInvocationGlobals): HogFunctionType[] {
         const allFunctionsForTeam = this.hogFunctionManager.getTeamHogFunctions(event.project.id)
         const filtersGlobals = convertToHogFunctionFilterGlobal(event)
 
@@ -124,9 +121,26 @@ export class HogExecutor {
             } for team`
         )
 
-        const results: HogFunctionInvocationResult[] = []
+        return functions
+    }
 
-        for (const hogFunction of Object.values(functions)) {
+    /**
+     * Intended to be invoked as a starting point from an event
+     */
+    executeFunctions(
+        event: HogFunctionInvocationGlobals,
+        functionsOrIds: HogFunctionType[] | HogFunctionType['id'][]
+    ): HogFunctionInvocationResult[] {
+        const functions = functionsOrIds
+            .map((x) => {
+                if (typeof x === 'string') {
+                    return this.hogFunctionManager.getTeamHogFunction(event.project.id, x) as HogFunctionType
+                }
+                return x as HogFunctionType
+            })
+            .filter((x) => x) // Filter out any undefined values
+
+        const results = functions.map((hogFunction) => {
             // Add the source of the trigger to the globals
             const modifiedGlobals: HogFunctionInvocationGlobals = {
                 ...event,
@@ -136,7 +150,7 @@ export class HogExecutor {
                 },
             }
 
-            const result = this.execute(hogFunction, {
+            return this.execute(hogFunction, {
                 id: new UUIDT().toString(),
                 globals: modifiedGlobals,
                 teamId: hogFunction.team_id,
@@ -144,9 +158,7 @@ export class HogExecutor {
                 logs: [],
                 timings: [],
             })
-
-            results.push(result)
-        }
+        })
 
         return results
     }

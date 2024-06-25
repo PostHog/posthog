@@ -21,13 +21,15 @@ import { RustyHook } from '../worker/rusty-hook'
 import { AsyncFunctionExecutor } from './async-function-executor'
 import { HogExecutor } from './hog-executor'
 import { HogFunctionManager } from './hog-function-manager'
-import { HogWatcher } from './hog-watcher'
+import { HogWatcher, HogWatcherState } from './hog-watcher'
 import {
     CdpOverflowMessage,
     HogFunctionInvocationAsyncResponse,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationResult,
-    HogFunctionMessageToQueue,
+    HogFunctionMessageToProduce,
+    HogFunctionOverflowedGlobals,
+    HogFunctionType,
 } from './types'
 import { convertToHogFunctionInvocationGlobals, convertToParsedClickhouseEvent } from './utils'
 
@@ -62,6 +64,7 @@ abstract class CdpConsumerBase {
     hogWatcher: HogWatcher
     appMetrics?: AppMetrics
     isStopping = false
+    messagesToProduce: HogFunctionMessageToProduce[] = []
 
     protected kafkaProducer?: KafkaProducerWrapper
     protected abstract name: string
@@ -78,13 +81,26 @@ abstract class CdpConsumerBase {
 
     public abstract handleEachBatch(messages: Message[], heartbeat: () => void): Promise<void>
 
+    private async produceQueuedMessages() {
+        const messages = [...this.messagesToProduce]
+        this.messagesToProduce = []
+        await Promise.all(
+            messages.map((x) =>
+                this.kafkaProducer!.produce({
+                    topic: x.topic,
+                    value: Buffer.from(JSON.stringify(x.value)),
+                    key: x.key,
+                    waitForAck: true,
+                })
+            )
+        )
+    }
+
     protected async processInvocationResults(results: HogFunctionInvocationResult[]): Promise<void> {
         // TODO: Follow up - process metrics from the invocationResults
         await runInstrumentedFunction({
             statsKey: `cdpConsumer.handleEachBatch.produceResults`,
             func: async () => {
-                const messagesToProduce: HogFunctionMessageToQueue[] = []
-
                 await Promise.all(
                     results.map(async (result) => {
                         // Tricky: We want to pull all the logs out as we don't want them to be passed around to any subsequent functions
@@ -97,7 +113,7 @@ abstract class CdpConsumerBase {
                                 timestamp: castTimestampOrNow(x.timestamp, TimestampFormat.ClickHouse),
                             }
                             // Convert timestamps to ISO strings
-                            messagesToProduce.push({
+                            this.messagesToProduce.push({
                                 topic: KAFKA_LOG_ENTRIES,
                                 value: sanitized,
                                 key: sanitized.instance_id,
@@ -110,7 +126,7 @@ abstract class CdpConsumerBase {
                             // NOTE: This is very temporary as it is producing the response. the response will actually be produced by the 3rd party service
                             // Later this will actually be the _request_ which we will push to the async function topic if we make one
                             if (res) {
-                                messagesToProduce.push({
+                                this.messagesToProduce.push({
                                     topic: KAFKA_CDP_FUNCTION_CALLBACKS,
                                     value: res,
                                     key: res.id,
@@ -118,17 +134,6 @@ abstract class CdpConsumerBase {
                             }
                         }
                     })
-                )
-
-                await Promise.all(
-                    messagesToProduce.map((x) =>
-                        this.kafkaProducer!.produce({
-                            topic: x.topic,
-                            value: Buffer.from(JSON.stringify(x.value)),
-                            key: x.key,
-                            waitForAck: true,
-                        })
-                    )
                 )
             },
         })
@@ -142,16 +147,25 @@ abstract class CdpConsumerBase {
             func: async () => {
                 this.hogWatcher.currentObservations.observeAsyncFunctionResponses(asyncResponses)
                 // Filter for blocked functions
-                asyncResponses = asyncResponses.filter(() => {
+                asyncResponses = asyncResponses.filter((item) => {
                     // TODO: Filter things out and move to overflow
-                    // if (this.hogWatcher.isHogFunctionOverflowed(e.hogFunctionId)) {
-                    //     // TODO: Move to overflow
-                    //     return false
-                    // }
-                    // if (this.hogWatcher.isHogFunctionDisabled(e.hogFunctionId)) {
-                    //     // TODO: We probably want to log some metric that it was blocked
-                    //     return false
-                    // }
+                    const functionState = this.hogWatcher.getFunctionState(item.hogFunctionId)
+
+                    if (functionState === HogWatcherState.overflowed) {
+                        this.messagesToProduce.push({
+                            topic: KAFKA_CDP_OVERFLOW,
+                            value: {
+                                source: 'hog_function_callback',
+                                payload: item,
+                            },
+                            key: item.id,
+                        })
+                        return false
+                    }
+                    if (functionState > HogWatcherState.disabledForPeriod) {
+                        // TODO: We probably want to log some metric that it was blocked
+                        return false
+                    }
                     return true
                 })
 
@@ -170,13 +184,59 @@ abstract class CdpConsumerBase {
             func: async () => {
                 const results = (
                     await Promise.all(
-                        invocationGlobals.map((e) => {
+                        invocationGlobals.map((globals) => {
+                            const matchingFunctions = this.hogExecutor.findMatchingFunctions(globals)
+
+                            // Filter for overflowed and disabled functions
+                            const [healthy, overflowed, disabled] = matchingFunctions.reduce(
+                                (acc, item) => {
+                                    const state = this.hogWatcher.getFunctionState(item.id)
+                                    if (state >= HogWatcherState.disabledForPeriod) {
+                                        acc[2].push(item)
+                                    } else if (state >= HogWatcherState.overflowed) {
+                                        acc[1].push(item)
+                                    } else {
+                                        acc[0].push(item)
+                                    }
+
+                                    return acc
+                                },
+                                [[], [], []] as [HogFunctionType[], HogFunctionType[], HogFunctionType[]]
+                            )
+
+                            if (overflowed.length) {
+                                // Add message to overflow queue
+                                // Log something
+                                status.info('🔁', `Oveflowing functions`, {
+                                    count: overflowed.length,
+                                })
+
+                                this.messagesToProduce.push({
+                                    topic: KAFKA_CDP_OVERFLOW,
+                                    value: {
+                                        source: 'event_invocations',
+                                        payload: {
+                                            hogFunctionIds: overflowed.map((x) => x.id),
+                                            globals,
+                                        },
+                                    },
+                                    key: globals.event.uuid,
+                                })
+                            }
+
+                            if (disabled.length) {
+                                // Log something
+                                status.info('🔁', `Disabled functions skipped`, {
+                                    count: disabled.length,
+                                })
+                            }
+
                             // TODO: Load all functions related to this event
                             // Check if they are overflowed - if so move to the overflow queue
                             // BUT only one event and a list of hog function IDs, as we don't want to duplicate the overflow situation
                             // Check if they are disabled - if so we log and drop it entirely
 
-                            return this.hogExecutor.executeMatchingFunctions(e)
+                            return this.hogExecutor.executeFunctions(globals, healthy)
                         })
                     )
                 ).flat()
@@ -242,7 +302,8 @@ abstract class CdpConsumerBase {
                     statsKey: `cdpConsumer.handleEachBatch`,
                     sendTimeoutGuardToSentry: false,
                     func: async () => {
-                        return await this.handleEachBatch(messages, heartbeat)
+                        await this.handleEachBatch(messages, heartbeat)
+                        await this.produceQueuedMessages()
                     },
                 })
             },
@@ -405,7 +466,7 @@ export class CdpOverflowConsumer extends CdpConsumerBase {
 
     public async handleEachBatch(messages: Message[], heartbeat: () => void): Promise<void> {
         // This consumer can receive both events and callbacks so needs to check the message being parsed
-        const [invocationGlobals, callbacks] = await runInstrumentedFunction({
+        const [overflowedGlobals, callbacks] = await runInstrumentedFunction({
             statsKey: `cdpConsumer.handleEachBatch.parseKafkaMessages`,
             func: () => Promise.resolve(this.parseMessages(messages)),
         })
@@ -413,7 +474,10 @@ export class CdpOverflowConsumer extends CdpConsumerBase {
         heartbeat()
 
         const invocationResults = (
-            await Promise.all([this.executeAsyncResponses(callbacks), this.executeMatchingFunctions(invocationGlobals)])
+            await Promise.all([
+                this.executeAsyncResponses(callbacks),
+                this.executeOverflowedFunctions(overflowedGlobals),
+            ])
         ).flat()
 
         heartbeat()
@@ -421,8 +485,27 @@ export class CdpOverflowConsumer extends CdpConsumerBase {
         await this.processInvocationResults(invocationResults)
     }
 
-    private parseMessages(messages: Message[]): [HogFunctionInvocationGlobals[], HogFunctionInvocationAsyncResponse[]] {
-        const invocationGlobals: HogFunctionInvocationGlobals[] = []
+    protected async executeOverflowedFunctions(
+        invocationGlobals: HogFunctionOverflowedGlobals[]
+    ): Promise<HogFunctionInvocationResult[]> {
+        return await runInstrumentedFunction({
+            statsKey: `cdpConsumer.handleEachBatch.executeOverflowedFunctions`,
+            func: async () => {
+                const results = (
+                    await Promise.all(
+                        invocationGlobals.map((item) => {
+                            return this.hogExecutor.executeFunctions(item.globals, item.hogFunctionIds)
+                        })
+                    )
+                ).flat()
+                this.hogWatcher.currentObservations.observeResults(results)
+                return results
+            },
+        })
+    }
+
+    private parseMessages(messages: Message[]): [HogFunctionOverflowedGlobals[], HogFunctionInvocationAsyncResponse[]] {
+        const invocationGlobals: HogFunctionOverflowedGlobals[] = []
         const callbacks: HogFunctionInvocationAsyncResponse[] = []
         messages.map((message) => {
             try {

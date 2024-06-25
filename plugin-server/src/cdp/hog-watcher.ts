@@ -188,6 +188,28 @@ export const deriveCurrentState = (
     return currentState.state
 }
 
+const mergeObservations = (observations: HogWatcherObservationPeriod[]): HogWatcherObservationPeriod[] => {
+    const merged: Record<number, HogWatcherObservationPeriod> = {}
+
+    observations.forEach((observation) => {
+        const period = periodTimestamp(observation.timestamp)
+        merged[period] = merged[period] ?? {
+            timestamp: period,
+            successes: 0,
+            failures: 0,
+            asyncFunctionFailures: 0,
+            asyncFunctionSuccesses: 0,
+        }
+
+        merged[period].successes += observation.successes
+        merged[period].failures += observation.failures
+        merged[period].asyncFunctionFailures += observation.asyncFunctionFailures
+        merged[period].asyncFunctionSuccesses += observation.asyncFunctionSuccesses
+    })
+
+    return Object.values(merged).sort((a, b) => a.timestamp - b.timestamp)
+}
+
 async function runRedis<T>(redisPool: RedisPool, description: string, fn: (client: Redis) => Promise<T>): Promise<T> {
     const client = await redisPool.acquire()
     const timeout = timeoutGuard(
@@ -255,6 +277,7 @@ export class HogWatcher {
     public readonly currentObservations = new HogWatcherActiveObservations()
     public readonly states: Record<HogFunctionType['id'], HogWatcherStatePeriod[]> = {}
     public readonly observations: Record<HogFunctionType['id'], HogWatcherObservationPeriod[]> = {}
+    public readonly summaries: Record<HogFunctionType['id'], HogWatcherSummary> = {}
 
     // Only the leader should be able to write to the states
     private isLeader: boolean = false
@@ -274,19 +297,7 @@ export class HogWatcher {
 
                 observations.forEach(({ id, observation }) => {
                     const observationsForId = (this.observations[id] = this.observations[id] ?? [])
-                    // Merge or append
-
-                    const existingObservation = observationsForId.find((x) => x.timestamp === observation.timestamp)
-                    if (existingObservation) {
-                        // We already have an observation for this period so we should merge them
-                        existingObservation.successes += observation.successes
-                        existingObservation.failures += observation.failures
-                        existingObservation.asyncFunctionFailures += observation.asyncFunctionFailures
-                        existingObservation.asyncFunctionSuccesses += observation.asyncFunctionSuccesses
-                        return
-                    }
-
-                    observationsForId.push(observation)
+                    this.observations[id] = mergeObservations([...observationsForId, observation])
                 })
             },
 
@@ -341,6 +352,10 @@ export class HogWatcher {
         })
 
         await this.flushActiveObservations()
+    }
+
+    public getFunctionState(id: HogFunctionType['id']): HogWatcherState {
+        return this.states[id]?.slice(-1)[0]?.state ?? HogWatcherState.healthy
     }
 
     private async checkIsLeader() {
@@ -478,6 +493,14 @@ export class HogWatcher {
         await this.pubSub.publish('hog-watcher-states', JSON.stringify(changes))
     }
 
+    async fetchWatcherIfNeeded(id: HogFunctionType['id']): Promise<HogWatcherSummary> {
+        if (!this.summaries[id]) {
+            this.summaries[id] = await this.fetchWatcher(id)
+        }
+
+        return this.summaries[id]
+    }
+
     async fetchWatcher(id: HogFunctionType['id']): Promise<HogWatcherSummary> {
         const [states, observations] = await runRedis(this.hub.redisPool, 'fetchWatcher', async (client) => {
             const pipeline = client.pipeline()
@@ -491,7 +514,6 @@ export class HogWatcher {
         const observationsParsed = observations[1] as Record<string, string>
 
         const statesArray: HogWatcherStatePeriod[] = []
-        const observationsArray: HogWatcherObservationPeriod[] = []
 
         for (let i = 0; i < statesParsed.length; i += 2) {
             statesArray.push({
@@ -500,9 +522,7 @@ export class HogWatcher {
             })
         }
 
-        for (const observation of Object.values(observationsParsed)) {
-            observationsArray.push(JSON.parse(observation))
-        }
+        const observationsArray = mergeObservations(Object.values(observationsParsed).map((x) => JSON.parse(x)))
 
         return {
             state: statesArray[statesArray.length - 1]?.state ?? HogWatcherState.healthy,
