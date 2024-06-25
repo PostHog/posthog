@@ -3540,14 +3540,20 @@ class HogQLAutocomplete(BaseModel):
         extra="forbid",
     )
     endPosition: int = Field(..., description="End position of the editor word")
+    expr: Optional[str] = Field(default=None, description="HogQL expression to validate")
+    exprSource: Optional[str] = Field(
+        default=None,
+        description='Query within which "expr" and "template" are validated. Defaults to "select * from events"',
+    )
     filters: Optional[HogQLFilters] = Field(default=None, description="Table to validate the expression against")
     kind: Literal["HogQLAutocomplete"] = "HogQLAutocomplete"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[HogQLAutocompleteResponse] = None
-    select: str = Field(..., description="Full select query to validate")
+    select: Optional[str] = Field(default=None, description="Select query to validate")
     startPosition: int = Field(..., description="Start position of the editor word")
+    template: Optional[str] = Field(default=None, description="HogQL string template to validate")
 
 
 class InsightFilter(

@@ -8,9 +8,9 @@ import { codeEditorLogicType } from 'lib/monaco/codeEditorLogicType'
 import { findNextFocusableElement, findPreviousFocusableElement } from 'lib/monaco/domUtils'
 import { hogQLAutocompleteProvider } from 'lib/monaco/hogQLAutocompleteProvider'
 import { hogQLMetadataProvider } from 'lib/monaco/hogQLMetadataProvider'
-import * as ehog from 'lib/monaco/languages/ehog'
 import * as hog from 'lib/monaco/languages/hog'
-import * as hogQL from 'lib/monaco/languages/hogql'
+import * as hogQL from 'lib/monaco/languages/hogQL'
+import * as hogTemplate from 'lib/monaco/languages/hogTemplate'
 import { inStorybookTestRunner } from 'lib/utils'
 import { editor, editor as importedEditor, IDisposable } from 'monaco-editor'
 import { useEffect, useRef, useState } from 'react'
@@ -30,20 +30,6 @@ function initEditor(
     monacoDisposables: React.MutableRefObject<IDisposable[]>,
     builtCodeEditorLogic: BuiltLogic<codeEditorLogicType>
 ): void {
-    if (editorProps?.language === 'ehog') {
-        if (!monaco.languages.getLanguages().some(({ id }) => id === 'ehog')) {
-            monaco.languages.register({
-                id: 'ehog',
-                extensions: ['.ehog'],
-                mimetypes: ['application/e+hog'],
-            })
-            monaco.languages.setLanguageConfiguration('ehog', ehog.conf)
-            monaco.languages.setMonarchTokensProvider('ehog', ehog.language)
-        }
-        monacoDisposables.current.push(
-            monaco.languages.registerCodeActionProvider('ehog', hogQLMetadataProvider(builtCodeEditorLogic))
-        )
-    }
     if (editorProps?.language === 'hog') {
         if (!monaco.languages.getLanguages().some(({ id }) => id === 'hog')) {
             monaco.languages.register({ id: 'hog', extensions: ['.hog'], mimetypes: ['application/hog'] })
@@ -54,21 +40,51 @@ function initEditor(
             monaco.languages.registerCodeActionProvider('hog', hogQLMetadataProvider(builtCodeEditorLogic))
         )
     }
-    if (editorProps?.language === 'hogql') {
-        if (!monaco.languages.getLanguages().some(({ id }) => id === 'hogql')) {
-            monaco.languages.register({
-                id: 'hogql',
-                extensions: ['.sql', '.hogql'],
-                mimetypes: ['application/hog+ql'],
-            })
-            monaco.languages.setLanguageConfiguration('hogql', hogQL.conf)
-            monaco.languages.setMonarchTokensProvider('hogql', hogQL.language)
+    if (editorProps?.language === 'hogQL' || editorProps?.language === 'hogQLExpr') {
+        const language: 'hogQL' | 'hogQLExpr' = editorProps.language
+        if (!monaco.languages.getLanguages().some(({ id }) => id === language)) {
+            monaco.languages.register(
+                language === 'hogQL'
+                    ? {
+                          id: language,
+                          extensions: ['.sql', '.hogql'],
+                          mimetypes: ['application/hogql'],
+                      }
+                    : {
+                          id: language,
+                          mimetypes: ['application/hogql+expr'],
+                      }
+            )
+            monaco.languages.setLanguageConfiguration(language, hogQL.conf)
+            monaco.languages.setMonarchTokensProvider(language, hogQL.language)
         }
         monacoDisposables.current.push(
-            monaco.languages.registerCompletionItemProvider('hogql', hogQLAutocompleteProvider(builtCodeEditorLogic))
+            monaco.languages.registerCompletionItemProvider(
+                language,
+                hogQLAutocompleteProvider(language, builtCodeEditorLogic)
+            )
         )
         monacoDisposables.current.push(
-            monaco.languages.registerCodeActionProvider('hogql', hogQLMetadataProvider(builtCodeEditorLogic))
+            monaco.languages.registerCodeActionProvider(language, hogQLMetadataProvider(builtCodeEditorLogic))
+        )
+    }
+    if (editorProps?.language === 'hogTemplate') {
+        if (!monaco.languages.getLanguages().some(({ id }) => id === 'hogTemplate')) {
+            monaco.languages.register({
+                id: 'hogTemplate',
+                mimetypes: ['application/hog+template'],
+            })
+            monaco.languages.setLanguageConfiguration('hogTemplate', hogTemplate.conf)
+            monaco.languages.setMonarchTokensProvider('hogTemplate', hogTemplate.language)
+        }
+        monacoDisposables.current.push(
+            monaco.languages.registerCompletionItemProvider(
+                'hogTemplate',
+                hogQLAutocompleteProvider('hogTemplate', builtCodeEditorLogic)
+            )
+        )
+        monacoDisposables.current.push(
+            monaco.languages.registerCodeActionProvider('hogTemplate', hogQLMetadataProvider(builtCodeEditorLogic))
         )
     }
     if (options.tabFocusMode) {
@@ -76,25 +92,25 @@ function initEditor(
             if (evt.keyCode === monaco.KeyCode.Tab && !evt.metaKey && !evt.ctrlKey) {
                 const selection = editor.getSelection()
                 if (
-                    !selection ||
-                    (selection.startColumn === selection.endColumn &&
-                        selection.startLineNumber === selection.endLineNumber)
+                    selection &&
+                    (selection.startColumn !== selection.endColumn ||
+                        selection.startLineNumber !== selection.endLineNumber)
                 ) {
-                    evt.preventDefault()
-                    evt.stopPropagation()
+                    return
+                }
+                evt.preventDefault()
+                evt.stopPropagation()
 
-                    const findNext = !evt.shiftKey
-                    const element: HTMLElement | null = evt.target?.parentElement?.parentElement?.parentElement ?? null
+                const element: HTMLElement | null = evt.target?.parentElement?.parentElement?.parentElement ?? null
+                if (!element) {
+                    return
+                }
+                const nextElement = evt.shiftKey
+                    ? findPreviousFocusableElement(element)
+                    : findNextFocusableElement(element)
 
-                    if (element) {
-                        const nextElement = findNext
-                            ? findNextFocusableElement(element)
-                            : findPreviousFocusableElement(element)
-
-                        if (nextElement && 'focus' in nextElement) {
-                            nextElement.focus()
-                        }
-                    }
+                if (nextElement && 'focus' in nextElement) {
+                    nextElement.focus()
                 }
             }
         })

@@ -3,7 +3,7 @@ function isFocusable(element: HTMLElement): boolean {
         return false
     }
     const hasTabIndex = element.hasAttribute('tabindex')
-    const tabIndex = hasTabIndex ? parseInt(element.getAttribute('tabindex') || '0', 10) : 0
+    const tabIndex = hasTabIndex ? parseInt(element.getAttribute('tabindex') || '0', 10) : -1
     const isFocusableInherently =
         /^(input|select|textarea|button|object)$/.test(element.tagName.toLowerCase()) ||
         (element.tagName.toLowerCase() === 'a' && element.hasAttribute('href'))
@@ -83,11 +83,8 @@ export function findPreviousFocusableElement(startElement: HTMLElement): HTMLEle
             prevSearchable = prevSearchable.previousElementSibling as HTMLElement
         }
 
-        if (!prevSearchable) {
-            const focusable = searchFocusable(parentElement)
-            if (focusable) {
-                return focusable
-            }
+        if (isFocusable(parentElement) && parentElement !== startElement) {
+            return parentElement
         }
 
         prevSearchable = parentElement.previousElementSibling as HTMLElement | null

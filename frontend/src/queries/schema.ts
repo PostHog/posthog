@@ -367,8 +367,14 @@ export interface HogQLMetadata extends DataNode<HogQLMetadataResponse> {
 
 export interface HogQLAutocomplete extends DataNode<HogQLAutocompleteResponse> {
     kind: NodeKind.HogQLAutocomplete
-    /** Full select query to validate */
-    select: string
+    /** HogQL string template to validate */
+    template?: string
+    /** Select query to validate */
+    select?: string
+    /** HogQL expression to validate */
+    expr?: string
+    /** Query within which "expr" and "template" are validated. Defaults to "select * from events" */
+    exprSource?: string
     /** Table to validate the expression against */
     filters?: HogQLFilters
     /**
