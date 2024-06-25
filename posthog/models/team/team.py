@@ -482,15 +482,6 @@ def delete_team_in_cache_on_delete(sender, instance: Team, **kwargs):
     set_team_in_cache(instance.api_token, None)
 
 
-def groups_on_events_querying_enabled():
-    """
-    Returns whether to allow querying groups columns on events.
-
-    Remove all usages of this when the feature is released to everyone.
-    """
-    return get_instance_setting("GROUPS_ON_EVENTS_ENABLED")
-
-
 def check_is_feature_available_for_team(team_id: int, feature_key: str, current_usage: Optional[int] = None):
     available_product_features: Optional[list[dict[str, str]]] = (
         Team.objects.select_related("organization")

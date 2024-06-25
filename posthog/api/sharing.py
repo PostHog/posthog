@@ -16,6 +16,7 @@ from posthog.api.dashboards.dashboard import DashboardSerializer
 from posthog.api.exports import ExportedAssetSerializer
 from posthog.api.insight import InsightSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.models import SessionRecording, SharingConfiguration, Team
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.dashboard import Dashboard
@@ -274,9 +275,10 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         elif resource.dashboard and not resource.dashboard.deleted:
             asset_title = resource.dashboard.name
             asset_description = resource.dashboard.description or ""
-            dashboard_data = DashboardSerializer(resource.dashboard, context=context).data
-            # We don't want the dashboard to be accidentally loaded via the shared endpoint
-            exported_data.update({"dashboard": dashboard_data})
+            with task_chain_context():
+                dashboard_data = DashboardSerializer(resource.dashboard, context=context).data
+                # We don't want the dashboard to be accidentally loaded via the shared endpoint
+                exported_data.update({"dashboard": dashboard_data})
         elif isinstance(resource, SharingConfiguration) and resource.recording and not resource.recording.deleted:
             asset_title = "Session Recording"
             recording_data = SessionRecordingSerializer(resource.recording, context=context).data

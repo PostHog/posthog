@@ -507,7 +507,6 @@ export interface TeamType extends TeamBasicType {
      */
     correlation_config: CorrelationConfigType | null
     person_on_events_querying_enabled: boolean
-    groups_on_events_querying_enabled: boolean
     extra_settings?: Record<string, string | number | boolean | undefined>
     modifiers?: HogQLQueryModifiers
     default_modifiers?: HogQLQueryModifiers
@@ -2654,12 +2653,13 @@ export interface SurveyAppearance {
     thankYouMessageDescriptionContentType?: SurveyQuestionDescriptionContentType
     autoDisappear?: boolean
     position?: string
+    shuffleQuestions?: boolean
+    surveyPopupDelaySeconds?: number
     // widget only
     widgetType?: 'button' | 'tab' | 'selector'
     widgetSelector?: string
     widgetLabel?: string
     widgetColor?: string
-    shuffleQuestions?: boolean
 }
 
 export interface SurveyQuestionBase {
