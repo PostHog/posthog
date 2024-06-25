@@ -1,9 +1,9 @@
 [project]
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 
 [tool.black]
 line-length = 120
-target-version = ['py311']
+target-version = ['py310']
 
 [tool.isort]
 profile = "black"

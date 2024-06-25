@@ -278,7 +278,7 @@ export function LineGraph_({
     const { aggregationLabel } = useValues(groupsModel)
     const { isDarkModeOn } = useValues(themeLogic)
 
-    const { insightProps, insight } = useValues(insightLogic)
+    const { insightProps, queryBasedInsight } = useValues(insightLogic)
     const { timezone, isTrends, breakdownFilter } = useValues(insightVizDataLogic(insightProps))
 
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -754,7 +754,7 @@ export function LineGraph_({
                     dates={datasets[0]?.days || []}
                     chartWidth={chartWidth}
                     chartHeight={chartHeight}
-                    insightNumericId={insight.id || 'new'}
+                    insightNumericId={queryBasedInsight.id || 'new'}
                 />
             ) : null}
         </div>

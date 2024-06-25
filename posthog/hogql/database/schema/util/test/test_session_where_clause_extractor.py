@@ -3,11 +3,12 @@ from typing import Union, Optional
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.schema.util.where_clause_extractor import SessionMinTimestampWhereClauseExtractor
+from posthog.hogql.database.schema.util.where_clause_extractor import SessionMinTimestampWhereClauseExtractorV1
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select, parse_expr
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.visitor import clone_expr
+from posthog.schema import SessionTableVersion
 from posthog.test.base import ClickhouseTestMixin, APIBaseTest
 
 
@@ -29,18 +30,19 @@ def parse(
     return parsed
 
 
-class TestSessionWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
+class TestSessionWhereClauseExtractorV1(ClickhouseTestMixin, APIBaseTest):
     @property
     def inliner(self):
         team = self.team
         modifiers = create_default_modifiers_for_team(team)
+        modifiers.sessionTableVersion = SessionTableVersion.V1
         context = HogQLContext(
             team_id=team.pk,
             team=team,
             enable_select_queries=True,
             modifiers=modifiers,
         )
-        return SessionMinTimestampWhereClauseExtractor(context)
+        return SessionMinTimestampWhereClauseExtractorV1(context)
 
     def test_handles_select_with_no_where_claus(self):
         inner_where = self.inliner.get_inner_where(parse("SELECT * FROM sessions"))
@@ -280,6 +282,7 @@ class TestSessionsQueriesHogQLToClickhouse(ClickhouseTestMixin, APIBaseTest):
     def print_query(self, query: str) -> str:
         team = self.team
         modifiers = create_default_modifiers_for_team(team)
+        modifiers.sessionTableVersion = SessionTableVersion.V1
         context = HogQLContext(
             team_id=team.pk,
             team=team,
