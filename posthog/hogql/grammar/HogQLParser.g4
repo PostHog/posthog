@@ -20,9 +20,10 @@ statement      : returnStmt
                | forStmt
                | funcStmt
                | varAssignment
+               | block
                | exprStmt
                | emptyStmt
-               | block ;
+               ;
 
 returnStmt     : RETURN expression? SEMICOLON?;
 ifStmt         : IF LPAREN expression RPAREN statement ( ELSE statement )? ;

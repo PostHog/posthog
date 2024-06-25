@@ -291,6 +291,391 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     return ret;
   }
 
+  VISIT(Program) {
+    PyObject* declarations = PyList_New(0);
+    if (!declarations) {
+      throw PyInternalError();
+    }
+    auto declaration_ctxs = ctx->declaration();
+    for (auto declaration_ctx : declaration_ctxs) {
+      if (declaration_ctx->statement() && declaration_ctx->statement()->emptyStmt()) {
+        continue;
+      }
+      PyObject* statement = Py_None;
+      try {
+        statement = visitAsPyObject(declaration_ctx);
+        int append_code = PyList_Append(declarations, statement);
+        Py_DECREF(statement);
+        if (append_code == -1) {
+          throw PyInternalError();
+        }
+      } catch (...) {
+        Py_DECREF(declarations);
+        throw;
+      }
+    }
+    PyObject* ret = build_ast_node("Program", "{s:N}", "declarations", declarations);
+    if (!ret) {
+      Py_DECREF(declarations);
+      throw PyInternalError();
+    }
+    return ret;
+  }
+
+  VISIT(Declaration) {
+    auto var_decl_ctx = ctx->varDecl();
+    if (var_decl_ctx) {
+      return visit(var_decl_ctx);
+    }
+    auto statement_ctx = ctx->statement();
+    if (statement_ctx) {
+      return visit(statement_ctx);
+    }
+    throw ParsingError("Declaration must be either a varDecl or a statement");
+  }
+
+  VISIT(Expression) {
+    return visit(ctx->columnExpr());
+  }
+
+  VISIT(VarDecl) {
+    string name = visitAsString(ctx->identifier());
+    PyObject* expr = visitAsPyObjectOrNone(ctx->expression());
+    PyObject* ret = build_ast_node("VariableDeclaration", "{s:s#,s:N}", "name", name.data(), name.size(), "expr", expr);
+    if (!ret) {
+      Py_DECREF(expr);
+      throw PyInternalError();
+    }
+    return ret;
+  }
+
+  VISIT(VarAssignment) {
+    PyObject* left = visitAsPyObject(ctx->expression(0));
+    PyObject* right;
+    try {
+      right = visitAsPyObject(ctx->expression(1));
+    } catch (...) {
+      Py_DECREF(left);
+      throw;
+    }
+    PyObject* ret = build_ast_node("VariableAssignment", "{s:N,s:N}", "left", left, "right", right);
+    if (!ret) {
+      Py_DECREF(left);
+      Py_DECREF(right);
+      throw PyInternalError();
+    }
+    return ret;
+  }
+
+  VISIT(Statement) {
+    auto return_stmt_ctx = ctx->returnStmt();
+    if (return_stmt_ctx) {
+      return visit(return_stmt_ctx);
+    }
+
+    auto if_stmt_ctx = ctx->ifStmt();
+    if (if_stmt_ctx) {
+      return visit(if_stmt_ctx);
+    }
+
+    auto while_stmt_ctx = ctx->whileStmt();
+    if (while_stmt_ctx) {
+      return visit(while_stmt_ctx);
+    }
+
+    auto for_stmt_ctx = ctx->forStmt();
+    if (for_stmt_ctx) {
+      return visit(for_stmt_ctx);
+    }
+
+    auto func_stmt_ctx = ctx->funcStmt();
+    if (func_stmt_ctx) {
+      return visit(func_stmt_ctx);
+    }
+
+    auto var_assignment_ctx = ctx->varAssignment();
+    if (var_assignment_ctx) {
+      return visit(var_assignment_ctx);
+    }
+
+    auto block_ctx = ctx->block();
+    if (block_ctx) {
+      return visit(block_ctx);
+    }
+
+    auto expr_stmt_ctx = ctx->exprStmt();
+    if (expr_stmt_ctx) {
+      return visit(expr_stmt_ctx);
+    }
+
+    auto empty_stmt_ctx = ctx->emptyStmt();
+    if (empty_stmt_ctx) {
+      return visit(empty_stmt_ctx);
+    }
+
+    throw ParsingError("Statement must be one of returnStmt, ifStmt, whileStmt, forStmt, funcStmt, varAssignment, "
+                       "block, exprStmt, or emptyStmt");
+  }
+
+  VISIT(ExprStmt) {
+    PyObject* expr;
+    try {
+      expr = visitAsPyObject(ctx->expression());
+    } catch (...) {
+      throw;
+    }
+    PyObject* ret = build_ast_node("ExprStatement", "{s:N}", "expr", expr);
+    if (!ret) {
+      Py_DECREF(expr);
+      throw PyInternalError();
+    }
+    return ret;
+  }
+
+  VISIT(ReturnStmt) {
+    PyObject* expr;
+    try {
+      expr = visitAsPyObjectOrNone(ctx->expression());
+    } catch (...) {
+      throw;
+    }
+    PyObject* ret = build_ast_node("ReturnStatement", "{s:N}", "expr", expr);
+    if (!ret) {
+      Py_DECREF(expr);
+      throw PyInternalError();
+    }
+    return ret;
+  }
+
+  VISIT(IfStmt) {
+    PyObject* expr;
+    try {
+      expr = visitAsPyObject(ctx->expression());
+    } catch (...) {
+      throw;
+    }
+    PyObject* then_stmt;
+    try {
+      then_stmt = visitAsPyObject(ctx->statement(0));
+    } catch (...) {
+      Py_DECREF(expr);
+      throw;
+    }
+    PyObject* else_stmt;
+    try {
+      else_stmt = visitAsPyObjectOrNone(ctx->statement(1));
+    } catch (...) {
+      Py_DECREF(expr);
+      Py_DECREF(then_stmt);
+      throw;
+    }
+    PyObject* ret = build_ast_node("IfStatement", "{s:N,s:N,s:N}", "expr", expr, "then", then_stmt, "else_", else_stmt);
+    if (!ret) {
+      Py_DECREF(expr);
+      Py_DECREF(then_stmt);
+      Py_DECREF(else_stmt);
+      throw PyInternalError();
+    }
+    return ret;
+  }
+
+  VISIT(WhileStmt) {
+    PyObject* expr;
+    try {
+      expr = visitAsPyObject(ctx->expression());
+    } catch (...) {
+      throw;
+    }
+    PyObject* body;
+    try {
+      body = visitAsPyObjectOrNone(ctx->statement());
+    } catch (...) {
+      Py_DECREF(expr);
+      throw;
+    }
+    PyObject* ret = build_ast_node("WhileStatement", "{s:N,s:N}", "expr", expr, "body", body);
+    if (!ret) {
+      Py_DECREF(expr);
+      Py_DECREF(body);
+      throw PyInternalError();
+    }
+    return ret;
+  }
+
+  VISIT(ForStmt) {
+    PyObject* initializer;
+    if (ctx->initializerVarDeclr) {
+      initializer = visitAsPyObject(ctx->initializerVarDeclr);
+    } else if (ctx->initializerVarAssignment) {
+      initializer = visitAsPyObject(ctx->initializerVarAssignment);
+    } else if (ctx->initializerExpression) {
+      initializer = visitAsPyObject(ctx->initializerExpression);
+    } else {
+      initializer = Py_None;
+      Py_INCREF(initializer);
+    }
+
+    PyObject* condition;
+    try {
+      condition = visitAsPyObjectOrNone(ctx->condition);
+    } catch (...) {
+      Py_DECREF(initializer);
+      throw;
+    }
+
+    PyObject* increment;
+    auto increment_var_declr_ctx = ctx->incrementVarDeclr;
+    auto increment_var_assignment_ctx = ctx->incrementVarAssignment;
+    auto increment_expression_ctx = ctx->incrementExpression;
+    if (increment_var_declr_ctx) {
+      try {
+        increment = visitAsPyObject(increment_var_declr_ctx);
+      } catch (...) {
+        Py_DECREF(initializer);
+        Py_DECREF(condition);
+        throw;
+      }
+    } else if (increment_var_assignment_ctx) {
+      try {
+        increment = visitAsPyObject(increment_var_assignment_ctx);
+      } catch (...) {
+        Py_DECREF(initializer);
+        Py_DECREF(condition);
+        throw;
+      }
+    } else if (increment_expression_ctx) {
+      try {
+        increment = visitAsPyObject(increment_expression_ctx);
+      } catch (...) {
+        Py_DECREF(initializer);
+        Py_DECREF(condition);
+        throw;
+      }
+    } else {
+      increment = Py_None;
+      Py_INCREF(increment);
+    }
+
+    PyObject* body;
+    try {
+      body = visitAsPyObject(ctx->statement());
+    } catch (...) {
+      Py_DECREF(initializer);
+      Py_DECREF(condition);
+      Py_DECREF(increment);
+      throw;
+    }
+
+    PyObject* ret = build_ast_node(
+        "ForStatement", "{s:N,s:N,s:N,s:N}", "initializer", initializer, "condition", condition, "increment", increment,
+        "body", body
+    );
+    if (!ret) {
+      Py_DECREF(initializer);
+      Py_DECREF(condition);
+      Py_DECREF(increment);
+      Py_DECREF(body);
+      throw PyInternalError();
+    }
+    return ret;
+  }
+
+  VISIT(FuncStmt) {
+    PyObject* params;
+    string name = visitAsString(ctx->identifier());
+    auto identifier_list_ctx = ctx->identifierList();
+    if (identifier_list_ctx) {
+      vector<string> paramList = any_cast<vector<string>>(visit(ctx->identifierList()));
+      params = X_PyList_FromStrings(paramList);
+    } else {
+      vector<string> paramList;
+      params = PyList_New(0);
+    }
+
+    if (!params) {
+        throw PyInternalError();
+    }
+
+    PyObject* body;
+    try {
+      body = visitAsPyObject(ctx->block());
+    } catch (...) {
+      Py_DECREF(params);
+      throw;
+    }
+
+    PyObject* ret = build_ast_node("Function", "{s:s#,s:N,s:N}", "name", name.data(), name.size(), "params", params, "body", body);
+    if (!ret) {
+      Py_DECREF(params);
+      Py_DECREF(body);
+      throw PyInternalError();
+    }
+    return ret;
+  }
+
+  VISIT(KvPairList) {
+    return visitPyListOfObjects(ctx->kvPair());
+  }
+
+  VISIT(KvPair) {
+    PyObject* k = visitAsPyObject(ctx->expression(0));
+    PyObject* v;
+    try {
+      v = visitAsPyObject(ctx->expression(1));
+    } catch (...) {
+      Py_DECREF(k);
+      throw;
+    }
+    PyObject* ret = PyTuple_Pack(2, k, v);
+    Py_DECREF(k);
+    Py_DECREF(v);
+    if (!ret) {
+      throw PyInternalError();
+    }
+    return ret;
+  }
+
+  VISIT(IdentifierList) {
+    return visitAsVectorOfStrings(ctx->identifier());
+  }
+
+  VISIT(EmptyStmt) {
+    RETURN_NEW_AST_NODE("ExprStatement", "{s:O}", "expr", Py_None);
+  }
+
+  VISIT(Block) {
+    PyObject* declarations = PyList_New(0);
+    if (!declarations) {
+      throw PyInternalError();
+    }
+    auto declaration_ctxs = ctx->declaration();
+    for (auto declaration_ctx : declaration_ctxs) {
+      if (!declaration_ctx->statement() || !declaration_ctx->statement()->emptyStmt()) {
+        PyObject* statement;
+        try {
+          statement = visitAsPyObject(declaration_ctx);
+        } catch (...) {
+          Py_DECREF(declarations);
+          throw;
+        }
+        int append_code = PyList_Append(declarations, statement);
+        Py_DECREF(statement);
+        if (append_code == -1) {
+          Py_DECREF(declarations);
+          throw PyInternalError();
+        }
+      }
+    }
+    PyObject* ret = build_ast_node("Block", "{s:N}", "declarations", declarations);
+    if (!ret) {
+      Py_DECREF(declarations);
+      throw PyInternalError();
+    }
+    return ret;
+  }
+
+  // HogQL rules
+
   VISIT(Select) {
     auto select_union_stmt_ctx = ctx->selectUnionStmt();
     if (select_union_stmt_ctx) {
@@ -1103,7 +1488,9 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     RETURN_NEW_AST_NODE("Array", "{s:N}", "exprs", visitAsPyObjectOrEmptyList(ctx->columnExprList()));
   }
 
-  VISIT_UNSUPPORTED(ColumnExprDict)
+  VISIT(ColumnExprDict) {
+    RETURN_NEW_AST_NODE("Dict", "{s:N}", "items", visitAsPyObjectOrEmptyList(ctx->kvPairList()));
+  }
 
   VISIT_UNSUPPORTED(ColumnExprSubstring)
 
@@ -2123,11 +2510,11 @@ class HogQLErrorListener : public antlr4::BaseErrorListener {
   size_t getPosition(size_t line, size_t column) {
     size_t linePosition = 0;
     for (size_t i = 0; i < line - 1; i++) {
-      size_t increment = input.find("\n", linePosition) + 1;
-      if (increment == string::npos) {
+      size_t endOfLine = input.find("\n", linePosition);
+      if (endOfLine == string::npos) {
         return string::npos;
       }
-      linePosition += increment;
+      linePosition = endOfLine + 1;
     }
     return linePosition + column;
   }
@@ -2176,6 +2563,7 @@ METHOD_PARSE_NODE(Expr, expr, expr)
 METHOD_PARSE_NODE(OrderExpr, orderExpr, order_expr)
 METHOD_PARSE_NODE(Select, select, select)
 METHOD_PARSE_NODE(FullTemplateString, fullTemplateString, full_template_string)
+METHOD_PARSE_NODE(Program, program, program)
 
 #undef METHOD_PARSE_NODE
 
@@ -2211,6 +2599,10 @@ static PyMethodDef parser_methods[] = {
      .ml_meth = (PyCFunction)method_parse_full_template_string,
      .ml_flags = METH_VARARGS | METH_KEYWORDS,
      .ml_doc = "Parse a Hog template string into an AST"},
+    {.ml_name = "parse_program",
+     .ml_meth = (PyCFunction)method_parse_program,
+     .ml_flags = METH_VARARGS | METH_KEYWORDS,
+     .ml_doc = "Parse a Hog program into an AST"},
     {.ml_name = "parse_string_literal_text",
      .ml_meth = method_parse_string_literal_text,
      .ml_flags = METH_VARARGS,

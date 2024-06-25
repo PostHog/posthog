@@ -27,8 +27,8 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-QUERY_WAIT_TIME = Histogram("query_wait_time_seconds", "Time from query creation to pick-up")
-QUERY_PROCESS_TIME = Histogram("query_process_time_seconds", "Time from query pick-up to result")
+QUERY_WAIT_TIME = Histogram("query_wait_time_seconds", "Time from query creation to pick-up", labelnames=["team"])
+QUERY_PROCESS_TIME = Histogram("query_process_time_seconds", "Time from query pick-up to result", labelnames=["team"])
 
 
 class QueryNotFoundError(NotFound):
@@ -156,7 +156,7 @@ def execute_process_query(
     pickup_time = datetime.datetime.now(datetime.timezone.utc)
     if query_status.start_time:
         wait_duration = (pickup_time - query_status.start_time) / datetime.timedelta(seconds=1)
-        QUERY_WAIT_TIME.observe(wait_duration)
+        QUERY_WAIT_TIME.labels(team=team_id).observe(wait_duration)
 
     try:
         tag_queries(client_query_id=query_id, team_id=team_id, user_id=user_id)
@@ -175,7 +175,7 @@ def execute_process_query(
         query_status.end_time = datetime.datetime.now(datetime.timezone.utc)
         query_status.expiration_time = query_status.end_time + datetime.timedelta(seconds=manager.STATUS_TTL_SECONDS)
         process_duration = (query_status.end_time - pickup_time) / datetime.timedelta(seconds=1)
-        QUERY_PROCESS_TIME.observe(process_duration)
+        QUERY_PROCESS_TIME.labels(team=team_id).observe(process_duration)
     except (ExposedHogQLError, ExposedCHQueryError) as err:  # We can expose the error to the user
         query_status.results = None  # Clear results in case they are faulty
         query_status.error_message = str(err)

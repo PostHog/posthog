@@ -1,6 +1,5 @@
 from enum import Enum
 
-import mimesis
 import mimesis.random
 
 WeightedPool = tuple[list[str], list[int]]

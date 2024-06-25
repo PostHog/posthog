@@ -11,13 +11,10 @@ datamodel-codegen \
     --custom-file-header "# mypy: disable-error-code=\"assignment\"" \
     --set-default-enum-member --capitalise-enum-members \
     --wrap-string-literal
-
 # Format schema.py
 ruff format posthog/schema.py
-
 # Check schema.py and autofix
 ruff check --fix posthog/schema.py
-
 # HACK: Datamodel-codegen output for enum-type fields with a default is invalid – the default value is a plain string,
 # and not the expected enum member. We fix this using sed, which is pretty hacky, but does the job.
 # Specifically, we need to replace `Optional[PropertyOperator] = "exact"`
