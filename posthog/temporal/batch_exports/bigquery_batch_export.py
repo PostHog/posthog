@@ -51,6 +51,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 from posthog.temporal.common.utils import (
     BatchExportHeartbeatDetails,
+    set_status_to_running_task,
     should_resume_from_activity_heartbeat,
 )
 
@@ -344,7 +345,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
             fields = inputs.batch_export_schema["fields"]
             query_parameters = inputs.batch_export_schema["values"]
 
-        records_iterator = iter_records(
+        records_iterator = iter_model_records(
             client=client,
             team_id=inputs.team_id,
             interval_start=data_interval_start,
@@ -356,7 +357,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
             is_backfill=inputs.is_backfill,
         )
 
-        first_record_batch, records_iterator = peek_first_and_rewind(records_iterator)
+        first_record_batch, records_iterator = apeek_first_and_rewind(records_iterator)
         if first_record_batch is None:
             return 0
 

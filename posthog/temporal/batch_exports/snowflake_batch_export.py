@@ -39,7 +39,7 @@ from posthog.temporal.batch_exports.metrics import (
 from posthog.temporal.batch_exports.temporary_file import (
     BatchExportTemporaryFile,
 )
-from posthog.temporal.batch_exports.utils import apeek_first_and_rewind, try_set_batch_export_run_to_running
+from posthog.temporal.batch_exports.utils import apeek_first_and_rewind, set_status_to_running_task
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import bind_temporal_worker_logger
@@ -410,9 +410,12 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
 
     async with (
         Heartbeater() as heartbeater,
-        get_client(team_id=inputs.team_id) as client,
         set_status_to_running_task(run_id=inputs.run_id, logger=logger),
+        get_client(team_id=inputs.team_id) as client,
     ):
+        if not await client.is_alive():
+            raise ConnectionError("Cannot establish connection to ClickHouse")
+
         should_resume, details = await should_resume_from_activity_heartbeat(
             activity, SnowflakeHeartbeatDetails, logger
         )
@@ -425,9 +428,6 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
             data_interval_start = inputs.data_interval_start
             last_inserted_at = None
             file_no = 0
-
-        if not await client.is_alive():
-            raise ConnectionError("Cannot establish connection to ClickHouse")
 
         rows_exported = get_rows_exported_metric()
         bytes_exported = get_bytes_exported_metric()
@@ -470,7 +470,6 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
                 destination_default_fields=snowflake_default_fields(),
                 is_backfill=inputs.is_backfill,
             )
-            first_record_batch, record_iterator = await apeek_first_and_rewind(record_iterator)
 
             await put_file_to_snowflake_table(connection, file, table_name, file_no)
             rows_exported.add(file.records_since_last_reset)
@@ -484,8 +483,9 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
             fields = inputs.batch_export_schema["fields"]
             query_parameters = inputs.batch_export_schema["values"]
 
-        record_iterator = iter_records(
+        record_iterator = iter_model_records(
             client=client,
+            model="events",
             team_id=inputs.team_id,
             interval_start=data_interval_start,
             interval_end=inputs.data_interval_end,
@@ -495,15 +495,26 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
             extra_query_parameters=query_parameters,
             is_backfill=inputs.is_backfill,
         )
-        first_record_batch, record_iterator = peek_first_and_rewind(record_iterator)
+        first_record_batch, record_iterator = await apeek_first_and_rewind(record_iterator)
 
         if first_record_batch is None:
             return 0
 
-                with BatchExportTemporaryFile() as local_results_file:
-                    async for record_batch in record_iterator:
-                        for record in record_batch.select(record_columns).to_pylist():
-                            inserted_at = record.pop("_inserted_at")
+        known_variant_columns = ["properties", "people_set", "people_set_once", "person_properties"]
+        if inputs.batch_export_schema is None:
+            table_fields = [
+                ("uuid", "STRING"),
+                ("event", "STRING"),
+                ("properties", "VARIANT"),
+                ("elements", "VARIANT"),
+                ("people_set", "VARIANT"),
+                ("people_set_once", "VARIANT"),
+                ("distinct_id", "STRING"),
+                ("team_id", "INTEGER"),
+                ("ip", "STRING"),
+                ("site_url", "STRING"),
+                ("timestamp", "TIMESTAMP"),
+            ]
 
         else:
             column_names = [column for column in first_record_batch.schema.names if column != "_inserted_at"]
@@ -521,7 +532,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
             inserted_at = None
 
             with BatchExportTemporaryFile() as local_results_file:
-                for record_batch in record_iterator:
+                async for record_batch in record_iterator:
                     for record in record_batch.select(record_columns).to_pylist():
                         inserted_at = record.pop("_inserted_at")
 
@@ -549,9 +560,9 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
 
                     heartbeater.details = (str(last_inserted_at), file_no)
 
-                await copy_loaded_files_to_snowflake_table(connection, inputs.table_name)
+            await copy_loaded_files_to_snowflake_table(connection, inputs.table_name)
 
-            return local_results_file.records_total
+        return local_results_file.records_total
 
 
 @workflow.defn(name="snowflake-export")

@@ -474,49 +474,21 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
                 destination_default_fields=s3_default_fields(),
             )
 
-            first_record_batch, record_iterator = await apeek_first_and_rewind(record_iterator)
+            writer = get_batch_export_writer(
+                inputs,
+                flush_callable=flush_to_s3,
+                max_bytes=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
+                schema=schema,
+            )
 
-            records_completed = 0
-            if first_record_batch is None:
-                return records_completed
+            async with writer.open_temporary_file():
+                rows_exported = get_rows_exported_metric()
+                bytes_exported = get_bytes_exported_metric()
 
-                for record_batch in record_iterator:
+                async for record_batch in record_iterator:
                     record_batch = cast_record_batch_json_columns(record_batch)
 
                     await writer.write_record_batch(record_batch)
-
-            await s3_upload.complete()
-
-                    heartbeater.details = (str(last_inserted_at), s3_upload.to_state())
-
-                first_record_batch = cast_record_batch_json_columns(first_record_batch)
-                column_names = first_record_batch.column_names
-                column_names.pop(column_names.index("_inserted_at"))
-
-                schema = pa.schema(
-                    # NOTE: For some reason, some batches set non-nullable fields as non-nullable, whereas other
-                    # record batches have them as nullable.
-                    # Until we figure it out, we set all fields to nullable. There are some fields we know
-                    # are not nullable, but I'm opting for the more flexible option until we out why schemas differ
-                    # between batches.
-                    [field.with_nullable(True) for field in first_record_batch.select(column_names).schema]
-                )
-
-                writer = get_batch_export_writer(
-                    inputs,
-                    flush_callable=flush_to_s3,
-                    max_bytes=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
-                    schema=schema,
-                )
-
-                async with writer.open_temporary_file():
-                    rows_exported = get_rows_exported_metric()
-                    bytes_exported = get_bytes_exported_metric()
-
-                    async for record_batch in record_iterator:
-                        record_batch = cast_record_batch_json_columns(record_batch)
-
-                        await writer.write_record_batch(record_batch)
 
                 records_completed = writer.records_total
                 await s3_upload.complete()
