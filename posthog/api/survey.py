@@ -21,6 +21,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import get_token
 from posthog.client import sync_execute
 from posthog.exceptions import generate_exception_response
+from posthog.models import Action
 from posthog.models.feedback.survey import Survey
 from django.utils.text import slugify
 from nanoid import generate
@@ -248,6 +249,7 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
         validated_data["created_by"] = self.context["request"].user
         instance = super().create(validated_data)
         self._add_user_survey_interacted_filters(instance)
+        self._associate_actions(instance, validated_data.get("conditions"))
 
         return instance
 
@@ -299,7 +301,19 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
         instance = super().update(instance, validated_data)
 
         self._add_user_survey_interacted_filters(instance, end_date)
+        self._associate_actions(instance, validated_data.get("conditions"))
         return instance
+
+    def _associate_actions(self, instance: Survey, conditions: None):
+        if conditions is None:
+            return
+
+        action_names = conditions.get("actionNames")
+        if len(action_names) == 0:
+            return
+
+        instance.actions.set(Action.objects.filter(name__in=action_names))
+        instance.save()
 
     def _add_user_survey_interacted_filters(self, instance: Survey, end_date=None):
         survey_key = f"{instance.id}"
