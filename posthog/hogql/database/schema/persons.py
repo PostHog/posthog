@@ -213,9 +213,9 @@ class PersonsTable(LazyTable):
         if join.constraint is not None and isinstance(join.constraint.expr, And):
             exprs = cast(And, join.constraint.expr).exprs
             promotable, not_promotable = PersonsTable._partition_exprs(exprs, join.alias)
-            join.constraint.expr.exprs = not_promotable
             if len(promotable) == 0:
                 return self
+            join.constraint.expr.exprs = not_promotable
             p = self.model_copy()
             if len(promotable) == 1:
                 p.filter = promotable[0]
