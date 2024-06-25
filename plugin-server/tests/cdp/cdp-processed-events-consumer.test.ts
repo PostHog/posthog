@@ -1,15 +1,10 @@
 import { CdpProcessedEventsConsumer } from '../../src/cdp/cdp-consumers'
 import { HogFunctionType } from '../../src/cdp/types'
-import { defaultConfig } from '../../src/config/config'
-import { Hub, PluginsServerConfig, Team } from '../../src/types'
+import { Hub, Team } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 import { getFirstTeam, resetTestDatabase } from '../helpers/sql'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './examples'
 import { createIncomingEvent, createMessage, insertHogFunction as _insertHogFunction } from './fixtures'
-
-const config: PluginsServerConfig = {
-    ...defaultConfig,
-}
 
 const mockConsumer = {
     on: jest.fn(),

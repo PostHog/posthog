@@ -4257,12 +4257,11 @@ export enum HogWatcherState {
 
 export type HogFunctionStatus = {
     state: HogWatcherState
-    rating: number
     states: {
         timestamp: number
         state: HogWatcherState
     }[]
-    observations: {
+    ratings: {
         timestamp: number
         rating: number
     }[]

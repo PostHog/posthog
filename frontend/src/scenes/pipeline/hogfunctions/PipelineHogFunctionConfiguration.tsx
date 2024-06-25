@@ -26,9 +26,9 @@ import { EntityTypes } from '~/types'
 
 import { HogFunctionIconEditable } from './HogFunctionIcon'
 import { HogFunctionInputs } from './HogFunctionInputs'
+import { HogFunctionStatusIndicator } from './HogFunctionStatusIndicator'
 import { HogFunctionTest, HogFunctionTestPlaceholder } from './HogFunctionTest'
 import { pipelineHogFunctionConfigurationLogic } from './pipelineHogFunctionConfigurationLogic'
-import { HogFunctionStatusIndicator } from './HogFunctionStatusIndicator'
 
 export function PipelineHogFunctionConfiguration({
     templateId,

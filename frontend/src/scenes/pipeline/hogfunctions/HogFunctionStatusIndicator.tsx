@@ -1,9 +1,11 @@
+import { TZLabel } from '@posthog/apps-common'
 import { LemonDropdown, LemonTable, LemonTag, LemonTagProps } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { pipelineHogFunctionConfigurationLogic } from './pipelineHogFunctionConfigurationLogic'
-import { HogWatcherState } from '~/types'
-import { TZLabel } from '@posthog/apps-common'
 import { dayjs } from 'lib/dayjs'
+
+import { HogWatcherState } from '~/types'
+
+import { pipelineHogFunctionConfigurationLogic } from './pipelineHogFunctionConfigurationLogic'
 
 type DisplayOptions = { tagType: LemonTagProps['type']; display: string; description: JSX.Element }
 const displayMap: Record<HogWatcherState, DisplayOptions> = {
@@ -64,6 +66,10 @@ export function HogFunctionStatusIndicator(): JSX.Element | null {
         ? displayMap[hogFunction.status.state]
         : DEFAULT_DISPLAY
 
+    const averageRating = hogFunction.status?.ratings.length
+        ? hogFunction.status.ratings.reduce((acc, x) => acc + x.rating, 0) / hogFunction.status.ratings.length
+        : 0
+
     return (
         <LemonDropdown
             overlay={
@@ -74,9 +80,8 @@ export function HogFunctionStatusIndicator(): JSX.Element | null {
                         </h2>
 
                         <p>
-                            Your function has a rating of <b>{Math.round((hogFunction.status?.rating ?? 1) * 100)}%</b>.
-                            A rating of 100% means the function is running perfectly, with 0% meaning it is failing
-                            every time.
+                            Your function has a rating of <b>{Math.round(averageRating * 100)}%</b>. A rating of 100%
+                            means the function is running perfectly, with 0% meaning it is failing every time.
                         </p>
 
                         <p>{description}</p>
@@ -94,7 +99,7 @@ export function HogFunctionStatusIndicator(): JSX.Element | null {
                                         title: 'Status',
                                         key: 'state',
                                         render: (_, { state }) => {
-                                            const { tagType, display } = displayMap[state!] || DEFAULT_DISPLAY
+                                            const { tagType, display } = displayMap[state] || DEFAULT_DISPLAY
                                             return <LemonTag type={tagType}>{display}</LemonTag>
                                         },
                                     },
