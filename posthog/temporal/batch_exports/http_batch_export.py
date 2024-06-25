@@ -1,8 +1,8 @@
 import asyncio
+import dataclasses
 import datetime as dt
 import io
 import json
-from dataclasses import dataclass
 
 import aiohttp
 from django.conf import settings
@@ -11,6 +11,7 @@ from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.service import (
     BatchExportField,
+    BatchExportModel,
     BatchExportSchema,
     HttpBatchExportInputs,
 )
@@ -92,7 +93,7 @@ class HeartbeatDetails:
         return HeartbeatDetails(last_uploaded_timestamp)
 
 
-@dataclass
+@dataclasses.dataclass
 class HttpInsertInputs:
     """Inputs for HTTP insert activity."""
 
@@ -104,8 +105,9 @@ class HttpInsertInputs:
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
     run_id: str | None = None
-    batch_export_schema: BatchExportSchema | None = None
     is_backfill: bool = False
+    batch_export_model: BatchExportModel | None = None
+    batch_export_schema: BatchExportSchema | None = None
 
 
 async def maybe_resume_from_heartbeat(inputs: HttpInsertInputs) -> str:
@@ -357,6 +359,7 @@ class HttpBatchExportWorkflow(PostHogWorkflow):
             batch_export_schema=inputs.batch_export_schema,
             run_id=run_id,
             is_backfill=inputs.is_backfill,
+            batch_export_model=inputs.batch_export_model,
         )
 
         await execute_batch_export_insert_activity(

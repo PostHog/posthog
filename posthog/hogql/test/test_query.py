@@ -14,7 +14,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_in_tests, pretty_print_response_in_tests
 from posthog.models import Cohort
 from posthog.models.cohort.util import recalculate_cohortpeople
-from posthog.models.utils import UUIDT
+from posthog.models.utils import UUIDT, uuid7
 from posthog.session_recordings.queries.test.session_replay_sql import (
     produce_replay_summary,
 )
@@ -1440,20 +1440,21 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     def test_events_sessions_table(self):
         with freeze_time("2020-01-10 12:00:00"):
             random_uuid = self._create_random_events()
+            session_id = str(uuid7())
 
         with freeze_time("2020-01-10 12:10:00"):
             _create_event(
                 distinct_id=random_uuid,
                 event="random event",
                 team=self.team,
-                properties={"$session_id": random_uuid},
+                properties={"$session_id": session_id},
             )
         with freeze_time("2020-01-10 12:20:00"):
             _create_event(
                 distinct_id=random_uuid,
                 event="random event",
                 team=self.team,
-                properties={"$session_id": random_uuid},
+                properties={"$session_id": session_id},
             )
 
         query = "SELECT session.session_id, session.$session_duration from events WHERE distinct_id={distinct_id} order by timestamp"
@@ -1461,6 +1462,6 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             query, team=self.team, placeholders={"distinct_id": ast.Constant(value=random_uuid)}
         )
         assert response.results == [
-            (random_uuid, 600),
-            (random_uuid, 600),
+            (session_id, 600),
+            (session_id, 600),
         ]
