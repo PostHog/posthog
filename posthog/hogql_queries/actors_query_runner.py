@@ -55,6 +55,7 @@ class ActorsQueryRunner(QueryRunner):
         actors_lookup,
         recordings_column_index: Optional[int],
         recordings_lookup: Optional[dict[str, list[dict]]],
+        subfields: Optional[dict[int, str]] = None,
     ) -> list:
         enriched = []
 
@@ -62,7 +63,19 @@ class ActorsQueryRunner(QueryRunner):
             new_row = list(result)
             actor_id = str(result[actor_column_index])
             actor = actors_lookup.get(actor_id)
-            new_row[actor_column_index] = actor if actor else {"id": actor_id}
+            if subfields and actor:
+                for subfield_index, subfield in subfields.items():
+                    if "." in subfield:
+                        subfield, i = subfield.split(".")
+                        if i.isdigit():
+                            new_row[subfield_index] = actor.get(subfield)[int(i)]
+                        else:
+                            new_row[subfield_index] = actor.get(subfield, {}).get(i)
+                    else:
+                        new_row[subfield_index] = actor.get(subfield)
+            else:
+                new_row[actor_column_index] = actor if actor else {"id": actor_id}
+
             if recordings_column_index is not None and recordings_lookup is not None:
                 new_row[recordings_column_index] = (
                     self._get_recordings(result[recordings_column_index], recordings_lookup) or []
@@ -94,17 +107,46 @@ class ActorsQueryRunner(QueryRunner):
         missing_actors_count = None
         results: Sequence[list] | Iterator[list] = self.paginator.results
 
-        enrich_columns = filter(lambda column: column in ("person", "group", "actor"), input_columns)
+        # Step 1: Identify subfields
+        subfield_map = {}
+        enrich_columns = set()  # This will store the base columns like 'person', 'group', 'actor'
+
+        for index, column in enumerate(input_columns):
+            if "." in column:
+                parent, subfield = column.split(".", 1)
+                if parent in ("person", "group", "actor"):
+                    if parent not in subfield_map:
+                        subfield_map[parent] = {}
+                    subfield_map[parent][index] = subfield
+                    enrich_columns.add(parent)
+            elif column in ("person", "group", "actor"):
+                enrich_columns.add(column)
+
+        # Step 2: Enrich results with parent entities and their subfields
         for column_name in enrich_columns:
-            actor_column_index = input_columns.index(column_name)
-            actor_ids = (row[actor_column_index] for row in self.paginator.results)
+            # Find the first occurrence of the base column or any of its subfields in the input_columns
+            base_column_index = None
+            for index, column in enumerate(input_columns):
+                if column == column_name or column.startswith(column_name + "."):
+                    base_column_index = index
+                    break
+
+            if base_column_index is None:
+                raise ValueError(f"{column_name} is not in list")
+
+            actor_ids = (row[base_column_index] for row in self.paginator.results)
             actors_lookup = self.strategy.get_actors(actor_ids)
 
             recordings_column_index, recordings_lookup = self.prepare_recordings(column_name, input_columns)
 
             missing_actors_count = len(self.paginator.results) - len(actors_lookup)
             results = self._enrich_with_actors(
-                results, actor_column_index, actors_lookup, recordings_column_index, recordings_lookup
+                results,
+                base_column_index,
+                actors_lookup,
+                recordings_column_index,
+                recordings_lookup,
+                subfield_map.get(column_name),
             )
 
         return ActorsQueryResponse(
@@ -173,17 +215,22 @@ class ActorsQueryRunner(QueryRunner):
             group_by = []
             aggregations = []
             for expr in self.input_columns():
-                column: ast.Expr = parse_expr(expr)
-
                 if expr == "person.$delete":
                     column = ast.Constant(value=1)
-                elif expr == self.strategy.field or expr == "actor":
+                elif (
+                    expr == self.strategy.field
+                    or expr.startswith(f"{self.strategy.field}.")
+                    or expr == "actor"
+                    or expr.startswith("actor.")
+                ):
                     column = ast.Field(chain=[self.strategy.origin_id])
                 elif expr == "matched_recordings":
                     # the underlying query used to match recordings compares to a selection of "matched events"
                     # like `groupUniqArray(100)(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS matching_events`
                     # we look up valid session ids and match them against the session ids in matching events
                     column = ast.Field(chain=["matching_events"])
+                else:
+                    column: ast.Expr = parse_expr(expr)
 
                 columns.append(column)
                 if has_aggregation(column):

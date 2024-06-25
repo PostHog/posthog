@@ -1,3 +1,5 @@
+from datetime import datetime
+
 import pytest
 
 from posthog.hogql import ast
@@ -163,6 +165,26 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner = self._create_runner(ActorsQuery(select=["properties.email as email"]))
         results = runner.calculate().results
         self.assertEqual(results[0], [f"jacob0@{self.random_uuid}.posthog.com"])
+
+    def test_persons_subfields(self):
+        self.random_uuid = self._create_random_persons()
+        runner = self._create_runner(
+            ActorsQuery(
+                select=[
+                    "person.created_at",
+                    "person.properties.email",
+                    "person.is_identified",
+                    "person.distinct_ids.0",
+                ],
+                limit=1,
+            )
+        )
+        response = runner.calculate()
+        self.assertEqual(len(response.results[0]), 4)
+        self.assertEqual(type(response.results[0][0]), datetime)
+        self.assertEqual(response.results[0][1], f"jacob0@{self.random_uuid}.posthog.com")
+        self.assertEqual(response.results[0][2], True)
+        self.assertEqual(type(response.results[0][3]), str)
 
     def test_persons_query_limit(self):
         self.random_uuid = self._create_random_persons()
