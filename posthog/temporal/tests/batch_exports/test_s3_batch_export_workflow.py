@@ -790,7 +790,9 @@ async def test_s3_export_workflow_with_minio_bucket_and_custom_key_prefix(
     run = runs[0]
     (events_to_export_created, persons_to_export_created) = generate_test_data
     assert run.status == "Completed"
-    assert run.records_completed == events_to_export_created or run.records_completed == persons_to_export_created
+    assert run.records_completed == len(events_to_export_created) or run.records_completed == len(
+        persons_to_export_created
+    )
 
     expected_key_prefix = s3_key_prefix.format(
         table=batch_export_model.name if batch_export_model is not None else "events",
