@@ -300,7 +300,7 @@ export const insightLogic = kea<insightLogicType>([
             },
         },
         /* filters contains the in-flight filters, might not (yet?) be the same as insight.filters */
-        filters: [
+        legacyFilters: [
             () => props.cachedInsight?.filters || ({} as Partial<FilterType>),
             {
                 setFilters: (_, { filters }) => cleanFilters(filters),
