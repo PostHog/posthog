@@ -161,8 +161,8 @@ describe('HogFunctionManager', () => {
     })
 
     it('enriches integration inputs if found and belonging to the team', () => {
-        const function1Inputs = manager.getTeamHogFunctions(teamId1)[hogFunctions[0].id].inputs
-        const function2Inputs = manager.getTeamHogFunctions(teamId2)[hogFunctions[1].id].inputs
+        const function1Inputs = manager.getTeamHogFunctions(teamId1)[0].inputs
+        const function2Inputs = manager.getTeamHogFunctions(teamId2)[0].inputs
 
         // Only the right team gets the integration inputs enriched
         expect(function1Inputs).toEqual({
