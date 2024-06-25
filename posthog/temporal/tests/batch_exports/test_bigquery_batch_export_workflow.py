@@ -524,7 +524,7 @@ async def test_bigquery_export_workflow(
         )
 
         ingested_timestamp = frozen_time().replace(tzinfo=dt.timezone.utc)
-        assert_clickhouse_records_in_bigquery(
+        await assert_clickhouse_records_in_bigquery(
             bigquery_client=bigquery_client,
             clickhouse_client=clickhouse_client,
             table_id=table_id,

@@ -165,14 +165,14 @@ class BigQueryClient(bigquery.Client):
         table_id: str,
         table_schema: list[bigquery.SchemaField],
         not_found_ok: bool = True,
-    ) -> bigquery.Table:
+    ) -> None:
         """Create a table in BigQuery."""
         fully_qualified_name = f"{project_id}.{dataset_id}.{table_id}"
         table = bigquery.Table(fully_qualified_name, schema=table_schema)
 
-        table = await asyncio.to_thread(self.delete_table, table, not_found_ok=not_found_ok)
+        await asyncio.to_thread(self.delete_table, table, not_found_ok=not_found_ok)
 
-        return table
+        return None
 
     @contextlib.asynccontextmanager
     async def managed_table(
@@ -184,7 +184,7 @@ class BigQueryClient(bigquery.Client):
         exists_ok: bool = True,
         not_found_ok: bool = True,
         delete: bool = True,
-    ) -> bigquery.Table:
+    ) -> collections.abc.AsyncGenerator[bigquery.Table, None]:
         """Create a table in BigQuery."""
         table = await self.acreate_table(project_id, dataset_id, table_id, table_schema, exists_ok)
 
@@ -249,7 +249,7 @@ class BigQueryClient(bigquery.Client):
         )
 
         load_job = self.load_table_from_file(parquet_file, table, job_config=job_config, rewind=True)
-        load_job.result()
+        return await asyncio.to_thread(load_job.result)
 
     async def load_jsonl_file(self, jsonl_file, table, table_schema):
         """Execute a COPY FROM query with given connection to copy contents of jsonl_file."""
