@@ -36,6 +36,7 @@ from posthog.schema import (
     HogQLQueryModifiers,
     InCohortVia,
     IntervalType,
+    MultipleBreakdownType,
     PropertyMathType,
     TrendsFilter,
     TrendsQuery,
@@ -3414,7 +3415,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             None,
             BreakdownFilter(
                 breakdown="$session_duration",
-                breakdown_type="session",
+                breakdown_type=BreakdownType.SESSION,
             ),
         )
         m_response = self._run_trends_query(
@@ -3424,7 +3425,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [EventsNode(event="$pageview", math=PropertyMathType.MEDIAN, math_property="$session_duration")],
             None,
             BreakdownFilter(
-                breakdowns=[Breakdown(property="$session_duration", type="session")],
+                breakdowns=[Breakdown(property="$session_duration", type=BreakdownType.SESSION)],
             ),
         )
 
@@ -3447,7 +3448,9 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             IntervalType.DAY,
             [EventsNode(event="$pageview", math=PropertyMathType.MEDIAN, math_property="$session_duration")],
             None,
-            BreakdownFilter(breakdown="$session_duration", breakdown_type="session", breakdown_histogram_bin_count=4),
+            BreakdownFilter(
+                breakdown="$session_duration", breakdown_type=BreakdownType.SESSION, breakdown_histogram_bin_count=4
+            ),
         )
         m_response = self._run_trends_query(
             "2020-01-09",
@@ -3456,7 +3459,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [EventsNode(event="$pageview", math=PropertyMathType.MEDIAN, math_property="$session_duration")],
             None,
             BreakdownFilter(
-                breakdowns=[Breakdown(property="$session_duration", type="session", histogram_bin_count=4)],
+                breakdowns=[Breakdown(property="$session_duration", type=BreakdownType.SESSION, histogram_bin_count=4)],
             ),
         )
 
@@ -3534,3 +3537,137 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert s_response.results[1]["count"] == m_response.results[1]["count"] == 31
         assert s_response.results[2]["count"] == m_response.results[2]["count"] == 30
         assert s_response.results[3]["count"] == m_response.results[3]["count"] == 27
+
+    def test_trends_multiple_breakdowns_hogql(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(breakdowns=[Breakdown(property="properties.$browser", type=BreakdownType.HOGQL)]),
+        )
+
+        breakdown_labels = [result["breakdown_value"] for result in response.results]
+
+        assert len(response.results) == 4
+        assert breakdown_labels == [["Chrome"], ["Firefox"], ["Edge"], ["Safari"]]
+        assert response.results[0]["label"] == "Chrome"
+        assert response.results[1]["label"] == "Firefox"
+        assert response.results[2]["label"] == "Edge"
+        assert response.results[3]["label"] == "Safari"
+        assert response.results[0]["count"] == 6
+        assert response.results[1]["count"] == 2
+        assert response.results[2]["count"] == 1
+        assert response.results[3]["count"] == 1
+
+    def test_trends_multiple_breakdowns_hogql_and_numeric_prop(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(
+                breakdowns=[
+                    Breakdown(property="properties.$browser", type=BreakdownType.HOGQL),
+                    Breakdown(property="prop", histogram_bin_count=2),
+                ]
+            ),
+        )
+
+        breakdown_labels = [result["breakdown_value"] for result in response.results]
+
+        assert len(response.results) == 4
+        assert breakdown_labels == [
+            ["Chrome", "[10,25]"],
+            ["Firefox", "[10,25]"],
+            ["Edge", "[25,40.01]"],
+            ["Safari", "[25,40.01]"],
+        ]
+        assert response.results[0]["label"] == "Chrome::[10,25]"
+        assert response.results[1]["label"] == "Firefox::[10,25]"
+        assert response.results[2]["label"] == "Edge::[25,40.01]"
+        assert response.results[3]["label"] == "Safari::[25,40.01]"
+        assert response.results[0]["count"] == 6
+        assert response.results[1]["count"] == 2
+        assert response.results[2]["count"] == 1
+        assert response.results[3]["count"] == 1
+
+    def test_trends_event_multiple_breakdowns_combined_types(self):
+        """
+        Test all possible combinations do not throw.
+        """
+        self._create_test_events_for_groups()
+        flush_persons_and_events()
+
+        breakdowns = [
+            Breakdown(property="prop", histogram_bin_count=2, type=MultipleBreakdownType.EVENT),
+            Breakdown(property="$browser", type=MultipleBreakdownType.EVENT),
+            Breakdown(property="bool_field", type=MultipleBreakdownType.EVENT),
+            Breakdown(property="properties.$browser", type=MultipleBreakdownType.HOGQL),
+            Breakdown(property="name", type=MultipleBreakdownType.PERSON),
+            Breakdown(property="$session_duration", type=MultipleBreakdownType.SESSION),
+            Breakdown(type="group", group_type_index=1, property="employee_count"),
+            Breakdown(type="group", group_type_index=0, property="industry"),
+        ]
+
+        for breakdown_filter in itertools.permutations(breakdowns, 3):
+            response = self._run_trends_query(
+                "2020-01-09",
+                "2020-01-20",
+                IntervalType.DAY,
+                [EventsNode(event="$pageview")],
+                None,
+                BreakdownFilter(breakdowns=breakdown_filter),
+            )
+            breakdown_labels = [sorted(result["breakdown_value"]) for result in response.results]
+
+            self.assertNotEqual(len(response.results), 0, breakdown_filter)
+            self.assertNotEqual(len(breakdown_labels), 0, breakdown_filter)
+
+    def test_trends_multiple_breakdowns_multiple_hogql(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview"), EventsNode(event="$pageleave")],
+            None,
+            BreakdownFilter(breakdowns=[Breakdown(type=BreakdownType.HOGQL, property="properties.$browser")]),
+        )
+
+        breakdown_labels = [result["breakdown_value"] for result in response.results]
+
+        assert len(response.results) == 8
+        assert breakdown_labels == [
+            ["Chrome"],
+            ["Firefox"],
+            ["Edge"],
+            ["Safari"],
+            ["Chrome"],
+            ["Edge"],
+            ["Firefox"],
+            ["Safari"],
+        ]
+        assert response.results[0]["label"] == f"$pageview - Chrome"
+        assert response.results[1]["label"] == f"$pageview - Firefox"
+        assert response.results[2]["label"] == f"$pageview - Edge"
+        assert response.results[3]["label"] == f"$pageview - Safari"
+        assert response.results[4]["label"] == f"$pageleave - Chrome"
+        assert response.results[5]["label"] == f"$pageleave - Edge"
+        assert response.results[6]["label"] == f"$pageleave - Firefox"
+        assert response.results[7]["label"] == f"$pageleave - Safari"
+        assert response.results[0]["count"] == 6
+        assert response.results[1]["count"] == 2
+        assert response.results[2]["count"] == 1
+        assert response.results[3]["count"] == 1
+        assert response.results[4]["count"] == 3
+        assert response.results[5]["count"] == 1
+        assert response.results[6]["count"] == 1
+        assert response.results[7]["count"] == 1
