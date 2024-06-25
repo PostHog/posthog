@@ -40,7 +40,7 @@ class TrendsActorsQueryBuilder:
 
     entity: EventsNode | ActionsNode
     time_frame: Optional[datetime]
-    breakdown_value: Optional[str | int] = None
+    breakdown_value: Optional[str | int | list[str]] = None
     compare_value: Optional[Compare] = None
     include_recordings: Optional[bool] = None
 
@@ -52,7 +52,7 @@ class TrendsActorsQueryBuilder:
         modifiers: HogQLQueryModifiers,
         series_index: int,
         time_frame: Optional[str | datetime],
-        breakdown_value: Optional[str | int] = None,
+        breakdown_value: Optional[str | int | list[str]] = None,
         compare_value: Optional[Compare] = None,
         include_recordings: Optional[bool] = None,
         limit_context: LimitContext = LimitContext.QUERY,

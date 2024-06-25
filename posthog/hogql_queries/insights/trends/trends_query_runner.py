@@ -155,7 +155,7 @@ class TrendsQueryRunner(QueryRunner):
         self,
         time_frame: Optional[str],
         series_index: int,
-        breakdown_value: Optional[str | int] = None,
+        breakdown_value: Optional[str | int | list[str]] = None,
         compare_value: Optional[Compare] = None,
         include_recordings: Optional[bool] = None,
     ) -> ast.SelectQuery | ast.SelectUnionQuery:

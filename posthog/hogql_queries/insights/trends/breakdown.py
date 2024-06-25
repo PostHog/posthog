@@ -171,7 +171,7 @@ class Breakdown:
             else False
         )
 
-    def _get_cohort_filter(self, breakdowns: list[str | int | float] | list[str | int] | str | int | float):
+    def _get_cohort_filter(self, breakdowns: list[str | int] | list[str] | str | int):
         if breakdowns == "all":
             return None
 
@@ -212,7 +212,7 @@ class Breakdown:
 
         return None
 
-    def get_actors_query_where_filter(self, lookup_values: str | int | list[int | str]) -> ast.Expr | None:
+    def get_actors_query_where_filter(self, lookup_values: str | int | list[int | str] | list[str]) -> ast.Expr | None:
         if self.is_cohort_breakdown:
             return self._get_cohort_filter(lookup_values)
 
@@ -309,7 +309,7 @@ class Breakdown:
     def _get_breakdown_col_expr(
         self,
         alias: str,
-        value: str | int | float,
+        value: str | int,
         breakdown_type: BreakdownType | MultipleBreakdownType | None,
         normalize_url: bool | None = None,
         histogram_bin_count: int | None = None,
