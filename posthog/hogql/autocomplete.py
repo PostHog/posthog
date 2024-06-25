@@ -36,7 +36,7 @@ from posthog.schema import (
 )
 from hogvm.python.stl import STL
 
-ALL_HOG_FUNCTIONS = STL.keys()
+ALL_HOG_FUNCTIONS = list(STL.keys())
 
 
 class GetNodeAtPositionTraverser(TraversingVisitor):
