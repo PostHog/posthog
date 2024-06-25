@@ -31,7 +31,7 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
         statsUpdatedTime: [
             null as Date | null,
             {
-                setNumUsersOnProduct: (_, { now }) => now,
+                setLiveUserCount: (_, { now }) => now,
             },
         ],
         now: [

@@ -33,6 +33,7 @@ export const WebAnalyticsLiveUserCount = (): JSX.Element | null => {
                     <IconLive /> <strong>{humanFriendlyLargeNumber(liveUserCount)}</strong> currently online
                 </span>
             </Tooltip>
+            <div className="bg-border h-px w-full mt-2" />
         </div>
     )
 }
