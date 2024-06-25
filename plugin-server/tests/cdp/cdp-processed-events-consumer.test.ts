@@ -94,7 +94,7 @@ describe('CDP Processed Events Consuner', () => {
         ;[hub, closeHub] = await createHub()
         team = await getFirstTeam(hub)
 
-        processor = new CdpProcessedEventsConsumer(config, hub)
+        processor = new CdpProcessedEventsConsumer(hub)
         await processor.start()
 
         mockFetch.mockClear()
