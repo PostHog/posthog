@@ -59,7 +59,7 @@ class WhereClauseExtractor(CloningVisitor):
         self, node: ast.CompareOperation, is_left_constant: bool, is_right_constant: bool
     ) -> Optional[ast.Expr]:
         raise NotImplementedError(
-            f"handle_timestamp_comparison not implemented"
+            message=f"handle_timestamp_comparison not implemented"
         )  # handle this in a subclass if setting capture_timestamp_comparisons to True
 
     def add_local_tables(self, join_or_table: LazyJoinToAdd | LazyTableToAdd):
