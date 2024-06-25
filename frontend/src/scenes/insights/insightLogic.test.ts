@@ -19,7 +19,6 @@ import {
     DashboardTile,
     DashboardType,
     FilterType,
-    FunnelsFilterType,
     InsightModel,
     InsightShortId,
     InsightType,
@@ -265,18 +264,6 @@ describe('insightLogic', () => {
             it('has the key set to the id', () => {
                 expect(logic.key).toEqual('42')
             })
-
-            it('no query to load results', async () => {
-                await expectLogic(logic)
-                    .toMatchValues({
-                        insight: partial({ short_id: Insight42, results: ['cached result'] }),
-                        filters: partial({
-                            events: [{ id: 2 }],
-                            properties: [partial({ type: PropertyFilterType.Person })],
-                        }),
-                    })
-                    .toNotHaveDispatchedActions(['loadResultsSuccess']) // this took the cached results
-            })
         })
 
         describe('props with query and cached results', () => {
@@ -295,19 +282,6 @@ describe('insightLogic', () => {
 
             it('has the key set to the id', () => {
                 expect(logic.key).toEqual('42')
-            })
-
-            it('no query to load results', async () => {
-                await expectLogic(logic)
-                    .toMatchValues({
-                        insight: partial({
-                            short_id: Insight42,
-                            results: ['cached result'],
-                            query: { kind: NodeKind.TimeToSeeDataSessionsQuery },
-                        }),
-                        filters: {},
-                    })
-                    .toNotHaveDispatchedActions(['loadResultsSuccess']) // this took the cached results
             })
         })
 
@@ -332,12 +306,7 @@ describe('insightLogic', () => {
                     })
                     .delay(1)
                     // do not override the insight if querying with different filters
-                    .toNotHaveDispatchedActions([
-                        'loadResults',
-                        'loadResultsSuccess',
-                        'updateInsight',
-                        'updateInsightSuccess',
-                    ])
+                    .toNotHaveDispatchedActions(['updateInsight', 'updateInsightSuccess'])
             })
         })
 
@@ -369,7 +338,7 @@ describe('insightLogic', () => {
                         }),
                     })
                     .delay(1)
-                    .toNotHaveDispatchedActions(['loadResults', 'setFilters', 'updateInsight'])
+                    .toNotHaveDispatchedActions(['setFilters', 'updateInsight'])
             })
         })
     })
@@ -586,12 +555,6 @@ describe('insightLogic', () => {
                 cachedInsight: insight,
             })
             theEmptyFiltersLogic.mount()
-        })
-
-        it('does not call the api on setting empty filters', async () => {
-            await expectLogic(theEmptyFiltersLogic, () => {
-                theEmptyFiltersLogic.actions.setFilters({ new_entity: [] } as FunnelsFilterType)
-            }).toNotHaveDispatchedActions(['loadResults'])
         })
 
         it('does not call the api on update when empty filters and no query', async () => {
