@@ -445,7 +445,30 @@
             "additionalProperties": false,
             "properties": {
                 "breakdown": {
-                    "$ref": "#/definitions/BreakdownKeyType"
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "items": {
+                                "anyOf": [
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "integer"
+                                    }
+                                ]
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 },
                 "breakdown_group_type_index": {
                     "anyOf": [

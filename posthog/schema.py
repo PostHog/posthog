@@ -1333,7 +1333,7 @@ class BreakdownFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    breakdown: Optional[Union[str, float, list[Union[str, float]]]] = None
+    breakdown: Optional[Union[str, int, list[Union[str, int]]]] = None
     breakdown_group_type_index: Optional[int] = None
     breakdown_hide_other_aggregation: Optional[bool] = None
     breakdown_histogram_bin_count: Optional[int] = None

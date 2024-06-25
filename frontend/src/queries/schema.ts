@@ -1562,7 +1562,7 @@ export interface BreakdownFilter {
     /** @default event */
     breakdown_type?: BreakdownType | null
     breakdown_limit?: integer
-    breakdown?: BreakdownKeyType
+    breakdown?: string | integer | (string | integer)[] | null
     breakdown_normalize_url?: boolean
     /**
      * @maxLength 3
