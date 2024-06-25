@@ -62,7 +62,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         self.limit_context = limit_context
 
     def build_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
-        breakdown = self._breakdown(is_actors_query=False)
+        breakdown = self._breakdown()
 
         events_query: ast.SelectQuery | ast.SelectUnionQuery
 
@@ -694,7 +694,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         # Breakdown
         if not ignore_breakdowns and breakdown is not None:
             if breakdown.enabled and not breakdown.is_histogram_breakdown:
-                breakdown_filter = breakdown.events_where_filter()
+                breakdown_filter = breakdown.get_trends_query_where_filter()
                 if breakdown_filter is not None:
                     filters.append(breakdown_filter)
 
@@ -744,7 +744,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
         return query
 
-    def _breakdown(self, is_actors_query: bool):
+    def _breakdown(self):
         return Breakdown(
             team=self.team,
             query=self.query,
@@ -752,11 +752,6 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             query_date_range=self.query_date_range,
             timings=self.timings,
             modifiers=self.modifiers,
-            events_filter=self._events_filter(
-                breakdown=None,  # Passing in None because we know we dont actually need it
-                ignore_breakdowns=True,
-                is_actors_query=is_actors_query,
-            ),
             limit_context=self.limit_context,
         )
 

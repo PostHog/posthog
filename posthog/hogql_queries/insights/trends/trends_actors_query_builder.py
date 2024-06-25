@@ -384,12 +384,11 @@ class TrendsActorsQueryBuilder:
             query_date_range=self.trends_date_range,
             timings=self.timings,
             modifiers=self.modifiers,
-            events_filter=self._events_where_expr(with_breakdown_expr=False),
             limit_context=self.limit_context,
         )
 
-        if breakdown.enabled and not breakdown.is_histogram_breakdown:
-            breakdown_filter = breakdown.events_where_filter(breakdown_values_override=self.breakdown_value)
+        if breakdown.enabled and not breakdown.is_histogram_breakdown and self.breakdown_value is not None:
+            breakdown_filter = breakdown.get_actors_query_where_filter(lookup_values=self.breakdown_value)
             if breakdown_filter is not None:
                 conditions.append(breakdown_filter)
 

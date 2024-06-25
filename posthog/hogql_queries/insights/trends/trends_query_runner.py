@@ -248,7 +248,7 @@ class TrendsQueryRunner(QueryRunner):
 
                 query = query_builder.build_query()
 
-                breakdown = query_builder._breakdown(is_actors_query=False)
+                breakdown = query_builder._breakdown()
 
                 results = execute_hogql_query(
                     query_type="TrendsActorsQueryOptions",

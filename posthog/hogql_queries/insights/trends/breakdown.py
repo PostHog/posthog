@@ -1,4 +1,4 @@
-from typing import Optional, Union, cast
+from typing import Union, cast
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
@@ -43,7 +43,6 @@ class Breakdown:
     query_date_range: QueryDateRange
     timings: HogQLTimings
     modifiers: HogQLQueryModifiers
-    events_filter: ast.Expr
     limit_context: LimitContext
 
     def __init__(
@@ -54,7 +53,6 @@ class Breakdown:
         query_date_range: QueryDateRange,
         timings: HogQLTimings,
         modifiers: HogQLQueryModifiers,
-        events_filter: ast.Expr,
         limit_context: LimitContext = LimitContext.QUERY,
     ):
         self.team = team
@@ -63,10 +61,9 @@ class Breakdown:
         self.query_date_range = query_date_range
         self.timings = timings
         self.modifiers = modifiers
-        self.events_filter = events_filter
         self.limit_context = limit_context
 
-    @cached_property
+    @property
     def enabled(self) -> bool:
         return self.query.breakdownFilter is not None and (
             self.query.breakdownFilter.breakdown is not None
@@ -85,7 +82,7 @@ class Breakdown:
                     return True
         return False
 
-    @cached_property
+    @property
     def is_multiple_breakdown(self) -> bool:
         if self.enabled:
             breakdown_filter = self._breakdown_filter
@@ -152,13 +149,21 @@ class Breakdown:
         ]
 
     @property
+    def is_cohort_breakdown(self):
+        return (
+            self.enabled
+            and self._breakdown_filter.breakdown is not None
+            and self._breakdown_filter.breakdown_type == BreakdownType.COHORT
+        )
+
+    @property
     def _breakdown_filter(self) -> BreakdownFilter:
         """
         Type checking
         """
         return cast(BreakdownFilter, self.query.breakdownFilter)
 
-    @cached_property
+    @property
     def hide_other_aggregation(self) -> bool:
         return (
             self.query.breakdownFilter.breakdown_hide_other_aggregation or False
@@ -200,46 +205,82 @@ class Breakdown:
             right=ast.Constant(value=breakdowns),
         )
 
-    def events_where_filter(self, breakdown_values_override: Optional[str | int] = None) -> ast.Expr | None:
-        if (
-            self.enabled
-            and self._breakdown_filter.breakdown is not None
-            and self._breakdown_filter.breakdown_type == BreakdownType.COHORT
-        ):
-            breakdown = breakdown_values_override if breakdown_values_override else self._breakdown_filter.breakdown
-            return self._get_cohort_filter(breakdown)
+    def get_trends_query_where_filter(self) -> ast.Expr | None:
+        if self.is_cohort_breakdown:
+            assert self._breakdown_filter.breakdown is not None  # type checking
+            return self._get_cohort_filter(self._breakdown_filter.breakdown)
 
-        if breakdown_values_override:
-            if (
-                self.query.breakdownFilter is not None
-                and self.query.breakdownFilter.breakdown is not None
-                and self.query.breakdownFilter.breakdown_type == "hogql"
-                and isinstance(self.query.breakdownFilter.breakdown, str)
-            ):
-                left = parse_expr(self.query.breakdownFilter.breakdown)
-            else:
-                left = ast.Field(
-                    chain=get_properties_chain(
-                        breakdown_type=self._breakdown_filter.breakdown_type,
-                        breakdown_field=cast(str, self._breakdown_filter.breakdown),
-                        group_type_index=self._breakdown_filter.breakdown_group_type_index,
+        return None
+
+    def get_actors_query_where_filter(self, lookup_values: str | int | list[int | str]) -> ast.Expr | None:
+        if self.is_cohort_breakdown:
+            return self._get_cohort_filter(lookup_values)
+
+        # TODO: fix filtering by "Other". If "Other" is selected, we include every person.
+        if lookup_values == BREAKDOWN_OTHER_STRING_LABEL:
+            return None
+
+        if self.enabled:
+            exprs: list[ast.Expr] = []
+            if self.is_multiple_breakdown and isinstance(lookup_values, list):
+                for breakdown, lookup_value in zip(
+                    cast(list[BreakdownSchema], self._breakdown_filter.breakdowns), lookup_values
+                ):
+                    exprs.append(
+                        self._get_actors_query_where_expr(
+                            breakdown_value=breakdown.property,
+                            breakdown_type=breakdown.type,
+                            lookup_value=str(
+                                lookup_value
+                            ),  # numeric values are only in cohorts, so it's a safe convertion here
+                            group_type_index=breakdown.group_type_index,
+                        )
                     )
-                )
+                return ast.And(exprs=exprs)
 
-            value: Optional[str] = str(breakdown_values_override)  # non-cohorts are always strings
-            if value == BREAKDOWN_OTHER_STRING_LABEL:
-                # TODO: Fix breaking down by other
-                return ast.Constant(value=True)
-            elif value == BREAKDOWN_NULL_STRING_LABEL:
-                return ast.Or(
-                    exprs=[
-                        ast.CompareOperation(left=left, op=ast.CompareOperationOp.Eq, right=ast.Constant(value=None)),
-                        ast.CompareOperation(left=left, op=ast.CompareOperationOp.Eq, right=ast.Constant(value="")),
-                    ]
+            if not isinstance(lookup_values, list):
+                return cast(
+                    ast.Expr,
+                    self._get_actors_query_where_expr(
+                        breakdown_value=str(
+                            self._breakdown_filter.breakdown
+                        ),  # all other value types were excluded already
+                        breakdown_type=self._breakdown_filter.breakdown_type,
+                        lookup_value=str(
+                            lookup_values
+                        ),  # numeric values are only in cohorts, so it's a safe convertion here
+                        group_type_index=self._breakdown_filter.breakdown_group_type_index,
+                    ),
                 )
-            else:
-                return ast.CompareOperation(left=left, op=ast.CompareOperationOp.Eq, right=ast.Constant(value=value))
-        return ast.Constant(value=True)
+        return None
+
+    def _get_actors_query_where_expr(
+        self,
+        breakdown_value: str,
+        breakdown_type: BreakdownType | MultipleBreakdownType | None,
+        lookup_value: str,
+        group_type_index: int | None = None,
+    ):
+        if breakdown_type == "hogql":
+            left = parse_expr(breakdown_value)
+        else:
+            left = ast.Field(
+                chain=get_properties_chain(
+                    breakdown_type=breakdown_type,
+                    breakdown_field=breakdown_value,
+                    group_type_index=group_type_index,
+                )
+            )
+
+        if lookup_value == BREAKDOWN_NULL_STRING_LABEL:
+            return ast.Or(
+                exprs=[
+                    ast.CompareOperation(left=left, op=ast.CompareOperationOp.Eq, right=ast.Constant(value=None)),
+                    ast.CompareOperation(left=left, op=ast.CompareOperationOp.Eq, right=ast.Constant(value="")),
+                ]
+            )
+
+        return ast.CompareOperation(left=left, op=ast.CompareOperationOp.Eq, right=ast.Constant(value=lookup_value))
 
     def _get_breakdown_values_transform(self, node: ast.Expr, normalize_url: bool | None = None) -> ast.Call:
         if normalize_url:
