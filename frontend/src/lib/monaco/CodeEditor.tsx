@@ -13,7 +13,7 @@ import * as hogQL from 'lib/monaco/languages/hogQL'
 import * as hogTemplate from 'lib/monaco/languages/hogTemplate'
 import { inStorybookTestRunner } from 'lib/utils'
 import { editor, editor as importedEditor, IDisposable } from 'monaco-editor'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
@@ -28,7 +28,6 @@ function initEditor(
     editor: importedEditor.IStandaloneCodeEditor,
     editorProps: Omit<CodeEditorProps, 'options' | 'onMount' | 'queryKey' | 'value'>,
     options: editor.IStandaloneEditorConstructionOptions,
-    _monacoDisposables: React.MutableRefObject<IDisposable[]>,
     builtCodeEditorLogic: BuiltLogic<codeEditorLogicType>
 ): void {
     // This gives autocomplete access to the specific editor
@@ -124,6 +123,22 @@ export function CodeEditor({ queryKey, options, onMount, value, ...editorProps }
     })
     useMountedLogic(builtCodeEditorLogic)
 
+    // Create DIV with .monaco-editor inside <body> for monaco's popups.
+    // Without this monaco's tooltips will be mispositioned if inside another modal or popup.
+    const monacoRoot = useMemo(() => {
+        const body = (typeof document !== 'undefined' && document.getElementsByTagName('body')[0]) || null
+        const monacoRoot = document.createElement('div')
+        monacoRoot.classList.add('monaco-editor')
+        monacoRoot.style.zIndex = 'var(--z-tooltip)'
+        body?.appendChild(monacoRoot)
+        return monacoRoot
+    }, [])
+    useEffect(() => {
+        return () => {
+            monacoRoot?.remove()
+        }
+    }, [])
+
     // Using useRef, not useState, as we don't want to reload the component when this changes.
     const monacoDisposables = useRef([] as IDisposable[])
     useEffect(() => {
@@ -152,6 +167,7 @@ export function CodeEditor({ queryKey, options, onMount, value, ...editorProps }
                 overviewRulerBorder: true,
                 hideCursorInOverviewRuler: false,
                 overviewRulerLanes: 3,
+                overflowWidgetsDomNode: monacoRoot,
                 ...options,
                 padding: { bottom: 8, top: 8 },
                 scrollbar: {
@@ -164,7 +180,7 @@ export function CodeEditor({ queryKey, options, onMount, value, ...editorProps }
             {...editorProps}
             onMount={(editor, monaco) => {
                 setMonacoAndEditor([monaco, editor])
-                initEditor(monaco, editor, editorProps, options ?? {}, monacoDisposables, builtCodeEditorLogic)
+                initEditor(monaco, editor, editorProps, options ?? {}, builtCodeEditorLogic)
                 onMount?.(editor, monaco)
             }}
         />
