@@ -191,7 +191,7 @@ class PersonsTable(LazyTable):
             isinstance(expr, CompareOperation)
             and expr.op == CompareOperationOp.In
             and isinstance(expr.left, Field)
-            and expr.left.chain in ([alias or "persons", "id"], ["id"])
+            and expr.left.chain == [alias or "persons", "id"]
         )
 
     @staticmethod
