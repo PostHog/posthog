@@ -42,7 +42,6 @@ function initEditor(
             monaco.languages.setMonarchTokensProvider('hog', hog.language)
             monaco.languages.registerCodeActionProvider('hog', hogQLMetadataProvider())
         }
-        // monacoDisposables.current.push(monaco.languages.registerCodeActionProvider('hog', hogQLMetadataProvider()))
     }
     if (editorProps?.language === 'hogQL' || editorProps?.language === 'hogExpr') {
         const language: 'hogQL' | 'hogExpr' = editorProps.language
@@ -64,7 +63,6 @@ function initEditor(
             monaco.languages.registerCompletionItemProvider(language, hogQLAutocompleteProvider(language))
             monaco.languages.registerCodeActionProvider(language, hogQLMetadataProvider())
         }
-        // monacoDisposables.current.push(monaco.languages.registerCodeActionProvider(language, hogQLMetadataProvider()))
     }
     if (editorProps?.language === 'hogTemplate') {
         if (!monaco.languages.getLanguages().some(({ id }) => id === 'hogTemplate')) {
