@@ -25,7 +25,7 @@ from posthog.hogql.ast import (
 
 from posthog.hogql.parser import parse_program
 from posthog.hogql import ast
-from posthog.hogql.errors import ExposedHogQLError, SyntaxError
+from posthog.hogql.errors import ExposedHogQLError, SyntaxHogQLError
 from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select, parse_string_template
 from posthog.hogql.visitor import clear_locations
 from posthog.test.base import BaseTest, MemoryLeakTestMixin
@@ -1524,7 +1524,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
         def test_property_access_with_arrays_zero_index_error(self):
             query = f"SELECT properties.something[0] FROM events"
             with self.assertRaisesMessage(
-                SyntaxError,
+                SyntaxHogQLError,
                 "SQL indexes start from one, not from zero. E.g: array[1]",
             ) as e:
                 self._select(query)
@@ -1534,7 +1534,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
         def test_property_access_with_tuples_zero_index_error(self):
             query = f"SELECT properties.something.0 FROM events"
             with self.assertRaisesMessage(
-                SyntaxError,
+                SyntaxHogQLError,
                 "SQL indexes start from one, not from zero. E.g: array[1]",
             ) as e:
                 self._select(query)
@@ -1544,7 +1544,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
         def test_reserved_keyword_alias_error(self):
             query = f"SELECT 0 AS trUE FROM events"
             with self.assertRaisesMessage(
-                SyntaxError,
+                SyntaxHogQLError,
                 '"trUE" cannot be an alias or identifier, as it\'s a reserved keyword',
             ) as e:
                 self._select(query)
@@ -1554,7 +1554,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
         def test_malformed_sql(self):
             query = "SELEC 2"
             with self.assertRaisesMessage(
-                SyntaxError,
+                SyntaxHogQLError,
                 "mismatched input 'SELEC' expecting {SELECT, WITH, '{', '(', '<'}",
             ) as e:
                 self._select(query)

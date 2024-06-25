@@ -3,7 +3,7 @@ from typing import Literal, cast, Optional
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
-from posthog.hogql.errors import NotImplementedError, QueryError, SyntaxError
+from posthog.hogql.errors import NotImplementedHogQLError, QueryError, SyntaxHogQLError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.visitor import clone_expr
@@ -50,5 +50,5 @@ def translate_hogql(
             dialect=dialect,
             stack=[prepared_select_query],
         )
-    except (NotImplementedError, SyntaxError):
+    except (NotImplementedHogQLError, SyntaxHogQLError):
         raise

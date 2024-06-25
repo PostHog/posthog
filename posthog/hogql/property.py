@@ -10,7 +10,7 @@ from posthog.constants import (
 )
 from posthog.hogql import ast
 from posthog.hogql.base import AST
-from posthog.hogql.errors import NotImplementedError, QueryError
+from posthog.hogql.errors import NotImplementedHogQLError, QueryError
 from posthog.hogql.functions import find_hogql_aggregation
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
@@ -278,7 +278,7 @@ def property_to_expr(
         elif operator == PropertyOperator.GTE:
             op = ast.CompareOperationOp.GtEq
         else:
-            raise NotImplementedError(f"PropertyOperator {operator} not implemented")
+            raise NotImplementedHogQLError(f"PropertyOperator {operator} not implemented")
 
         # For Boolean and untyped properties, treat "true" and "false" as boolean values
         if (
@@ -363,7 +363,9 @@ def property_to_expr(
 
     elif property.type == "element":
         if scope == "person":
-            raise NotImplementedError(f"property_to_expr for scope {scope} not implemented for type '{property.type}'")
+            raise NotImplementedHogQLError(
+                f"property_to_expr for scope {scope} not implemented for type '{property.type}'"
+            )
         value = property.value
         operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.EXACT
         if isinstance(value, list):
@@ -394,7 +396,7 @@ def property_to_expr(
 
         if property.key == "selector" or property.key == "tag_name":
             if operator != PropertyOperator.EXACT and operator != PropertyOperator.IS_NOT:
-                raise NotImplementedError(
+                raise NotImplementedHogQLError(
                     f"property_to_expr for element {property.key} only supports exact and is_not operators, not {operator}"
                 )
             expr = selector_to_expr(str(value)) if property.key == "selector" else tag_name_to_expr(str(value))
@@ -408,7 +410,7 @@ def property_to_expr(
         if property.key == "text":
             return element_chain_key_filter("text", str(value), operator)
 
-        raise NotImplementedError(f"property_to_expr for type element not implemented for key {property.key}")
+        raise NotImplementedHogQLError(f"property_to_expr for type element not implemented for key {property.key}")
     elif property.type == "cohort" or property.type == "static-cohort" or property.type == "precalculated-cohort":
         if not team:
             raise Exception("Can not convert cohort property to expression without team")
@@ -421,7 +423,7 @@ def property_to_expr(
 
     # TODO: Add support for these types: "recording", "behavioral"
 
-    raise NotImplementedError(
+    raise NotImplementedHogQLError(
         f"property_to_expr not implemented for filter type {type(property).__name__} and {property.type}"
     )
 
@@ -519,7 +521,7 @@ def element_chain_key_filter(key: str, text: str, operator: PropertyOperator):
     elif operator == PropertyOperator.EXACT or operator == PropertyOperator.IS_NOT:
         value = re.escape(escaped)
     else:
-        raise NotImplementedError(f"element_href_to_expr not implemented for operator {operator}")
+        raise NotImplementedHogQLError(f"element_href_to_expr not implemented for operator {operator}")
 
     regex = f'({key}="{value}")'
     if operator == PropertyOperator.ICONTAINS or operator == PropertyOperator.NOT_ICONTAINS:

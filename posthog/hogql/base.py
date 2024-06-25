@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal, Optional
 
 from posthog.hogql.constants import ConstantDataType
-from posthog.hogql.errors import NotImplementedError
+from posthog.hogql.errors import NotImplementedHogQLError
 
 if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
@@ -32,22 +32,22 @@ class AST:
             return visit(self)
         if hasattr(visitor, "visit_unknown"):
             return visitor.visit_unknown(self)
-        raise NotImplementedError(f"{visitor.__class__.__name__} has no method {method_name}")
+        raise NotImplementedHogQLError(f"{visitor.__class__.__name__} has no method {method_name}")
 
 
 @dataclass(kw_only=True)
 class Type(AST):
     def get_child(self, name: str, context: "HogQLContext") -> "Type":
-        raise NotImplementedError("Type.get_child not overridden")
+        raise NotImplementedHogQLError("Type.get_child not overridden")
 
     def has_child(self, name: str, context: "HogQLContext") -> bool:
         return self.get_child(name, context) is not None
 
     def resolve_constant_type(self, context: "HogQLContext") -> "ConstantType":
-        raise NotImplementedError(f"{self.__class__.__name__}.resolve_constant_type not overridden")
+        raise NotImplementedHogQLError(f"{self.__class__.__name__}.resolve_constant_type not overridden")
 
     def resolve_column_constant_type(self, name: str, context: "HogQLContext") -> "ConstantType":
-        raise NotImplementedError(f"{self.__class__.__name__}.resolve_column_constant_type not overridden")
+        raise NotImplementedHogQLError(f"{self.__class__.__name__}.resolve_column_constant_type not overridden")
 
 
 @dataclass(kw_only=True)
@@ -74,7 +74,7 @@ class ConstantType(Type):
         return self
 
     def print_type(self) -> str:
-        raise NotImplementedError("ConstantType.print_type not implemented")
+        raise NotImplementedHogQLError("ConstantType.print_type not implemented")
 
 
 @dataclass(kw_only=True)
