@@ -384,7 +384,7 @@ async def test_insert_into_bigquery_activity_merges_data_in_follow_up_runs(
         person_distinct_id, _ = await generate_test_person_distinct_id2_in_clickhouse(
             clickhouse_client,
             ateam.pk,
-            person_id=new_person[0]["id"],
+            person_id=uuid.UUID(new_person[0]["id"]),
             distinct_id=old_person["distinct_id"],
             version=old_person["version"] + 1,
             timestamp=old_person["_timestamp"],
