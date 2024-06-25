@@ -67,7 +67,8 @@ describe('Hog Executor', () => {
         })
 
         it('can parse incoming messages correctly', () => {
-            const results = executor.executeMatchingFunctions(createHogExecutionGlobals())
+            const globals = createHogExecutionGlobals()
+            const results = executor.executeFunctions(globals, executor.findMatchingFunctions(globals))
             expect(results).toHaveLength(1)
             expect(results[0]).toMatchObject({
                 id: expect.any(String),
@@ -76,7 +77,8 @@ describe('Hog Executor', () => {
         })
 
         it('collects logs from the function', () => {
-            const results = executor.executeMatchingFunctions(createHogExecutionGlobals())
+            const globals = createHogExecutionGlobals()
+            const results = executor.executeFunctions(globals, executor.findMatchingFunctions(globals))
             expect(results[0].logs).toMatchObject([
                 {
                     team_id: 1,
@@ -108,7 +110,8 @@ describe('Hog Executor', () => {
         })
 
         it('queues up an async function call', () => {
-            const results = executor.executeMatchingFunctions(createHogExecutionGlobals())
+            const globals = createHogExecutionGlobals()
+            const results = executor.executeFunctions(globals, executor.findMatchingFunctions(globals))
             expect(results[0]).toMatchObject({
                 id: results[0].id,
                 globals: {
@@ -164,7 +167,8 @@ describe('Hog Executor', () => {
 
         it('executes the full function in a loop', () => {
             const logs: HogFunctionLogEntry[] = []
-            const results = executor.executeMatchingFunctions(createHogExecutionGlobals())
+            const globals = createHogExecutionGlobals()
+            const results = executor.executeFunctions(globals, executor.findMatchingFunctions(globals))
             const splicedLogs = results[0].logs.splice(0, 100)
             logs.push(...splicedLogs)
 
@@ -193,10 +197,10 @@ describe('Hog Executor', () => {
 
             mockFunctionManager.getTeamHogFunctions.mockReturnValue([fn])
 
-            const resultsShouldntMatch = executor.executeMatchingFunctions(createHogExecutionGlobals())
+            const resultsShouldntMatch = executor.findMatchingFunctions(createHogExecutionGlobals())
             expect(resultsShouldntMatch).toHaveLength(0)
 
-            const resultsShouldMatch = executor.executeMatchingFunctions(
+            const resultsShouldMatch = executor.findMatchingFunctions(
                 createHogExecutionGlobals({
                     event: {
                         name: '$pageview',
@@ -221,7 +225,8 @@ describe('Hog Executor', () => {
             mockFunctionManager.getTeamHogFunctions.mockReturnValue([fn])
 
             // Simulate the recusive loop
-            const results = executor.executeMatchingFunctions(createHogExecutionGlobals())
+            const globals = createHogExecutionGlobals()
+            const results = executor.executeFunctions(globals, executor.findMatchingFunctions(globals))
             expect(results).toHaveLength(1)
 
             // Run the result one time simulating a successful fetch
@@ -253,7 +258,8 @@ describe('Hog Executor', () => {
 
             mockFunctionManager.getTeamHogFunctions.mockReturnValue([fn])
 
-            const results = executor.executeMatchingFunctions(createHogExecutionGlobals())
+            const globals = createHogExecutionGlobals()
+            const results = executor.executeFunctions(globals, executor.findMatchingFunctions(globals))
             expect(results).toHaveLength(1)
             expect(results[0].error).toContain('Execution timed out after 0.1 seconds. Performed ')
 

@@ -91,7 +91,7 @@ export const MIN_OBSERVATIONS = 3
 export const OVERFLOW_THRESHOLD = 0.8
 export const DISABLE_THRESHOLD = 0.5
 
-export const BASE_REDIS_KEY = '@posthog/hog-watcher'
+export const BASE_REDIS_KEY = process.env.NODE_ENV == 'test' ? '@posthog-test/hog-watcher' : '@posthog/hog-watcher'
 
 const redisKeyObservations = (id: HogFunctionType['id']) => `${BASE_REDIS_KEY}/observations/${id}`
 const redisKeyStates = (id: HogFunctionType['id']) => `${BASE_REDIS_KEY}/states/${id}`
