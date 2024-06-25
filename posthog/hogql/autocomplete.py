@@ -309,10 +309,6 @@ def get_hogql_autocomplete(
 
     context = HogQLContext(team_id=team.pk, team=team, database=database)
 
-    query_type = "select"
-    query_input = query.select or ""
-    expr_source = "select * from events"
-
     if query.expr is not None and query.expr != "":
         query_type = "expr"
         query_input = query.expr
@@ -321,9 +317,10 @@ def get_hogql_autocomplete(
         query_type = "template"
         query_input = query.template
         expr_source = query.exprSource or "select * from events"
-
-    original_start_position = query.startPosition
-    original_end_position = query.endPosition
+    else:
+        query_type = "select"
+        query_input = query.select or ""
+        expr_source = "select * from events"
 
     for extra_characters, length_to_add in [
         ("", 0),
@@ -334,9 +331,9 @@ def get_hogql_autocomplete(
         (f"{MATCH_ANY_CHARACTER} FROM events", len(MATCH_ANY_CHARACTER)),
     ]:
         try:
-            query_to_try = query_input[:original_end_position] + extra_characters + query_input[original_end_position:]
-            query_start = original_start_position
-            query_end = original_end_position + length_to_add
+            query_to_try = query_input[: query.endPosition] + extra_characters + query_input[query.endPosition :]
+            query_start = query.startPosition
+            query_end = query.endPosition + length_to_add
 
             if query_type == "select" and query.select is not None:
                 with timings.measure("parse_select"):
