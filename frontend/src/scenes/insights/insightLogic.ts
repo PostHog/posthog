@@ -83,7 +83,6 @@ export const insightLogic = kea<insightLogicType>([
         }),
         saveAsNamingSuccess: (name: string) => ({ name }),
         cancelChanges: true,
-        setInsightDescription: (description: string) => ({ description }),
         saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
         saveInsightSuccess: true,
         saveInsightFailure: true,
