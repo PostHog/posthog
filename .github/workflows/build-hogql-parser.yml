@@ -75,12 +75,7 @@ jobs:
               with:
                   python-version: '3.10'
 
-            # - if: ${{ endsWith(matrix.os, '-arm') }}
-            #   uses: deadsnakes/action@v3.1.0 # Unfortunately actions/setup-python@v4 just doesn't work on ARM! This does
-            #   with:
-            #       python-version: '3.10'
-
-            # This is an alternative way to install Python 3.11 on ARM if the above fails
+            # Compiling Python 3.11 from source on ARM. We tried using the "deadsnakes" ARM repo, but it was flakey.
             - if: ${{ endsWith(matrix.os, '-arm') }}
               name: Install Python 3.11 on ARM (compile from source)
               run: |
