@@ -2653,12 +2653,13 @@ export interface SurveyAppearance {
     thankYouMessageDescriptionContentType?: SurveyQuestionDescriptionContentType
     autoDisappear?: boolean
     position?: string
+    shuffleQuestions?: boolean
+    surveyPopupDelaySeconds?: number
     // widget only
     widgetType?: 'button' | 'tab' | 'selector'
     widgetSelector?: string
     widgetLabel?: string
     widgetColor?: string
-    shuffleQuestions?: boolean
 }
 
 export interface SurveyQuestionBase {
