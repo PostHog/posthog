@@ -42,6 +42,7 @@ class SurveySerializer(serializers.ModelSerializer):
     targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
     internal_targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
     created_by = UserBasicSerializer(read_only=True)
+    conditions = serializers.SerializerMethodField(method_name="get_conditions")
 
     class Meta:
         model = Survey
@@ -70,6 +71,15 @@ class SurveySerializer(serializers.ModelSerializer):
             "current_iteration_start_date",
         ]
         read_only_fields = ["id", "created_at", "created_by"]
+
+    def get_conditions(self, obj):
+        if obj.conditions is not None:
+            if obj.conditions.get("actionNames") is not None:
+                # actionNames can change between when the survey is created and when its retrieved.
+                # update the actionNames in the response from the real names of the actions as defined
+                # in data management.
+                obj.conditions["actionNames"] = obj.actions.all().values_list("name", flat=True)
+        return obj.conditions
 
 
 class SurveySerializerCreateUpdateOnly(SurveySerializer):
