@@ -160,6 +160,9 @@ export function CodeEditor({ queryKey, options, onMount, value, ...editorProps }
                 wordWrap: 'off',
                 lineNumbers: 'on',
                 tabFocusMode: false,
+                overviewRulerBorder: true,
+                hideCursorInOverviewRuler: false,
+                overviewRulerLanes: 3,
                 ...options,
                 padding: { bottom: 8, top: 8 },
                 scrollbar: {

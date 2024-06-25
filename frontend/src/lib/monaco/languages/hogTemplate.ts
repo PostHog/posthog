@@ -14,9 +14,9 @@ export const language: languages.IMonarchLanguage = {
 
         template_string: [
             [/\{/, { token: 'delimiter.bracket', next: '@bracketCounting' }],
-            [/[^{]+/, 'string'],
-            [/@escapes/, 'string.escape'],
-            [/\\./, 'string.escape.invalid'],
+            [/[^{]+/, 'text'], // using "text" not "string" to keep the text field black
+            [/@escapes/, 'text.escape'],
+            [/\\./, 'text.escape.invalid'],
         ],
 
         hog: [

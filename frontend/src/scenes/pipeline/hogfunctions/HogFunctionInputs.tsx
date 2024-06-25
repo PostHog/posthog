@@ -205,7 +205,7 @@ function DictionaryField({ onChange, value }: { onChange?: (value: any) => void;
                     <CodeEditorInline
                         className="flex-2"
                         value={val}
-                        language="ehog"
+                        language="hogTemplate"
                         onChange={(val) => {
                             const newEntries = [...entries]
                             newEntries[index] = [newEntries[index][0], val ?? '']
@@ -243,7 +243,7 @@ export function HogFunctionInputRenderer({ value, onChange, schema, disabled }: 
         case 'string':
             return (
                 <CodeEditorInline
-                    language="ehog"
+                    language="hogTemplate"
                     value={value}
                     onChange={disabled ? () => {} : onChange}
                     className="ph-no-capture"
