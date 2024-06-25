@@ -354,9 +354,6 @@ def get_hogql_autocomplete(
                     select_ast = cast(ast.SelectQuery, clone_expr(parse_select(expr_source), clear_locations=True))
                     select_ast.select = [node_ast]
                     root_node = node_ast
-                    # to account for the magic F' symbol we append to change antlr's mode
-                    query_start += 2
-                    query_end += 2
             else:
                 raise ValueError("Invalid query type")
 
@@ -372,7 +369,9 @@ def get_hogql_autocomplete(
                 ctes = select_ast.select_queries[0].ctes
 
             with timings.measure("find_node"):
-                find_node = GetNodeAtPositionTraverser(root_node, query_start, query_end)
+                # to account for the magic F' symbol we append to change antlr's mode
+                extra = 2 if query_type == "template" else 0
+                find_node = GetNodeAtPositionTraverser(root_node, query_start + extra, query_end + extra)
             node = find_node.node
             parent_node = find_node.parent_node
             nearest_select = find_node.nearest_select_query or select_ast
@@ -449,7 +448,7 @@ def get_hogql_autocomplete(
                                     property_type = None
 
                                 if property_type is not None:
-                                    match_term = query_input[query_start:query_end]
+                                    match_term = query_to_try[query_start:query_end]
                                     if match_term == MATCH_ANY_CHARACTER:
                                         match_term = ""
 
