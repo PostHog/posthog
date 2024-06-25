@@ -879,6 +879,16 @@ export const surveyLogic = kea<surveyLogicType>([
                 return survey.questions[questionIndex].descriptionContentType
             },
         ],
+        surveyRepeatedActivationAvailable: [
+            (s) => [s.survey],
+            (survey: Survey): boolean =>
+                !!(
+                    survey.conditions &&
+                    survey.conditions?.events &&
+                    survey.conditions?.events?.values &&
+                    survey.conditions?.events?.values.length > 0
+                ),
+        ],
         hasTargetingSet: [
             (s) => [s.survey],
             (survey: Survey): boolean => {

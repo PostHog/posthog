@@ -2596,6 +2596,7 @@ export interface Survey {
         selector: string
         seenSurveyWaitPeriodInDays?: number
         urlMatchType?: SurveyUrlMatchType
+        repeatedActivation?: boolean
         events: {
             values: {
                 name: string
