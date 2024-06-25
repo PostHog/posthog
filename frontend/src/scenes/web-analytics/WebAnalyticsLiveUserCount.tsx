@@ -9,14 +9,22 @@ export const WebAnalyticsLiveUserCount = (): JSX.Element | null => {
     const { liveUserCount, liveUserUpdatedSecondsAgo } = useValues(liveEventsTableLogic)
     const { currentTeam } = useValues(teamLogic)
 
-    if (liveUserCount == null || liveUserUpdatedSecondsAgo == null) {
+    if (liveUserCount == null) {
+        // No data yet, or feature flag disabled
         return null
     }
 
+    const usersOnlineString = `${humanFriendlyNumber(liveUserCount)} ${
+        liveUserCount === 1 ? 'user is' : 'users are'
+    } online`
     const inTeamString = currentTeam ? ` in ${currentTeam.name}` : ''
-    const tooltip = `${humanFriendlyNumber(
-        liveUserCount
-    )} users are online${inTeamString} (updated ${liveUserUpdatedSecondsAgo} seconds ago)`
+    const updatedAgoString =
+        liveUserUpdatedSecondsAgo === 0
+            ? ' (updated just now)'
+            : liveUserUpdatedSecondsAgo == null
+            ? ''
+            : ` (updated ${liveUserUpdatedSecondsAgo} seconds ago)`
+    const tooltip = `${usersOnlineString}${inTeamString}${updatedAgoString}`
 
     return (
         <div className="flex-row">
