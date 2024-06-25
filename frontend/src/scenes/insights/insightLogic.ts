@@ -77,7 +77,6 @@ export const insightLogic = kea<insightLogicType>([
             insightMode,
             clearInsightQuery,
         }),
-        setIsLoading: (isLoading: boolean) => ({ isLoading }),
         setInsight: (insight: Partial<InsightModel>, options: SetInsightOptions) => ({
             insight,
             options,
@@ -303,7 +302,6 @@ export const insightLogic = kea<insightLogicType>([
         insightLoading: [
             false,
             {
-                setIsLoading: (_, { isLoading }) => isLoading,
                 loadInsight: () => true,
                 loadInsightSuccess: () => false,
                 loadInsightFailure: () => false,
