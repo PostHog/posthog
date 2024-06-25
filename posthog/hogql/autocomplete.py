@@ -52,7 +52,7 @@ class GetNodeAtPositionTraverser(TraversingVisitor):
         super().__init__()
         self.start = start
         self.end = end
-        super().visit(expr)
+        self.visit(expr)
 
     def visit(self, node: AST | None):
         if node is not None and node.start is not None and node.end is not None:

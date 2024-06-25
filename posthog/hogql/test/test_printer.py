@@ -1,4 +1,4 @@
-from typing import Literal, Optional
+from typing import Literal, Optional, cast
 
 import pytest
 from django.test import override_settings
@@ -10,7 +10,7 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DateDatabaseField, StringDatabaseField
 from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.parser import parse_select, parse_expr
-from posthog.hogql.printer import print_ast, to_printed_hogql
+from posthog.hogql.printer import print_ast, to_printed_hogql, prepare_ast_for_printing, print_prepared_ast
 from posthog.models import PropertyDefinition
 from posthog.models.team.team import WeekStartDay
 from posthog.schema import HogQLQueryModifiers, PersonsArgMaxVersion, PersonsOnEventsMode
@@ -27,10 +27,18 @@ class TestPrinter(BaseTest):
         context: Optional[HogQLContext] = None,
         dialect: Literal["hogql", "clickhouse"] = "clickhouse",
     ) -> str:
-        return print_ast(
-            parse_expr(query),
-            context or HogQLContext(team_id=self.team.pk, enable_select_queries=True),
-            dialect,
+        node = parse_expr(query)
+        context = context or HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        select_query = ast.SelectQuery(select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])))
+        prepared_select_query: ast.SelectQuery = cast(
+            ast.SelectQuery,
+            prepare_ast_for_printing(select_query, context=context, dialect=dialect, stack=[select_query]),
+        )
+        return print_prepared_ast(
+            prepared_select_query.select[0],
+            context=context,
+            dialect=dialect,
+            stack=[prepared_select_query],
         )
 
     # Helper to always translate HogQL with a blank context,
