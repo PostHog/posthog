@@ -309,7 +309,7 @@ describe('insightLogic', () => {
                             short_id: Insight42,
                             query: { kind: NodeKind.TimeToSeeDataSessionsQuery },
                         }),
-                        filters: {},
+                        legacyFilters: {},
                     })
                     .delay(1)
                     // do not override the insight if querying with different filters
@@ -339,7 +339,7 @@ describe('insightLogic', () => {
                 await expectLogic(logic)
                     .toMatchValues({
                         legacyInsight: insight,
-                        filters: partial({
+                        legacyFilters: partial({
                             events: [partial({ id: 3 })],
                             properties: [partial({ value: 'a' })],
                         }),
@@ -539,7 +539,7 @@ describe('insightLogic', () => {
             .toDispatchActions(savedInsightsLogic, ['loadInsights'])
             .toMatchValues({
                 savedInsight: partial({ filters: partial({ insight: InsightType.FUNNELS }) }),
-                filters: partial({ insight: InsightType.FUNNELS }),
+                legacyFilters: partial({ insight: InsightType.FUNNELS }),
                 legacyInsight: partial({ id: 12, short_id: Insight12, name: 'New Insight (copy)' }),
                 queryBasedInsight: partial({ id: 12, short_id: Insight12, name: 'New Insight (copy)' }),
                 insightChanged: false,
