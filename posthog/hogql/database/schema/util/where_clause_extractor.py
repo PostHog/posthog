@@ -501,7 +501,11 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
         from posthog.hogql.database.schema.session_replay_events import RawSessionReplayEventsTable
 
         if node.type and isinstance(node.type, ast.FieldAliasType):
-            resolved_field = node.type.resolve_database_field(self.context)
+            try:
+                resolved_field = node.type.resolve_database_field(self.context)
+            except NotImplementedError:
+                return False
+
             table_type = node.type.resolve_table_type(self.context)
             if not table_type:
                 return False
