@@ -95,6 +95,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "filters": {"bytecode": ["_h", 29]},
             "icon_url": None,
             "template": None,
+            "status": None,
         }
 
     @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
@@ -332,3 +333,47 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 2,
             ],
         }
+
+    @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
+    def test_loads_status_when_enabled_and_available(self, *args):
+        with patch("posthog.plugins.plugin_server_api.requests.get") as mock_get:
+            mock_get.return_value.status_code = status.HTTP_200_OK
+            mock_get.return_value.json.return_value = {"state": 1, "states": [], "ratings": []}
+
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    "name": "Fetch URL",
+                    "description": "Test description",
+                    "hog": "fetch(inputs.url);",
+                    "template_id": template_webhook.id,
+                    "enabled": True,
+                },
+            )
+            assert response.status_code == status.HTTP_201_CREATED, response.json()
+            assert response.json()["status"] is None
+
+            response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{response.json()['id']}")
+
+            assert response.json()["status"] == {"state": 1, "states": [], "ratings": []}
+
+    @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
+    def test_does_not_crash_when_status_not_available(self, *args):
+        with patch("posthog.plugins.plugin_server_api.requests.get") as mock_get:
+            mock_get.return_value.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+            mock_get.return_value.json.return_value = {"error": "oh no"}
+
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    "name": "Fetch URL",
+                    "description": "Test description",
+                    "hog": "fetch(inputs.url);",
+                    "template_id": template_webhook.id,
+                    "enabled": True,
+                },
+            )
+            assert response.status_code == status.HTTP_201_CREATED, response.json()
+            assert response.json()["status"] is None
+            response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{response.json()['id']}")
+            assert response.json()["status"] is None
