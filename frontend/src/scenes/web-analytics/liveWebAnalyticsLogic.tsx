@@ -15,35 +15,34 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
     }),
     actions(() => ({
         pollStats: true,
-        setStats: ({ stats, now }: { stats: StatsResponse; now: Date }) => ({ stats, now }),
+        setLiveUserCount: ({ liveUserCount, now }: { liveUserCount: number; now: Date }) => ({
+            liveUserCount,
+            now,
+        }),
         setNow: ({ now }: { now: Date }) => ({ now }),
     })),
     reducers({
-        stats: [
-            null as StatsResponse | null,
+        liveUserCount: [
+            null as number | null,
             {
-                setStats: (_, { stats }) => stats,
+                setLiveUserCount: (_, { liveUserCount }) => liveUserCount,
             },
         ],
         statsUpdatedTime: [
             null as Date | null,
             {
-                setStats: (_, { now }) => now,
+                setNumUsersOnProduct: (_, { now }) => now,
             },
         ],
         now: [
             null as Date | null,
             {
                 setNow: (_, { now }) => now,
-                setStats: (_, { now }) => now,
+                setLiveUserCount: (_, { now }) => now,
             },
         ],
     }),
     selectors({
-        liveUserCount: [
-            (s) => [s.stats],
-            (stats: StatsResponse | null) => (stats?.users_on_product ? stats.users_on_product : null),
-        ],
         liveUserUpdatedSecondsAgo: [
             (s) => [s.statsUpdatedTime, s.now],
             (statsUpdatedTime: Date | null, now: Date | null) => {
@@ -71,8 +70,9 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
                         Authorization: `Bearer ${values.currentTeam.live_events_token}`,
                     },
                 })
-                const data = await response.json()
-                actions.setStats({ stats: data, now: new Date() })
+                const data: StatsResponse = await response.json()
+                const liveUserCount = data.users_on_product || 0 // returns undefined if there are no users
+                actions.setLiveUserCount({ liveUserCount, now: new Date() })
             } catch (error) {
                 console.error('Failed to poll stats:', error)
             }
