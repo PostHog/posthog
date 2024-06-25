@@ -245,7 +245,6 @@ class ActorsQueryRunner(QueryRunner):
                 assert self.source_query_runner is not None  # For type checking
                 source_query = self.source_query_runner.to_actors_query()
 
-                # Source Query has "Select actor_id as actor_id, count() as event_count) "source"
                 source_id_chain = self.source_id_column(source_query)
                 source_alias = "source"
 

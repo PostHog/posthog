@@ -176,19 +176,6 @@ class RawPersonsTable(Table):
         return "raw_persons"
 
 
-class PersonsTable(LazyTable):
-    fields: dict[str, FieldOrTable] = PERSONS_FIELDS
-
-    def lazy_select(self, table_to_add: LazyTableToAdd, context, node):
-        return select_from_persons_table(table_to_add, context, node)
-
-    def to_printed_clickhouse(self, context):
-        return "person"
-
-    def to_printed_hogql(self):
-        return "persons"
-
-
 # Persons is a lazy table that allows you to insert a where statement inside of the person subselect
 # It pulls any "persons.id in ()" statement inside of the argmax subselect
 # This is useful when executing a query for a large team.
@@ -198,7 +185,7 @@ class PersonsTable(LazyTable):
     filter: Optional[Expr] = None
 
     @staticmethod
-    def is_promotable_expr(expr):
+    def _is_promotable_expr(expr):
         return (
             isinstance(expr, CompareOperation)
             and expr.op == CompareOperationOp.In
@@ -210,7 +197,7 @@ class PersonsTable(LazyTable):
         not_promotable = []
         promotable = []
         for expr in exprs:
-            if PersonsTable.is_promotable_expr(expr):
+            if PersonsTable._is_promotable_expr(expr):
                 # Erase "persons" from the chain before bringing inside
                 expr.left = Field(chain=["id"])
                 promotable.append(expr)
