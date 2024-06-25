@@ -2548,7 +2548,7 @@ parser_state* get_module_state(PyObject* module) {
     try {                                                                                                              \
       parse_tree = parser->CAMEL_CASE();                                                                               \
     } catch HANDLE_HOGQL_ERROR(SyntaxError, delete error_listener; delete parser; delete stream; delete lexer;         \
-                                   delete input_stream;)                                                               \
+                                  delete input_stream;)                                                                \
     catch (const antlr4::EmptyStackException &e) {                                                                     \
       delete error_listener; delete parser; delete stream; delete lexer; delete input_stream;                          \
       PyObject* error_type = PyObject_GetAttrString(state->errors_module, "SyntaxError");                              \
