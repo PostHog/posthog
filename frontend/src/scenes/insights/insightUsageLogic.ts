@@ -50,7 +50,7 @@ export const insightUsageLogic = kea<insightUsageLogicType>([
             if (
                 !insightSceneLogic.isMounted() ||
                 insightSceneLogic.values.activeScene !== 'Insight' ||
-                insightSceneLogic.values.insight?.short_id !== values.queryBasedInsight?.short_id
+                insightSceneLogic.values.queryBasedInsight?.short_id !== values.queryBasedInsight?.short_id
             ) {
                 return
             }
