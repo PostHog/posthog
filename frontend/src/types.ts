@@ -2392,7 +2392,7 @@ export interface TrendResult {
     dates?: string[]
     label: string
     labels: string[]
-    breakdown_value?: string | number | string[] | number[]
+    breakdown_value?: string | number | string[]
     aggregated_value: number
     status?: string
     compare_label?: CompareLabelType
@@ -3350,7 +3350,7 @@ export type GraphDataset = ChartDataset<ChartType> &
         /** Toggled on to draw incompleteness lines in LineGraph.tsx */
         dotted?: boolean
         /** Array of breakdown values used only in ActionsHorizontalBar/ActionsPie.tsx data */
-        breakdownValues?: (string | number | undefined)[]
+        breakdownValues?: (string | number | string[] | undefined)[]
         /** Array of breakdown labels used only in ActionsHorizontalBar/ActionsPie.tsx data */
         breakdownLabels?: (string | number | undefined)[]
         /** Array of compare labels used only in ActionsHorizontalBar/ActionsPie.tsx data */

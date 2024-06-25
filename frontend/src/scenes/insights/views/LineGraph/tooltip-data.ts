@@ -19,10 +19,9 @@ export function createTooltipData(
                 datasetIndex: dp.datasetIndex,
                 dotted: !!pointDataset?.dotted,
                 breakdown_value:
-                    pointDataset?.breakdown_value ??
-                    pointDataset?.breakdownLabels?.[dp.dataIndex] ??
-                    pointDataset?.breakdownValues?.[dp.dataIndex] ??
-                    undefined,
+                    (Array.isArray(pointDataset?.breakdown_value)
+                        ? pointDataset?.breakdownValues?.[dp.dataIndex]
+                        : pointDataset?.breakdownLabels?.[dp.dataIndex]) ?? undefined,
                 compare_label: pointDataset?.compare_label ?? pointDataset?.compareLabels?.[dp.dataIndex] ?? undefined,
                 action: pointDataset?.action ?? pointDataset?.actions?.[dp.dataIndex] ?? undefined,
                 label: pointDataset?.label ?? pointDataset.labels?.[dp.dataIndex] ?? undefined,
