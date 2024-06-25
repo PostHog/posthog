@@ -22,11 +22,11 @@ export const funnelCorrelationUsageLogic = kea<funnelCorrelationUsageLogicType>(
     connect((props: InsightLogicProps) => ({
         logic: [eventUsageLogic],
 
-        values: [insightLogic(props), ['isInDashboardContext']],
+        values: [insightLogic(props), ['isInDashboardContext'], insightVizDataLogic(props), ['querySource']],
 
         actions: [
             insightVizDataLogic(props),
-            ['loadDataSuccess', 'querySource'],
+            ['loadDataSuccess'],
             funnelPersonsModalLogic(props),
             ['openCorrelationPersonsModal'],
             funnelDataLogic(props),
