@@ -1,4 +1,5 @@
 from typing import cast, Optional
+from typing_extensions import Self
 import posthoganalytics
 
 from posthog.hogql.ast import SelectQuery, And, CompareOperation, CompareOperationOp, Field, JoinExpr
@@ -207,15 +208,19 @@ class PersonsTable(LazyTable):
 
         return promotable, not_promotable
 
-    def set_filter(self, join: JoinExpr):
+    # If the join has a clause we can bring inside the subselect, create a new table that represents that
+    def create_new_table_with_filter(self, join: JoinExpr) -> Self:
         if join.constraint is not None and isinstance(join.constraint.expr, And):
             exprs = cast(And, join.constraint.expr).exprs
             promotable, not_promotable = PersonsTable.partition_exprs(exprs, join.alias)
             join.constraint.expr.exprs = not_promotable
+            p = PersonsTable()
             if len(promotable) == 1:
-                self.filter = promotable[0]
+                p.filter = promotable[0]
             elif len(promotable) > 1:
-                self.filter = And(exprs=promotable)
+                p.filter = And(exprs=promotable)
+            return p
+        return self
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context, node):
         if self.filter is not None:
