@@ -154,7 +154,7 @@ class Breakdown:
         return cast(BreakdownFilter, self.query.breakdownFilter)
 
     @cached_property
-    def remove_others_row(self) -> bool:
+    def hide_other_aggregation(self) -> bool:
         return (
             self.query.breakdownFilter.breakdown_hide_other_aggregation or False
             if self.query.breakdownFilter
