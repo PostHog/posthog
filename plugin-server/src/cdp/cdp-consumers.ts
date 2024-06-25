@@ -80,7 +80,25 @@ abstract class CdpConsumerBase {
         this.asyncFunctionExecutor = new AsyncFunctionExecutor(this.hub, rustyHook)
     }
 
-    public abstract handleEachBatch(messages: Message[], heartbeat: () => void): Promise<void>
+    public async handleEachBatch(messages: Message[], heartbeat: () => void): Promise<void> {
+        status.info('🔁', `${this.name} - handling batch`, {
+            size: messages.length,
+        })
+
+        histogramKafkaBatchSize.observe(messages.length)
+        histogramKafkaBatchSizeKb.observe(messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024)
+
+        return await runInstrumentedFunction({
+            statsKey: `cdpConsumer.handleEachBatch`,
+            sendTimeoutGuardToSentry: false,
+            func: async () => {
+                await this._handleEachBatch(messages, heartbeat)
+                await this.produceQueuedMessages()
+            },
+        })
+    }
+
+    protected abstract _handleEachBatch(messages: Message[], heartbeat: () => void): Promise<void>
 
     private async produceQueuedMessages() {
         const messages = [...this.messagesToProduce]
@@ -227,7 +245,7 @@ abstract class CdpConsumerBase {
 
                             if (disabled.length) {
                                 // Log something
-                                status.info('🔁', `Disabled functions skipped`, {
+                                status.debug('🔁', `Disabled functions skipped`, {
                                     count: disabled.length,
                                 })
                             }
@@ -292,21 +310,7 @@ abstract class CdpConsumerBase {
             batchingTimeoutMs: this.hub.KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS,
             topicCreationTimeoutMs: this.hub.KAFKA_TOPIC_CREATION_TIMEOUT_MS,
             eachBatch: async (messages, { heartbeat }) => {
-                status.info('🔁', `${this.name} - handling batch`, {
-                    size: messages.length,
-                })
-
-                histogramKafkaBatchSize.observe(messages.length)
-                histogramKafkaBatchSizeKb.observe(messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024)
-
-                return await runInstrumentedFunction({
-                    statsKey: `cdpConsumer.handleEachBatch`,
-                    sendTimeoutGuardToSentry: false,
-                    func: async () => {
-                        await this.handleEachBatch(messages, heartbeat)
-                        await this.produceQueuedMessages()
-                    },
-                })
+                return await this.handleEachBatch(messages, heartbeat)
             },
             callEachBatchWhenEmpty: false,
         })
@@ -351,7 +355,7 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
     protected topic = KAFKA_EVENTS_JSON
     protected consumerGroupId = 'cdp-processed-events-consumer'
 
-    public async handleEachBatch(messages: Message[], heartbeat: () => void): Promise<void> {
+    public async _handleEachBatch(messages: Message[], heartbeat: () => void): Promise<void> {
         const invocationGlobals = await runInstrumentedFunction({
             statsKey: `cdpConsumer.handleEachBatch.parseKafkaMessages`,
             func: async () => await this.parseMessages(messages),
@@ -422,7 +426,7 @@ export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
     protected topic = KAFKA_CDP_FUNCTION_CALLBACKS
     protected consumerGroupId = 'cdp-function-callback-consumer'
 
-    public async handleEachBatch(messages: Message[], heartbeat: () => void): Promise<void> {
+    public async _handleEachBatch(messages: Message[], heartbeat: () => void): Promise<void> {
         const events = await runInstrumentedFunction({
             statsKey: `cdpConsumer.handleEachBatch.parseKafkaMessages`,
             func: () => Promise.resolve(this.parseMessages(messages)),
@@ -465,7 +469,7 @@ export class CdpOverflowConsumer extends CdpConsumerBase {
     protected topic = KAFKA_CDP_OVERFLOW
     protected consumerGroupId = 'cdp-overflow-consumer'
 
-    public async handleEachBatch(messages: Message[], heartbeat: () => void): Promise<void> {
+    public async _handleEachBatch(messages: Message[], heartbeat: () => void): Promise<void> {
         // This consumer can receive both events and callbacks so needs to check the message being parsed
         const [overflowedGlobals, callbacks] = await runInstrumentedFunction({
             statsKey: `cdpConsumer.handleEachBatch.parseKafkaMessages`,

@@ -1,4 +1,4 @@
-jest.mock('../../src/utils/now', () => {
+jest.mock('../../../src/utils/now', () => {
     return {
         now: jest.fn(() => Date.now()),
     }
@@ -155,9 +155,13 @@ describe('HogWatcher.utils', () => {
             })
 
             it('should move to disabledForPeriod if sustained lower', () => {
-                updateState([], [HogWatcherState.overflowed])
+                updateState([0.5, 0.4, 0.4], [])
                 expect(currentState()).toBe(HogWatcherState.overflowed)
-                updateState([0.5, 0.4, 0.4, 0.2], [])
+                updateState([], [HogWatcherState.overflowed]) // Add the new state
+                expect(currentState()).toBe(HogWatcherState.overflowed) // Should still be the same
+                updateState([0.5, 0.4], []) // Add nearly enough ratings for next evaluation
+                expect(currentState()).toBe(HogWatcherState.overflowed) // Should still be the same
+                updateState([0.4], []) // One more rating and it can be evaluated
                 expect(getAverageRating()).toBeLessThan(DISABLE_THRESHOLD)
                 expect(currentState()).toBe(HogWatcherState.disabledForPeriod)
             })

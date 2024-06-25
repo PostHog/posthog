@@ -221,8 +221,6 @@ export class HogWatcher {
             return res[1] as string
         })
 
-        console.log('Leader check', this.instanceId, leaderId)
-
         this.isLeader = leaderId === this.instanceId
 
         if (this.isLeader) {

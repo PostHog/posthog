@@ -42,13 +42,9 @@ export const deriveCurrentStateFromRatings = (
     ratings: HogWatcherRatingPeriod[],
     states: HogWatcherStatePeriod[]
 ): HogWatcherState => {
-    // States are pruned by a max length rather than time
-    if (states.length > MAX_RECORDED_STATES) {
-        states = states.slice(states.length - MAX_RECORDED_STATES)
-    }
-
     const currentState = states[states.length - 1] ?? {
-        timestamp: now(),
+        // Set the timestamp back far enough that all ratings are included
+        timestamp: now() - OBSERVATION_PERIOD * MAX_RECORDED_RATINGS,
         state: HogWatcherState.healthy,
     }
 
@@ -63,12 +59,14 @@ export const deriveCurrentStateFromRatings = (
         }
     }
 
-    if (ratings.length < MIN_OBSERVATIONS) {
+    const ratingsSinceLastState = ratings.filter((x) => x.timestamp >= currentState.timestamp)
+
+    if (ratingsSinceLastState.length < MIN_OBSERVATIONS) {
         // We need to give the function a chance to run before we can evaluate it
         return currentState.state
     }
 
-    const averageRating = ratings.reduce((acc, x) => acc + x.rating, 0) / ratings.length
+    const averageRating = ratingsSinceLastState.reduce((acc, x) => acc + x.rating, 0) / ratingsSinceLastState.length
 
     if (currentState.state === HogWatcherState.overflowed) {
         if (averageRating > OVERFLOW_THRESHOLD) {

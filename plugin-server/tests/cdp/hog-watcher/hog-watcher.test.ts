@@ -247,8 +247,8 @@ describe('HogWatcher', () => {
 
             it('should move the function into a bad state after enough periods', async () => {
                 // We need to move N times forward to get past the masking period and have enough ratings to make a decision
-                // 2 for the persistance of the ratings, 3 more for the evaluation
-                for (let i = 0; i < 5; i++) {
+                // 2 for the persistance of the ratings, 3 more for the evaluation, 3 more for the subsequent evaluation
+                for (let i = 0; i < 2 + 3 + 3; i++) {
                     watcher1.currentObservations.observeResults([createResult('id1', false, 'error')])
                     advanceTime(OBSERVATION_PERIOD)
                     await watcher1.sync()
@@ -258,24 +258,12 @@ describe('HogWatcher', () => {
                 expect(watcher1.globalState).toMatchObject({
                     observations: {},
                     ratings: {
-                        id1: [
-                            {
+                        id1: Array(7)
+                            .fill(0)
+                            .map((_, i) => ({
                                 rating: 0,
-                                timestamp: 1720000000000,
-                            },
-                            {
-                                rating: 0,
-                                timestamp: 1720000010000,
-                            },
-                            {
-                                rating: 0,
-                                timestamp: 1720000020000,
-                            },
-                            {
-                                rating: 0,
-                                timestamp: 1720000030000,
-                            },
-                        ],
+                                timestamp: 1720000000000 + i * OBSERVATION_PERIOD,
+                            })),
                     },
                     states: {
                         id1: [
@@ -285,7 +273,7 @@ describe('HogWatcher', () => {
                             },
                             {
                                 state: 3,
-                                timestamp: 1720000050000,
+                                timestamp: 1720000080000,
                             },
                         ],
                     },
@@ -308,15 +296,11 @@ describe('HogWatcher', () => {
                 await delay(100)
 
                 expect(await watcher2.fetchWatcher('id1')).toMatchObject({
-                    state: 3,
+                    state: 2,
                     states: [
                         {
                             state: 2,
                             timestamp: 1720000040000,
-                        },
-                        {
-                            state: 3,
-                            timestamp: 1720000050000,
                         },
                     ],
                 })
@@ -332,7 +316,7 @@ describe('HogWatcher', () => {
                 const newWatcher = new HogWatcher(hub)
                 await newWatcher.start()
                 expect(newWatcher.states).toEqual({
-                    id1: 3,
+                    id1: 2,
                 })
             })
 
