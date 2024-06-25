@@ -34,6 +34,9 @@ from posthog.schema import (
     AutocompleteCompletionItem,
     Kind,
 )
+from hogvm.python.stl import STL
+
+ALL_HOG_FUNCTIONS = STL.keys()
 
 
 class GetNodeAtPositionTraverser(TraversingVisitor):
@@ -236,7 +239,9 @@ def resolve_table_field_traversers(table: Table, context: HogQLContext) -> Table
     return new_table
 
 
-def append_table_field_to_response(table: Table, suggestions: list[AutocompleteCompletionItem]) -> None:
+def append_table_field_to_response(
+    table: Table, suggestions: list[AutocompleteCompletionItem], query_type: str
+) -> None:
     keys: list[str] = []
     details: list[str | None] = []
     table_fields = list(table.fields.items())
@@ -255,7 +260,10 @@ def append_table_field_to_response(table: Table, suggestions: list[AutocompleteC
         insert_text=lambda key: f"`{key}`" if any(n in key for n in HOGQL_CHARACTERS_TO_BE_WRAPPED) else key,
     )
 
-    available_functions = ALL_EXPOSED_FUNCTION_NAMES
+    if query_type == "select" or query_type == "expr":
+        available_functions = ALL_EXPOSED_FUNCTION_NAMES
+    else:
+        available_functions = ALL_HOG_FUNCTIONS
     extend_responses(
         available_functions,
         suggestions,
@@ -420,7 +428,9 @@ def get_hogql_autocomplete(
 
                         if is_last_part:
                             if last_table.fields.get(str(chain_part)) is None:
-                                append_table_field_to_response(table=last_table, suggestions=response.suggestions)
+                                append_table_field_to_response(
+                                    table=last_table, suggestions=response.suggestions, query_type=query_type
+                                )
                                 break
 
                             field = last_table.fields[str(chain_part)]

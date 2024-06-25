@@ -7,8 +7,6 @@ posthog/temporal/data_imports/pipelines/rest_source/config_setup.py:0: error: Di
 posthog/temporal/data_imports/pipelines/rest_source/config_setup.py:0: error: Incompatible types in assignment (expression has type "None", variable has type "AuthConfigBase")  [assignment]
 posthog/temporal/data_imports/pipelines/rest_source/config_setup.py:0: error: Argument 1 to "get_auth_class" has incompatible type "Literal['bearer', 'api_key', 'http_basic'] | None"; expected "Literal['bearer', 'api_key', 'http_basic']"  [arg-type]
 posthog/temporal/data_imports/pipelines/rest_source/config_setup.py:0: error: Need type annotation for "dependency_graph"  [var-annotated]
-posthog/temporal/data_imports/pipelines/rest_source/config_setup.py:0: error: Value of type variable "TDict" of "update_dict_nested" cannot be "Mapping[str, object]"  [type-var]
-posthog/temporal/data_imports/pipelines/rest_source/config_setup.py:0: note: Error code "type-var" not covered by "type: ignore" comment
 posthog/temporal/data_imports/pipelines/rest_source/config_setup.py:0: error: Incompatible types in assignment (expression has type "None", target has type "ResolvedParam")  [assignment]
 posthog/temporal/data_imports/pipelines/rest_source/config_setup.py:0: error: Incompatible return value type (got "tuple[TopologicalSorter[Any], dict[str, EndpointResource], dict[str, ResolvedParam]]", expected "tuple[Any, dict[str, EndpointResource], dict[str, ResolvedParam | None]]")  [return-value]
 posthog/temporal/data_imports/pipelines/rest_source/config_setup.py:0: error: Unsupported right operand type for in ("str | Endpoint | None")  [operator]
