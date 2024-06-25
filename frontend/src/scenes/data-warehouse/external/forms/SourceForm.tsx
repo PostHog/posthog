@@ -8,6 +8,8 @@ import { SOURCE_DETAILS, sourceWizardLogic } from '../../new/sourceWizardLogic'
 
 interface SourceFormProps {
     sourceConfig: SourceConfig
+    showPrefix?: boolean
+    showSourceFields?: boolean
 }
 
 const sourceFieldToElement = (field: SourceFieldConfig): JSX.Element => {
@@ -72,15 +74,23 @@ const sourceFieldToElement = (field: SourceFieldConfig): JSX.Element => {
     )
 }
 
-export default function SourceForm({ sourceConfig }: SourceFormProps): JSX.Element {
+export default function SourceForm({
+    sourceConfig,
+    showSourceFields = true,
+    showPrefix = true,
+}: SourceFormProps): JSX.Element {
     return (
         <Form logic={sourceWizardLogic} formKey="sourceConnectionDetails" className="space-y-4" enableFormOnSubmit>
-            <Group name="payload">
-                {SOURCE_DETAILS[sourceConfig.name].fields.map((field) => sourceFieldToElement(field))}
-            </Group>
-            <LemonField name="prefix" label="Table Prefix (optional)">
-                <LemonInput className="ph-ignore-input" data-attr="prefix" placeholder="internal_" />
-            </LemonField>
+            {showSourceFields && (
+                <Group name="payload">
+                    {SOURCE_DETAILS[sourceConfig.name].fields.map((field) => sourceFieldToElement(field))}
+                </Group>
+            )}
+            {showPrefix && (
+                <LemonField name="prefix" label="Table Prefix (optional)">
+                    <LemonInput className="ph-ignore-input" data-attr="prefix" placeholder="internal_" />
+                </LemonField>
+            )}
         </Form>
     )
 }

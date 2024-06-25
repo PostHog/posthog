@@ -7,22 +7,158 @@ from posthog.warehouse.models.external_table_definitions import get_dlt_mapping_
 
 
 def get_resource(name: str, is_incremental: bool) -> EndpointResource:
-    resources = dict[str, EndpointResource] = {}
+    resources: dict[str, EndpointResource] = {
+        "User": {
+            "name": "User",
+            "table_name": "user",
+            "primary_key": "id",
+            "write_disposition": "replace",
+            "endpoint": {
+                "data_selector": "records",
+                "path": "/services/data/v61.0/query",
+                "params": {
+                    "q": "SELECT FIELDS(STANDARD) FROM User",
+                },
+            },
+        },
+        "UserRole": {
+            "name": "UserRole",
+            "table_name": "user_role",
+            "primary_key": "id",
+            "write_disposition": "replace",
+            "endpoint": {
+                "data_selector": "records",
+                "path": "/services/data/v61.0/query",
+                "params": {
+                    "q": "SELECT FIELDS(STANDARD) FROM UserRole",
+                },
+            },
+        },
+        "Lead": {
+            "name": "Lead",
+            "table_name": "lead",
+            "primary_key": "id",
+            "write_disposition": "replace",
+            "endpoint": {
+                "data_selector": "records",
+                "path": "/services/data/v61.0/query",
+                "params": {
+                    "q": "SELECT FIELDS(STANDARD) FROM Lead",
+                },
+            },
+        },
+        "Contact": {
+            "name": "Contact",
+            "table_name": "contact",
+            "primary_key": "id",
+            "write_disposition": "replace",
+            "endpoint": {
+                "data_selector": "records",
+                "path": "/services/data/v61.0/query",
+                "params": {
+                    "q": "SELECT FIELDS(STANDARD) FROM Contact",
+                },
+            },
+        },
+        "Campaign": {
+            "name": "Campaign",
+            "table_name": "campaign",
+            "primary_key": "id",
+            "write_disposition": "replace",
+            "endpoint": {
+                "data_selector": "records",
+                "path": "/services/data/v61.0/query",
+                "params": {
+                    "q": "SELECT FIELDS(STANDARD) FROM Campaign",
+                },
+            },
+        },
+        "Product2": {
+            "name": "Product2",
+            "table_name": "product2",
+            "primary_key": "id",
+            "write_disposition": "replace",
+            "endpoint": {
+                "data_selector": "records",
+                "path": "/services/data/v61.0/query",
+                "params": {
+                    "q": "SELECT FIELDS(STANDARD) FROM Product2",
+                },
+            },
+        },
+        "Pricebook2": {
+            "name": "Pricebook2",
+            "table_name": "pricebook2",
+            "primary_key": "id",
+            "write_disposition": "replace",
+            "endpoint": {
+                "data_selector": "records",
+                "path": "/services/data/v61.0/query",
+                "params": {
+                    "q": "SELECT FIELDS(STANDARD) FROM Pricebook2",
+                },
+            },
+        },
+        "PricebookEntry": {
+            "name": "PricebookEntry",
+            "table_name": "pricebook_entry",
+            "primary_key": "id",
+            "write_disposition": "replace",
+            "endpoint": {
+                "data_selector": "records",
+                "path": "/services/data/v61.0/query",
+                "params": {
+                    "q": "SELECT FIELDS(STANDARD) FROM PricebookEntry",
+                },
+            },
+        },
+    }
 
     return resources[name]
 
 
+class SalesforceEndpointPaginator(BasePaginator):
+    def __init__(self, subdomain):
+        super().__init__()
+        self.subdomain = subdomain
+
+    def update_state(self, response: Response) -> None:
+        res = response.json()
+
+        self._next_page = None
+
+        if not res:
+            self._has_next_page = False
+            return
+
+        if not res["done"]:
+            self._has_next_page = True
+            self._next_page = res["nextRecordsUrl"]
+        else:
+            self._has_next_page = False
+
+    def update_request(self, request: Request) -> None:
+        request.url = f"https://{self.subdomain}.my.salesforce.com{self._next_page}"
+
+
 @dlt.source(max_table_nesting=0)
 def salesforce_source(
-    subdomain: str, api_key: str, endpoint: str, team_id: int, job_id: str, is_incremental: bool = False
+    subdomain: str,
+    access_token: str,
+    refresh_token: str,
+    endpoint: str,
+    team_id: int,
+    job_id: str,
+    is_incremental: bool = False,
 ):
     config: RESTAPIConfig = {
         "client": {
-            "base_url": f"https://{subdomain}.my.salesforce.com/services/data/v61.0",
+            "base_url": f"https://{subdomain}.my.salesforce.com",
             "auth": {
                 "type": "bearer",
-                "token": api_key,
+                "token": access_token,
             },
+            "paginator": SalesforceEndpointPaginator(subdomain=subdomain),
         },
         "resource_defaults": {
             "primary_key": "id",

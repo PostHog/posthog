@@ -24,6 +24,7 @@ import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
 import type { sourceWizardLogicType } from './sourceWizardLogicType'
 
 export const getHubspotRedirectUri = (): string => `${window.location.origin}/data-warehouse/hubspot/redirect`
+export const getSalesforceRedirectUri = (): string => `${window.location.origin}/data-warehouse/salesforce/redirect`
 
 export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
     Stripe: {
@@ -290,12 +291,6 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
     },
     Salesforce: {
         name: 'Salesforce',
-        caption: (
-            <>
-                Enter your Salesforce credentials to automatically pull your Salesforce data into the PostHog Data
-                warehouse.
-            </>
-        ),
         fields: [
             {
                 name: 'subdomain',
@@ -304,42 +299,8 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
                 required: true,
                 placeholder: '',
             },
-            {
-                name: 'client_id',
-                label: 'Client ID',
-                type: 'text',
-                required: true,
-                placeholder: '',
-            },
-            {
-                name: 'client_secret',
-                label: 'Client secret',
-                type: 'password',
-                required: true,
-                placeholder: '',
-            },
-            {
-                name: 'username',
-                label: 'Username',
-                type: 'text',
-                required: true,
-                placeholder: '',
-            },
-            {
-                name: 'password',
-                label: 'Password',
-                type: 'password',
-                required: true,
-                placeholder: '',
-            },
-            {
-                name: 'security_token',
-                label: 'Security token',
-                type: 'text',
-                required: true,
-                placeholder: '',
-            },
         ],
+        caption: '',
     },
 }
 
@@ -658,6 +619,27 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 }
             },
         ],
+        addToSalesforceButtonUrl: [
+            (s) => [s.preflight],
+            (preflight) => {
+                return (subdomain: string) => {
+                    const clientId = preflight?.data_warehouse_integrations?.salesforce.client_id
+
+                    if (!clientId) {
+                        return null
+                    }
+
+                    const params = new URLSearchParams()
+                    params.set('client_id', clientId)
+                    params.set('redirect_uri', `${window.location.origin}/data-warehouse/salesforce/redirect`)
+                    params.set('response_type', 'code')
+                    params.set('scope', 'refresh_token api')
+                    params.set('state', subdomain)
+
+                    return `https://${subdomain}.my.salesforce.com/services/oauth2/authorize?${params.toString()}`
+                }
+            },
+        ],
         modalTitle: [
             (s) => [s.currentStep],
             (currentStep) => {
@@ -790,7 +772,18 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                             redirect_uri: getHubspotRedirectUri(),
                         },
                     })
-                    return
+                    break
+                }
+                case 'salesforce': {
+                    actions.updateSource({
+                        source_type: 'Salesforce',
+                        payload: {
+                            code: searchParams.code,
+                            subdomain: searchParams.subdomain,
+                            redirect_uri: getSalesforceRedirectUri(),
+                        },
+                    })
+                    break
                 }
                 default:
                     lemonToast.error(`Something went wrong.`)
@@ -828,6 +821,13 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             if (kind === 'hubspot') {
                 router.actions.push(urls.dataWarehouseTable(), { kind, code: searchParams.code })
             }
+            if (kind === 'salesforce') {
+                router.actions.push(urls.dataWarehouseTable(), {
+                    kind,
+                    code: searchParams.code,
+                    subdomain: searchParams.state,
+                })
+            }
         },
         '/data-warehouse/new': (_, searchParams) => {
             if (searchParams.kind == 'hubspot' && searchParams.code) {
@@ -837,16 +837,39 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 })
                 actions.setStep(2)
             }
+            if (searchParams.kind == 'salesforce' && searchParams.code) {
+                actions.selectConnector(SOURCE_DETAILS['Salesforce'])
+                actions.handleRedirect(searchParams.kind, {
+                    code: searchParams.code,
+                    subdomain: searchParams.subdomain,
+                })
+                actions.setStep(2)
+            }
         },
     })),
     forms(({ actions, values }) => ({
         sourceConnectionDetails: {
             defaults: buildKeaFormDefaultFromSourceDetails(SOURCE_DETAILS),
             errors: (sourceValues) => {
+                if (
+                    values.selectedConnector?.name === 'Salesforce' &&
+                    values.source.payload.code &&
+                    values.source.payload.subdomain
+                ) {
+                    return {}
+                }
                 return getErrorsForFields(values.selectedConnector?.fields ?? [], sourceValues as any)
             },
             submit: async (sourceValues) => {
                 if (values.selectedConnector) {
+                    if (
+                        values.selectedConnector.name === 'Salesforce' &&
+                        (!values.source.payload.code || !values.source.payload.subdomain)
+                    ) {
+                        window.open(values.addToSalesforceButtonUrl(sourceValues.payload.subdomain) as string)
+                        return
+                    }
+
                     const payload = {
                         ...sourceValues,
                         source_type: values.selectedConnector.name,
@@ -856,19 +879,28 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     try {
                         await api.externalDataSources.source_prefix(payload.source_type, sourceValues.prefix)
 
-                        const payloadKeys = (values.selectedConnector?.fields ?? []).map((n) => n.name)
+                        // salesforce doesn't need to store the payload. The relevant fielsd will already be handled from the URL
+                        // only update the prefix
+                        if (values.selectedConnector.name === 'Salesforce') {
+                            actions.updateSource({
+                                ...values.source,
+                                prefix: sourceValues.prefix,
+                            })
+                        } else {
+                            const payloadKeys = (values.selectedConnector?.fields ?? []).map((n) => n.name)
 
-                        // Only store the keys of the source type we're using
-                        actions.updateSource({
-                            ...payload,
-                            payload: {
-                                source_type: values.selectedConnector.name,
-                                ...payloadKeys.reduce((acc, cur) => {
-                                    acc[cur] = payload['payload'][cur]
-                                    return acc
-                                }, {} as Record<string, any>),
-                            },
-                        })
+                            // Only store the keys of the source type we're using
+                            actions.updateSource({
+                                ...payload,
+                                payload: {
+                                    source_type: values.selectedConnector.name,
+                                    ...payloadKeys.reduce((acc, cur) => {
+                                        acc[cur] = payload['payload'][cur]
+                                        return acc
+                                    }, {} as Record<string, any>),
+                                },
+                            })
+                        }
 
                         actions.setIsLoading(false)
                     } catch (e: any) {

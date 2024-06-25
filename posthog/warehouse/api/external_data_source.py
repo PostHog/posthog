@@ -27,7 +27,10 @@ from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
 )
 from posthog.temporal.data_imports.pipelines.hubspot.auth import (
-    get_access_token_from_code,
+    get_hubspot_access_token_from_code,
+)
+from posthog.temporal.data_imports.pipelines.salesforce.auth import (
+    get_salesforce_access_token_from_code,
 )
 from posthog.warehouse.models.external_data_schema import (
     filter_postgres_incremental_fields,
@@ -336,10 +339,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def _handle_salesforce_source(self, request: Request, *args: Any, **kwargs: Any) -> ExternalDataSource:
         payload = request.data["payload"]
-        api_key = payload.get("api_key")
-        subdomain = payload.get("subdomain")
+        code = payload.get("code")
+        redirect_uri = payload.get("redirect_uri")
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
+        subdomain = payload.get("subdomain")
+
+        access_token, refresh_token = get_salesforce_access_token_from_code(code, redirect_uri=redirect_uri)
 
         new_source_model = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()),
@@ -349,7 +355,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             status="Running",
             source_type=source_type,
             job_inputs={
-                "salesforce_api_key": api_key,
+                "salesforce_access_token": access_token,
+                "salesforce_refresh_token": refresh_token,
                 "salesforce_subdomain": subdomain,
             },
             prefix=prefix,
@@ -364,7 +371,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
 
-        access_token, refresh_token = get_access_token_from_code(code, redirect_uri=redirect_uri)
+        access_token, refresh_token = get_hubspot_access_token_from_code(code, redirect_uri=redirect_uri)
 
         # TODO: remove dummy vars
         new_source_model = ExternalDataSource.objects.create(

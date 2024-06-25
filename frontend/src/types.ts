@@ -2941,6 +2941,9 @@ export interface PreflightStatus {
         hubspot: {
             client_id?: string
         }
+        salesforce: {
+            client_id?: string
+        }
     }
     /** Whether PostHog is running in DEBUG mode. */
     is_debug?: boolean
