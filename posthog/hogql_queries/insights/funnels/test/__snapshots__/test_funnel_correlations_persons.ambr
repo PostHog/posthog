@@ -1,8 +1,8 @@
 # serializer version: 1
 # name: TestFunnelCorrelationsActors.test_funnel_correlation_on_event_with_recordings
   '''
-  SELECT filterable_persons.id,
-         filterable_persons.id AS id,
+  SELECT persons.id,
+         persons.id AS id,
          source.matching_events AS matching_events
   FROM
     (SELECT funnel_actors.actor_id AS actor_id,
@@ -111,8 +111,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors ON equals(event__pdi.person_id, funnel_actors.actor_id)
      WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-01-08 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2021-01-08 23:59:59', 6, 'UTC')))), notIn(event.event, ['$pageview', 'insight analyzed']), equals(event.event, 'insight loaded'), ifNull(equals(funnel_actors.steps, 2), 0))
      GROUP BY actor_id
-     ORDER BY actor_id ASC SETTINGS use_query_cache=1,
-                                    query_cache_ttl=600) AS source
+     ORDER BY actor_id ASC) AS source
   INNER JOIN
     (SELECT person.id AS id
      FROM person
@@ -159,10 +158,10 @@
                                                       ORDER BY aggregation_target ASC) AS funnel_actors ON equals(event__pdi.person_id, funnel_actors.actor_id)
                                                    WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-01-08 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2021-01-08 23:59:59', 6, 'UTC')))), notIn(event.event, ['$pageview', 'insight analyzed']), equals(event.event, 'insight loaded'), ifNull(equals(funnel_actors.steps, 2), 0))
                                                    GROUP BY actor_id
-                                                   ORDER BY actor_id ASC SETTINGS use_query_cache=1, query_cache_ttl=600) AS source)))
+                                                   ORDER BY actor_id ASC) AS source)))
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS filterable_persons ON equals(filterable_persons.id, source.actor_id)
-  ORDER BY filterable_persons.id ASC
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+  ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -191,8 +190,8 @@
 # ---
 # name: TestFunnelCorrelationsActors.test_funnel_correlation_on_event_with_recordings.2
   '''
-  SELECT filterable_persons.id,
-         filterable_persons.id AS id,
+  SELECT persons.id,
+         persons.id AS id,
          source.matching_events AS matching_events
   FROM
     (SELECT funnel_actors.actor_id AS actor_id,
@@ -367,8 +366,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors ON equals(event__pdi.person_id, funnel_actors.actor_id)
      WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-01-08 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2021-01-08 23:59:59', 6, 'UTC')))), notIn(event.event, ['$pageview', 'insight analyzed', 'insight updated']), equals(event.event, 'insight loaded'), ifNull(notEquals(funnel_actors.steps, 3), 1))
      GROUP BY actor_id
-     ORDER BY actor_id ASC SETTINGS use_query_cache=1,
-                                    query_cache_ttl=600) AS source
+     ORDER BY actor_id ASC) AS source
   INNER JOIN
     (SELECT person.id AS id
      FROM person
@@ -427,10 +425,10 @@
                                                       ORDER BY aggregation_target ASC) AS funnel_actors ON equals(event__pdi.person_id, funnel_actors.actor_id)
                                                    WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-01-08 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2021-01-08 23:59:59', 6, 'UTC')))), notIn(event.event, ['$pageview', 'insight analyzed', 'insight updated']), equals(event.event, 'insight loaded'), ifNull(notEquals(funnel_actors.steps, 3), 1))
                                                    GROUP BY actor_id
-                                                   ORDER BY actor_id ASC SETTINGS use_query_cache=1, query_cache_ttl=600) AS source)))
+                                                   ORDER BY actor_id ASC) AS source)))
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS filterable_persons ON equals(filterable_persons.id, source.actor_id)
-  ORDER BY filterable_persons.id ASC
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+  ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -459,8 +457,8 @@
 # ---
 # name: TestFunnelCorrelationsActors.test_funnel_correlation_on_properties_with_recordings
   '''
-  SELECT filterable_persons.id,
-         filterable_persons.id AS id,
+  SELECT persons.id,
+         persons.id AS id,
          source.matching_events AS matching_events
   FROM
     (SELECT funnel_actors.actor_id AS actor_id,
@@ -572,8 +570,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC SETTINGS use_query_cache=1,
-                                                  query_cache_ttl=600) AS source
+     ORDER BY funnel_actors.actor_id ASC) AS source
   INNER JOIN
     (SELECT person.id AS id
      FROM person
@@ -622,10 +619,10 @@
                                                       ORDER BY aggregation_target ASC) AS funnel_actors
                                                    WHERE ifNull(equals(funnel_actors.steps, 2), 0)
                                                    GROUP BY funnel_actors.actor_id
-                                                   ORDER BY funnel_actors.actor_id ASC SETTINGS use_query_cache=1, query_cache_ttl=600) AS source)))
+                                                   ORDER BY funnel_actors.actor_id ASC) AS source)))
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS filterable_persons ON equals(filterable_persons.id, source.actor_id)
-  ORDER BY filterable_persons.id ASC
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+  ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -654,8 +651,8 @@
 # ---
 # name: TestFunnelCorrelationsActors.test_strict_funnel_correlation_with_recordings
   '''
-  SELECT filterable_persons.id,
-         filterable_persons.id AS id,
+  SELECT persons.id,
+         persons.id AS id,
          source.matching_events AS matching_events
   FROM
     (SELECT funnel_actors.actor_id AS actor_id,
@@ -767,8 +764,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC SETTINGS use_query_cache=1,
-                                                  query_cache_ttl=600) AS source
+     ORDER BY funnel_actors.actor_id ASC) AS source
   INNER JOIN
     (SELECT person.id AS id
      FROM person
@@ -817,10 +813,10 @@
                                                       ORDER BY aggregation_target ASC) AS funnel_actors
                                                    WHERE ifNull(equals(funnel_actors.steps, 2), 0)
                                                    GROUP BY funnel_actors.actor_id
-                                                   ORDER BY funnel_actors.actor_id ASC SETTINGS use_query_cache=1, query_cache_ttl=600) AS source)))
+                                                   ORDER BY funnel_actors.actor_id ASC) AS source)))
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS filterable_persons ON equals(filterable_persons.id, source.actor_id)
-  ORDER BY filterable_persons.id ASC
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+  ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -849,8 +845,8 @@
 # ---
 # name: TestFunnelCorrelationsActors.test_strict_funnel_correlation_with_recordings.2
   '''
-  SELECT filterable_persons.id,
-         filterable_persons.id AS id,
+  SELECT persons.id,
+         persons.id AS id,
          source.matching_events AS matching_events
   FROM
     (SELECT funnel_actors.actor_id AS actor_id,
@@ -962,8 +958,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC SETTINGS use_query_cache=1,
-                                                  query_cache_ttl=600) AS source
+     ORDER BY funnel_actors.actor_id ASC) AS source
   INNER JOIN
     (SELECT person.id AS id
      FROM person
@@ -1012,10 +1007,10 @@
                                                       ORDER BY aggregation_target ASC) AS funnel_actors
                                                    WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
                                                    GROUP BY funnel_actors.actor_id
-                                                   ORDER BY funnel_actors.actor_id ASC SETTINGS use_query_cache=1, query_cache_ttl=600) AS source)))
+                                                   ORDER BY funnel_actors.actor_id ASC) AS source)))
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS filterable_persons ON equals(filterable_persons.id, source.actor_id)
-  ORDER BY filterable_persons.id ASC
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+  ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,

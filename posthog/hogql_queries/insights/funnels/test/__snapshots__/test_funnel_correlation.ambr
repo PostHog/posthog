@@ -318,8 +318,8 @@
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.1
   '''
-  SELECT filterable_persons.id,
-         filterable_persons.id AS id,
+  SELECT persons.id,
+         persons.id AS id,
          source.matching_events AS matching_events
   FROM
     (SELECT funnel_actors.actor_id AS actor_id,
@@ -431,8 +431,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC SETTINGS use_query_cache=1,
-                                                  query_cache_ttl=600) AS source
+     ORDER BY funnel_actors.actor_id ASC) AS source
   INNER JOIN
     (SELECT person.id AS id
      FROM person
@@ -481,10 +480,10 @@
                                                       ORDER BY aggregation_target ASC) AS funnel_actors
                                                    WHERE ifNull(equals(funnel_actors.steps, 2), 0)
                                                    GROUP BY funnel_actors.actor_id
-                                                   ORDER BY funnel_actors.actor_id ASC SETTINGS use_query_cache=1, query_cache_ttl=600) AS source)))
+                                                   ORDER BY funnel_actors.actor_id ASC) AS source)))
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS filterable_persons ON equals(filterable_persons.id, source.actor_id)
-  ORDER BY filterable_persons.id ASC
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+  ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -513,8 +512,8 @@
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.3
   '''
-  SELECT filterable_persons.id,
-         filterable_persons.id AS id,
+  SELECT persons.id,
+         persons.id AS id,
          source.matching_events AS matching_events
   FROM
     (SELECT funnel_actors.actor_id AS actor_id,
@@ -626,8 +625,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC SETTINGS use_query_cache=1,
-                                                  query_cache_ttl=600) AS source
+     ORDER BY funnel_actors.actor_id ASC) AS source
   INNER JOIN
     (SELECT person.id AS id
      FROM person
@@ -676,10 +674,10 @@
                                                       ORDER BY aggregation_target ASC) AS funnel_actors
                                                    WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
                                                    GROUP BY funnel_actors.actor_id
-                                                   ORDER BY funnel_actors.actor_id ASC SETTINGS use_query_cache=1, query_cache_ttl=600) AS source)))
+                                                   ORDER BY funnel_actors.actor_id ASC) AS source)))
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS filterable_persons ON equals(filterable_persons.id, source.actor_id)
-  ORDER BY filterable_persons.id ASC
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+  ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -708,8 +706,8 @@
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.5
   '''
-  SELECT filterable_persons.id,
-         filterable_persons.id AS id,
+  SELECT persons.id,
+         persons.id AS id,
          source.matching_events AS matching_events
   FROM
     (SELECT funnel_actors.actor_id AS actor_id,
@@ -821,8 +819,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC SETTINGS use_query_cache=1,
-                                                  query_cache_ttl=600) AS source
+     ORDER BY funnel_actors.actor_id ASC) AS source
   INNER JOIN
     (SELECT person.id AS id
      FROM person
@@ -871,10 +868,10 @@
                                                       ORDER BY aggregation_target ASC) AS funnel_actors
                                                    WHERE ifNull(equals(funnel_actors.steps, 2), 0)
                                                    GROUP BY funnel_actors.actor_id
-                                                   ORDER BY funnel_actors.actor_id ASC SETTINGS use_query_cache=1, query_cache_ttl=600) AS source)))
+                                                   ORDER BY funnel_actors.actor_id ASC) AS source)))
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS filterable_persons ON equals(filterable_persons.id, source.actor_id)
-  ORDER BY filterable_persons.id ASC
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+  ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -903,8 +900,8 @@
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.7
   '''
-  SELECT filterable_persons.id,
-         filterable_persons.id AS id,
+  SELECT persons.id,
+         persons.id AS id,
          source.matching_events AS matching_events
   FROM
     (SELECT funnel_actors.actor_id AS actor_id,
@@ -1016,8 +1013,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC SETTINGS use_query_cache=1,
-                                                  query_cache_ttl=600) AS source
+     ORDER BY funnel_actors.actor_id ASC) AS source
   INNER JOIN
     (SELECT person.id AS id
      FROM person
@@ -1066,10 +1062,10 @@
                                                       ORDER BY aggregation_target ASC) AS funnel_actors
                                                    WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
                                                    GROUP BY funnel_actors.actor_id
-                                                   ORDER BY funnel_actors.actor_id ASC SETTINGS use_query_cache=1, query_cache_ttl=600) AS source)))
+                                                   ORDER BY funnel_actors.actor_id ASC) AS source)))
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS filterable_persons ON equals(filterable_persons.id, source.actor_id)
-  ORDER BY filterable_persons.id ASC
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+  ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -1261,8 +1257,8 @@
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.1
   '''
-  SELECT filterable_persons.id,
-         filterable_persons.id AS id,
+  SELECT persons.id,
+         persons.id AS id,
          source.matching_events AS matching_events
   FROM
     (SELECT funnel_actors.actor_id AS actor_id,
@@ -1374,8 +1370,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC SETTINGS use_query_cache=1,
-                                                  query_cache_ttl=600) AS source
+     ORDER BY funnel_actors.actor_id ASC) AS source
   INNER JOIN
     (SELECT person.id AS id
      FROM person
@@ -1424,10 +1419,10 @@
                                                       ORDER BY aggregation_target ASC) AS funnel_actors
                                                    WHERE ifNull(equals(funnel_actors.steps, 2), 0)
                                                    GROUP BY funnel_actors.actor_id
-                                                   ORDER BY funnel_actors.actor_id ASC SETTINGS use_query_cache=1, query_cache_ttl=600) AS source)))
+                                                   ORDER BY funnel_actors.actor_id ASC) AS source)))
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS filterable_persons ON equals(filterable_persons.id, source.actor_id)
-  ORDER BY filterable_persons.id ASC
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+  ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -1456,8 +1451,8 @@
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.3
   '''
-  SELECT filterable_persons.id,
-         filterable_persons.id AS id,
+  SELECT persons.id,
+         persons.id AS id,
          source.matching_events AS matching_events
   FROM
     (SELECT funnel_actors.actor_id AS actor_id,
@@ -1569,8 +1564,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC SETTINGS use_query_cache=1,
-                                                  query_cache_ttl=600) AS source
+     ORDER BY funnel_actors.actor_id ASC) AS source
   INNER JOIN
     (SELECT person.id AS id
      FROM person
@@ -1619,10 +1613,10 @@
                                                       ORDER BY aggregation_target ASC) AS funnel_actors
                                                    WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
                                                    GROUP BY funnel_actors.actor_id
-                                                   ORDER BY funnel_actors.actor_id ASC SETTINGS use_query_cache=1, query_cache_ttl=600) AS source)))
+                                                   ORDER BY funnel_actors.actor_id ASC) AS source)))
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS filterable_persons ON equals(filterable_persons.id, source.actor_id)
-  ORDER BY filterable_persons.id ASC
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+  ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -1651,8 +1645,8 @@
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.5
   '''
-  SELECT filterable_persons.id,
-         filterable_persons.id AS id,
+  SELECT persons.id,
+         persons.id AS id,
          source.matching_events AS matching_events
   FROM
     (SELECT funnel_actors.actor_id AS actor_id,
@@ -1764,8 +1758,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC SETTINGS use_query_cache=1,
-                                                  query_cache_ttl=600) AS source
+     ORDER BY funnel_actors.actor_id ASC) AS source
   INNER JOIN
     (SELECT person.id AS id
      FROM person
@@ -1814,10 +1807,10 @@
                                                       ORDER BY aggregation_target ASC) AS funnel_actors
                                                    WHERE ifNull(equals(funnel_actors.steps, 2), 0)
                                                    GROUP BY funnel_actors.actor_id
-                                                   ORDER BY funnel_actors.actor_id ASC SETTINGS use_query_cache=1, query_cache_ttl=600) AS source)))
+                                                   ORDER BY funnel_actors.actor_id ASC) AS source)))
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS filterable_persons ON equals(filterable_persons.id, source.actor_id)
-  ORDER BY filterable_persons.id ASC
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+  ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -1846,8 +1839,8 @@
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.7
   '''
-  SELECT filterable_persons.id,
-         filterable_persons.id AS id,
+  SELECT persons.id,
+         persons.id AS id,
          source.matching_events AS matching_events
   FROM
     (SELECT funnel_actors.actor_id AS actor_id,
@@ -1959,8 +1952,7 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC SETTINGS use_query_cache=1,
-                                                  query_cache_ttl=600) AS source
+     ORDER BY funnel_actors.actor_id ASC) AS source
   INNER JOIN
     (SELECT person.id AS id
      FROM person
@@ -2009,10 +2001,10 @@
                                                       ORDER BY aggregation_target ASC) AS funnel_actors
                                                    WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
                                                    GROUP BY funnel_actors.actor_id
-                                                   ORDER BY funnel_actors.actor_id ASC SETTINGS use_query_cache=1, query_cache_ttl=600) AS source)))
+                                                   ORDER BY funnel_actors.actor_id ASC) AS source)))
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS filterable_persons ON equals(filterable_persons.id, source.actor_id)
-  ORDER BY filterable_persons.id ASC
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+  ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
