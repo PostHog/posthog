@@ -30,6 +30,9 @@ from ...hogql.query import LimitContext
 
 logger = structlog.get_logger(__name__)
 
+RESULT_LIMIT_KEYS = ("distinct_ids",)
+RESULT_LIMIT_LENGTH = 10
+
 
 # SUPPORTED CSV TYPES
 
@@ -94,6 +97,14 @@ def _convert_response_to_csv_data(data: Any) -> Generator[Any, None, None]:
             for row in results:
                 row_dict = {}
                 for idx, x in enumerate(row):
+                    if isinstance(x, dict):
+                        for key in filter(
+                            lambda y: y in RESULT_LIMIT_KEYS and len(x[y]) > RESULT_LIMIT_LENGTH, x.keys()
+                        ):
+                            total = len(x[key])
+                            x[key] = x[key][:RESULT_LIMIT_LENGTH]
+                            row_dict[f"{key}.total"] = f"Note: {total} {key} in total"
+
                     if not data.get("columns"):
                         row_dict[f"column_{idx}"] = x
                     else:
