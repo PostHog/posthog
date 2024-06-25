@@ -45,7 +45,7 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
     }),
     listeners(({ props, actions }) => ({
         removeBreakdown: () => {
-            actions.removeBreakdownFromList(props.breakdown)
+            actions.removeBreakdownFromList(props.breakdown, props.breakdownType)
         },
     })),
 ])

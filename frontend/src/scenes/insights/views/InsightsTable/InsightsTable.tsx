@@ -186,7 +186,7 @@ export function InsightsTable({
                         item={item}
                         canCheckUncheckSeries={canCheckUncheckSeries}
                         isMainInsightView={isMainInsightView}
-                        toggleVisibility={toggleVisibility}
+                        toggleHiddenLegendIndex={toggleHiddenLegendIndex}
                         formatItemBreakdownLabel={formatItemBreakdownLabel}
                     />
                 ),
