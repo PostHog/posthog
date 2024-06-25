@@ -3,6 +3,7 @@ import { useValues } from 'kea'
 import { pipelineHogFunctionConfigurationLogic } from './pipelineHogFunctionConfigurationLogic'
 import { HogWatcherState } from '~/types'
 import { TZLabel } from '@posthog/apps-common'
+import { dayjs } from 'lib/dayjs'
 
 type DisplayOptions = { tagType: LemonTagProps['type']; display: string; description: JSX.Element }
 const displayMap: Record<HogWatcherState, DisplayOptions> = {
@@ -87,7 +88,7 @@ export function HogFunctionStatusIndicator(): JSX.Element | null {
                                     {
                                         title: 'Timestamp',
                                         key: 'timestamp',
-                                        render: (_, { timestamp }) => <TZLabel time={timestamp!} />,
+                                        render: (_, { timestamp }) => <TZLabel time={dayjs(timestamp)} />,
                                     },
                                     {
                                         title: 'Status',

@@ -339,7 +339,7 @@ export class HogWatcher {
         await runRedis(this.hub.redisPool, 'stop', async (client) => {
             return client.del(`${BASE_REDIS_KEY}/leader`)
         })
-        // TODO: Maybe flush all active observations?
+
         await this.flushActiveObservations()
     }
 
@@ -408,7 +408,7 @@ export class HogWatcher {
                 // We key the observations by observerId and timestamp with a ttl of the max period we want to keep the data for
                 const subKey = `${this.instanceId}/${observation.timestamp}`
                 pipeline.hset(redisKeyObservations(id), subKey, JSON.stringify(observation))
-                pipeline.expire(redisKeyObservations(id), EVALUATION_PERIOD / 1000)
+                pipeline.expire(redisKeyObservations(id), (EVALUATION_PERIOD / 1000) * 2) // Expire at twice the evaluation period
             })
 
             return pipeline.exec()

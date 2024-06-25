@@ -142,7 +142,8 @@ abstract class CdpConsumerBase {
             func: async () => {
                 this.hogWatcher.currentObservations.observeAsyncFunctionResponses(asyncResponses)
                 // Filter for blocked functions
-                asyncResponses = asyncResponses.filter((e) => {
+                asyncResponses = asyncResponses.filter(() => {
+                    // TODO: Filter things out and move to overflow
                     // if (this.hogWatcher.isHogFunctionOverflowed(e.hogFunctionId)) {
                     //     // TODO: Move to overflow
                     //     return false
