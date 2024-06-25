@@ -193,7 +193,7 @@ class SimBrowserClient(SimClient):
 
     def __enter__(self):
         """Start session within client."""
-        self.active_session_id = str(self.person.cluster.roll_uuidt())
+        self.active_session_id = str(self.person.cluster.roll_uuid_v7())
 
     def __exit__(self, exc_type, exc_value, exc_traceback):
         """End session within client. Handles `$pageleave` event."""

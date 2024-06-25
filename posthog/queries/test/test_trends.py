@@ -38,6 +38,7 @@ from posthog.models.instance_setting import (
     set_instance_setting,
 )
 from posthog.models.person.util import create_person_distinct_id
+from posthog.models.utils import uuid7
 from posthog.queries.trends.breakdown import BREAKDOWN_OTHER_STRING_LABEL
 from posthog.queries.trends.trends import Trends
 from posthog.test.base import (
@@ -2651,6 +2652,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_trends_with_hogql_math(self):
+        s1 = str(uuid7("2020-01-01", 1))
+        s5 = str(uuid7("2020-01-01", 5))
         _create_person(
             team_id=self.team.pk,
             distinct_ids=["blabla", "anonymous_id"],
@@ -2660,14 +2663,14 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             event="sign up",
             distinct_id="blabla",
-            properties={"$session_id": 1},
+            properties={"$session_id": s1, "x": 1},
             timestamp="2020-01-01 00:06:30",
         )
         _create_event(
             team=self.team,
             event="sign up",
             distinct_id="blabla",
-            properties={"$session_id": 5},
+            properties={"$session_id": s5, "x": 5},
             timestamp="2020-01-02 00:06:45",
         )
 
@@ -2681,7 +2684,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                             {
                                 "id": "sign up",
                                 "math": "hogql",
-                                "math_hogql": "avg(toInt(properties.$session_id)) + 1000",
+                                "math_hogql": "avg(toInt(properties.x)) + 1000",
                             }
                         ],
                     },
