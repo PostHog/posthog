@@ -5,7 +5,7 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 import { DashboardPrivilegeLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { getEventNamesForAction, objectsEqual } from 'lib/utils'
+import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -16,7 +16,6 @@ import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { actionsModel } from '~/models/actionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupsModel } from '~/models/groupsModel'
@@ -24,15 +23,7 @@ import { insightsModel } from '~/models/insightsModel'
 import { tagsModel } from '~/models/tagsModel'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { InsightVizNode } from '~/queries/schema'
-import {
-    ActionType,
-    FilterType,
-    InsightLogicProps,
-    InsightModel,
-    InsightShortId,
-    ItemMode,
-    SetInsightOptions,
-} from '~/types'
+import { FilterType, InsightLogicProps, InsightModel, InsightShortId, ItemMode, SetInsightOptions } from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import type { insightLogicType } from './insightLogicType'
@@ -369,21 +360,6 @@ export const insightLogic = kea<insightLogicType>([
                     (insight.description || '') !== (savedInsight.description || '') ||
                     !objectsEqual(insight.tags || [], savedInsight.tags || [])
                 )
-            },
-        ],
-        allEventNames: [
-            (s) => [s.filters, actionsModel.selectors.actions],
-            (filters, actions: ActionType[]) => {
-                const allEvents = [
-                    ...(filters.events || []).map((e) => e.id),
-                    ...(filters.actions || []).flatMap((action) => getEventNamesForAction(action.id, actions)),
-                ]
-                // Has one "all events" event.
-                if (allEvents.some((e) => e === null)) {
-                    return []
-                }
-                // remove duplicates and empty events
-                return Array.from(new Set(allEvents.filter((a): a is string => !!a)))
             },
         ],
         filtersKnown: [

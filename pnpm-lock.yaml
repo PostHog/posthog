@@ -260,8 +260,8 @@ dependencies:
     specifier: ^9.3.0
     version: 9.3.0(postcss@8.4.31)
   posthog-js:
-    specifier: 1.140.1
-    version: 1.140.1
+    specifier: 1.141.0
+    version: 1.141.0
   posthog-js-lite:
     specifier: 3.0.0
     version: 3.0.0
@@ -17706,8 +17706,8 @@ packages:
     resolution: {integrity: sha512-dyajjnfzZD1tht4N7p7iwf7nBnR1MjVaVu+MKr+7gBgA39bn28wizCIJZztZPtHy4PY0YwtSGgwfBCuG/hnHgA==}
     dev: false
 
-  /posthog-js@1.140.1:
-    resolution: {integrity: sha512-UeKuAtQSvbzmTCzNVaauku8F194EYwAP33WrRrWZlDlMNbMy7GKcZOgKbr7jZqnha7FlVlHrWk+Rpyr1zCFhPQ==}
+  /posthog-js@1.141.0:
+    resolution: {integrity: sha512-EuVCq86izPX7+1eD/o87lF1HalRD6Nk5735w+FKZJ5KAPwoQjr5FCaL2V8Ed36DyQQz4gQj+PEx5i6DFKCiDzA==}
     dependencies:
       fflate: 0.4.8
       preact: 10.22.0

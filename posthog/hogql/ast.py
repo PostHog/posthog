@@ -1,4 +1,4 @@
-from enum import StrEnum
+from enum import Enum
 from typing import Any, Literal, Optional, Union
 from dataclasses import dataclass, field
 
@@ -554,7 +554,7 @@ class Alias(Expr):
     hidden: bool = False
 
 
-class ArithmeticOperationOp(StrEnum):
+class ArithmeticOperationOp(str, Enum):
     Add = "+"
     Sub = "-"
     Mult = "*"
@@ -581,7 +581,7 @@ class Or(Expr):
     type: Optional[ConstantType] = None
 
 
-class CompareOperationOp(StrEnum):
+class CompareOperationOp(str, Enum):
     Eq = "=="
     NotEq = "!="
     Gt = ">"
