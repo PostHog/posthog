@@ -22,7 +22,14 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
     key(({ insightProps, breakdown }) => `${keyForInsightLogicProps('new')(insightProps)}-${breakdown}`),
     path((key) => ['scenes', 'insights', 'BreakdownFilter', 'breakdownTagLogic', key]),
     connect(() => ({
-        values: [propertyDefinitionsModel, ['getPropertyDefinition'], cohortsModel, ['cohortsById']],
+        values: [
+            propertyDefinitionsModel,
+            ['getPropertyDefinition'],
+            cohortsModel,
+            ['cohortsById'],
+            taxonomicBreakdownFilterLogic,
+            ['isMultipleBreakdownsEnabled'],
+        ],
         actions: [taxonomicBreakdownFilterLogic, ['removeBreakdown as removeBreakdownFromList']],
     })),
     actions(() => ({

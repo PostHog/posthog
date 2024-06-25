@@ -59,6 +59,9 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
         setNormalizeBreakdownURL: (normalizeBreakdownURL: boolean) => ({
             normalizeBreakdownURL,
         }),
+        toggleBreakdownOptions: (opened: boolean) => ({
+            opened,
+        }),
     }),
     reducers({
         localHistogramBinCount: [
@@ -71,6 +74,12 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             undefined as number | undefined,
             {
                 setBreakdownLimit: (_, { value }) => value,
+            },
+        ],
+        breakdownOptionsOpened: [
+            false as boolean,
+            {
+                toggleBreakdownOptions: (_, { opened }) => opened,
             },
         ],
     }),

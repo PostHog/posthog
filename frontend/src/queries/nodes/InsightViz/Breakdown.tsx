@@ -11,18 +11,20 @@ export function Breakdown({ insightProps }: EditorFilterProps): JSX.Element {
     const { updateBreakdownFilter, updateDisplay } = useActions(insightVizDataLogic(insightProps))
 
     return (
-        <TaxonomicBreakdownFilter
-            insightProps={insightProps}
-            breakdownFilter={breakdownFilter}
-            display={display}
-            isTrends={isTrends}
-            updateBreakdownFilter={updateBreakdownFilter}
-            updateDisplay={updateDisplay}
-            disabledReason={
-                !isSingleSeries && isDataWarehouseSeries
-                    ? 'Breakdowns are not allowed for multiple series types'
-                    : undefined
-            }
-        />
+        <>
+            <TaxonomicBreakdownFilter
+                insightProps={insightProps}
+                breakdownFilter={breakdownFilter}
+                display={display}
+                isTrends={isTrends}
+                updateBreakdownFilter={updateBreakdownFilter}
+                updateDisplay={updateDisplay}
+                disabledReason={
+                    !isSingleSeries && isDataWarehouseSeries
+                        ? 'Breakdowns are not allowed for multiple series types'
+                        : undefined
+                }
+            />
+        </>
     )
 }

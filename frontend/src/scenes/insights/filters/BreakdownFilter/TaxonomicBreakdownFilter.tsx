@@ -1,6 +1,11 @@
-import { BindLogic, useValues } from 'kea'
+import { IconGear } from '@posthog/icons'
+import { BindLogic, useActions, useValues } from 'kea'
+import { MultipleBreakdownsOptionsMenu } from 'scenes/insights/filters/BreakdownFilter/MultipleBreakdownsOptionsMenu'
 import { TaxonomicBreakdownButton } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownButton'
 
+import { LemonButton } from '~/lib/lemon-ui/LemonButton'
+import { LemonLabel } from '~/lib/lemon-ui/LemonLabel'
+import { Popover } from '~/lib/lemon-ui/Popover'
 import { BreakdownFilter } from '~/queries/schema'
 import { ChartDisplayType, InsightLogicProps } from '~/types'
 
@@ -34,7 +39,10 @@ export function TaxonomicBreakdownFilter({
         updateBreakdownFilter,
         updateDisplay,
     }
-    const { breakdownArray, maxBreakdownsSelected } = useValues(taxonomicBreakdownFilterLogic(logicProps))
+    const { breakdownArray, maxBreakdownsSelected, breakdownOptionsOpened, isMultipleBreakdownsEnabled } = useValues(
+        taxonomicBreakdownFilterLogic(logicProps)
+    )
+    const { toggleBreakdownOptions } = useActions(taxonomicBreakdownFilterLogic(logicProps))
 
     const tags = breakdownArray.map((breakdown) =>
         typeof breakdown === 'object' ? (
@@ -56,6 +64,25 @@ export function TaxonomicBreakdownFilter({
 
     return (
         <BindLogic logic={taxonomicBreakdownFilterLogic} props={logicProps}>
+            <div className="flex items-center justify-between gap-2">
+                <LemonLabel info="Use breakdown to see the aggregation (total volume, active users, etc.) for each value of that property. For example, breaking down by Current URL with total volume will give you the event volume for each URL your users have visited.">
+                    Breakdown by
+                </LemonLabel>
+                {isMultipleBreakdownsEnabled && (
+                    <Popover
+                        overlay={<MultipleBreakdownsOptionsMenu />}
+                        visible={breakdownOptionsOpened}
+                        onClickOutside={() => toggleBreakdownOptions(false)}
+                    >
+                        <LemonButton
+                            icon={<IconGear />}
+                            size="small"
+                            noPadding
+                            onClick={() => toggleBreakdownOptions(!breakdownOptionsOpened)}
+                        />
+                    </Popover>
+                )}
+            </div>
             <div className="flex flex-wrap gap-2 items-center">
                 {tags}
                 {!maxBreakdownsSelected && <TaxonomicBreakdownButton disabledReason={disabledReason} />}
