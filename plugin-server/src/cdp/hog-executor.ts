@@ -1,7 +1,6 @@
 import { convertHogToJS, convertJSToHog, exec, ExecResult, VMState } from '@posthog/hogvm'
 import { DateTime } from 'luxon'
 
-import { PluginsServerConfig } from '../types'
 import { status } from '../utils/status'
 import { UUIDT } from '../utils/utils'
 import { HogFunctionManager } from './hog-function-manager'
@@ -70,7 +69,7 @@ export const addLog = (result: HogFunctionInvocationResult, level: HogFunctionLo
 }
 
 export class HogExecutor {
-    constructor(private serverConfig: PluginsServerConfig, private hogFunctionManager: HogFunctionManager) {}
+    constructor(private hogFunctionManager: HogFunctionManager) {}
 
     findMatchingFunctions(event: HogFunctionInvocationGlobals): HogFunctionType[] {
         const allFunctionsForTeam = this.hogFunctionManager.getTeamHogFunctions(event.project.id)

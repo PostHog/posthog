@@ -74,7 +74,7 @@ abstract class CdpConsumerBase {
     constructor(protected hub: Hub) {
         this.hogWatcher = new HogWatcher(hub)
         this.hogFunctionManager = new HogFunctionManager(hub.postgres, hub)
-        this.hogExecutor = new HogExecutor(hub, this.hogFunctionManager)
+        this.hogExecutor = new HogExecutor(this.hogFunctionManager)
         const rustyHook = this.hub?.rustyHook ?? new RustyHook(this.hub)
         this.asyncFunctionExecutor = new AsyncFunctionExecutor(this.hub, rustyHook)
     }

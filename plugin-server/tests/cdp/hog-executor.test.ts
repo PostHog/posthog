@@ -8,15 +8,10 @@ import {
     HogFunctionLogEntry,
     HogFunctionType,
 } from '../../src/cdp/types'
-import { defaultConfig } from '../../src/config/config'
-import { PluginsServerConfig, TimestampFormat } from '../../src/types'
+import { TimestampFormat } from '../../src/types'
 import { castTimestampOrNow } from '../../src/utils/utils'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './examples'
 import { createHogExecutionGlobals, createHogFunction, insertHogFunction as _insertHogFunction } from './fixtures'
-
-const config: PluginsServerConfig = {
-    ...defaultConfig,
-}
 
 const simulateMockFetchAsyncResponse = (result: HogFunctionInvocationResult): HogFunctionInvocationAsyncResponse => {
     return {
@@ -49,7 +44,7 @@ describe('Hog Executor', () => {
     beforeEach(() => {
         jest.useFakeTimers()
         jest.setSystemTime(new Date('2024-06-07T12:00:00.000Z').getTime())
-        executor = new HogExecutor(config, mockFunctionManager as any as HogFunctionManager)
+        executor = new HogExecutor(mockFunctionManager as any as HogFunctionManager)
     })
 
     describe('general event processing', () => {
