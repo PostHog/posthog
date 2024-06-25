@@ -52,9 +52,9 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
             (propertyDefinition) => isURLNormalizeable(propertyDefinition?.name || ''),
         ],
     }),
-    listeners(({ props, actions }) => ({
+    listeners(({ values, actions }) => ({
         removeBreakdown: () => {
-            actions.removeBreakdownFromList(props.breakdown, props.breakdownType)
+            actions.removeBreakdownFromList(values.breakdown, values.breakdownType)
         },
     })),
 ])

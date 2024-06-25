@@ -207,12 +207,16 @@ export function isNullBreakdown(breakdown_value: string | number | null | undefi
 }
 
 function isValidJsonArray(maybeJson: string): boolean {
-    try {
-        const json = JSON.parse(maybeJson)
-        return Array.isArray(json)
-    } catch {
-        return false
+    if (maybeJson.startsWith('[')) {
+        try {
+            const json = JSON.parse(maybeJson)
+            return Array.isArray(json)
+        } catch {
+            return false
+        }
     }
+
+    return false
 }
 
 export function formatBreakdownLabel(
@@ -221,12 +225,7 @@ export function formatBreakdownLabel(
     cohorts: CohortType[] | undefined,
     formatPropertyValueForDisplay: FormatPropertyValueForDisplayFunction | undefined
 ): string {
-    if (
-        breakdownFilter?.breakdown_histogram_bin_count != null &&
-        typeof breakdown_value === 'string' &&
-        breakdown_value.length > 0 &&
-        isValidJsonArray(breakdown_value)
-    ) {
+    if (typeof breakdown_value === 'string' && breakdown_value.length > 0 && isValidJsonArray(breakdown_value)) {
         // replace nan with null
         const bucketValues = breakdown_value.replace(/\bnan\b/g, 'null')
         const [bucketStart, bucketEnd] = JSON.parse(bucketValues)
