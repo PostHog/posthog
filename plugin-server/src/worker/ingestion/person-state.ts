@@ -59,6 +59,9 @@ const BARE_CASE_INSENSITIVE_ILLEGAL_IDS = [
 
 const BARE_CASE_SENSITIVE_ILLEGAL_IDS = ['[object Object]', 'NaN', 'None', 'none', 'null', '0', 'undefined']
 const PERSON_EVENTS = new Set(['$identify', '$create_alias', '$merge_dangerously', '$set'])
+// These events are processed in a separate pipeline, so we don't allow person property updates
+// because there is no ordering guaranteed across them with other person updates
+const NO_PERSON_UPDATE_EVENTS = new Set(['$exception']) 
 
 // we have seen illegal ids received but wrapped in double quotes
 // to protect ourselves from this we'll add the single- and double-quoted versions of the illegal ids
@@ -343,7 +346,7 @@ export class PersonState {
             }
         })
         metricsKeys.forEach((key) => personPropertyKeyUpdateCounter.labels({ key: key }).inc())
-        return updated
+        return updated && !NO_PERSON_UPDATE_EVENTS.has(this.event.event)
     }
 
     // Alias & merge
