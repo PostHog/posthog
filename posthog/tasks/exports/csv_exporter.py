@@ -103,7 +103,7 @@ def _convert_response_to_csv_data(data: Any) -> Generator[Any, None, None]:
                         ):
                             total = len(x[key])
                             x[key] = x[key][:RESULT_LIMIT_LENGTH]
-                            x[key].append(f"Note: {total} {key} in total")
+                            row_dict[f"{key}.total"] = f"Note: {total} {key} in total"
 
                     if not data.get("columns"):
                         row_dict[f"column_{idx}"] = x
