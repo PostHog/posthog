@@ -89,13 +89,18 @@ export async function pollForResults(
         await delay(currentDelay, methodOptions?.signal)
         currentDelay = Math.min(currentDelay * 2, QUERY_ASYNC_MAX_INTERVAL_SECONDS * 1000)
 
-        const statusResponse = (await api.queryStatus.get(queryId, showProgress)).query_status
+        try {
+            const statusResponse = (await api.queryStatus.get(queryId, showProgress)).query_status
 
-        if (statusResponse.complete || statusResponse.error) {
-            return statusResponse
-        }
-        if (callback) {
-            callback(statusResponse)
+            if (statusResponse.complete || statusResponse.error) {
+                return statusResponse
+            }
+            if (callback) {
+                callback(statusResponse)
+            }
+        } catch (e: any) {
+            e.detail = e.data?.query_status?.error_message
+            throw e
         }
     }
     throw new Error('Query timed out')
@@ -121,7 +126,7 @@ async function executeQuery<N extends DataNode>(
     const response = await api.query(queryNode, methodOptions, queryId, refresh, isAsyncQuery)
 
     if (!response.query_status?.query_async) {
-        // Executed query synchronously
+        // Executed query synchronously or from cache
         return response
     }
     if (response.query_status?.complete || response.query_status?.error) {
