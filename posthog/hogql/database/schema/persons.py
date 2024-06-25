@@ -186,16 +186,16 @@ class PersonsTable(LazyTable):
     filter: Optional[Expr] = None
 
     @staticmethod
-    def _is_promotable_expr(expr, alias: str):
+    def _is_promotable_expr(expr, alias: Optional[str] = None):
         return (
             isinstance(expr, CompareOperation)
             and expr.op == CompareOperationOp.In
             and isinstance(expr.left, Field)
-            and expr.left.chain == [alias, "id"]
+            and expr.left.chain in ([alias or "persons", "id"], ["id"])
         )
 
     @staticmethod
-    def partition_exprs(exprs, alias: str = "persons"):
+    def partition_exprs(exprs, alias: Optional[str] = None):
         not_promotable = []
         promotable = []
         for expr in exprs:
