@@ -1,4 +1,3 @@
-import type { FormInstance } from 'antd/lib/form/hooks/useForm.d'
 import { actions, events, kea, key, listeners, path, props, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import api from 'lib/api'
@@ -26,7 +25,6 @@ export const interfaceJobsLogic = kea<interfaceJobsLogicType>([
     actions({
         setIsJobModalOpen: (isOpen: boolean) => ({ isOpen }),
         setRunJobAvailable: (isAvailable: boolean) => ({ isAvailable }),
-        runJob: (form: FormInstance<any>) => ({ form }),
         playButtonOnClick: (jobHasEmptyPayload: boolean) => ({ jobHasEmptyPayload }),
         setRunJobAvailableTimeout: (timeout: number) => ({ timeout }),
     }),
