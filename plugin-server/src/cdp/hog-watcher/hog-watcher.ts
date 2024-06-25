@@ -463,6 +463,33 @@ export class HogWatcher {
         }
     }
 
+    async forceStateChange(id: HogFunctionType['id'], state: HogWatcherState) {
+        const period = periodTimestamp()
+        const statePeriod: HogWatcherStatePeriod = {
+            timestamp: period,
+            state: state,
+        }
+
+        // TODO: Implement this such that the state is forced to change including for the leaders state
+
+        // await runRedis(this.hub.redisPool, 'forceStateChange', async (client) => {
+        //     const pipeline = client.pipeline()
+
+        //     const statesStr = await client.hget(`${BASE_REDIS_KEY}/state`, `states:${id}`)
+        //     const states: HogWatcherStatePeriod[] = statesStr ? JSON.parse(statesStr) : []
+
+        //     states.push(statePeriod)
+        //     states.slice(-MAX_RECORDED_STATES)
+
+        //     pipeline.hset(`${BASE_REDIS_KEY}/state`, `states:${id}`, JSON.stringify(states))
+
+        //     return pipeline.exec()
+        // })
+
+        // // Now we can emit to the others so they can update their state
+        // await this.pubSub.publish('hog-watcher-states', JSON.stringify({ instanceId: this.instanceId, states: { [id]: state } }))
+    }
+
     /**
      * Fetch the entire state object parsing into a usable object
      */

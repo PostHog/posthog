@@ -7,6 +7,7 @@ import { AsyncFunctionExecutor } from './async-function-executor'
 import { addLog, HogExecutor } from './hog-executor'
 import { HogFunctionManager } from './hog-function-manager'
 import { HogWatcher } from './hog-watcher/hog-watcher'
+import { HogWatcherState } from './hog-watcher/types'
 import { HogFunctionInvocation, HogFunctionType } from './types'
 import { convertToHogFunctionInvocationGlobals } from './utils'
 
@@ -41,6 +42,7 @@ export class CdpApi {
 
         router.post('/api/projects/:team_id/hog_functions/:id/invocations', asyncHandler(this.postFunctionInvocation))
         router.get('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.getFunctionStatus()))
+        router.patch('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.patchFunctionStatus()))
 
         return router
     }
@@ -52,6 +54,29 @@ export class CdpApi {
             const summary = await this.hogWatcher.fetchWatcher(id)
 
             res.json(summary)
+        }
+
+    private patchFunctionStatus =
+        () =>
+        async (req: express.Request, res: express.Response): Promise<void> => {
+            const { id } = req.params
+            const { state } = req.body
+
+            // Check that state is valid
+            if (!Object.values(HogWatcherState).includes(state)) {
+                res.status(400).json({ error: 'Invalid state' })
+                return
+            }
+
+            const summary = await this.hogWatcher.fetchWatcher(id)
+
+            // Only allow patching the status if it is different from the current status
+
+            if (summary.state !== state) {
+                await this.hogWatcher.forceStateChange(id, state)
+            }
+
+            res.json(await this.hogWatcher.fetchWatcher(id))
         }
 
     private postFunctionInvocation = async (req: express.Request, res: express.Response): Promise<void> => {

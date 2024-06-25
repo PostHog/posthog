@@ -72,3 +72,10 @@ def get_hog_function_status(team_id: int, hog_function_id: str) -> requests.Resp
     return requests.get(
         CDP_FUNCTION_EXECUTOR_API_URL + f"/api/projects/{team_id}/hog_functions/{hog_function_id}/status"
     )
+
+
+def patch_hog_function_status(team_id: int, hog_function_id: str, state: int) -> requests.Response:
+    return requests.post(
+        CDP_FUNCTION_EXECUTOR_API_URL + f"/api/projects/{team_id}/hog_functions/{hog_function_id}/status",
+        {"state": state},
+    )
