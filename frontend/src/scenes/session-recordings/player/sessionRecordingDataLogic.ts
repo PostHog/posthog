@@ -804,9 +804,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
 
         snapshotsInvalid: [
-            (s, p) => [s.snapshotsByWindowId, s.fullyLoaded, p.sessionRecordingId],
-            (snapshotsByWindowId, fullyLoaded, sessionRecordingId): boolean => {
-                if (!fullyLoaded) {
+            (s, p) => [s.snapshotsByWindowId, s.fullyLoaded, s.start, p.sessionRecordingId],
+            (snapshotsByWindowId, fullyLoaded, start, sessionRecordingId): boolean => {
+                if (!fullyLoaded || !start) {
                     return false
                 }
 
@@ -835,7 +835,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     })
                 }
 
-                return everyWindowMissingFullSnapshot
+                const minutesSinceRecording = start.diff(dayjs(), 'minute')
+
+                return everyWindowMissingFullSnapshot && minutesSinceRecording <= 5
             },
         ],
 
