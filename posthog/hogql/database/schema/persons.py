@@ -216,7 +216,7 @@ class PersonsTable(LazyTable):
             join.constraint.expr.exprs = not_promotable
             if len(promotable) == 0:
                 return self
-            p = PersonsTable()
+            p = self.model_copy()
             if len(promotable) == 1:
                 p.filter = promotable[0]
             elif len(promotable) > 1:
