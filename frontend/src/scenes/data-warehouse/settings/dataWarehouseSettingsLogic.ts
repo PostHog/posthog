@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, urlToAction } from 'kea-router'
 import api, { ApiMethodOptions, PaginatedResponse } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import posthog from 'posthog-js'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -194,6 +195,8 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             await api.externalDataSources.delete(source.id)
             actions.loadSources(null)
             actions.sourceLoadingFinished(source)
+
+            posthog.capture('source deleted', { sourceType: source.source_type })
         },
         reloadSource: async ({ source }) => {
             // Optimistic UI updates before sending updates to the backend
@@ -221,6 +224,8 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             try {
                 await api.externalDataSources.reload(source.id)
                 actions.loadSources(null)
+
+                posthog.capture('source reloaded', { sourceType: source.source_type })
             } catch (e: any) {
                 if (e.message) {
                     lemonToast.error(e.message)
@@ -249,6 +254,8 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                 await api.externalDataSchemas.reload(schema.id)
                 actions.schemaLoadingFinished(schema)
                 actions.loadSources(null)
+
+                posthog.capture('schema reloaded', { sourceType: clonedSources[sourceIndex].source_type })
             } catch (e: any) {
                 if (e.message) {
                     lemonToast.error(e.message)
@@ -276,6 +283,8 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                 await api.externalDataSchemas.resync(schema.id)
                 actions.schemaLoadingFinished(schema)
                 actions.loadSources(null)
+
+                posthog.capture('schema resynced', { sourceType: clonedSources[sourceIndex].source_type })
             } catch (e: any) {
                 if (e.message) {
                     lemonToast.error(e.message)
@@ -289,6 +298,9 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                 cache.abortController.abort()
                 cache.abortController = null
             }
+        },
+        updateSchema: (schema) => {
+            posthog.capture('schema updated', { shouldSync: schema.should_sync, syncType: schema.sync_type })
         },
     })),
     afterMount(({ actions }) => {
