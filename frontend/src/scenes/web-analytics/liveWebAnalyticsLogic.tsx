@@ -40,10 +40,13 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
         ],
     }),
     selectors({
-        liveUserCount: [(s) => [s.stats], (stats) => (stats?.users_on_product ? stats.users_on_product : null)],
+        liveUserCount: [
+            (s) => [s.stats],
+            (stats: StatsResponse | null) => (stats?.users_on_product ? stats.users_on_product : null),
+        ],
         liveUserUpdatedSecondsAgo: [
             (s) => [s.statsUpdatedTime, s.now],
-            (statsUpdatedTime, now) => {
+            (statsUpdatedTime: Date | null, now: Date | null) => {
                 if (!statsUpdatedTime || !now) {
                     return null
                 }
