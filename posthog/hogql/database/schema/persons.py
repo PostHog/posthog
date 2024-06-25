@@ -1,7 +1,7 @@
 from typing import cast, Optional
 import posthoganalytics
 
-from posthog.hogql.ast import SelectQuery, And, CompareOperation, CompareOperationOp, Field
+from posthog.hogql.ast import SelectQuery, And, CompareOperation, CompareOperationOp, Field, JoinExpr
 from posthog.hogql.base import Expr
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
@@ -185,19 +185,20 @@ class PersonsTable(LazyTable):
     filter: Optional[Expr] = None
 
     @staticmethod
-    def _is_promotable_expr(expr):
+    def _is_promotable_expr(expr, alias: str):
         return (
             isinstance(expr, CompareOperation)
             and expr.op == CompareOperationOp.In
-            and expr.left == Field(chain=["persons", "id"])
+            and isinstance(expr.left, Field)
+            and expr.left.chain == [alias, "id"]
         )
 
     @staticmethod
-    def partition_exprs(exprs):
+    def partition_exprs(exprs, alias: str = "persons"):
         not_promotable = []
         promotable = []
         for expr in exprs:
-            if PersonsTable._is_promotable_expr(expr):
+            if PersonsTable._is_promotable_expr(expr, alias):
                 # Erase "persons" from the chain before bringing inside
                 expr.left = Field(chain=["id"])
                 promotable.append(expr)
@@ -205,6 +206,16 @@ class PersonsTable(LazyTable):
                 not_promotable.append(expr)
 
         return promotable, not_promotable
+
+    def set_filter(self, join: JoinExpr):
+        if join.constraint is not None and isinstance(join.constraint.expr, And):
+            exprs = cast(And, join.constraint.expr).exprs
+            promotable, not_promotable = PersonsTable.partition_exprs(exprs, join.alias)
+            join.constraint.expr.exprs = not_promotable
+            if len(promotable) == 1:
+                self.filter = promotable[0]
+            elif len(promotable) > 1:
+                self.filter = And(exprs=promotable)
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context, node):
         if self.filter is not None:

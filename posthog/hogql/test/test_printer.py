@@ -1609,3 +1609,71 @@ class TestPrinter(BaseTest):
             self._expr("SuM(1)", context),
             "sum(1)",
         )
+
+    def test_inline_persons(self):
+        query = parse_select(
+            "select persons.id as person_id from events join persons on persons.id = events.person_id and persons.id in (1,2,3)"
+        )
+        printed = print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            dialect="clickhouse",
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        assert (
+            f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), ifNull(in(id, tuple(1, 2, 3)), 0))"
+            in printed
+        )
+
+    def test_dont_inline_persons(self):
+        query = parse_select(
+            "select persons.id as person_id from events join persons on persons.id = events.person_id and persons.id = 1"
+        )
+        printed = print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            dialect="clickhouse",
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        assert f"AS id FROM person WHERE equals(person.team_id, {self.team.pk})" in printed
+
+    def test_inline_persons_alias(self):
+        query = parse_select(
+            """
+            select p1.id as p1_id from events
+            join persons as p1 on p1.id = events.person_id and p1.id in (1,2,3)
+            """
+        )
+        printed = print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            dialect="clickhouse",
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        assert (
+            f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), ifNull(in(id, tuple(1, 2, 3)), 0))"
+            in printed
+        )
+
+    def test_two_joins(self):
+        query = parse_select(
+            """
+            select p1.id as p1_id, p2.id as p2_id from events
+            join persons as p1 on p1.id = events.person_id and p1.id in (1,2,3)
+            join persons as p2 on p2.id = events.person_id and p2.id in (4,5,6)
+            """
+        )
+        printed = print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            dialect="clickhouse",
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        assert (
+            f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), ifNull(in(id, tuple(1, 2, 3)), 0))"
+            in printed
+        )
+        assert (
+            f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), ifNull(in(id, tuple(4, 5, 6)), 0))"
+            in printed
+        )
