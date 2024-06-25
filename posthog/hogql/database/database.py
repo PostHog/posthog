@@ -10,6 +10,7 @@ from sentry_sdk import capture_exception
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
+    FieldOrTable,
     FieldTraverser,
     SavedQuery,
     StringDatabaseField,
@@ -209,6 +210,7 @@ def create_hogql_database(
     team_id: int, modifiers: Optional[HogQLQueryModifiers] = None, team_arg: Optional["Team"] = None
 ) -> Database:
     from posthog.models import Team
+    from posthog.hogql.database.s3_table import S3Table
     from posthog.hogql.query import create_default_modifiers_for_team
     from posthog.warehouse.models import (
         DataWarehouseTable,
@@ -281,7 +283,24 @@ def create_hogql_database(
     views: dict[str, Table] = {}
 
     for table in DataWarehouseTable.objects.filter(team_id=team.pk).exclude(deleted=True):
-        warehouse_tables[table.name] = table.hogql_definition(modifiers)
+        s3_table = table.hogql_definition(modifiers)
+
+        # If the warehouse table has no _properties_ field, then set it as a virtual table
+        if s3_table.fields.get("properties") is None:
+
+            class WarehouseProperties(VirtualTable):
+                fields: dict[str, FieldOrTable] = s3_table.fields
+                parent_table: S3Table = s3_table
+
+                def to_printed_hogql(self):
+                    return self.parent_table.to_printed_hogql()
+
+                def to_printed_clickhouse(self, context):
+                    return self.parent_table.to_printed_clickhouse(context)
+
+            s3_table.fields["properties"] = WarehouseProperties()
+
+        warehouse_tables[table.name] = s3_table
 
     for saved_query in DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True):
         views[saved_query.name] = saved_query.hogql_definition()
