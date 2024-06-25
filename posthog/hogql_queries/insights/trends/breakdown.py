@@ -196,23 +196,13 @@ class Breakdown:
         )
 
     def events_where_filter(self, breakdown_values_override: Optional[str | int] = None) -> ast.Expr | None:
-        if self.enabled:
-            if self.is_multiple_breakdown:
-                cohort_breakdowns = [
-                    breakdown.property
-                    for breakdown in cast(list[BreakdownSchema], self._breakdown_filter.breakdowns)
-                    if breakdown.type == BreakdownType.COHORT
-                ]
-
-                if cohort_breakdowns:
-                    return self._get_cohort_filter(cohort_breakdowns)
-
-            if (
-                self._breakdown_filter.breakdown is not None
-                and self._breakdown_filter.breakdown_type == BreakdownType.COHORT
-            ):
-                breakdown = breakdown_values_override if breakdown_values_override else self._breakdown_filter.breakdown
-                return self._get_cohort_filter(breakdown)
+        if (
+            self.enabled
+            and self._breakdown_filter.breakdown is not None
+            and self._breakdown_filter.breakdown_type == BreakdownType.COHORT
+        ):
+            breakdown = breakdown_values_override if breakdown_values_override else self._breakdown_filter.breakdown
+            return self._get_cohort_filter(breakdown)
 
         if breakdown_values_override:
             if (
