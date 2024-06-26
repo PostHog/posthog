@@ -6,6 +6,7 @@ from random import randint
 import pytest
 from django.test import override_settings
 
+from posthog.batch_exports.service import BatchExportModel
 from posthog.temporal.batch_exports.batch_exports import (
     get_data_interval,
     iter_model_records,
@@ -266,12 +267,11 @@ async def test_iter_records_with_single_field_and_alias(clickhouse_client, field
         record
         async for record_batch in iter_model_records(
             client=clickhouse_client,
-            model="events",
+            model=BatchExportModel(name="events", schema={"fields": [field], "values": {}}),
             team_id=team_id,
             is_backfill=False,
             interval_start=data_interval_start.isoformat(),
             interval_end=data_interval_end.isoformat(),
-            fields=[field],
         )
         for record in record_batch.to_pylist()
     ]
