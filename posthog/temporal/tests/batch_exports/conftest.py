@@ -1,3 +1,5 @@
+import asyncio
+
 import psycopg
 import pytest
 import pytest_asyncio
@@ -44,6 +46,17 @@ async def truncate_events(clickhouse_client):
     await clickhouse_client.execute_query("TRUNCATE TABLE IF EXISTS `sharded_events`")
 
 
+@pytest_asyncio.fixture(autouse=True)
+async def truncate_persons(clickhouse_client):
+    """Fixture to automatically truncate person and person_distinct_id2 after a test.
+
+    This is useful if during the test setup we insert a lot of persons we wish to clean-up.
+    """
+    yield
+    await clickhouse_client.execute_query("TRUNCATE TABLE IF EXISTS `person`")
+    await clickhouse_client.execute_query("TRUNCATE TABLE IF EXISTS `person_distinct_id2`")
+
+
 @pytest.fixture
 def batch_export_schema(request) -> dict | None:
     """A parametrizable fixture to configure a batch export schema.
@@ -59,7 +72,7 @@ def batch_export_schema(request) -> dict | None:
 
 @pytest_asyncio.fixture
 async def setup_postgres_test_db(postgres_config):
-    """Fixture to manage a database for Redshift export testing.
+    """Fixture to manage a database for Redshift and Postgres export testing.
 
     Managing a test database involves the following steps:
     1. Creating a test database.
@@ -123,3 +136,38 @@ async def setup_postgres_test_db(postgres_config):
         await cursor.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(postgres_config["database"])))
 
     await connection.close()
+
+
+@pytest_asyncio.fixture(scope="module", autouse=True)
+async def create_clickhouse_tables_and_views(clickhouse_client, django_db_setup):
+    from posthog.batch_exports.sql import (
+        CREATE_EVENTS_BATCH_EXPORT_VIEW,
+        CREATE_EVENTS_BATCH_EXPORT_VIEW_BACKFILL,
+        CREATE_EVENTS_BATCH_EXPORT_VIEW_UNBOUNDED,
+        CREATE_PERSONS_BATCH_EXPORT_VIEW,
+    )
+    from posthog.clickhouse.schema import CREATE_KAFKA_TABLE_QUERIES, build_query
+
+    create_view_queries = (
+        CREATE_EVENTS_BATCH_EXPORT_VIEW,
+        CREATE_EVENTS_BATCH_EXPORT_VIEW_BACKFILL,
+        CREATE_EVENTS_BATCH_EXPORT_VIEW_UNBOUNDED,
+        CREATE_PERSONS_BATCH_EXPORT_VIEW,
+    )
+
+    clickhouse_tasks = set()
+    for query in create_view_queries + tuple(map(build_query, CREATE_KAFKA_TABLE_QUERIES)):
+        task = asyncio.create_task(clickhouse_client.execute_query(query))
+        clickhouse_tasks.add(task)
+        task.add_done_callback(clickhouse_tasks.discard)
+
+    done, pending = await asyncio.wait(clickhouse_tasks)
+
+    if len(pending) > 0:
+        raise ValueError("Not all required tables and views were created in time")
+
+    for task in done:
+        if exc := task.exception():
+            raise exc
+
+    return

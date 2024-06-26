@@ -215,7 +215,7 @@ TEST_SCHEMAS = [
     {
         "fields": [
             {"expression": "event", "alias": "event"},
-            {"expression": "inserted_at", "alias": "inserted_at"},
+            {"expression": "_inserted_at", "alias": "inserted_at"},
             {"expression": "toInt8(1 + 1)", "alias": "two"},
         ],
         "values": {},

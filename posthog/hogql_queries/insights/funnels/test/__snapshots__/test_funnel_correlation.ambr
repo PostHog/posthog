@@ -11,7 +11,7 @@
      FROM person_distinct_id2
      WHERE equals(person_distinct_id2.team_id, 2)
      GROUP BY person_distinct_id2.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS event__pdi ON equals(event.distinct_id, event__pdi.distinct_id)
+     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS event__pdi ON equals(event.distinct_id, event__pdi.distinct_id)
   JOIN
     (SELECT aggregation_target AS actor_id,
             timestamp AS timestamp,
@@ -65,7 +65,7 @@
                        FROM person_distinct_id2
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
-                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
                     WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
@@ -134,7 +134,7 @@
                        FROM person_distinct_id2
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
-                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
                     WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
@@ -215,7 +215,7 @@
                           FROM person_distinct_id2
                           WHERE equals(person_distinct_id2.team_id, 2)
                           GROUP BY person_distinct_id2.distinct_id
-                          HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+                          HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
                        WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
@@ -236,7 +236,7 @@
                                                              FROM person
                                                              WHERE equals(person.team_id, 2)
                                                              GROUP BY person.id
-                                                             HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons) AS persons ON equals(persons.id, funnel_actors.actor_id)) AS aggregation_target_with_props
+                                                             HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons) AS persons ON equals(persons.id, funnel_actors.actor_id)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
   HAVING ifNull(notIn((aggregation_target_with_props.prop).1, []), 0)
   LIMIT 100
@@ -297,7 +297,7 @@
                        FROM person_distinct_id2
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
-                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
                     WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
@@ -410,7 +410,7 @@
                           FROM person_distinct_id2
                           WHERE equals(person_distinct_id2.team_id, 2)
                           GROUP BY person_distinct_id2.distinct_id
-                          HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+                          HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
                        LEFT JOIN
                          (SELECT person.id AS id,
                                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
@@ -420,7 +420,7 @@
                                                                             FROM person
                                                                             WHERE equals(person.team_id, 2)
                                                                             GROUP BY person.id
-                                                                            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
+                                                                            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
                        WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__pdi__person.`properties___$browser`, 'Positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
@@ -435,9 +435,54 @@
   INNER JOIN
     (SELECT person.id AS id
      FROM person
-     WHERE equals(person.team_id, 2)
+     WHERE and(equals(person.team_id, 2), in(id,
+                                               (SELECT source.actor_id AS actor_id
+                                                FROM
+                                                  (SELECT funnel_actors.actor_id AS actor_id, any(funnel_actors.matching_events) AS matching_events
+                                                   FROM
+                                                     (SELECT aggregation_target AS actor_id, final_matching_events AS matching_events, timestamp AS timestamp, steps AS steps, final_timestamp AS final_timestamp, first_timestamp AS first_timestamp
+                                                      FROM
+                                                        (SELECT groupArray(10)(step_0_matching_event) AS step_0_matching_events, groupArray(10)(step_1_matching_event) AS step_1_matching_events, groupArray(10)(final_matching_event) AS final_matching_events, aggregation_target AS aggregation_target, steps AS steps, argMax(latest_0, steps) AS timestamp, argMax(latest_1, steps) AS final_timestamp, argMax(latest_0, steps) AS first_timestamp, avg(step_1_conversion_time) AS step_1_average_conversion_time_inner, median(step_1_conversion_time) AS step_1_median_conversion_time_inner
+                                                         FROM
+                                                           (SELECT tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event, tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event, if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event, aggregation_target AS aggregation_target, steps AS steps, max(steps) OVER (PARTITION BY aggregation_target) AS max_steps, step_1_conversion_time AS step_1_conversion_time, latest_0 AS latest_0, latest_1 AS latest_1, latest_0 AS latest_0
+                                                            FROM
+                                                              (SELECT aggregation_target AS aggregation_target, timestamp AS timestamp, step_0 AS step_0, latest_0 AS latest_0, uuid_0 AS uuid_0, `$session_id_0` AS `$session_id_0`, `$window_id_0` AS `$window_id_0`, step_1 AS step_1, latest_1 AS latest_1, uuid_1 AS uuid_1, `$session_id_1` AS `$session_id_1`, `$window_id_1` AS `$window_id_1`, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps, if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time, tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event, tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event, if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
+                                                               FROM
+                                                                 (SELECT aggregation_target AS aggregation_target, timestamp AS timestamp, step_0 AS step_0, latest_0 AS latest_0, uuid_0 AS uuid_0, `$session_id_0` AS `$session_id_0`, `$window_id_0` AS `$window_id_0`, step_1 AS step_1, min(latest_1) OVER (PARTITION BY aggregation_target
+                                                                                                                                                                                                                                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS latest_1, last_value(uuid_1) OVER (PARTITION BY aggregation_target
+                                                                                                                                                                                                                                                                                                                                                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS uuid_1, last_value(`$session_id_1`) OVER (PARTITION BY aggregation_target
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS `$session_id_1`, last_value(`$window_id_1`) OVER (PARTITION BY aggregation_target
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS `$window_id_1`
+                                                                  FROM
+                                                                    (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp, e__pdi.person_id AS aggregation_target, e.uuid AS uuid, if(equals(e.event, 'user signed up'), 1, 0) AS step_0, if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0, if(ifNull(equals(step_0, 1), 0), uuid, NULL) AS uuid_0, if(ifNull(equals(step_0, 1), 0), e.`$session_id`, NULL) AS `$session_id_0`, if(ifNull(equals(step_0, 1), 0), e.`$window_id`, NULL) AS `$window_id_0`, if(equals(e.event, 'paid'), 1, 0) AS step_1, if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1, if(ifNull(equals(step_1, 1), 0), uuid, NULL) AS uuid_1, if(ifNull(equals(step_1, 1), 0), e.`$session_id`, NULL) AS `$session_id_1`, if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
+                                                                     FROM events AS e
+                                                                     INNER JOIN
+                                                                       (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS e__pdi___person_id, person_distinct_id2.distinct_id AS distinct_id
+                                                                        FROM person_distinct_id2
+                                                                        WHERE equals(person_distinct_id2.team_id, 2)
+                                                                        GROUP BY person_distinct_id2.distinct_id
+                                                                        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+                                                                     LEFT JOIN
+                                                                       (SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
+                                                                        FROM person
+                                                                        WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
+                                                                                                                         (SELECT person.id AS id, max(person.version) AS version
+                                                                                                                          FROM person
+                                                                                                                          WHERE equals(person.team_id, 2)
+                                                                                                                          GROUP BY person.id
+                                                                                                                          HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
+                                                                     WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__pdi__person.`properties___$browser`, 'Positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                                                               WHERE ifNull(equals(step_0, 1), 0)))
+                                                         GROUP BY aggregation_target, steps
+                                                         HAVING ifNull(equals(steps, max_steps), isNull(steps)
+                                                                       and isNull(max_steps)))
+                                                      WHERE ifNull(in(steps, [1, 2]), 0)
+                                                      ORDER BY aggregation_target ASC) AS funnel_actors
+                                                   WHERE ifNull(equals(funnel_actors.steps, 2), 0)
+                                                   GROUP BY funnel_actors.actor_id
+                                                   ORDER BY funnel_actors.actor_id ASC) AS source)))
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -559,7 +604,7 @@
                           FROM person_distinct_id2
                           WHERE equals(person_distinct_id2.team_id, 2)
                           GROUP BY person_distinct_id2.distinct_id
-                          HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+                          HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
                        LEFT JOIN
                          (SELECT person.id AS id,
                                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
@@ -569,7 +614,7 @@
                                                                             FROM person
                                                                             WHERE equals(person.team_id, 2)
                                                                             GROUP BY person.id
-                                                                            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
+                                                                            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
                        WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__pdi__person.`properties___$browser`, 'Positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
@@ -584,9 +629,54 @@
   INNER JOIN
     (SELECT person.id AS id
      FROM person
-     WHERE equals(person.team_id, 2)
+     WHERE and(equals(person.team_id, 2), in(id,
+                                               (SELECT source.actor_id AS actor_id
+                                                FROM
+                                                  (SELECT funnel_actors.actor_id AS actor_id, any(funnel_actors.matching_events) AS matching_events
+                                                   FROM
+                                                     (SELECT aggregation_target AS actor_id, final_matching_events AS matching_events, timestamp AS timestamp, steps AS steps, final_timestamp AS final_timestamp, first_timestamp AS first_timestamp
+                                                      FROM
+                                                        (SELECT groupArray(10)(step_0_matching_event) AS step_0_matching_events, groupArray(10)(step_1_matching_event) AS step_1_matching_events, groupArray(10)(final_matching_event) AS final_matching_events, aggregation_target AS aggregation_target, steps AS steps, argMax(latest_0, steps) AS timestamp, argMax(latest_1, steps) AS final_timestamp, argMax(latest_0, steps) AS first_timestamp, avg(step_1_conversion_time) AS step_1_average_conversion_time_inner, median(step_1_conversion_time) AS step_1_median_conversion_time_inner
+                                                         FROM
+                                                           (SELECT tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event, tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event, if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event, aggregation_target AS aggregation_target, steps AS steps, max(steps) OVER (PARTITION BY aggregation_target) AS max_steps, step_1_conversion_time AS step_1_conversion_time, latest_0 AS latest_0, latest_1 AS latest_1, latest_0 AS latest_0
+                                                            FROM
+                                                              (SELECT aggregation_target AS aggregation_target, timestamp AS timestamp, step_0 AS step_0, latest_0 AS latest_0, uuid_0 AS uuid_0, `$session_id_0` AS `$session_id_0`, `$window_id_0` AS `$window_id_0`, step_1 AS step_1, latest_1 AS latest_1, uuid_1 AS uuid_1, `$session_id_1` AS `$session_id_1`, `$window_id_1` AS `$window_id_1`, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps, if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time, tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event, tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event, if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
+                                                               FROM
+                                                                 (SELECT aggregation_target AS aggregation_target, timestamp AS timestamp, step_0 AS step_0, latest_0 AS latest_0, uuid_0 AS uuid_0, `$session_id_0` AS `$session_id_0`, `$window_id_0` AS `$window_id_0`, step_1 AS step_1, min(latest_1) OVER (PARTITION BY aggregation_target
+                                                                                                                                                                                                                                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS latest_1, last_value(uuid_1) OVER (PARTITION BY aggregation_target
+                                                                                                                                                                                                                                                                                                                                                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS uuid_1, last_value(`$session_id_1`) OVER (PARTITION BY aggregation_target
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS `$session_id_1`, last_value(`$window_id_1`) OVER (PARTITION BY aggregation_target
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS `$window_id_1`
+                                                                  FROM
+                                                                    (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp, e__pdi.person_id AS aggregation_target, e.uuid AS uuid, if(equals(e.event, 'user signed up'), 1, 0) AS step_0, if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0, if(ifNull(equals(step_0, 1), 0), uuid, NULL) AS uuid_0, if(ifNull(equals(step_0, 1), 0), e.`$session_id`, NULL) AS `$session_id_0`, if(ifNull(equals(step_0, 1), 0), e.`$window_id`, NULL) AS `$window_id_0`, if(equals(e.event, 'paid'), 1, 0) AS step_1, if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1, if(ifNull(equals(step_1, 1), 0), uuid, NULL) AS uuid_1, if(ifNull(equals(step_1, 1), 0), e.`$session_id`, NULL) AS `$session_id_1`, if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
+                                                                     FROM events AS e
+                                                                     INNER JOIN
+                                                                       (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS e__pdi___person_id, person_distinct_id2.distinct_id AS distinct_id
+                                                                        FROM person_distinct_id2
+                                                                        WHERE equals(person_distinct_id2.team_id, 2)
+                                                                        GROUP BY person_distinct_id2.distinct_id
+                                                                        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+                                                                     LEFT JOIN
+                                                                       (SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
+                                                                        FROM person
+                                                                        WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
+                                                                                                                         (SELECT person.id AS id, max(person.version) AS version
+                                                                                                                          FROM person
+                                                                                                                          WHERE equals(person.team_id, 2)
+                                                                                                                          GROUP BY person.id
+                                                                                                                          HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
+                                                                     WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__pdi__person.`properties___$browser`, 'Positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                                                               WHERE ifNull(equals(step_0, 1), 0)))
+                                                         GROUP BY aggregation_target, steps
+                                                         HAVING ifNull(equals(steps, max_steps), isNull(steps)
+                                                                       and isNull(max_steps)))
+                                                      WHERE ifNull(in(steps, [1, 2]), 0)
+                                                      ORDER BY aggregation_target ASC) AS funnel_actors
+                                                   WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
+                                                   GROUP BY funnel_actors.actor_id
+                                                   ORDER BY funnel_actors.actor_id ASC) AS source)))
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -708,7 +798,7 @@
                           FROM person_distinct_id2
                           WHERE equals(person_distinct_id2.team_id, 2)
                           GROUP BY person_distinct_id2.distinct_id
-                          HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+                          HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
                        LEFT JOIN
                          (SELECT person.id AS id,
                                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
@@ -718,7 +808,7 @@
                                                                             FROM person
                                                                             WHERE equals(person.team_id, 2)
                                                                             GROUP BY person.id
-                                                                            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
+                                                                            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
                        WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__pdi__person.`properties___$browser`, 'Negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
@@ -733,9 +823,54 @@
   INNER JOIN
     (SELECT person.id AS id
      FROM person
-     WHERE equals(person.team_id, 2)
+     WHERE and(equals(person.team_id, 2), in(id,
+                                               (SELECT source.actor_id AS actor_id
+                                                FROM
+                                                  (SELECT funnel_actors.actor_id AS actor_id, any(funnel_actors.matching_events) AS matching_events
+                                                   FROM
+                                                     (SELECT aggregation_target AS actor_id, final_matching_events AS matching_events, timestamp AS timestamp, steps AS steps, final_timestamp AS final_timestamp, first_timestamp AS first_timestamp
+                                                      FROM
+                                                        (SELECT groupArray(10)(step_0_matching_event) AS step_0_matching_events, groupArray(10)(step_1_matching_event) AS step_1_matching_events, groupArray(10)(final_matching_event) AS final_matching_events, aggregation_target AS aggregation_target, steps AS steps, argMax(latest_0, steps) AS timestamp, argMax(latest_1, steps) AS final_timestamp, argMax(latest_0, steps) AS first_timestamp, avg(step_1_conversion_time) AS step_1_average_conversion_time_inner, median(step_1_conversion_time) AS step_1_median_conversion_time_inner
+                                                         FROM
+                                                           (SELECT tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event, tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event, if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event, aggregation_target AS aggregation_target, steps AS steps, max(steps) OVER (PARTITION BY aggregation_target) AS max_steps, step_1_conversion_time AS step_1_conversion_time, latest_0 AS latest_0, latest_1 AS latest_1, latest_0 AS latest_0
+                                                            FROM
+                                                              (SELECT aggregation_target AS aggregation_target, timestamp AS timestamp, step_0 AS step_0, latest_0 AS latest_0, uuid_0 AS uuid_0, `$session_id_0` AS `$session_id_0`, `$window_id_0` AS `$window_id_0`, step_1 AS step_1, latest_1 AS latest_1, uuid_1 AS uuid_1, `$session_id_1` AS `$session_id_1`, `$window_id_1` AS `$window_id_1`, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps, if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time, tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event, tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event, if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
+                                                               FROM
+                                                                 (SELECT aggregation_target AS aggregation_target, timestamp AS timestamp, step_0 AS step_0, latest_0 AS latest_0, uuid_0 AS uuid_0, `$session_id_0` AS `$session_id_0`, `$window_id_0` AS `$window_id_0`, step_1 AS step_1, min(latest_1) OVER (PARTITION BY aggregation_target
+                                                                                                                                                                                                                                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS latest_1, last_value(uuid_1) OVER (PARTITION BY aggregation_target
+                                                                                                                                                                                                                                                                                                                                                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS uuid_1, last_value(`$session_id_1`) OVER (PARTITION BY aggregation_target
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS `$session_id_1`, last_value(`$window_id_1`) OVER (PARTITION BY aggregation_target
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS `$window_id_1`
+                                                                  FROM
+                                                                    (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp, e__pdi.person_id AS aggregation_target, e.uuid AS uuid, if(equals(e.event, 'user signed up'), 1, 0) AS step_0, if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0, if(ifNull(equals(step_0, 1), 0), uuid, NULL) AS uuid_0, if(ifNull(equals(step_0, 1), 0), e.`$session_id`, NULL) AS `$session_id_0`, if(ifNull(equals(step_0, 1), 0), e.`$window_id`, NULL) AS `$window_id_0`, if(equals(e.event, 'paid'), 1, 0) AS step_1, if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1, if(ifNull(equals(step_1, 1), 0), uuid, NULL) AS uuid_1, if(ifNull(equals(step_1, 1), 0), e.`$session_id`, NULL) AS `$session_id_1`, if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
+                                                                     FROM events AS e
+                                                                     INNER JOIN
+                                                                       (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS e__pdi___person_id, person_distinct_id2.distinct_id AS distinct_id
+                                                                        FROM person_distinct_id2
+                                                                        WHERE equals(person_distinct_id2.team_id, 2)
+                                                                        GROUP BY person_distinct_id2.distinct_id
+                                                                        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+                                                                     LEFT JOIN
+                                                                       (SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
+                                                                        FROM person
+                                                                        WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
+                                                                                                                         (SELECT person.id AS id, max(person.version) AS version
+                                                                                                                          FROM person
+                                                                                                                          WHERE equals(person.team_id, 2)
+                                                                                                                          GROUP BY person.id
+                                                                                                                          HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
+                                                                     WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__pdi__person.`properties___$browser`, 'Negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                                                               WHERE ifNull(equals(step_0, 1), 0)))
+                                                         GROUP BY aggregation_target, steps
+                                                         HAVING ifNull(equals(steps, max_steps), isNull(steps)
+                                                                       and isNull(max_steps)))
+                                                      WHERE ifNull(in(steps, [1, 2]), 0)
+                                                      ORDER BY aggregation_target ASC) AS funnel_actors
+                                                   WHERE ifNull(equals(funnel_actors.steps, 2), 0)
+                                                   GROUP BY funnel_actors.actor_id
+                                                   ORDER BY funnel_actors.actor_id ASC) AS source)))
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -857,7 +992,7 @@
                           FROM person_distinct_id2
                           WHERE equals(person_distinct_id2.team_id, 2)
                           GROUP BY person_distinct_id2.distinct_id
-                          HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+                          HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
                        LEFT JOIN
                          (SELECT person.id AS id,
                                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
@@ -867,7 +1002,7 @@
                                                                             FROM person
                                                                             WHERE equals(person.team_id, 2)
                                                                             GROUP BY person.id
-                                                                            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
+                                                                            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
                        WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__pdi__person.`properties___$browser`, 'Negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
@@ -882,9 +1017,54 @@
   INNER JOIN
     (SELECT person.id AS id
      FROM person
-     WHERE equals(person.team_id, 2)
+     WHERE and(equals(person.team_id, 2), in(id,
+                                               (SELECT source.actor_id AS actor_id
+                                                FROM
+                                                  (SELECT funnel_actors.actor_id AS actor_id, any(funnel_actors.matching_events) AS matching_events
+                                                   FROM
+                                                     (SELECT aggregation_target AS actor_id, final_matching_events AS matching_events, timestamp AS timestamp, steps AS steps, final_timestamp AS final_timestamp, first_timestamp AS first_timestamp
+                                                      FROM
+                                                        (SELECT groupArray(10)(step_0_matching_event) AS step_0_matching_events, groupArray(10)(step_1_matching_event) AS step_1_matching_events, groupArray(10)(final_matching_event) AS final_matching_events, aggregation_target AS aggregation_target, steps AS steps, argMax(latest_0, steps) AS timestamp, argMax(latest_1, steps) AS final_timestamp, argMax(latest_0, steps) AS first_timestamp, avg(step_1_conversion_time) AS step_1_average_conversion_time_inner, median(step_1_conversion_time) AS step_1_median_conversion_time_inner
+                                                         FROM
+                                                           (SELECT tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event, tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event, if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event, aggregation_target AS aggregation_target, steps AS steps, max(steps) OVER (PARTITION BY aggregation_target) AS max_steps, step_1_conversion_time AS step_1_conversion_time, latest_0 AS latest_0, latest_1 AS latest_1, latest_0 AS latest_0
+                                                            FROM
+                                                              (SELECT aggregation_target AS aggregation_target, timestamp AS timestamp, step_0 AS step_0, latest_0 AS latest_0, uuid_0 AS uuid_0, `$session_id_0` AS `$session_id_0`, `$window_id_0` AS `$window_id_0`, step_1 AS step_1, latest_1 AS latest_1, uuid_1 AS uuid_1, `$session_id_1` AS `$session_id_1`, `$window_id_1` AS `$window_id_1`, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps, if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time, tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event, tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event, if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
+                                                               FROM
+                                                                 (SELECT aggregation_target AS aggregation_target, timestamp AS timestamp, step_0 AS step_0, latest_0 AS latest_0, uuid_0 AS uuid_0, `$session_id_0` AS `$session_id_0`, `$window_id_0` AS `$window_id_0`, step_1 AS step_1, min(latest_1) OVER (PARTITION BY aggregation_target
+                                                                                                                                                                                                                                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS latest_1, last_value(uuid_1) OVER (PARTITION BY aggregation_target
+                                                                                                                                                                                                                                                                                                                                                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS uuid_1, last_value(`$session_id_1`) OVER (PARTITION BY aggregation_target
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS `$session_id_1`, last_value(`$window_id_1`) OVER (PARTITION BY aggregation_target
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS `$window_id_1`
+                                                                  FROM
+                                                                    (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp, e__pdi.person_id AS aggregation_target, e.uuid AS uuid, if(equals(e.event, 'user signed up'), 1, 0) AS step_0, if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0, if(ifNull(equals(step_0, 1), 0), uuid, NULL) AS uuid_0, if(ifNull(equals(step_0, 1), 0), e.`$session_id`, NULL) AS `$session_id_0`, if(ifNull(equals(step_0, 1), 0), e.`$window_id`, NULL) AS `$window_id_0`, if(equals(e.event, 'paid'), 1, 0) AS step_1, if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1, if(ifNull(equals(step_1, 1), 0), uuid, NULL) AS uuid_1, if(ifNull(equals(step_1, 1), 0), e.`$session_id`, NULL) AS `$session_id_1`, if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
+                                                                     FROM events AS e
+                                                                     INNER JOIN
+                                                                       (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS e__pdi___person_id, person_distinct_id2.distinct_id AS distinct_id
+                                                                        FROM person_distinct_id2
+                                                                        WHERE equals(person_distinct_id2.team_id, 2)
+                                                                        GROUP BY person_distinct_id2.distinct_id
+                                                                        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+                                                                     LEFT JOIN
+                                                                       (SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
+                                                                        FROM person
+                                                                        WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
+                                                                                                                         (SELECT person.id AS id, max(person.version) AS version
+                                                                                                                          FROM person
+                                                                                                                          WHERE equals(person.team_id, 2)
+                                                                                                                          GROUP BY person.id
+                                                                                                                          HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
+                                                                     WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__pdi__person.`properties___$browser`, 'Negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                                                               WHERE ifNull(equals(step_0, 1), 0)))
+                                                         GROUP BY aggregation_target, steps
+                                                         HAVING ifNull(equals(steps, max_steps), isNull(steps)
+                                                                       and isNull(max_steps)))
+                                                      WHERE ifNull(in(steps, [1, 2]), 0)
+                                                      ORDER BY aggregation_target ASC) AS funnel_actors
+                                                   WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
+                                                   GROUP BY funnel_actors.actor_id
+                                                   ORDER BY funnel_actors.actor_id ASC) AS source)))
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -974,7 +1154,7 @@
                           FROM person_distinct_id2
                           WHERE equals(person_distinct_id2.team_id, 2)
                           GROUP BY person_distinct_id2.distinct_id
-                          HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+                          HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
                        WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
@@ -995,7 +1175,7 @@
                                                              FROM person
                                                              WHERE equals(person.team_id, 2)
                                                              GROUP BY person.id
-                                                             HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons) AS persons ON equals(persons.id, funnel_actors.actor_id)) AS aggregation_target_with_props
+                                                             HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons) AS persons ON equals(persons.id, funnel_actors.actor_id)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
   HAVING ifNull(notIn((aggregation_target_with_props.prop).1, []), 0)
   LIMIT 100
@@ -1056,7 +1236,7 @@
                        FROM person_distinct_id2
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
-                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
                     WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
@@ -1169,7 +1349,7 @@
                           FROM person_distinct_id2
                           WHERE equals(person_distinct_id2.team_id, 2)
                           GROUP BY person_distinct_id2.distinct_id
-                          HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+                          HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
                        LEFT JOIN
                          (SELECT person.id AS id,
                                  nullIf(nullIf(person.`pmat_$browser`, ''), 'null') AS `properties___$browser`
@@ -1179,7 +1359,7 @@
                                                                             FROM person
                                                                             WHERE equals(person.team_id, 2)
                                                                             GROUP BY person.id
-                                                                            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
+                                                                            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
                        WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__pdi__person.`properties___$browser`, 'Positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
@@ -1194,9 +1374,54 @@
   INNER JOIN
     (SELECT person.id AS id
      FROM person
-     WHERE equals(person.team_id, 2)
+     WHERE and(equals(person.team_id, 2), in(id,
+                                               (SELECT source.actor_id AS actor_id
+                                                FROM
+                                                  (SELECT funnel_actors.actor_id AS actor_id, any(funnel_actors.matching_events) AS matching_events
+                                                   FROM
+                                                     (SELECT aggregation_target AS actor_id, final_matching_events AS matching_events, timestamp AS timestamp, steps AS steps, final_timestamp AS final_timestamp, first_timestamp AS first_timestamp
+                                                      FROM
+                                                        (SELECT groupArray(10)(step_0_matching_event) AS step_0_matching_events, groupArray(10)(step_1_matching_event) AS step_1_matching_events, groupArray(10)(final_matching_event) AS final_matching_events, aggregation_target AS aggregation_target, steps AS steps, argMax(latest_0, steps) AS timestamp, argMax(latest_1, steps) AS final_timestamp, argMax(latest_0, steps) AS first_timestamp, avg(step_1_conversion_time) AS step_1_average_conversion_time_inner, median(step_1_conversion_time) AS step_1_median_conversion_time_inner
+                                                         FROM
+                                                           (SELECT tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event, tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event, if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event, aggregation_target AS aggregation_target, steps AS steps, max(steps) OVER (PARTITION BY aggregation_target) AS max_steps, step_1_conversion_time AS step_1_conversion_time, latest_0 AS latest_0, latest_1 AS latest_1, latest_0 AS latest_0
+                                                            FROM
+                                                              (SELECT aggregation_target AS aggregation_target, timestamp AS timestamp, step_0 AS step_0, latest_0 AS latest_0, uuid_0 AS uuid_0, `$session_id_0` AS `$session_id_0`, `$window_id_0` AS `$window_id_0`, step_1 AS step_1, latest_1 AS latest_1, uuid_1 AS uuid_1, `$session_id_1` AS `$session_id_1`, `$window_id_1` AS `$window_id_1`, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps, if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time, tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event, tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event, if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
+                                                               FROM
+                                                                 (SELECT aggregation_target AS aggregation_target, timestamp AS timestamp, step_0 AS step_0, latest_0 AS latest_0, uuid_0 AS uuid_0, `$session_id_0` AS `$session_id_0`, `$window_id_0` AS `$window_id_0`, step_1 AS step_1, min(latest_1) OVER (PARTITION BY aggregation_target
+                                                                                                                                                                                                                                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS latest_1, last_value(uuid_1) OVER (PARTITION BY aggregation_target
+                                                                                                                                                                                                                                                                                                                                                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS uuid_1, last_value(`$session_id_1`) OVER (PARTITION BY aggregation_target
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS `$session_id_1`, last_value(`$window_id_1`) OVER (PARTITION BY aggregation_target
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS `$window_id_1`
+                                                                  FROM
+                                                                    (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp, e__pdi.person_id AS aggregation_target, e.uuid AS uuid, if(equals(e.event, 'user signed up'), 1, 0) AS step_0, if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0, if(ifNull(equals(step_0, 1), 0), uuid, NULL) AS uuid_0, if(ifNull(equals(step_0, 1), 0), e.`$session_id`, NULL) AS `$session_id_0`, if(ifNull(equals(step_0, 1), 0), e.`$window_id`, NULL) AS `$window_id_0`, if(equals(e.event, 'paid'), 1, 0) AS step_1, if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1, if(ifNull(equals(step_1, 1), 0), uuid, NULL) AS uuid_1, if(ifNull(equals(step_1, 1), 0), e.`$session_id`, NULL) AS `$session_id_1`, if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
+                                                                     FROM events AS e
+                                                                     INNER JOIN
+                                                                       (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS e__pdi___person_id, person_distinct_id2.distinct_id AS distinct_id
+                                                                        FROM person_distinct_id2
+                                                                        WHERE equals(person_distinct_id2.team_id, 2)
+                                                                        GROUP BY person_distinct_id2.distinct_id
+                                                                        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+                                                                     LEFT JOIN
+                                                                       (SELECT person.id AS id, nullIf(nullIf(person.`pmat_$browser`, ''), 'null') AS `properties___$browser`
+                                                                        FROM person
+                                                                        WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
+                                                                                                                         (SELECT person.id AS id, max(person.version) AS version
+                                                                                                                          FROM person
+                                                                                                                          WHERE equals(person.team_id, 2)
+                                                                                                                          GROUP BY person.id
+                                                                                                                          HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
+                                                                     WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__pdi__person.`properties___$browser`, 'Positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                                                               WHERE ifNull(equals(step_0, 1), 0)))
+                                                         GROUP BY aggregation_target, steps
+                                                         HAVING ifNull(equals(steps, max_steps), isNull(steps)
+                                                                       and isNull(max_steps)))
+                                                      WHERE ifNull(in(steps, [1, 2]), 0)
+                                                      ORDER BY aggregation_target ASC) AS funnel_actors
+                                                   WHERE ifNull(equals(funnel_actors.steps, 2), 0)
+                                                   GROUP BY funnel_actors.actor_id
+                                                   ORDER BY funnel_actors.actor_id ASC) AS source)))
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -1318,7 +1543,7 @@
                           FROM person_distinct_id2
                           WHERE equals(person_distinct_id2.team_id, 2)
                           GROUP BY person_distinct_id2.distinct_id
-                          HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+                          HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
                        LEFT JOIN
                          (SELECT person.id AS id,
                                  nullIf(nullIf(person.`pmat_$browser`, ''), 'null') AS `properties___$browser`
@@ -1328,7 +1553,7 @@
                                                                             FROM person
                                                                             WHERE equals(person.team_id, 2)
                                                                             GROUP BY person.id
-                                                                            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
+                                                                            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
                        WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__pdi__person.`properties___$browser`, 'Positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
@@ -1343,9 +1568,54 @@
   INNER JOIN
     (SELECT person.id AS id
      FROM person
-     WHERE equals(person.team_id, 2)
+     WHERE and(equals(person.team_id, 2), in(id,
+                                               (SELECT source.actor_id AS actor_id
+                                                FROM
+                                                  (SELECT funnel_actors.actor_id AS actor_id, any(funnel_actors.matching_events) AS matching_events
+                                                   FROM
+                                                     (SELECT aggregation_target AS actor_id, final_matching_events AS matching_events, timestamp AS timestamp, steps AS steps, final_timestamp AS final_timestamp, first_timestamp AS first_timestamp
+                                                      FROM
+                                                        (SELECT groupArray(10)(step_0_matching_event) AS step_0_matching_events, groupArray(10)(step_1_matching_event) AS step_1_matching_events, groupArray(10)(final_matching_event) AS final_matching_events, aggregation_target AS aggregation_target, steps AS steps, argMax(latest_0, steps) AS timestamp, argMax(latest_1, steps) AS final_timestamp, argMax(latest_0, steps) AS first_timestamp, avg(step_1_conversion_time) AS step_1_average_conversion_time_inner, median(step_1_conversion_time) AS step_1_median_conversion_time_inner
+                                                         FROM
+                                                           (SELECT tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event, tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event, if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event, aggregation_target AS aggregation_target, steps AS steps, max(steps) OVER (PARTITION BY aggregation_target) AS max_steps, step_1_conversion_time AS step_1_conversion_time, latest_0 AS latest_0, latest_1 AS latest_1, latest_0 AS latest_0
+                                                            FROM
+                                                              (SELECT aggregation_target AS aggregation_target, timestamp AS timestamp, step_0 AS step_0, latest_0 AS latest_0, uuid_0 AS uuid_0, `$session_id_0` AS `$session_id_0`, `$window_id_0` AS `$window_id_0`, step_1 AS step_1, latest_1 AS latest_1, uuid_1 AS uuid_1, `$session_id_1` AS `$session_id_1`, `$window_id_1` AS `$window_id_1`, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps, if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time, tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event, tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event, if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
+                                                               FROM
+                                                                 (SELECT aggregation_target AS aggregation_target, timestamp AS timestamp, step_0 AS step_0, latest_0 AS latest_0, uuid_0 AS uuid_0, `$session_id_0` AS `$session_id_0`, `$window_id_0` AS `$window_id_0`, step_1 AS step_1, min(latest_1) OVER (PARTITION BY aggregation_target
+                                                                                                                                                                                                                                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS latest_1, last_value(uuid_1) OVER (PARTITION BY aggregation_target
+                                                                                                                                                                                                                                                                                                                                                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS uuid_1, last_value(`$session_id_1`) OVER (PARTITION BY aggregation_target
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS `$session_id_1`, last_value(`$window_id_1`) OVER (PARTITION BY aggregation_target
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS `$window_id_1`
+                                                                  FROM
+                                                                    (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp, e__pdi.person_id AS aggregation_target, e.uuid AS uuid, if(equals(e.event, 'user signed up'), 1, 0) AS step_0, if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0, if(ifNull(equals(step_0, 1), 0), uuid, NULL) AS uuid_0, if(ifNull(equals(step_0, 1), 0), e.`$session_id`, NULL) AS `$session_id_0`, if(ifNull(equals(step_0, 1), 0), e.`$window_id`, NULL) AS `$window_id_0`, if(equals(e.event, 'paid'), 1, 0) AS step_1, if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1, if(ifNull(equals(step_1, 1), 0), uuid, NULL) AS uuid_1, if(ifNull(equals(step_1, 1), 0), e.`$session_id`, NULL) AS `$session_id_1`, if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
+                                                                     FROM events AS e
+                                                                     INNER JOIN
+                                                                       (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS e__pdi___person_id, person_distinct_id2.distinct_id AS distinct_id
+                                                                        FROM person_distinct_id2
+                                                                        WHERE equals(person_distinct_id2.team_id, 2)
+                                                                        GROUP BY person_distinct_id2.distinct_id
+                                                                        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+                                                                     LEFT JOIN
+                                                                       (SELECT person.id AS id, nullIf(nullIf(person.`pmat_$browser`, ''), 'null') AS `properties___$browser`
+                                                                        FROM person
+                                                                        WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
+                                                                                                                         (SELECT person.id AS id, max(person.version) AS version
+                                                                                                                          FROM person
+                                                                                                                          WHERE equals(person.team_id, 2)
+                                                                                                                          GROUP BY person.id
+                                                                                                                          HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
+                                                                     WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__pdi__person.`properties___$browser`, 'Positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                                                               WHERE ifNull(equals(step_0, 1), 0)))
+                                                         GROUP BY aggregation_target, steps
+                                                         HAVING ifNull(equals(steps, max_steps), isNull(steps)
+                                                                       and isNull(max_steps)))
+                                                      WHERE ifNull(in(steps, [1, 2]), 0)
+                                                      ORDER BY aggregation_target ASC) AS funnel_actors
+                                                   WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
+                                                   GROUP BY funnel_actors.actor_id
+                                                   ORDER BY funnel_actors.actor_id ASC) AS source)))
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -1467,7 +1737,7 @@
                           FROM person_distinct_id2
                           WHERE equals(person_distinct_id2.team_id, 2)
                           GROUP BY person_distinct_id2.distinct_id
-                          HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+                          HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
                        LEFT JOIN
                          (SELECT person.id AS id,
                                  nullIf(nullIf(person.`pmat_$browser`, ''), 'null') AS `properties___$browser`
@@ -1477,7 +1747,7 @@
                                                                             FROM person
                                                                             WHERE equals(person.team_id, 2)
                                                                             GROUP BY person.id
-                                                                            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
+                                                                            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
                        WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__pdi__person.`properties___$browser`, 'Negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
@@ -1492,9 +1762,54 @@
   INNER JOIN
     (SELECT person.id AS id
      FROM person
-     WHERE equals(person.team_id, 2)
+     WHERE and(equals(person.team_id, 2), in(id,
+                                               (SELECT source.actor_id AS actor_id
+                                                FROM
+                                                  (SELECT funnel_actors.actor_id AS actor_id, any(funnel_actors.matching_events) AS matching_events
+                                                   FROM
+                                                     (SELECT aggregation_target AS actor_id, final_matching_events AS matching_events, timestamp AS timestamp, steps AS steps, final_timestamp AS final_timestamp, first_timestamp AS first_timestamp
+                                                      FROM
+                                                        (SELECT groupArray(10)(step_0_matching_event) AS step_0_matching_events, groupArray(10)(step_1_matching_event) AS step_1_matching_events, groupArray(10)(final_matching_event) AS final_matching_events, aggregation_target AS aggregation_target, steps AS steps, argMax(latest_0, steps) AS timestamp, argMax(latest_1, steps) AS final_timestamp, argMax(latest_0, steps) AS first_timestamp, avg(step_1_conversion_time) AS step_1_average_conversion_time_inner, median(step_1_conversion_time) AS step_1_median_conversion_time_inner
+                                                         FROM
+                                                           (SELECT tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event, tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event, if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event, aggregation_target AS aggregation_target, steps AS steps, max(steps) OVER (PARTITION BY aggregation_target) AS max_steps, step_1_conversion_time AS step_1_conversion_time, latest_0 AS latest_0, latest_1 AS latest_1, latest_0 AS latest_0
+                                                            FROM
+                                                              (SELECT aggregation_target AS aggregation_target, timestamp AS timestamp, step_0 AS step_0, latest_0 AS latest_0, uuid_0 AS uuid_0, `$session_id_0` AS `$session_id_0`, `$window_id_0` AS `$window_id_0`, step_1 AS step_1, latest_1 AS latest_1, uuid_1 AS uuid_1, `$session_id_1` AS `$session_id_1`, `$window_id_1` AS `$window_id_1`, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps, if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time, tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event, tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event, if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
+                                                               FROM
+                                                                 (SELECT aggregation_target AS aggregation_target, timestamp AS timestamp, step_0 AS step_0, latest_0 AS latest_0, uuid_0 AS uuid_0, `$session_id_0` AS `$session_id_0`, `$window_id_0` AS `$window_id_0`, step_1 AS step_1, min(latest_1) OVER (PARTITION BY aggregation_target
+                                                                                                                                                                                                                                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS latest_1, last_value(uuid_1) OVER (PARTITION BY aggregation_target
+                                                                                                                                                                                                                                                                                                                                                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS uuid_1, last_value(`$session_id_1`) OVER (PARTITION BY aggregation_target
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS `$session_id_1`, last_value(`$window_id_1`) OVER (PARTITION BY aggregation_target
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS `$window_id_1`
+                                                                  FROM
+                                                                    (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp, e__pdi.person_id AS aggregation_target, e.uuid AS uuid, if(equals(e.event, 'user signed up'), 1, 0) AS step_0, if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0, if(ifNull(equals(step_0, 1), 0), uuid, NULL) AS uuid_0, if(ifNull(equals(step_0, 1), 0), e.`$session_id`, NULL) AS `$session_id_0`, if(ifNull(equals(step_0, 1), 0), e.`$window_id`, NULL) AS `$window_id_0`, if(equals(e.event, 'paid'), 1, 0) AS step_1, if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1, if(ifNull(equals(step_1, 1), 0), uuid, NULL) AS uuid_1, if(ifNull(equals(step_1, 1), 0), e.`$session_id`, NULL) AS `$session_id_1`, if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
+                                                                     FROM events AS e
+                                                                     INNER JOIN
+                                                                       (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS e__pdi___person_id, person_distinct_id2.distinct_id AS distinct_id
+                                                                        FROM person_distinct_id2
+                                                                        WHERE equals(person_distinct_id2.team_id, 2)
+                                                                        GROUP BY person_distinct_id2.distinct_id
+                                                                        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+                                                                     LEFT JOIN
+                                                                       (SELECT person.id AS id, nullIf(nullIf(person.`pmat_$browser`, ''), 'null') AS `properties___$browser`
+                                                                        FROM person
+                                                                        WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
+                                                                                                                         (SELECT person.id AS id, max(person.version) AS version
+                                                                                                                          FROM person
+                                                                                                                          WHERE equals(person.team_id, 2)
+                                                                                                                          GROUP BY person.id
+                                                                                                                          HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
+                                                                     WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__pdi__person.`properties___$browser`, 'Negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                                                               WHERE ifNull(equals(step_0, 1), 0)))
+                                                         GROUP BY aggregation_target, steps
+                                                         HAVING ifNull(equals(steps, max_steps), isNull(steps)
+                                                                       and isNull(max_steps)))
+                                                      WHERE ifNull(in(steps, [1, 2]), 0)
+                                                      ORDER BY aggregation_target ASC) AS funnel_actors
+                                                   WHERE ifNull(equals(funnel_actors.steps, 2), 0)
+                                                   GROUP BY funnel_actors.actor_id
+                                                   ORDER BY funnel_actors.actor_id ASC) AS source)))
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -1616,7 +1931,7 @@
                           FROM person_distinct_id2
                           WHERE equals(person_distinct_id2.team_id, 2)
                           GROUP BY person_distinct_id2.distinct_id
-                          HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+                          HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
                        LEFT JOIN
                          (SELECT person.id AS id,
                                  nullIf(nullIf(person.`pmat_$browser`, ''), 'null') AS `properties___$browser`
@@ -1626,7 +1941,7 @@
                                                                             FROM person
                                                                             WHERE equals(person.team_id, 2)
                                                                             GROUP BY person.id
-                                                                            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
+                                                                            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
                        WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__pdi__person.`properties___$browser`, 'Negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
@@ -1641,9 +1956,54 @@
   INNER JOIN
     (SELECT person.id AS id
      FROM person
-     WHERE equals(person.team_id, 2)
+     WHERE and(equals(person.team_id, 2), in(id,
+                                               (SELECT source.actor_id AS actor_id
+                                                FROM
+                                                  (SELECT funnel_actors.actor_id AS actor_id, any(funnel_actors.matching_events) AS matching_events
+                                                   FROM
+                                                     (SELECT aggregation_target AS actor_id, final_matching_events AS matching_events, timestamp AS timestamp, steps AS steps, final_timestamp AS final_timestamp, first_timestamp AS first_timestamp
+                                                      FROM
+                                                        (SELECT groupArray(10)(step_0_matching_event) AS step_0_matching_events, groupArray(10)(step_1_matching_event) AS step_1_matching_events, groupArray(10)(final_matching_event) AS final_matching_events, aggregation_target AS aggregation_target, steps AS steps, argMax(latest_0, steps) AS timestamp, argMax(latest_1, steps) AS final_timestamp, argMax(latest_0, steps) AS first_timestamp, avg(step_1_conversion_time) AS step_1_average_conversion_time_inner, median(step_1_conversion_time) AS step_1_median_conversion_time_inner
+                                                         FROM
+                                                           (SELECT tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event, tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event, if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event, aggregation_target AS aggregation_target, steps AS steps, max(steps) OVER (PARTITION BY aggregation_target) AS max_steps, step_1_conversion_time AS step_1_conversion_time, latest_0 AS latest_0, latest_1 AS latest_1, latest_0 AS latest_0
+                                                            FROM
+                                                              (SELECT aggregation_target AS aggregation_target, timestamp AS timestamp, step_0 AS step_0, latest_0 AS latest_0, uuid_0 AS uuid_0, `$session_id_0` AS `$session_id_0`, `$window_id_0` AS `$window_id_0`, step_1 AS step_1, latest_1 AS latest_1, uuid_1 AS uuid_1, `$session_id_1` AS `$session_id_1`, `$window_id_1` AS `$window_id_1`, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps, if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time, tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event, tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event, if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
+                                                               FROM
+                                                                 (SELECT aggregation_target AS aggregation_target, timestamp AS timestamp, step_0 AS step_0, latest_0 AS latest_0, uuid_0 AS uuid_0, `$session_id_0` AS `$session_id_0`, `$window_id_0` AS `$window_id_0`, step_1 AS step_1, min(latest_1) OVER (PARTITION BY aggregation_target
+                                                                                                                                                                                                                                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS latest_1, last_value(uuid_1) OVER (PARTITION BY aggregation_target
+                                                                                                                                                                                                                                                                                                                                                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS uuid_1, last_value(`$session_id_1`) OVER (PARTITION BY aggregation_target
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS `$session_id_1`, last_value(`$window_id_1`) OVER (PARTITION BY aggregation_target
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS `$window_id_1`
+                                                                  FROM
+                                                                    (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp, e__pdi.person_id AS aggregation_target, e.uuid AS uuid, if(equals(e.event, 'user signed up'), 1, 0) AS step_0, if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0, if(ifNull(equals(step_0, 1), 0), uuid, NULL) AS uuid_0, if(ifNull(equals(step_0, 1), 0), e.`$session_id`, NULL) AS `$session_id_0`, if(ifNull(equals(step_0, 1), 0), e.`$window_id`, NULL) AS `$window_id_0`, if(equals(e.event, 'paid'), 1, 0) AS step_1, if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1, if(ifNull(equals(step_1, 1), 0), uuid, NULL) AS uuid_1, if(ifNull(equals(step_1, 1), 0), e.`$session_id`, NULL) AS `$session_id_1`, if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
+                                                                     FROM events AS e
+                                                                     INNER JOIN
+                                                                       (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS e__pdi___person_id, person_distinct_id2.distinct_id AS distinct_id
+                                                                        FROM person_distinct_id2
+                                                                        WHERE equals(person_distinct_id2.team_id, 2)
+                                                                        GROUP BY person_distinct_id2.distinct_id
+                                                                        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+                                                                     LEFT JOIN
+                                                                       (SELECT person.id AS id, nullIf(nullIf(person.`pmat_$browser`, ''), 'null') AS `properties___$browser`
+                                                                        FROM person
+                                                                        WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
+                                                                                                                         (SELECT person.id AS id, max(person.version) AS version
+                                                                                                                          FROM person
+                                                                                                                          WHERE equals(person.team_id, 2)
+                                                                                                                          GROUP BY person.id
+                                                                                                                          HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
+                                                                     WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__pdi__person.`properties___$browser`, 'Negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                                                               WHERE ifNull(equals(step_0, 1), 0)))
+                                                         GROUP BY aggregation_target, steps
+                                                         HAVING ifNull(equals(steps, max_steps), isNull(steps)
+                                                                       and isNull(max_steps)))
+                                                      WHERE ifNull(in(steps, [1, 2]), 0)
+                                                      ORDER BY aggregation_target ASC) AS funnel_actors
+                                                   WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
+                                                   GROUP BY funnel_actors.actor_id
+                                                   ORDER BY funnel_actors.actor_id ASC) AS source)))
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -2600,7 +2960,7 @@
                            if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
                     FROM events AS e
                     LEFT JOIN
-                      (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                      (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                               groups.group_type_index AS index,
                               groups.group_key AS key
                        FROM groups
@@ -2670,7 +3030,7 @@
                            if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
                     FROM events AS e
                     LEFT JOIN
-                      (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                      (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                               groups.group_type_index AS index,
                               groups.group_key AS key
                        FROM groups
@@ -3578,7 +3938,7 @@
                            if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
                     FROM events AS e
                     LEFT JOIN
-                      (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                      (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                               groups.group_type_index AS index,
                               groups.group_key AS key
                        FROM groups
@@ -3648,7 +4008,7 @@
                            if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
                     FROM events AS e
                     LEFT JOIN
-                      (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                      (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                               groups.group_type_index AS index,
                               groups.group_key AS key
                        FROM groups
@@ -3973,7 +4333,7 @@
        (SELECT groups.key AS key,
                groups.properties AS properties
         FROM
-          (SELECT argMax(groups.group_properties, groups._timestamp) AS properties,
+          (SELECT argMax(groups.group_properties, toTimeZone(groups._timestamp, 'UTC')) AS properties,
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
@@ -4139,7 +4499,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -4262,7 +4622,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -4385,7 +4745,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -4508,7 +4868,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -4613,7 +4973,7 @@
        (SELECT groups.key AS key,
                groups.properties AS properties
         FROM
-          (SELECT argMax(groups.group_properties, groups._timestamp) AS properties,
+          (SELECT argMax(groups.group_properties, toTimeZone(groups._timestamp, 'UTC')) AS properties,
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
@@ -4761,7 +5121,7 @@
        (SELECT groups.key AS key,
                groups.properties AS properties
         FROM
-          (SELECT argMax(groups.group_properties, groups._timestamp) AS properties,
+          (SELECT argMax(groups.group_properties, toTimeZone(groups._timestamp, 'UTC')) AS properties,
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
@@ -4927,7 +5287,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -5050,7 +5410,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -5173,7 +5533,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -5296,7 +5656,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -5401,7 +5761,7 @@
        (SELECT groups.key AS key,
                groups.properties AS properties
         FROM
-          (SELECT argMax(groups.group_properties, groups._timestamp) AS properties,
+          (SELECT argMax(groups.group_properties, toTimeZone(groups._timestamp, 'UTC')) AS properties,
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
@@ -5549,7 +5909,7 @@
        (SELECT groups.key AS key,
                groups.properties AS properties
         FROM
-          (SELECT argMax(groups.group_properties, groups._timestamp) AS properties,
+          (SELECT argMax(groups.group_properties, toTimeZone(groups._timestamp, 'UTC')) AS properties,
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
@@ -5715,7 +6075,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -5838,7 +6198,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -5961,7 +6321,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -6084,7 +6444,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -6189,7 +6549,7 @@
        (SELECT groups.key AS key,
                groups.properties AS properties
         FROM
-          (SELECT argMax(groups.group_properties, groups._timestamp) AS properties,
+          (SELECT argMax(groups.group_properties, toTimeZone(groups._timestamp, 'UTC')) AS properties,
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
@@ -6337,7 +6697,7 @@
        (SELECT groups.key AS key,
                groups.properties AS properties
         FROM
-          (SELECT argMax(groups.group_properties, groups._timestamp) AS properties,
+          (SELECT argMax(groups.group_properties, toTimeZone(groups._timestamp, 'UTC')) AS properties,
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
@@ -6503,7 +6863,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -6626,7 +6986,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -6749,7 +7109,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -6872,7 +7232,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -6977,7 +7337,7 @@
        (SELECT groups.key AS key,
                groups.properties AS properties
         FROM
-          (SELECT argMax(groups.group_properties, groups._timestamp) AS properties,
+          (SELECT argMax(groups.group_properties, toTimeZone(groups._timestamp, 'UTC')) AS properties,
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
@@ -7125,7 +7485,7 @@
        (SELECT groups.key AS key,
                groups.properties AS properties
         FROM
-          (SELECT argMax(groups.group_properties, groups._timestamp) AS properties,
+          (SELECT argMax(groups.group_properties, toTimeZone(groups._timestamp, 'UTC')) AS properties,
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
@@ -7291,7 +7651,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -7414,7 +7774,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -7537,7 +7897,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -7660,7 +8020,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -7765,7 +8125,7 @@
        (SELECT groups.key AS key,
                groups.properties AS properties
         FROM
-          (SELECT argMax(groups.group_properties, groups._timestamp) AS properties,
+          (SELECT argMax(groups.group_properties, toTimeZone(groups._timestamp, 'UTC')) AS properties,
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups

@@ -507,7 +507,6 @@ export interface TeamType extends TeamBasicType {
      */
     correlation_config: CorrelationConfigType | null
     person_on_events_querying_enabled: boolean
-    groups_on_events_querying_enabled: boolean
     extra_settings?: Record<string, string | number | boolean | undefined>
     modifiers?: HogQLQueryModifiers
     default_modifiers?: HogQLQueryModifiers
@@ -1578,6 +1577,7 @@ export interface BillingProductV2AddonType {
 export interface BillingV2Type {
     customer_id: string
     has_active_subscription: boolean
+    subscription_level: 'free' | 'paid' | 'custom'
     free_trial_until?: Dayjs
     stripe_portal_url?: string
     deactivated?: boolean
@@ -2653,12 +2653,13 @@ export interface SurveyAppearance {
     thankYouMessageDescriptionContentType?: SurveyQuestionDescriptionContentType
     autoDisappear?: boolean
     position?: string
+    shuffleQuestions?: boolean
+    surveyPopupDelaySeconds?: number
     // widget only
     widgetType?: 'button' | 'tab' | 'selector'
     widgetSelector?: string
     widgetLabel?: string
     widgetColor?: string
-    shuffleQuestions?: boolean
 }
 
 export interface SurveyQuestionBase {
@@ -2720,7 +2721,7 @@ export enum SurveyQuestionType {
 
 export enum SurveyQuestionBranchingType {
     NextQuestion = 'next_question',
-    ConfirmationMessage = 'confirmation_message',
+    End = 'end',
     ResponseBased = 'response_based',
     SpecificQuestion = 'specific_question',
 }
@@ -2730,7 +2731,7 @@ interface NextQuestionBranching {
 }
 
 interface ConfirmationMessageBranching {
-    type: SurveyQuestionBranchingType.ConfirmationMessage
+    type: SurveyQuestionBranchingType.End
 }
 
 interface ResponseBasedBranching {
@@ -3840,20 +3841,32 @@ export interface SimpleExternalDataSourceSchema {
     last_synced_at?: Dayjs
 }
 
+export type SchemaIncrementalFieldsResponse = IncrementalField[]
+
+export interface IncrementalField {
+    label: string
+    type: string
+    field: string
+    field_type: string
+}
+
 export interface ExternalDataSourceSyncSchema {
     table: string
     should_sync: boolean
-    sync_type: 'full_refresh' | 'incremental'
-    sync_types: {
-        full_refresh: boolean
-        incremental: boolean
-    }
+    incremental_field: string | null
+    incremental_field_type: string | null
+    sync_type: 'full_refresh' | 'incremental' | null
+    incremental_fields: IncrementalField[]
+    incremental_available: boolean
 }
 
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
     table?: SimpleDataWarehouseTable
-    incremental?: boolean
+    incremental: boolean
+    sync_type: 'incremental' | 'full_refresh' | null
     status?: string
+    incremental_field: string | null
+    incremental_field_type: string | null
 }
 
 export interface SimpleDataWarehouseTable {
@@ -4183,7 +4196,7 @@ export type OnboardingProduct = {
 }
 
 export type HogFunctionInputSchemaType = {
-    type: 'string' | 'boolean' | 'dictionary' | 'choice' | 'json'
+    type: 'string' | 'boolean' | 'dictionary' | 'choice' | 'json' | 'integration' | 'integration_field'
     key: string
     label: string
     choices?: { value: string; label: string }[]
@@ -4191,6 +4204,9 @@ export type HogFunctionInputSchemaType = {
     default?: any
     secret?: boolean
     description?: string
+    integration?: string
+    integration_key?: string
+    integration_field?: 'slack_channel'
 }
 
 export type HogFunctionType = {

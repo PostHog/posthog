@@ -680,9 +680,9 @@ export const surveyLogic = kea<surveyLogicType>([
 
                     if (type === SurveyQuestionBranchingType.NextQuestion) {
                         delete question.branching
-                    } else if (type === SurveyQuestionBranchingType.ConfirmationMessage) {
+                    } else if (type === SurveyQuestionBranchingType.End) {
                         question.branching = {
-                            type: SurveyQuestionBranchingType.ConfirmationMessage,
+                            type: SurveyQuestionBranchingType.End,
                         }
                     } else if (type === SurveyQuestionBranchingType.ResponseBased) {
                         if (
@@ -736,9 +736,8 @@ export const surveyLogic = kea<surveyLogicType>([
                     if ('responseValues' in question.branching) {
                         if (nextStep === SurveyQuestionBranchingType.NextQuestion) {
                             delete question.branching.responseValues[responseValue]
-                        } else if (nextStep === SurveyQuestionBranchingType.ConfirmationMessage) {
-                            question.branching.responseValues[responseValue] =
-                                SurveyQuestionBranchingType.ConfirmationMessage
+                        } else if (nextStep === SurveyQuestionBranchingType.End) {
+                            question.branching.responseValues[responseValue] = SurveyQuestionBranchingType.End
                         } else if (nextStep === SurveyQuestionBranchingType.SpecificQuestion) {
                             question.branching.responseValues[responseValue] = specificQuestionIndex
                         }
@@ -1022,7 +1021,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     return SurveyQuestionBranchingType.NextQuestion
                 }
 
-                return SurveyQuestionBranchingType.ConfirmationMessage
+                return SurveyQuestionBranchingType.End
             },
         ],
         getResponseBasedBranchingDropdownValue: [
@@ -1048,7 +1047,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     return SurveyQuestionBranchingType.NextQuestion
                 }
 
-                return SurveyQuestionBranchingType.ConfirmationMessage
+                return SurveyQuestionBranchingType.End
             },
         ],
         hasCycle: [
@@ -1060,7 +1059,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         graph.set(fromIndex, new Set())
                     }
 
-                    if (question.branching?.type === SurveyQuestionBranchingType.ConfirmationMessage) {
+                    if (question.branching?.type === SurveyQuestionBranchingType.End) {
                         return
                     } else if (
                         question.branching?.type === SurveyQuestionBranchingType.SpecificQuestion &&
@@ -1153,7 +1152,7 @@ export const surveyLogic = kea<surveyLogicType>([
         },
     })),
     urlToAction(({ actions, props }) => ({
-        [urls.survey(props.id ?? 'new')]: (_, __, ___, { method }) => {
+        [urls.survey(props.id ?? 'new')]: (_, { edit }, __, { method }) => {
             // We always set the editingSurvey to true when we create a new survey
             if (props.id === 'new') {
                 actions.editingSurvey(true)
@@ -1167,6 +1166,10 @@ export const surveyLogic = kea<surveyLogicType>([
                     actions.resetSurvey()
                 }
             }
+
+            if (edit) {
+                actions.editingSurvey(true)
+            }
         },
     })),
     actionToUrl(({ values }) => ({
@@ -1175,6 +1178,16 @@ export const surveyLogic = kea<surveyLogicType>([
             hashParams['fromTemplate'] = true
 
             return [urls.survey(values.survey.id), router.values.searchParams, hashParams]
+        },
+        editingSurvey: ({ editing }) => {
+            const searchParams = router.values.searchParams
+            if (editing) {
+                searchParams['edit'] = true
+            } else {
+                delete searchParams['edit']
+            }
+
+            return [router.values.location.pathname, router.values.searchParams, router.values.hashParams]
         },
     })),
     afterMount(({ props, actions }) => {

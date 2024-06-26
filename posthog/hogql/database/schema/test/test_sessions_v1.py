@@ -1,11 +1,16 @@
+import pytest
 from parameterized import parameterized
 
 from posthog.hogql import ast
-from posthog.hogql.database.schema.sessions import get_lazy_session_table_properties
+from posthog.hogql.database.schema.sessions_v1 import (
+    get_lazy_session_table_properties_v1,
+    get_lazy_session_table_values_v1,
+)
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 from posthog.models.property_definition import PropertyType
-from posthog.schema import HogQLQueryModifiers, BounceRatePageViewMode
+from posthog.models.utils import uuid7
+from posthog.schema import HogQLQueryModifiers, BounceRatePageViewMode, SessionTableVersion
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -14,7 +19,15 @@ from posthog.test.base import (
 )
 
 
-class TestReferringDomainType(ClickhouseTestMixin, APIBaseTest):
+class TestSessionsV1(ClickhouseTestMixin, APIBaseTest):
+    def __execute(self, query):
+        modifiers = HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V1)
+        return execute_hogql_query(
+            query=query,
+            team=self.team,
+            modifiers=modifiers,
+        )
+
     def test_select_star(self):
         session_id = "session_test_select_star"
 
@@ -25,17 +38,54 @@ class TestReferringDomainType(ClickhouseTestMixin, APIBaseTest):
             properties={"$current_url": "https://example.com", "$session_id": session_id},
         )
 
-        response = execute_hogql_query(
+        response = self.__execute(
             parse_select(
                 "select * from sessions where session_id = {session_id}",
                 placeholders={"session_id": ast.Constant(value=session_id)},
             ),
-            self.team,
         )
 
         self.assertEqual(
             len(response.results or []),
             1,
+        )
+
+    @pytest.mark.skip(reason="doesn't work, let's fix in V2")
+    def test_select_event_sessions_star(self):
+        session_id = str(uuid7())
+
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="d1",
+            properties={"$current_url": "https://example.com", "$session_id": session_id},
+        )
+
+        response = self.__execute(
+            parse_select(
+                "select session.* from events where session_id = {session_id}",
+                placeholders={"session_id": ast.Constant(value=session_id)},
+            ),
+        )
+
+        self.assertEqual(
+            len(response.results or []),
+            1,
+        )
+
+    def test_select_session_replay_session_duration(self):
+        session_id = str(uuid7())
+
+        response = self.__execute(
+            parse_select(
+                "select raw_session_replay_events.session.duration from raw_session_replay_events",
+                placeholders={"session_id": ast.Constant(value=session_id)},
+            ),
+        )
+
+        self.assertEqual(
+            len(response.results or []),
+            0,  # just making sure the query runs
         )
 
     def test_channel_type(self):
@@ -48,12 +98,11 @@ class TestReferringDomainType(ClickhouseTestMixin, APIBaseTest):
             properties={"gad_source": "1", "$session_id": session_id},
         )
 
-        response = execute_hogql_query(
+        response = self.__execute(
             parse_select(
                 "select $channel_type from sessions where session_id = {session_id}",
                 placeholders={"session_id": ast.Constant(value=session_id)},
             ),
-            self.team,
         )
 
         result = (response.results or [])[0]
@@ -72,12 +121,11 @@ class TestReferringDomainType(ClickhouseTestMixin, APIBaseTest):
             properties={"gad_source": "1", "$session_id": session_id},
         )
 
-        response = execute_hogql_query(
+        response = self.__execute(
             parse_select(
                 "select events.session.$channel_type from events where $session_id = {session_id}",
                 placeholders={"session_id": ast.Constant(value=session_id)},
             ),
-            self.team,
         )
 
         result = (response.results or [])[0]
@@ -96,12 +144,11 @@ class TestReferringDomainType(ClickhouseTestMixin, APIBaseTest):
             properties={"gad_source": "1", "$session_id": session_id},
         )
 
-        response = execute_hogql_query(
+        response = self.__execute(
             parse_select(
                 "select session.$channel_type from events where $session_id = {session_id}",
                 placeholders={"session_id": ast.Constant(value=session_id)},
             ),
-            self.team,
         )
 
         result = (response.results or [])[0]
@@ -130,12 +177,11 @@ class TestReferringDomainType(ClickhouseTestMixin, APIBaseTest):
             properties={"$session_id": s2, "utm_source": "source2"},
         )
 
-        response = execute_hogql_query(
+        response = self.__execute(
             parse_select(
                 "select events.person_id, session.$entry_utm_source from events where $session_id = {session_id} or $session_id = {session_id2} order by 2 asc",
                 placeholders={"session_id": ast.Constant(value=s1), "session_id2": ast.Constant(value=s2)},
             ),
-            self.team,
         )
 
         [row1, row2] = response.results or []
@@ -224,7 +270,9 @@ class TestReferringDomainType(ClickhouseTestMixin, APIBaseTest):
                 "select $is_bounce, session_id from sessions ORDER BY session_id",
             ),
             self.team,
-            modifiers=HogQLQueryModifiers(bounceRatePageViewMode=bounceRatePageViewMode),
+            modifiers=HogQLQueryModifiers(
+                bounceRatePageViewMode=bounceRatePageViewMode, sessionTableVersion=SessionTableVersion.V1
+            ),
         )
         self.assertEqual(
             [
@@ -241,7 +289,7 @@ class TestReferringDomainType(ClickhouseTestMixin, APIBaseTest):
 
 class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
     def test_all(self):
-        results = get_lazy_session_table_properties(None)
+        results = get_lazy_session_table_properties_v1(None)
         self.assertEqual(len(results), 19)
         self.assertEqual(
             results[0],
@@ -256,7 +304,7 @@ class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_source(self):
-        results = get_lazy_session_table_properties("source")
+        results = get_lazy_session_table_properties_v1("source")
         self.assertEqual(
             results,
             [
@@ -280,8 +328,13 @@ class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_entry_utm(self):
-        results = get_lazy_session_table_properties("entry utm")
+        results = get_lazy_session_table_properties_v1("entry utm")
         self.assertEqual(
             [result["name"] for result in results],
             ["$entry_utm_source", "$entry_utm_campaign", "$entry_utm_medium", "$entry_utm_term", "$entry_utm_content"],
         )
+
+    def test_can_get_values_for_all(self):
+        results = get_lazy_session_table_properties_v1(None)
+        for prop in results:
+            get_lazy_session_table_values_v1(key=prop["id"], team=self.team, search_term=None)

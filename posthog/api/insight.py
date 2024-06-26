@@ -582,6 +582,9 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
                     and execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
                 ):
                     execution_mode = ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE
+                elif self.context.get("is_shared", False) and execution_mode == ExecutionMode.CALCULATE_BLOCKING_ALWAYS:
+                    # On shared insights, we don't give the ability to refresh at will
+                    execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
 
                 return calculate_for_query_based_insight(
                     insight,
@@ -675,9 +678,6 @@ class InsightViewSet(
             queryset = queryset.prefetch_related("tagged_items__tag")
             queryset = self._filter_request(self.request, queryset)
 
-            if self.request.query_params.get("include_query_insights", "false").lower() != "true":
-                queryset = queryset.exclude(Q(filters={}) & Q(query__isnull=False))
-
         order = self.request.GET.get("order", None)
         if order:
             queryset = queryset.order_by(order)
@@ -697,8 +697,6 @@ class InsightViewSet(
             .exclude(insight__deleted=True)
             .only("insight")
         )
-        if self.request.query_params.get("include_query_insights", "false").lower() != "true":
-            insight_queryset = insight_queryset.exclude(Q(insight__filters={}) & Q(insight__query__isnull=False))
 
         recently_viewed = [rv.insight for rv in (insight_queryset.order_by("-last_viewed_at")[:5])]
 

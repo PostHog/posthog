@@ -1,10 +1,17 @@
-import uuid
-
 from freezegun import freeze_time
 from parameterized import parameterized
 
 from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
-from posthog.schema import DateRange, WebStatsTableQuery, WebStatsBreakdown, EventPropertyFilter, PropertyOperator
+from posthog.models.utils import uuid7
+from posthog.schema import (
+    DateRange,
+    WebStatsTableQuery,
+    WebStatsBreakdown,
+    EventPropertyFilter,
+    PropertyOperator,
+    SessionTableVersion,
+    HogQLQueryModifiers,
+)
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -49,7 +56,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     **({"email": "test@posthog.com"} if distinct_id == "test" else {}),
                 },
             )
-            session_id = str(uuid.uuid4())
+            session_id = str(uuid7(person_time))
             prev_path_time_scroll = None
             for path_time_scroll in list_path_time_scroll:
                 pathname, time, scroll = path_time_scroll
@@ -97,7 +104,9 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         include_bounce_rate=False,
         include_scroll_depth=False,
         properties=None,
+        session_table_version: SessionTableVersion = SessionTableVersion.V1,
     ):
+        modifiers = HogQLQueryModifiers(sessionTableVersion=session_table_version)
         query = WebStatsTableQuery(
             dateRange=DateRange(date_from=date_from, date_to=date_to),
             properties=properties or [],
@@ -108,25 +117,31 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             includeScrollDepth=include_scroll_depth,
         )
         self.team.path_cleaning_filters = path_cleaning_filters or []
-        runner = WebStatsTableQueryRunner(team=self.team, query=query)
+        runner = WebStatsTableQueryRunner(team=self.team, query=query, modifiers=modifiers)
         return runner.calculate()
 
-    def test_no_crash_when_no_data(self):
+    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
+    def test_no_crash_when_no_data(self, session_table_version: SessionTableVersion):
         results = self._run_web_stats_table_query(
-            "2023-12-08",
-            "2023-12-15",
+            "2023-12-08", "2023-12-15", session_table_version=session_table_version
         ).results
         self.assertEqual([], results)
 
-    def test_increase_in_users(self):
+    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
+    def test_increase_in_users(self, session_table_version: SessionTableVersion):
+        s1a = str(uuid7("2023-12-02"))
+        s1b = str(uuid7("2023-12-13"))
+        s2 = str(uuid7("2023-12-10"))
         self._create_events(
             [
-                ("p1", [("2023-12-02", "s1a", "/"), ("2023-12-03", "s1a", "/login"), ("2023-12-13", "s1b", "/docs")]),
-                ("p2", [("2023-12-10", "s2", "/")]),
+                ("p1", [("2023-12-02", s1a, "/"), ("2023-12-03", s1a, "/login"), ("2023-12-13", s1b, "/docs")]),
+                ("p2", [("2023-12-10", s2, "/")]),
             ]
         )
 
-        results = self._run_web_stats_table_query("2023-12-01", "2023-12-11").results
+        results = self._run_web_stats_table_query(
+            "2023-12-01", "2023-12-11", session_table_version=session_table_version
+        ).results
 
         self.assertEqual(
             [
@@ -136,15 +151,21 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             results,
         )
 
-    def test_all_time(self):
+    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
+    def test_all_time(self, session_table_version: SessionTableVersion):
+        s1a = str(uuid7("2023-12-02"))
+        s1b = str(uuid7("2023-12-13"))
+        s2 = str(uuid7("2023-12-10"))
         self._create_events(
             [
-                ("p1", [("2023-12-02", "s1a", "/"), ("2023-12-03", "s1a", "/login"), ("2023-12-13", "s1b", "/docs")]),
-                ("p2", [("2023-12-10", "s2", "/")]),
+                ("p1", [("2023-12-02", s1a, "/"), ("2023-12-03", s1a, "/login"), ("2023-12-13", s1b, "/docs")]),
+                ("p2", [("2023-12-10", s2, "/")]),
             ]
         )
 
-        results = self._run_web_stats_table_query("all", "2023-12-15").results
+        results = self._run_web_stats_table_query(
+            "all", "2023-12-15", session_table_version=session_table_version
+        ).results
 
         self.assertEqual(
             [
@@ -155,23 +176,31 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             results,
         )
 
-    def test_filter_test_accounts(self):
+    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
+    def test_filter_test_accounts(self, session_table_version: SessionTableVersion):
+        s1 = str(uuid7("2023-12-02"))
         # Create 1 test account
-        self._create_events([("test", [("2023-12-02", "s1", "/"), ("2023-12-03", "s1", "/login")])])
+        self._create_events([("test", [("2023-12-02", s1, "/"), ("2023-12-03", s1, "/login")])])
 
-        results = self._run_web_stats_table_query("2023-12-01", "2023-12-03").results
+        results = self._run_web_stats_table_query(
+            "2023-12-01", "2023-12-03", session_table_version=session_table_version
+        ).results
 
         self.assertEqual(
             [],
             results,
         )
 
-    def test_breakdown_channel_type_doesnt_throw(self):
+    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
+    def test_breakdown_channel_type_doesnt_throw(self, session_table_version: SessionTableVersion):
+        s1a = str(uuid7("2023-12-02"))
+        s1b = str(uuid7("2023-12-13"))
+        s2 = str(uuid7("2023-12-10"))
         # not really testing the functionality yet, which is tested elsewhere, just that it runs
         self._create_events(
             [
-                ("p1", [("2023-12-02", "s1a", "/"), ("2023-12-03", "s1a", "/login"), ("2023-12-13", "s1b", "/docs")]),
-                ("p2", [("2023-12-10", "s2", "/")]),
+                ("p1", [("2023-12-02", s1a, "/"), ("2023-12-03", s1a, "/login"), ("2023-12-13", s1b, "/docs")]),
+                ("p2", [("2023-12-10", s2, "/")]),
             ]
         )
 
@@ -179,6 +208,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2023-12-01",
             "2023-12-03",
             breakdown_by=WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
+            session_table_version=session_table_version,
         ).results
 
         self.assertEqual(
@@ -186,18 +216,19 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             len(results),
         )
 
-    def test_limit(self):
+    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
+    def test_limit(self, session_table_version: SessionTableVersion):
+        s1 = str(uuid7("2023-12-02"))
+        s2 = str(uuid7("2023-12-10"))
         self._create_events(
             [
-                ("p1", [("2023-12-02", "s1", "/"), ("2023-12-03", "s1", "/login")]),
-                ("p2", [("2023-12-10", "s2", "/")]),
+                ("p1", [("2023-12-02", s1, "/"), ("2023-12-03", s1, "/login")]),
+                ("p2", [("2023-12-10", s2, "/")]),
             ]
         )
 
         response_1 = self._run_web_stats_table_query(
-            "all",
-            "2023-12-15",
-            limit=1,
+            "all", "2023-12-15", limit=1, session_table_version=session_table_version
         )
         self.assertEqual(
             [
@@ -217,15 +248,20 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(False, response_2.hasMore)
 
-    @parameterized.expand([(True,), (False,)])
-    def test_path_filters(self, use_sessions_table):
+    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
+    def test_path_filters(self, session_table_version: SessionTableVersion):
+        s1 = str(uuid7("2023-12-02"))
+        s2 = str(uuid7("2023-12-10"))
+        s3 = str(uuid7("2023-12-10"))
+        s4 = str(uuid7("2023-12-11"))
+        s5 = str(uuid7("2023-12-11"))
         self._create_events(
             [
-                ("p1", [("2023-12-02", "s1", "/cleaned/123/path/456")]),
-                ("p2", [("2023-12-10", "s2", "/cleaned/123")]),
-                ("p3", [("2023-12-10", "s3", "/cleaned/456")]),
-                ("p4", [("2023-12-11", "s4", "/not-cleaned")]),
-                ("p5", [("2023-12-11", "s5", "/thing_a")]),
+                ("p1", [("2023-12-02", s1, "/cleaned/123/path/456")]),
+                ("p2", [("2023-12-10", s2, "/cleaned/123")]),
+                ("p3", [("2023-12-10", s3, "/cleaned/456")]),
+                ("p4", [("2023-12-11", s4, "/not-cleaned")]),
+                ("p5", [("2023-12-11", s5, "/thing_a")]),
             ]
         )
 
@@ -238,6 +274,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 {"regex": "thing_a", "alias": "thing_b"},
                 {"regex": "thing_b", "alias": "thing_c"},
             ],
+            session_table_version=session_table_version,
         ).results
 
         self.assertEqual(
@@ -250,7 +287,8 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             results,
         )
 
-    def test_scroll_depth_bounce_rate_one_user(self):
+    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
+    def test_scroll_depth_bounce_rate_one_user(self, session_table_version: SessionTableVersion):
         self._create_pageviews(
             "p1",
             [
@@ -266,6 +304,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             breakdown_by=WebStatsBreakdown.PAGE,
             include_scroll_depth=True,
             include_bounce_rate=True,
+            session_table_version=session_table_version,
         ).results
 
         self.assertEqual(
@@ -277,7 +316,8 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             results,
         )
 
-    def test_scroll_depth_bounce_rate(self):
+    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
+    def test_scroll_depth_bounce_rate(self, session_table_version: SessionTableVersion):
         self._create_pageviews(
             "p1",
             [
@@ -308,6 +348,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             breakdown_by=WebStatsBreakdown.PAGE,
             include_scroll_depth=True,
             include_bounce_rate=True,
+            session_table_version=session_table_version,
         ).results
 
         self.assertEqual(
@@ -319,7 +360,8 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             results,
         )
 
-    def test_scroll_depth_bounce_rate_with_filter(self):
+    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
+    def test_scroll_depth_bounce_rate_with_filter(self, session_table_version: SessionTableVersion):
         self._create_pageviews(
             "p1",
             [
@@ -351,6 +393,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             include_scroll_depth=True,
             include_bounce_rate=True,
             properties=[EventPropertyFilter(key="$pathname", operator=PropertyOperator.EXACT, value="/a")],
+            session_table_version=session_table_version,
         ).results
 
         self.assertEqual(
@@ -360,7 +403,8 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             results,
         )
 
-    def test_scroll_depth_bounce_rate_path_cleaning(self):
+    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
+    def test_scroll_depth_bounce_rate_path_cleaning(self, session_table_version: SessionTableVersion):
         self._create_pageviews(
             "p1",
             [
@@ -381,6 +425,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 {"regex": "\\/b\\/\\d+", "alias": "/b/:id"},
                 {"regex": "\\/c\\/\\d+", "alias": "/c/:id"},
             ],
+            session_table_version=session_table_version,
         ).results
 
         self.assertEqual(
@@ -392,7 +437,8 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             results,
         )
 
-    def test_bounce_rate_one_user(self):
+    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
+    def test_bounce_rate_one_user(self, session_table_version: SessionTableVersion):
         self._create_pageviews(
             "p1",
             [
@@ -407,6 +453,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2023-12-15",
             breakdown_by=WebStatsBreakdown.PAGE,
             include_bounce_rate=True,
+            session_table_version=session_table_version,
         ).results
 
         self.assertEqual(
@@ -418,7 +465,8 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             results,
         )
 
-    def test_bounce_rate(self):
+    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
+    def test_bounce_rate(self, session_table_version: SessionTableVersion):
         self._create_pageviews(
             "p1",
             [
@@ -448,6 +496,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2023-12-15",
             breakdown_by=WebStatsBreakdown.PAGE,
             include_bounce_rate=True,
+            session_table_version=session_table_version,
         ).results
 
         self.assertEqual(
@@ -459,7 +508,8 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             results,
         )
 
-    def test_bounce_rate_with_property(self):
+    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
+    def test_bounce_rate_with_property(self, session_table_version: SessionTableVersion):
         self._create_pageviews(
             "p1",
             [
@@ -490,6 +540,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             breakdown_by=WebStatsBreakdown.PAGE,
             include_bounce_rate=True,
             properties=[EventPropertyFilter(key="$pathname", operator=PropertyOperator.EXACT, value="/a")],
+            session_table_version=session_table_version,
         ).results
 
         self.assertEqual(
@@ -499,7 +550,8 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             results,
         )
 
-    def test_bounce_rate_path_cleaning(self):
+    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
+    def test_bounce_rate_path_cleaning(self, session_table_version: SessionTableVersion):
         self._create_pageviews(
             "p1",
             [
@@ -519,6 +571,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 {"regex": "\\/b\\/\\d+", "alias": "/b/:id"},
                 {"regex": "\\/c\\/\\d+", "alias": "/c/:id"},
             ],
+            session_table_version=session_table_version,
         ).results
 
         self.assertEqual(
@@ -530,7 +583,8 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             results,
         )
 
-    def test_entry_bounce_rate_one_user(self):
+    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
+    def test_entry_bounce_rate_one_user(self, session_table_version: SessionTableVersion):
         self._create_pageviews(
             "p1",
             [
@@ -545,6 +599,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2023-12-15",
             breakdown_by=WebStatsBreakdown.INITIAL_PAGE,
             include_bounce_rate=True,
+            session_table_version=session_table_version,
         ).results
 
         self.assertEqual(
@@ -554,7 +609,8 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             results,
         )
 
-    def test_entry_bounce_rate(self):
+    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
+    def test_entry_bounce_rate(self, session_table_version: SessionTableVersion):
         self._create_pageviews(
             "p1",
             [
@@ -584,6 +640,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2023-12-15",
             breakdown_by=WebStatsBreakdown.INITIAL_PAGE,
             include_bounce_rate=True,
+            session_table_version=session_table_version,
         ).results
 
         self.assertEqual(
@@ -593,7 +650,8 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             results,
         )
 
-    def test_entry_bounce_rate_with_property(self):
+    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
+    def test_entry_bounce_rate_with_property(self, session_table_version: SessionTableVersion):
         self._create_pageviews(
             "p1",
             [
@@ -624,6 +682,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             breakdown_by=WebStatsBreakdown.INITIAL_PAGE,
             include_bounce_rate=True,
             properties=[EventPropertyFilter(key="$pathname", operator=PropertyOperator.EXACT, value="/a")],
+            session_table_version=session_table_version,
         ).results
 
         self.assertEqual(
@@ -633,7 +692,8 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             results,
         )
 
-    def test_entry_bounce_rate_path_cleaning(self):
+    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
+    def test_entry_bounce_rate_path_cleaning(self, session_table_version: SessionTableVersion):
         self._create_pageviews(
             "p1",
             [
@@ -653,6 +713,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 {"regex": "\\/b\\/\\d+", "alias": "/b/:id"},
                 {"regex": "\\/c\\/\\d+", "alias": "/c/:id"},
             ],
+            session_table_version=session_table_version,
         ).results
 
         self.assertEqual(

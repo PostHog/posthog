@@ -182,7 +182,7 @@ export type HogFunctionMessageToQueue = {
 
 // Mostly copied from frontend types
 export type HogFunctionInputSchemaType = {
-    type: 'string' | 'number' | 'boolean' | 'dictionary' | 'choice' | 'json'
+    type: 'string' | 'boolean' | 'dictionary' | 'choice' | 'json' | 'integration' | 'integration_field'
     key: string
     label?: string
     choices?: { value: string; label: string }[]
@@ -190,6 +190,9 @@ export type HogFunctionInputSchemaType = {
     default?: any
     secret?: boolean
     description?: string
+    integration?: string
+    integration_key?: string
+    integration_field?: 'slack_channel'
 }
 
 export type HogFunctionType = {
@@ -199,13 +202,25 @@ export type HogFunctionType = {
     enabled: boolean
     hog: string
     bytecode: HogBytecode
-    inputs_schema: HogFunctionInputSchemaType[]
-    inputs: Record<
-        string,
-        {
-            value: any
-            bytecode?: HogBytecode | object
-        }
-    >
+    inputs_schema?: HogFunctionInputSchemaType[]
+    inputs?: Record<string, HogFunctionInputType>
     filters?: HogFunctionFilters | null
+}
+
+export type HogFunctionInputType = {
+    value: any
+    bytecode?: HogBytecode | object
+}
+
+export type IntegrationType = {
+    id: number
+    team_id: number
+    kind: 'slack'
+    config: Record<string, any>
+    sensitive_config: Record<string, any>
+
+    // Fields we don't load but need for seeding data
+    errors?: string
+    created_at?: string
+    created_by_id?: number
 }
