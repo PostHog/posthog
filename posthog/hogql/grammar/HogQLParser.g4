@@ -195,7 +195,7 @@ columnExpr
     | LPAREN columnExpr RPAREN                                                            # ColumnExprParens    // single-column only
     | LPAREN columnExprList RPAREN                                                        # ColumnExprTuple
     | LBRACKET columnExprList? RBRACKET                                                   # ColumnExprArray
-    | LBRACE (kvPairList)? RBRACE                                                         # ColumnExprDict // TODO: currently unsupported in C++
+    | LBRACE (kvPairList)? RBRACE                                                         # ColumnExprDict
     | columnIdentifier                                                                    # ColumnExprIdentifier
     ;
 

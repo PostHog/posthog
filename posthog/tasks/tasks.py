@@ -920,3 +920,13 @@ def calculate_replay_error_clusters() -> None:
         pass
     except Exception as e:
         logger.error("Failed to calculate replay error clusters", error=e, exc_info=True)
+
+
+@shared_task(ignore_result=True)
+def calculate_external_data_rows_synced() -> None:
+    try:
+        from posthog.tasks.warehouse import capture_external_data_rows_synced
+    except ImportError:
+        pass
+    else:
+        capture_external_data_rows_synced()

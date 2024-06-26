@@ -1075,7 +1075,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
                 properties={
                     "count": 10,
                     "job_id": 10924,
-                    "startTime": start_time,
+                    "start_time": start_time,
                 },
                 timestamp=now() - relativedelta(hours=i),
                 team=self.analytics_team,
@@ -1087,7 +1087,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
                 properties={
                     "count": 10,
                     "job_id": 10924,
-                    "startTime": start_time,
+                    "start_time": start_time,
                 },
                 timestamp=now() - relativedelta(hours=i, minutes=i),
                 team=self.analytics_team,
@@ -1100,7 +1100,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
                 properties={
                     "count": 10,
                     "job_id": 10924,
-                    "startTime": (now() - relativedelta(hours=i)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "start_time": (now() - relativedelta(hours=i)).strftime("%Y-%m-%dT%H:%M:%SZ"),
                 },
                 timestamp=now() - relativedelta(hours=i),
                 team=self.analytics_team,

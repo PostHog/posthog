@@ -1,7 +1,6 @@
 import datetime
 
 import orjson as json
-from functools import partial
 from typing import TYPE_CHECKING, Optional
 import uuid
 
@@ -10,9 +9,9 @@ import sentry_sdk
 import structlog
 from prometheus_client import Histogram
 from rest_framework.exceptions import NotFound
-from django.db import transaction
 
 from posthog import celery, redis
+from posthog.clickhouse.client.async_task_chain import add_task_to_chain
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql.constants import LimitContext
@@ -82,9 +81,10 @@ class QueryStatusManager:
 
         return json.loads(byte_results) if byte_results is not None else {}
 
-    def update_clickhouse_query_progress(self, initial_query_id, clickhouse_query_progress):
+    def update_clickhouse_query_progresses(self, clickhouse_query_progresses):
         clickhouse_query_progress_dict = self._get_clickhouse_query_progress_dict()
-        clickhouse_query_progress_dict[initial_query_id] = clickhouse_query_progress
+        for clickhouse_query_progress in clickhouse_query_progresses:
+            clickhouse_query_progress_dict[clickhouse_query_progress["query_id"]] = clickhouse_query_progress
         self._store_clickhouse_query_progress_dict(clickhouse_query_progress_dict)
 
     def has_results(self):
@@ -190,25 +190,6 @@ def execute_process_query(
         manager.store_query_status(query_status)
 
 
-def kick_off_task(
-    manager: QueryStatusManager,
-    query_id: str,
-    query_json: dict,
-    query_status: QueryStatus,
-    team_id: int,
-    user_id: Optional[int],
-):
-    task = process_query_task.delay(
-        team_id,
-        user_id,
-        query_id,
-        query_json,
-        limit_context=LimitContext.QUERY_ASYNC,
-    )
-    query_status.task_id = task.id
-    manager.store_query_status(query_status)
-
-
 def enqueue_process_query_task(
     team: "Team",
     user: Optional["User"],
@@ -235,26 +216,14 @@ def enqueue_process_query_task(
     query_status = QueryStatus(id=query_id, team_id=team.id, start_time=datetime.datetime.now(datetime.timezone.utc))
     manager.store_query_status(query_status)
 
+    task_signature = process_query_task.si(
+        team.id, user.id if user else None, query_id, query_json, LimitContext.QUERY_ASYNC
+    )
+
     if _test_only_bypass_celery:
-        process_query_task(
-            team.id,
-            user.id if user else None,
-            query_id,
-            query_json,
-            limit_context=LimitContext.QUERY_ASYNC,
-        )
+        task_signature()
     else:
-        transaction.on_commit(
-            partial(
-                kick_off_task,
-                manager,
-                query_id,
-                query_json,
-                query_status,
-                team.id,
-                user.id if user else None,
-            )
-        )
+        add_task_to_chain(task_signature=task_signature, manager=manager, query_status=query_status)
 
     return query_status
 
