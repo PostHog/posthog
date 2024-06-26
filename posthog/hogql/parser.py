@@ -95,6 +95,8 @@ def parse_expr(
     *,
     backend: Literal["python", "cpp"] = "cpp",
 ) -> ast.Expr:
+    if expr == "":
+        raise SyntaxError("Empty query")
     if timings is None:
         timings = HogQLTimings()
     with timings.measure(f"parse_expr_{backend}"):

@@ -68,7 +68,7 @@ class TestQueryStatusManager(SimpleTestCase):
         self.manager._store_clickhouse_query_progress_dict(query_status)
         self.assertEqual(self.manager.get_query_status(True), self.query_status)
 
-    def test_update_clickhouse_query_progress(self):
+    def test_update_clickhouse_query_progresses(self):
         self.manager.store_query_status(self.query_status)
 
         query_id_1 = f"{self.team_id}_{self.query_id}_1"
@@ -80,13 +80,16 @@ class TestQueryStatusManager(SimpleTestCase):
         }
 
         self.manager._store_clickhouse_query_progress_dict(query_progress_dict)
-        self.manager.update_clickhouse_query_progress(
-            query_id_2,
-            {**ZERO_PROGRESS, "bytes_read": 10},
-        )
-        self.manager.update_clickhouse_query_progress(
-            query_id_3,
-            {**ZERO_PROGRESS, "bytes_read": 20},
+        self.manager.update_clickhouse_query_progresses(
+            [
+                {
+                    **ZERO_PROGRESS,
+                    "bytes_read": 10,
+                    "initial_query_id": query_id_2,
+                    "query_id": query_id_2,
+                },
+                {**ZERO_PROGRESS, "bytes_read": 20, "initial_query_id": query_id_2, "query_id": query_id_3},
+            ]
         )
 
         self.query_status.query_progress = ClickhouseQueryProgress(**{**ZERO_PROGRESS, "bytes_read": 31})

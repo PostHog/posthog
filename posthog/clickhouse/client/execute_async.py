@@ -81,9 +81,10 @@ class QueryStatusManager:
 
         return json.loads(byte_results) if byte_results is not None else {}
 
-    def update_clickhouse_query_progress(self, initial_query_id, clickhouse_query_progress):
+    def update_clickhouse_query_progresses(self, clickhouse_query_progresses):
         clickhouse_query_progress_dict = self._get_clickhouse_query_progress_dict()
-        clickhouse_query_progress_dict[initial_query_id] = clickhouse_query_progress
+        for clickhouse_query_progress in clickhouse_query_progresses:
+            clickhouse_query_progress_dict[clickhouse_query_progress["query_id"]] = clickhouse_query_progress
         self._store_clickhouse_query_progress_dict(clickhouse_query_progress_dict)
 
     def has_results(self):
