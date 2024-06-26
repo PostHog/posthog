@@ -9,10 +9,20 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 from posthog.models.action.action import Action
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDModel
-from posthog.plugins.plugin_server_api import get_hog_function_status, reload_hog_functions_on_workers
+from posthog.plugins.plugin_server_api import (
+    get_hog_function_status,
+    patch_hog_function_status,
+    reload_hog_functions_on_workers,
+)
+
+DEFAULT_STATE = {
+    "state": 0,
+    "ratings": [],
+    "states": [],
+}
 
 
-class HogFunctionStatus(enum.Enum):
+class HogFunctionState(enum.Enum):
     HEALTHY = 1
     OVERFLOWED = 2
     DISABLED_TEMPORARILY = 3
@@ -36,7 +46,6 @@ class HogFunction(UUIDModel):
     inputs: models.JSONField = models.JSONField(null=True)
     filters: models.JSONField = models.JSONField(null=True, blank=True)
     template_id: models.CharField = models.CharField(max_length=400, null=True, blank=True)
-    status: Optional[dict] = None
 
     @property
     def template(self) -> Optional[HogFunctionTemplate]:
@@ -53,11 +62,32 @@ class HogFunction(UUIDModel):
         except KeyError:
             return []
 
-    def get_status(self, force: bool = False):
-        if not self.status or force:
-            res = get_hog_function_status(self.team_id, self.id)
-            if res.status_code == 200:
-                self.status = res.json()
+    _status: Optional[dict] = None
+
+    @property
+    def status(self) -> dict:
+        if not self.enabled:
+            return DEFAULT_STATE
+
+        if self._status:
+            return self._status
+
+        res = get_hog_function_status(self.team_id, self.id)
+        if res.status_code == 200:
+            status = res.json()
+        else:
+            status = DEFAULT_STATE
+
+        self._status = status
+
+        return status
+
+    def set_function_status(self, state: int) -> dict:
+        if not self.enabled:
+            return self.status
+        res = patch_hog_function_status(self.team_id, self.id, state)
+        if res.status_code == 200:
+            self._status = res.json()
 
         return self.status
 

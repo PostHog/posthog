@@ -1,10 +1,26 @@
+from django import forms
 from django.contrib import admin
 from django.utils.html import format_html
 
-from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionStatus
+from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionState
+
+
+class HogFunctionAdminForm(forms.ModelForm):
+    state = forms.ChoiceField(choices=[], required=False)  # Initially empty
+
+    class Meta:
+        model = HogFunction
+        fields = "__all__"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        instance: HogFunction = kwargs["instance"]
+        self.fields["state"].choices = [(ex.value, ex.name) for ex in HogFunctionState]  # type: ignore
+        self.fields["state"].initial = instance.get_function_status()["state"]
 
 
 class HogFunctionAdmin(admin.ModelAdmin):
+    form = HogFunctionAdminForm
     list_select_related = ("team",)
     list_display = ("id", "name", "enabled")
     list_filter = (
@@ -22,15 +38,15 @@ class HogFunctionAdmin(admin.ModelAdmin):
         "bytecode",
         "hog",
         "team",
-        "status",
         "created_by",
         "team_link",
-        "function_state",
     )
     fields = (
         "name",
         "description",
         "enabled",
+        "deleted",
+        "state",
         "created_by",
         "icon_url",
         "hog",
@@ -39,16 +55,7 @@ class HogFunctionAdmin(admin.ModelAdmin):
         "inputs",
         "filters",
         "template_id",
-        "status",
     )
-
-    def status(self, instance: HogFunction):
-        return instance.get_status()
-
-    def function_state(self, instance: HogFunction):
-        status = instance.get_status()
-
-        return HogFunctionStatus(status).name or "Unknown"
 
     def team_link(self, instance: HogFunction):
         return format_html(
@@ -56,3 +63,10 @@ class HogFunctionAdmin(admin.ModelAdmin):
             instance.team.pk,
             instance.team.name,
         )
+
+    def save_model(self, request, obj: HogFunction, form, change):
+        super().save_model(request, obj, form, change)
+        # Make an API request if 'state' is set
+        if "state" in form.changed_data:
+            state = form.cleaned_data["state"]
+            obj.set_function_status(state)
