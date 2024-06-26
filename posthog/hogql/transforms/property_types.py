@@ -131,6 +131,7 @@ class PropertySwapper(CloningVisitor):
         self.person_properties = person_properties
         self.group_properties = group_properties
         self.context = context
+        self.last_call = False
 
     def visit_field(self, node: ast.Field):
         if isinstance(node.type, ast.FieldType):

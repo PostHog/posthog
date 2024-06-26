@@ -300,16 +300,16 @@ class TestSessionsQueriesHogQLToClickhouse(ClickhouseTestMixin, APIBaseTest):
 FROM
     (SELECT
         sessions.session_id AS session_id,
-        min(sessions.min_timestamp) AS `$start_timestamp`
+        min(toTimeZone(sessions.min_timestamp, %(hogql_val_0)s)) AS `$start_timestamp`
     FROM
         sessions
     WHERE
-        and(equals(sessions.team_id, {self.team.id}), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, %(hogql_val_0)s), toIntervalDay(3)), %(hogql_val_1)s), 0))
+        and(equals(sessions.team_id, {self.team.id}), ifNull(greaterOrEquals(plus(toTimeZone(toTimeZone(sessions.min_timestamp, %(hogql_val_1)s), %(hogql_val_2)s), toIntervalDay(3)), %(hogql_val_3)s), 0))
     GROUP BY
         sessions.session_id,
         sessions.session_id) AS sessions
 WHERE
-    ifNull(greater(toTimeZone(sessions.`$start_timestamp`, %(hogql_val_2)s), %(hogql_val_3)s), 0)
+    ifNull(greater(toTimeZone(sessions.`$start_timestamp`, %(hogql_val_4)s), %(hogql_val_5)s), 0)
 LIMIT {MAX_SELECT_RETURNED_ROWS}"""
         assert expected == actual
 
@@ -336,12 +336,12 @@ FROM
     FROM
         sessions
     WHERE
-        and(equals(sessions.team_id, {self.team.id}), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, %(hogql_val_0)s), toIntervalDay(3)), %(hogql_val_1)s), 0))
+        and(equals(sessions.team_id, {self.team.id}), ifNull(greaterOrEquals(plus(toTimeZone(toTimeZone(sessions.min_timestamp, %(hogql_val_0)s), %(hogql_val_1)s), toIntervalDay(3)), %(hogql_val_2)s), 0))
     GROUP BY
         sessions.session_id,
         sessions.session_id) AS sessions ON equals(events.`$session_id`, sessions.session_id)
 WHERE
-    and(equals(events.team_id, {self.team.id}), greater(toTimeZone(events.timestamp, %(hogql_val_2)s), %(hogql_val_3)s))
+    and(equals(events.team_id, {self.team.id}), greater(toTimeZone(events.timestamp, %(hogql_val_3)s), %(hogql_val_4)s))
 GROUP BY
     sessions.session_id
 LIMIT {MAX_SELECT_RETURNED_ROWS}"""
