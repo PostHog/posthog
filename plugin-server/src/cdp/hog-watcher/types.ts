@@ -25,13 +25,8 @@ export type HogWatcherObservationPeriod = {
     asyncFunctionSuccesses: number
 }
 
-export type HogWatcherObservationPeriodWithInstanceId = {
+export type HogWatcherObservationPeriodWithInstanceId = HogWatcherObservationPeriod & {
     instanceId: string
-    timestamp: number
-    successes: number
-    failures: number
-    asyncFunctionFailures: number
-    asyncFunctionSuccesses: number
 }
 
 export type HogWatcherSummary = {
