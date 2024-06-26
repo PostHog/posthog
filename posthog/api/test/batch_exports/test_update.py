@@ -315,23 +315,26 @@ def test_can_patch_hogql_query(client: HttpClient):
         args = json.loads(decoded_payload[0].data)
         assert args["bucket_name"] == "my-production-s3-bucket"
         assert args["interval"] == "hour"
-        assert args["batch_export_schema"] == {
-            "fields": [
-                {
-                    "alias": "uuid",
-                    "expression": "toString(events.uuid)",
-                },
-                {
-                    "alias": "test",
-                    "expression": "%(hogql_val_0)s",
-                },
-                {
-                    "alias": "n",
-                    "expression": "accurateCastOrNull(plus(1, 1), %(hogql_val_1)s)",
-                },
-            ],
-            "values": {"hogql_val_0": "test", "hogql_val_1": "Int64"},
-            "hogql_query": "SELECT toString(uuid) AS uuid, 'test' AS test, toInt(plus(1, 1)) AS n FROM events",
+        assert args["batch_export_model"] == {
+            "name": "events",
+            "schema": {
+                "fields": [
+                    {
+                        "alias": "uuid",
+                        "expression": "toString(events.uuid)",
+                    },
+                    {
+                        "alias": "test",
+                        "expression": "%(hogql_val_0)s",
+                    },
+                    {
+                        "alias": "n",
+                        "expression": "accurateCastOrNull(plus(1, 1), %(hogql_val_1)s)",
+                    },
+                ],
+                "values": {"hogql_val_0": "test", "hogql_val_1": "Int64"},
+                "hogql_query": "SELECT toString(uuid) AS uuid, 'test' AS test, toInt(plus(1, 1)) AS n FROM events",
+            },
         }
 
 

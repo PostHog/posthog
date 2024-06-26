@@ -4,7 +4,7 @@ import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { StickinessQuery, TrendsQuery } from '~/queries/schema'
-import { EmptyPropertyFilter, FilterLogicalOperator, PropertyGroupFilter } from '~/types'
+import { FilterLogicalOperator, PropertyGroupFilter } from '~/types'
 
 import type { propertyGroupFilterLogicType } from './propertyGroupFilterLogicType'
 
@@ -48,15 +48,12 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>([
                             values: [
                                 {
                                     type: FilterLogicalOperator.And,
-                                    values: [{} as EmptyPropertyFilter],
+                                    values: [],
                                 },
                             ],
                         }
                     }
-                    const filterGroups = [
-                        ...state.values,
-                        { type: FilterLogicalOperator.And, values: [{} as EmptyPropertyFilter] },
-                    ]
+                    const filterGroups = [...state.values, { type: FilterLogicalOperator.And, values: [] }]
 
                     return { ...state, values: filterGroups }
                 },

@@ -92,7 +92,6 @@ class Command(BaseCommand):
         logging.info(f"Starting Temporal Worker with options: {options}")
 
         structlog.reset_defaults()
-
         metrics_port = int(options["metrics_port"])
 
         asyncio.run(

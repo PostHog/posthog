@@ -3,7 +3,6 @@ from typing import Any, Literal, Optional
 from unittest import mock
 from zoneinfo import ZoneInfo
 
-from dateutil.parser import isoparse
 from freezegun import freeze_time
 from pydantic import BaseModel
 
@@ -49,9 +48,7 @@ class TestQueryRunner(BaseTest):
                 return timedelta(minutes=4)
 
             def _is_stale(self, cached_result_package) -> bool:
-                return isoparse(cached_result_package.last_refresh) + timedelta(minutes=10) <= datetime.now(
-                    tz=ZoneInfo("UTC")
-                )
+                return cached_result_package.last_refresh + timedelta(minutes=10) <= datetime.now(tz=ZoneInfo("UTC"))
 
         TestQueryRunner.__abstractmethods__ = frozenset()
 
@@ -93,6 +90,7 @@ class TestQueryRunner(BaseTest):
                     "optimizeJoinedFilters": False,
                     "personsOnEventsMode": "disabled",
                     "bounceRatePageViewMode": "count_pageviews",
+                    "sessionTableVersion": "v1",
                 },
                 "limit_context": "query",
                 "query": {"kind": "TestQuery", "some_attr": "bla"},
@@ -111,7 +109,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        self.assertEqual(cache_key, "cache_572f46c782b801255ff656aa93dc83f5")
+        self.assertEqual(cache_key, "cache_19dbcf2dbe2bd72239f37007f2eb6224")
 
     def test_cache_key_runner_subclass(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -125,7 +123,7 @@ class TestQueryRunner(BaseTest):
         runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        self.assertEqual(cache_key, "cache_22c01496fcc31f96bb6a30e31acc4fbf")
+        self.assertEqual(cache_key, "cache_325bbd17cd27dd556d765984ba993da0")
 
     def test_cache_key_different_timezone(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -136,7 +134,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        self.assertEqual(cache_key, "cache_5ac065d0a34c518dc0f5bc4c37434063")
+        self.assertEqual(cache_key, "cache_c1d666350117520920dbc3cc9286195c")
 
     @mock.patch("django.db.transaction.on_commit")
     def test_cache_response(self, mock_on_commit):
@@ -153,8 +151,8 @@ class TestQueryRunner(BaseTest):
             response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
             self.assertIsInstance(response, TestCachedBasicQueryResponse)
             self.assertEqual(response.is_cached, False)
-            self.assertEqual(response.last_refresh, "2023-02-04T13:37:42Z")
-            self.assertEqual(response.next_allowed_client_refresh, "2023-02-04T13:41:42Z")
+            self.assertEqual(response.last_refresh.isoformat(), "2023-02-04T13:37:42+00:00")
+            self.assertEqual(response.next_allowed_client_refresh.isoformat(), "2023-02-04T13:41:42+00:00")
 
             # returns cached response afterwards
             response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
@@ -186,6 +184,21 @@ class TestQueryRunner(BaseTest):
             self.assertEqual(response.is_cached, True)
             mock_on_commit.assert_called_once()  # still once
 
+        with freeze_time(datetime(2023, 2, 4, 23, 55, 42)):
+            # returns cached response for extended time
+            response = runner.run(execution_mode=ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE)
+            self.assertIsInstance(response, TestCachedBasicQueryResponse)
+            self.assertEqual(response.is_cached, True)
+            mock_on_commit.assert_called_once()  # still once
+
+        mock_on_commit.reset_mock()
+        with freeze_time(datetime(2023, 2, 5, 23, 55, 42)):
+            # returns cached response for extended time but finally kicks off calculation in the background
+            response = runner.run(execution_mode=ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE)
+            self.assertIsInstance(response, TestCachedBasicQueryResponse)
+            self.assertEqual(response.is_cached, True)
+            mock_on_commit.assert_called_once()
+
     def test_modifier_passthrough(self):
         try:
             from ee.clickhouse.materialized_columns.analyze import materialize
@@ -200,7 +213,7 @@ class TestQueryRunner(BaseTest):
         runner = HogQLQueryRunner(
             query=HogQLQuery(query="select properties.$browser from events"),
             team=self.team,
-            modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.legacy_null_as_string),
+            modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.LEGACY_NULL_AS_STRING),
         )
         response = runner.calculate()
         assert response.clickhouse is not None
@@ -209,7 +222,7 @@ class TestQueryRunner(BaseTest):
         runner = HogQLQueryRunner(
             query=HogQLQuery(query="select properties.$browser from events"),
             team=self.team,
-            modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.disabled),
+            modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.DISABLED),
         )
         response = runner.calculate()
         assert response.clickhouse is not None

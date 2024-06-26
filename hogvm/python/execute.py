@@ -1,3 +1,4 @@
+from datetime import timedelta
 import re
 import time
 from copy import deepcopy
@@ -26,7 +27,7 @@ def execute_bytecode(
     bytecode: list[Any],
     globals: Optional[dict[str, Any]] = None,
     functions: Optional[dict[str, Callable[..., Any]]] = None,
-    timeout=5,
+    timeout=timedelta(seconds=5),
     team: Optional["Team"] = None,
     debug=False,
 ) -> BytecodeResult:
@@ -56,9 +57,12 @@ def execute_bytecode(
     if next_token() != HOGQL_BYTECODE_IDENTIFIER:
         raise HogVMException(f"Invalid bytecode. Must start with '{HOGQL_BYTECODE_IDENTIFIER}'")
 
+    if len(bytecode) == 1:
+        return BytecodeResult(result=None, stdout=stdout, bytecode=bytecode)
+
     def check_timeout():
-        if time.time() - start_time > timeout and not debug:
-            raise HogVMException(f"Execution timed out after {timeout} seconds. Performed {ops} ops.")
+        if time.time() - start_time > timeout.total_seconds() and not debug:
+            raise HogVMException(f"Execution timed out after {timeout.total_seconds()} seconds. Performed {ops} ops.")
 
     while True:
         ops += 1

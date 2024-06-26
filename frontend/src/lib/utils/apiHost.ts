@@ -14,7 +14,8 @@ export function liveEventsHostOrigin(): string | null {
         return 'https://live.us.posthog.com'
     } else if (appOrigin === 'https://eu.posthog.com') {
         return 'https://live.eu.posthog.com'
+    } else if (appOrigin === 'https://app.dev.posthog.dev') {
+        return 'https://live.dev.posthog.dev'
     }
-    // TODO(@zach): add dev and local env support
-    return null
+    return 'http://localhost:8666'
 }

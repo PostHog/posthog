@@ -20,6 +20,8 @@ asgiref==3.7.2
     # via
     #   -c requirements.txt
     #   django
+asttokens==2.4.1
+    # via inline-snapshot
 async-timeout==4.0.2
     # via
     #   -c requirements.txt
@@ -33,9 +35,9 @@ attrs==23.2.0
     #   referencing
 black==23.9.1
     # via
-    #   -c requirements.txt
     #   -r requirements-dev.in
     #   datamodel-code-generator
+    #   inline-snapshot
 boto3-stubs==1.34.84
     # via -r requirements-dev.in
 botocore-stubs==1.34.84
@@ -44,7 +46,7 @@ certifi==2019.11.28
     # via
     #   -c requirements.txt
     #   requests
-cffi==1.14.5
+cffi==1.16.0
     # via
     #   -c requirements.txt
     #   cryptography
@@ -58,11 +60,12 @@ click==8.1.7
     # via
     #   -c requirements.txt
     #   black
+    #   inline-snapshot
 colorama==0.4.4
     # via pytest-watch
 coverage==5.5
     # via pytest-cov
-cryptography==37.0.2
+cryptography==39.0.2
     # via
     #   -c requirements.txt
     #   types-paramiko
@@ -95,6 +98,8 @@ exceptiongroup==1.2.1
     #   pytest
 execnet==2.1.1
     # via pytest-xdist
+executing==2.0.1
+    # via inline-snapshot
 faker==17.5.0
     # via -r requirements-dev.in
 fakeredis==2.11.0
@@ -103,7 +108,7 @@ flaky==3.7.0
     # via -r requirements-dev.in
 freezegun==1.2.2
     # via -r requirements-dev.in
-frozenlist==1.3.0
+frozenlist==1.4.1
     # via
     #   -c requirements.txt
     #   aiohttp
@@ -122,6 +127,8 @@ inflect==5.6.2
     # via datamodel-code-generator
 iniconfig==1.1.1
     # via pytest
+inline-snapshot==0.10.2
+    # via -r requirements-dev.in
 isort==5.2.2
     # via datamodel-code-generator
 jinja2==3.1.4
@@ -142,8 +149,12 @@ lazy-object-proxy==1.10.0
     # via openapi-spec-validator
 lupa==1.14.1
     # via fakeredis
+markdown-it-py==3.0.0
+    # via rich
 markupsafe==2.1.5
     # via jinja2
+mdurl==0.1.2
+    # via markdown-it-py
 multidict==6.0.2
     # via
     #   -c requirements.txt
@@ -157,7 +168,6 @@ mypy-boto3-s3==1.34.65
     # via boto3-stubs
 mypy-extensions==1.0.0
     # via
-    #   -c requirements.txt
     #   -r requirements-dev.in
     #   black
     #   mypy
@@ -178,9 +188,7 @@ parameterized==0.9.0
 pathable==0.4.3
     # via jsonschema-path
 pathspec==0.12.1
-    # via
-    #   -c requirements.txt
-    #   black
+    # via black
 platformdirs==3.11.0
     # via
     #   -c requirements.txt
@@ -203,6 +211,8 @@ pydantic-core==2.14.6
     # via
     #   -c requirements.txt
     #   pydantic
+pygments==2.18.0
+    # via rich
 pytest==7.4.4
     # via
     #   -r requirements-dev.in
@@ -267,6 +277,8 @@ responses==0.23.1
     # via -r requirements-dev.in
 rfc3339-validator==0.1.4
     # via openapi-schema-validator
+rich==13.7.1
+    # via inline-snapshot
 rpds-py==0.16.2
     # via
     #   -c requirements.txt
@@ -281,6 +293,7 @@ ruff==0.4.3
 six==1.16.0
     # via
     #   -c requirements.txt
+    #   asttokens
     #   prance
     #   python-dateutil
     #   rfc3339-validator
@@ -294,13 +307,13 @@ sqlparse==0.4.4
     #   django
 syrupy==4.6.0
     # via -r requirements-dev.in
-toml==0.10.1
+toml==0.10.2
     # via
     #   coverage
     #   datamodel-code-generator
+    #   inline-snapshot
 tomli==2.0.1
     # via
-    #   -c requirements.txt
     #   black
     #   django-stubs
     #   mypy
@@ -336,6 +349,8 @@ types-retry==0.9.9.4
     # via -r requirements-dev.in
 types-s3transfer==0.10.1
     # via boto3-stubs
+types-toml==0.10.8.20240310
+    # via inline-snapshot
 types-tzlocal==5.1.0.1
     # via -r requirements-dev.in
 typing-extensions==4.7.1
@@ -358,7 +373,7 @@ urllib3==1.26.18
     #   responses
 watchdog==2.1.8
     # via pytest-watch
-yarl==1.7.2
+yarl==1.9.4
     # via
     #   -c requirements.txt
     #   aiohttp

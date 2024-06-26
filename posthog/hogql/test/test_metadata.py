@@ -26,6 +26,18 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
         )
 
+    def _program(self, query: str) -> HogQLMetadataResponse:
+        return get_hogql_metadata(
+            query=HogQLMetadata(kind="HogQLMetadata", program=query, response=None),
+            team=self.team,
+        )
+
+    def _template(self, query: str) -> HogQLMetadataResponse:
+        return get_hogql_metadata(
+            query=HogQLMetadata(kind="HogQLMetadata", template=query, response=None),
+            team=self.team,
+        )
+
     def test_metadata_valid_expr_select(self):
         metadata = self._expr("select 1")
         self.assertEqual(
@@ -312,5 +324,58 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             | {
                 "isValid": True,
                 "errors": [],
+            },
+        )
+
+    def test_hog_program(self):
+        metadata = self._program("let i := 3")
+        self.assertEqual(
+            metadata.dict(),
+            metadata.dict()
+            | {
+                "isValid": True,
+                "errors": [],
+            },
+        )
+
+    def test_hog_program_invalid(self):
+        metadata = self._program("let i := NONO()")
+        self.assertEqual(
+            metadata.dict(),
+            metadata.dict()
+            | {
+                "inputExpr": None,
+                "inputProgram": "let i := NONO()",
+                "inputSelect": None,
+                "inputTemplate": None,
+                "isValid": False,
+                "isValidView": False,
+                "notices": [],
+                "warnings": [],
+                "errors": [{"end": 15, "fix": None, "message": "HogQL function `NONO` is not implemented", "start": 9}],
+            },
+        )
+
+    def test_string_template(self):
+        metadata = self._program("this is a {event} string")
+        self.assertEqual(
+            metadata.dict(),
+            metadata.dict()
+            | {
+                "isValid": True,
+                "errors": [],
+            },
+        )
+
+    def test_string_template_invalid(self):
+        metadata = self._program("this is a {NONO()} string")
+        self.assertEqual(
+            metadata.dict(),
+            metadata.dict()
+            | {
+                "isValid": False,
+                "errors": [
+                    {"end": 17, "fix": None, "message": "HogQL function `NONO` is not implemented", "start": 11}
+                ],
             },
         )

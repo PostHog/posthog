@@ -1,11 +1,11 @@
 import collections.abc
 import contextlib
+import dataclasses
 import datetime as dt
 import io
 import json
 import posixpath
 import typing
-from dataclasses import dataclass
 
 import aioboto3
 import orjson
@@ -17,6 +17,7 @@ from temporalio.common import RetryPolicy
 from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import (
     BatchExportField,
+    BatchExportModel,
     BatchExportSchema,
     S3BatchExportInputs,
 )
@@ -27,9 +28,8 @@ from posthog.temporal.batch_exports.batch_exports import (
     StartBatchExportRunInputs,
     default_fields,
     execute_batch_export_insert_activity,
-    finish_batch_export_run,
     get_data_interval,
-    iter_records,
+    iter_model_records,
     start_batch_export_run,
 )
 from posthog.temporal.batch_exports.metrics import (
@@ -44,7 +44,7 @@ from posthog.temporal.batch_exports.temporary_file import (
     ParquetBatchExportWriter,
     UnsupportedFileFormatError,
 )
-from posthog.temporal.batch_exports.utils import peek_first_and_rewind, try_set_batch_export_run_to_running
+from posthog.temporal.batch_exports.utils import apeek_first_and_rewind, try_set_batch_export_run_to_running
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import bind_temporal_worker_logger
@@ -62,7 +62,7 @@ def get_allowed_template_variables(inputs) -> dict[str, str]:
         "year": f"{export_datetime:%Y}",
         "data_interval_start": inputs.data_interval_start,
         "data_interval_end": inputs.data_interval_end,
-        "table": "events",
+        "table": inputs.batch_export_model.name if inputs.batch_export_model is not None else "events",
     }
 
 
@@ -316,7 +316,7 @@ class HeartbeatDetails(typing.NamedTuple):
         return cls(last_uploaded_part_timestamp, upload_state)
 
 
-@dataclass
+@dataclasses.dataclass
 class S3InsertInputs:
     """Inputs for S3 exports."""
 
@@ -337,12 +337,14 @@ class S3InsertInputs:
     include_events: list[str] | None = None
     encryption: str | None = None
     kms_key_id: str | None = None
-    batch_export_schema: BatchExportSchema | None = None
     endpoint_url: str | None = None
     # TODO: In Python 3.11, this could be a enum.StrEnum.
     file_format: str = "JSONLines"
     run_id: str | None = None
     is_backfill: bool = False
+    batch_export_model: BatchExportModel | None = None
+    # TODO: Remove after updating existing batch exports
+    batch_export_schema: BatchExportSchema | None = None
 
 
 async def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tuple[S3MultiPartUpload, str]:
@@ -408,8 +410,8 @@ def s3_default_fields() -> list[BatchExportField]:
     """
     batch_export_fields = default_fields()
     batch_export_fields.append({"expression": "elements_chain", "alias": "elements_chain"})
-    batch_export_fields.append({"expression": "nullIf(person_properties, '')", "alias": "person_properties"})
-    batch_export_fields.append({"expression": "toString(person_id)", "alias": "person_id"})
+    batch_export_fields.append({"expression": "person_properties", "alias": "person_properties"})
+    batch_export_fields.append({"expression": "person_id", "alias": "person_id"})
 
     # Again, in contrast to other destinations, and for historical reasons, we do not include these fields.
     not_exported_by_default = {"team_id", "set", "set_once"}
@@ -445,25 +447,31 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
 
             s3_upload, interval_start = await initialize_and_resume_multipart_upload(inputs)
 
-            if inputs.batch_export_schema is None:
-                fields = s3_default_fields()
-                query_parameters = None
-
+            model: BatchExportModel | BatchExportSchema | None = None
+            if inputs.batch_export_schema is None and "batch_export_model" in {
+                field.name for field in dataclasses.fields(inputs)
+            }:
+                model = inputs.batch_export_model
             else:
-                fields = inputs.batch_export_schema["fields"]
-                query_parameters = inputs.batch_export_schema["values"]
+                model = inputs.batch_export_schema
 
-            record_iterator = iter_records(
+            record_iterator = iter_model_records(
+                model=model,
                 client=client,
                 team_id=inputs.team_id,
                 interval_start=interval_start,
                 interval_end=inputs.data_interval_end,
                 exclude_events=inputs.exclude_events,
                 include_events=inputs.include_events,
-                fields=fields,
-                extra_query_parameters=query_parameters,
                 is_backfill=inputs.is_backfill,
+                destination_default_fields=s3_default_fields(),
             )
+
+            first_record_batch, record_iterator = await apeek_first_and_rewind(record_iterator)
+
+            records_completed = 0
+            if first_record_batch is None:
+                return records_completed
 
             async with s3_upload as s3_upload:
 
@@ -488,7 +496,6 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
 
                     heartbeater.details = (str(last_inserted_at), s3_upload.to_state())
 
-                first_record_batch, record_iterator = peek_first_and_rewind(record_iterator)
                 first_record_batch = cast_record_batch_json_columns(first_record_batch)
                 column_names = first_record_batch.column_names
                 column_names.pop(column_names.index("_inserted_at"))
@@ -513,14 +520,15 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
                     rows_exported = get_rows_exported_metric()
                     bytes_exported = get_bytes_exported_metric()
 
-                    for record_batch in record_iterator:
+                    async for record_batch in record_iterator:
                         record_batch = cast_record_batch_json_columns(record_batch)
 
                         await writer.write_record_batch(record_batch)
 
+                records_completed = writer.records_total
                 await s3_upload.complete()
 
-            return writer.records_total
+            return records_completed
 
 
 def get_batch_export_writer(
@@ -634,7 +642,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             include_events=inputs.include_events,
             is_backfill=inputs.is_backfill,
         )
-        run_id, records_total_count = await workflow.execute_activity(
+        run_id = await workflow.execute_activity(
             start_batch_export_run,
             start_batch_export_run_inputs,
             start_to_close_timeout=dt.timedelta(minutes=5),
@@ -653,20 +661,6 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             team_id=inputs.team_id,
         )
 
-        if records_total_count == 0:
-            await workflow.execute_activity(
-                finish_batch_export_run,
-                finish_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=5),
-                retry_policy=RetryPolicy(
-                    initial_interval=dt.timedelta(seconds=10),
-                    maximum_interval=dt.timedelta(seconds=60),
-                    maximum_attempts=0,
-                    non_retryable_error_types=["NotNullViolation", "IntegrityError"],
-                ),
-            )
-            return
-
         insert_inputs = S3InsertInputs(
             bucket_name=inputs.bucket_name,
             region=inputs.region,
@@ -682,10 +676,12 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             include_events=inputs.include_events,
             encryption=inputs.encryption,
             kms_key_id=inputs.kms_key_id,
-            batch_export_schema=inputs.batch_export_schema,
             file_format=inputs.file_format,
             run_id=run_id,
             is_backfill=inputs.is_backfill,
+            batch_export_model=inputs.batch_export_model,
+            # TODO: Remove after updating existing batch exports.
+            batch_export_schema=inputs.batch_export_schema,
         )
 
         await execute_batch_export_insert_activity(

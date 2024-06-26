@@ -1036,7 +1036,17 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         $entry_pathname: {
             label: 'Entry pathname',
             description: <span>The first pathname visited in this session</span>,
+            examples: ['/interesting-article?parameter=true'],
+        },
+        $end_current_url: {
+            label: 'Entry URL',
+            description: <span>The first URL visited in this session</span>,
             examples: ['https://example.com/interesting-article?parameter=true'],
+        },
+        $end_pathname: {
+            label: 'Entry pathname',
+            description: <span>The first pathname visited in this session</span>,
+            examples: ['/interesting-article?parameter=true'],
         },
         $exit_current_url: {
             label: 'Exit URL',
@@ -1058,6 +1068,11 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: <span>The number of autocapture events in this session</span>,
             examples: ['123'],
         },
+        $screen_count: {
+            label: 'Screen count',
+            description: <span>The number of screen events in this session</span>,
+            examples: ['123'],
+        },
         $channel_type: {
             label: 'Channel type',
             description: <span>What type of acquisition channel this traffic came from.</span>,
@@ -1073,6 +1088,22 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         $group_key: {
             label: 'Group Key',
             description: 'Specified group key',
+        },
+    },
+    replay: {
+        snapshot_source: {
+            label: 'Platform',
+            description: 'Platform the session was recorded on',
+            examples: ['web', 'mobile'],
+        },
+        console_log_level: {
+            label: 'Log level',
+            description: 'Level of console logs captured',
+            examples: ['info', 'warn', 'error'],
+        },
+        console_log_query: {
+            label: 'Console log',
+            description: 'Text of console logs captured',
         },
     },
 } satisfies Partial<Record<TaxonomicFilterGroupType, Record<string, CoreFilterDefinition>>>

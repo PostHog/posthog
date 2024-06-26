@@ -1,10 +1,10 @@
 import collections.abc
 import contextlib
 import csv
+import dataclasses
 import datetime as dt
 import json
 import typing
-from dataclasses import dataclass
 
 import psycopg
 import pyarrow as pa
@@ -16,6 +16,7 @@ from temporalio.common import RetryPolicy
 from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import (
     BatchExportField,
+    BatchExportModel,
     BatchExportSchema,
     PostgresBatchExportInputs,
 )
@@ -26,9 +27,8 @@ from posthog.temporal.batch_exports.batch_exports import (
     StartBatchExportRunInputs,
     default_fields,
     execute_batch_export_insert_activity,
-    finish_batch_export_run,
     get_data_interval,
-    iter_records,
+    iter_model_records,
     start_batch_export_run,
 )
 from posthog.temporal.batch_exports.metrics import (
@@ -38,7 +38,7 @@ from posthog.temporal.batch_exports.metrics import (
 from posthog.temporal.batch_exports.temporary_file import (
     BatchExportTemporaryFile,
 )
-from posthog.temporal.batch_exports.utils import peek_first_and_rewind, try_set_batch_export_run_to_running
+from posthog.temporal.batch_exports.utils import apeek_first_and_rewind, try_set_batch_export_run_to_running
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import bind_temporal_worker_logger
@@ -160,7 +160,7 @@ def postgres_default_fields() -> list[BatchExportField]:
     )
     # Fields kept or removed for backwards compatibility with legacy apps schema.
     batch_export_fields.append({"expression": "toJSONString(elements_chain)", "alias": "elements"})
-    batch_export_fields.append({"expression": "nullIf('', '')", "alias": "site_url"})
+    batch_export_fields.append({"expression": "Null::Nullable(String)", "alias": "site_url"})
     batch_export_fields.pop(batch_export_fields.index({"expression": "created_at", "alias": "created_at"}))
     # Team ID is (for historical reasons) an INTEGER (4 bytes) in PostgreSQL, but in ClickHouse is stored as Int64.
     # We can't encode it as an Int64, as this includes 4 extra bytes, and PostgreSQL will reject the data with a
@@ -221,7 +221,7 @@ def get_postgres_fields_from_record_schema(
     return pg_schema
 
 
-@dataclass
+@dataclasses.dataclass
 class PostgresInsertInputs:
     """Inputs for Postgres insert activity."""
 
@@ -238,9 +238,10 @@ class PostgresInsertInputs:
     port: int = 5432
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
-    batch_export_schema: BatchExportSchema | None = None
     run_id: str | None = None
     is_backfill: bool = False
+    batch_export_model: BatchExportModel | None = None
+    batch_export_schema: BatchExportSchema | None = None
 
 
 @activity.defn
@@ -263,25 +264,28 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
             if not await client.is_alive():
                 raise ConnectionError("Cannot establish connection to ClickHouse")
 
-            if inputs.batch_export_schema is None:
-                fields = postgres_default_fields()
-                query_parameters = None
-
+            model: BatchExportModel | BatchExportSchema | None = None
+            if inputs.batch_export_schema is None and "batch_export_model" in {
+                field.name for field in dataclasses.fields(inputs)
+            }:
+                model = inputs.batch_export_model
             else:
-                fields = inputs.batch_export_schema["fields"]
-                query_parameters = inputs.batch_export_schema["values"]
+                model = inputs.batch_export_schema
 
-            record_iterator = iter_records(
+            record_iterator = iter_model_records(
                 client=client,
+                model=model,
                 team_id=inputs.team_id,
                 interval_start=inputs.data_interval_start,
                 interval_end=inputs.data_interval_end,
                 exclude_events=inputs.exclude_events,
                 include_events=inputs.include_events,
-                fields=fields,
-                extra_query_parameters=query_parameters,
+                destination_default_fields=postgres_default_fields(),
                 is_backfill=inputs.is_backfill,
             )
+            first_record_batch, record_iterator = await apeek_first_and_rewind(record_iterator)
+            if first_record_batch is None:
+                return 0
 
             if inputs.batch_export_schema is None:
                 table_fields = [
@@ -299,10 +303,8 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
                 ]
 
             else:
-                first_record, record_iterator = peek_first_and_rewind(record_iterator)
-
-                column_names = [column for column in first_record.schema.names if column != "_inserted_at"]
-                record_schema = first_record.select(column_names).schema
+                column_names = [column for column in first_record_batch.schema.names if column != "_inserted_at"]
+                record_schema = first_record_batch.select(column_names).schema
                 table_fields = get_postgres_fields_from_record_schema(
                     record_schema, known_json_columns=["properties", "set", "set_once", "person_properties"]
                 )
@@ -339,7 +341,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
                         rows_exported.add(pg_file.records_since_last_reset)
                         bytes_exported.add(pg_file.bytes_since_last_reset)
 
-                    for record_batch in record_iterator:
+                    async for record_batch in record_iterator:
                         for result in record_batch.select(schema_columns).to_pylist():
                             row = result
 
@@ -390,7 +392,7 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
             include_events=inputs.include_events,
             is_backfill=inputs.is_backfill,
         )
-        run_id, records_total_count = await workflow.execute_activity(
+        run_id = await workflow.execute_activity(
             start_batch_export_run,
             start_batch_export_run_inputs,
             start_to_close_timeout=dt.timedelta(minutes=5),
@@ -409,20 +411,6 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
             team_id=inputs.team_id,
         )
 
-        if records_total_count == 0:
-            await workflow.execute_activity(
-                finish_batch_export_run,
-                finish_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=5),
-                retry_policy=RetryPolicy(
-                    initial_interval=dt.timedelta(seconds=10),
-                    maximum_interval=dt.timedelta(seconds=60),
-                    maximum_attempts=0,
-                    non_retryable_error_types=["NotNullViolation", "IntegrityError"],
-                ),
-            )
-            return
-
         insert_inputs = PostgresInsertInputs(
             team_id=inputs.team_id,
             user=inputs.user,
@@ -437,8 +425,9 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
             data_interval_end=data_interval_end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
-            batch_export_schema=inputs.batch_export_schema,
             run_id=run_id,
+            batch_export_model=inputs.batch_export_model,
+            batch_export_schema=inputs.batch_export_schema,
         )
 
         await execute_batch_export_insert_activity(

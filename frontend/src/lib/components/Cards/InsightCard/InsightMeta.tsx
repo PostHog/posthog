@@ -15,15 +15,13 @@ import { Splotch, SplotchColor } from 'lib/lemon-ui/Splotch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter } from 'lib/utils'
 import React from 'react'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { summarizeInsight } from 'scenes/insights/summarizeInsight'
-import { mathsLogic } from 'scenes/trends/mathsLogic'
+import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { urls } from 'scenes/urls'
 
-import { cohortsModel } from '~/models/cohortsModel'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { groupsModel } from '~/models/groupsModel'
 import { ExporterFormat, InsightColor, QueryBasedInsightModel } from '~/types'
 
 import { InsightCardProps } from './InsightCard'
@@ -70,21 +68,15 @@ export function InsightMeta({
     moreButtons,
 }: InsightMetaProps): JSX.Element {
     const { short_id, name, dashboards } = insight
-    const { exporterResourceParams, insightProps } = useValues(insightLogic)
+    const { insightProps } = useValues(insightLogic)
+    const { exportContext } = useValues(insightDataLogic(insightProps))
     const { samplingFactor } = useValues(insightVizDataLogic(insightProps))
-    const { aggregationLabel } = useValues(groupsModel)
-    const { cohortsById } = useValues(cohortsModel)
     const { nameSortedDashboards } = useValues(dashboardsModel)
-    const { mathDefinitions } = useValues(mathsLogic)
 
     const otherDashboards = nameSortedDashboards.filter((d) => !dashboards?.includes(d.id))
     const editable = insight.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit
 
-    const summary = summarizeInsight(insight.query, null, {
-        aggregationLabel,
-        cohortsById,
-        mathDefinitions,
-    })
+    const summary = useSummarizeInsight()(insight.query)
 
     return (
         <CardMeta
@@ -218,7 +210,7 @@ export function InsightMeta({
                     >
                         Duplicate
                     </LemonButton>
-                    {exporterResourceParams ? (
+                    {exportContext ? (
                         <>
                             <LemonDivider />
                             <ExportButton
@@ -231,11 +223,11 @@ export function InsightMeta({
                                     },
                                     {
                                         export_format: ExporterFormat.CSV,
-                                        export_context: exporterResourceParams,
+                                        export_context: exportContext,
                                     },
                                     {
                                         export_format: ExporterFormat.XLSX,
-                                        export_context: exporterResourceParams,
+                                        export_context: exportContext,
                                     },
                                 ]}
                             />

@@ -3,7 +3,7 @@ from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
 from posthog.schema import DashboardFilter, NodeKind
 
-WRAPPER_NODE_KINDS = [NodeKind.DataTableNode, NodeKind.DataVisualizationNode, NodeKind.InsightVizNode]
+WRAPPER_NODE_KINDS = [NodeKind.DATA_TABLE_NODE, NodeKind.DATA_VISUALIZATION_NODE, NodeKind.INSIGHT_VIZ_NODE]
 
 
 # Apply the filters from the django-style Dashboard object

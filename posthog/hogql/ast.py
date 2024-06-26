@@ -47,7 +47,7 @@ class Statement(Declaration):
 
 @dataclass(kw_only=True)
 class ExprStatement(Statement):
-    expr: Expr
+    expr: Optional[Expr]
 
 
 @dataclass(kw_only=True)
@@ -65,6 +65,14 @@ class IfStatement(Statement):
 @dataclass(kw_only=True)
 class WhileStatement(Statement):
     expr: Expr
+    body: Statement
+
+
+@dataclass(kw_only=True)
+class ForStatement(Statement):
+    initializer: Optional[VariableDeclaration | VariableAssignment | Expr]
+    condition: Optional[Expr]
+    increment: Optional[Expr]
     body: Statement
 
 
@@ -386,7 +394,7 @@ class UUIDType(ConstantType):
 @dataclass(kw_only=True)
 class ArrayType(ConstantType):
     data_type: ConstantDataType = field(default="array", init=False)
-    item_type: ConstantType = UnknownType()
+    item_type: ConstantType = field(default_factory=UnknownType)
 
     def print_type(self) -> str:
         return "Array"
@@ -717,6 +725,7 @@ class WindowExpr(Expr):
 class WindowFunction(Expr):
     name: str
     args: Optional[list[Expr]] = None
+    exprs: Optional[list[Expr]] = None
     over_expr: Optional[WindowExpr] = None
     over_identifier: Optional[str] = None
 
