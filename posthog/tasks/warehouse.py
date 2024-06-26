@@ -46,7 +46,18 @@ def check_synced_row_limits_of_team(team_id: int) -> None:
         QuotaResource.ROWS_SYNCED, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
     )
 
-    if team_id in limited_teams_rows_synced:
+    # TODO: Remove once billing logic is fully through
+    start_of_month = datetime.datetime.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    rows_synced_list = [
+        x
+        for x in ExternalDataJob.objects.filter(team_id=team_id, created_at__gte=start_of_month).values_list(
+            "rows_synced", flat=True
+        )
+        if x
+    ]
+    total_rows_synced = sum(rows_synced_list)
+
+    if team_id in limited_teams_rows_synced or total_rows_synced < MONTHLY_LIMIT:
         running_jobs = ExternalDataJob.objects.filter(team_id=team_id, status=ExternalDataJob.Status.RUNNING)
         for job in running_jobs:
             try:
