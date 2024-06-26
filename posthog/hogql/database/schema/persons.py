@@ -190,9 +190,8 @@ class PersonsTable(LazyTable):
         return (
             isinstance(expr, CompareOperation)
             and expr.op == CompareOperationOp.In
-            and isinstance(expr.left, Alias)
-            and isinstance(expr.left.expr, Field)
-            and expr.left.expr.chain == [alias or "persons", "id"]
+            and isinstance(expr.left, Field)
+            and expr.left.chain == [alias or "persons", "id"]
         )
 
     @staticmethod
@@ -227,8 +226,11 @@ class PersonsTable(LazyTable):
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context, node):
         if self.filter is not None:
-            return select_from_persons_table(table_to_add, context, node, filter=clone_expr(self.filter, True, True))
+            return select_from_persons_table(table_to_add, context, node, filter=clone_expr(self.filter, True))
         return select_from_persons_table(table_to_add, context, node)
+
+    def property_swap(self, select_query: SelectQuery, context: HogQLContext):
+        return context.property_swapper.visit(select_query)
 
     def to_printed_clickhouse(self, context):
         return "person"

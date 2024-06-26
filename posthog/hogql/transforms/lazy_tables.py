@@ -19,9 +19,8 @@ def resolve_lazy_tables(
     dialect: Literal["hogql", "clickhouse"],
     stack: Optional[list[ast.SelectQuery]],
     context: HogQLContext,
-    property_swapper: PropertySwapper,
 ):
-    LazyTableResolver(stack=stack, context=context, dialect=dialect, property_swapper=property_swapper).visit(node)
+    LazyTableResolver(stack=stack, context=context, dialect=dialect).visit(node)
 
 
 @dataclasses.dataclass
@@ -73,13 +72,11 @@ class LazyTableResolver(TraversingVisitor):
         dialect: Literal["hogql", "clickhouse"],
         stack: Optional[list[ast.SelectQuery]],
         context: HogQLContext,
-        property_swapper: PropertySwapper,
     ):
         super().__init__()
         self.field_collectors: list[list[ast.FieldType | ast.PropertyType]] = [[]] if stack else []
         self.context = context
         self.dialect: Literal["hogql", "clickhouse"] = dialect
-        self.property_swapper = property_swapper
 
     def visit_property_type(self, node: ast.PropertyType):
         if node.joined_subquery is not None:
@@ -121,7 +118,7 @@ class LazyTableResolver(TraversingVisitor):
         assert node.type is not None
         assert select_type is not None
 
-        # Collect each `ast.Field` with `ast.LazyJoinType`#$#
+        # Collect each `ast.Field` with `ast.LazyJoinType`
         field_collector: list[ast.FieldType | ast.PropertyType] = []
         self.field_collectors.append(field_collector)
 
@@ -313,21 +310,10 @@ class LazyTableResolver(TraversingVisitor):
 
         # For all the collected tables, create the subqueries, and add them to the table.
         for table_name, table_to_add in tables_to_add.items():
-            if isinstance(table_to_add.lazy_table, PersonsTable):
-                # find join
-                join = node.select_from
-                while True:
-                    if join is None or (
-                        isinstance(join.table.type, LazyTableType) and isinstance(join.table.type.table, PersonsTable)
-                    ):
-                        break
-                    join = join.next_join
-                if join is not None:
-                    table_to_add.lazy_table = table_to_add.lazy_table.create_new_table_with_filter(join)
             subquery = table_to_add.lazy_table.lazy_select(table_to_add, self.context, node=node)
             subquery = cast(ast.SelectQuery, clone_expr(subquery, clear_locations=True))
             subquery = cast(ast.SelectQuery, resolve_types(subquery, self.context, self.dialect, [node.type]))
-            # subquery = self.property_swapper.visit(subquery)
+            subquery = table_to_add.lazy_table.property_swap(subquery, self.context)
             old_table_type = select_type.tables[table_name]
             select_type.tables[table_name] = ast.SelectQueryAliasType(alias=table_name, select_query_type=subquery.type)
 

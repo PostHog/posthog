@@ -174,6 +174,12 @@ class LazyTable(Table):
     ) -> Any:
         raise NotImplementedError("LazyTable.lazy_select not overridden")
 
+    def property_swap(
+        self,
+        context: "HogQLContext",
+    ) -> Any:
+        pass
+
 
 @dataclass
 class LazyTableToAdd:

@@ -320,9 +320,9 @@ class Resolver(CloningVisitor):
                 return node
 
             if isinstance(database_table, LazyTable):
-                #if isinstance(database_table, PersonsTable):
-                #    # Check for inlineable exprs in the join on the persons table
-                #    database_table = database_table.create_new_table_with_filter(node)
+                if isinstance(database_table, PersonsTable):
+                    # Check for inlineable exprs in the join on the persons table
+                    database_table = database_table.create_new_table_with_filter(node)
                 node_table_type = ast.LazyTableType(table=database_table)
 
             else:
