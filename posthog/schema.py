@@ -1241,6 +1241,7 @@ class WebStatsBreakdown(str, Enum):
     INITIAL_UTM_MEDIUM = "InitialUTMMedium"
     INITIAL_UTM_TERM = "InitialUTMTerm"
     INITIAL_UTM_CONTENT = "InitialUTMContent"
+    INITIAL_UTM_SOURCE_MEDIUM_CAMPAIGN = "InitialUTMSourceMediumCampaign"
     BROWSER = "Browser"
     OS = "OS"
     DEVICE_TYPE = "DeviceType"
