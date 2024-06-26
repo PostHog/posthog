@@ -83,7 +83,7 @@ RUN corepack enable && \
 #
 # ---------------------------------------------------------
 #
-FROM python:3.11.9-slim-bookworm AS posthog-build
+FROM python:3.11.9-slim-bullseye AS posthog-build
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
@@ -99,10 +99,11 @@ RUN apt-get update && \
     "libxmlsec1" \
     "libxmlsec1-dev" \
     "libffi-dev" \
+    "zlib1g-dev" \
     "pkg-config" \
     && \
     rm -rf /var/lib/apt/lists/* && \
-    pip install -r requirements.txt --compile --no-cache-dir --target=/python-runtime
+    PIP_NO_BINARY=lxml,xmlsec pip install -r requirements.txt --compile --no-cache-dir --target=/python-runtime
 
 ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/python-runtime
