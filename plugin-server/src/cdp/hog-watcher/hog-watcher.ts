@@ -28,46 +28,6 @@ import {
     runRedis,
 } from './utils'
 
-/**
- * General approach:
- *
- * We want to detect when a function has gone rogue and gradually stop it from running.
- * We calculate its "rating" based on how many times it has succeeded and failed.
- *
- * If the rating falls too low, over a period of time we want to move it to the overflow queue as a first step to ensure it doesn't hog resources.
- * If it stays too low, we eventually want to disable it for a period of time.
- *
- * If it _still_ behaves poorly after this time period, we want to disable it indefinitely.
- * This can be represented as a state for the function - 1. Healthy, 2. Overflowed, 3. Disabled for a period, 4. Disabled indefinitely.
- *
- * To be able to do this right we need to store an array of values for the functions rating over time that represent the last say 10 minutes.
- * In addition we need to record the last N states of the function so that we can decide to disable it indefinitely if it has spent too much time in state 3
- * State 1:
- *   - If the rating average over the time period is below 0.5, move to state 2.
- * State 2:
- *   - If the rating average over the time period is above 0.5, move to state 1.
- *   - If the rating average over the time period is below 0.5 AND the function was in state 3 for more than N of the last states, move to state 4.
- *   - If the rating average over the time period is below 0.5, move to state 3.
- *
- * State 3:
- *   - The function is disabled for a period of time (perhaps the same as the measuring period).
- *   - Once it is out of this masked period, move to state 2.
- * State 4:
- *   - The function is disabled and requires manual intervention
- */
-
-/**
- * # How this whole thing works
- *
- * The HogWatcher is a class that is responsible for monitoring the health of the hog functions.
- * Generally we want to make "observations" about the health of a function and then based on those observations we can determine the "state" of the function.
- * Observations are made per-consumer and then aggregated by the leader to determine the state of the function.
- *
- * Each Watcher only needs to worry about the current state of any functions it is processing. The observations are only really interesting to the leader, as it
- * is the one that will be making the decisions about the state of the function.
- *
- */
-
 export class HogWatcherActiveObservations {
     observations: Record<HogFunctionType['id'], HogWatcherObservationPeriod> = {}
 

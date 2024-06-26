@@ -25,6 +25,9 @@ export const calculateRating = (observation: HogWatcherObservationPeriod): numbe
     // 1 - Function is working perfectly
     // 0 - Function is not working at all
 
+    // NOTE: Once we have proper async function support we should likely change the rating system to penalize slow requests more
+    // Also the function timing out should be penalized heavily as it indicates bad code (infinite loops etc.)
+
     const totalInvocations = observation.successes + observation.failures
     const totalAsyncInvocations = observation.asyncFunctionSuccesses + observation.asyncFunctionFailures
     const successRate = totalInvocations ? observation.successes / totalInvocations : 1
@@ -38,6 +41,9 @@ export const periodTimestamp = (timestamp?: number): number => {
     return Math.floor((timestamp ?? now()) / OBSERVATION_PERIOD) * OBSERVATION_PERIOD
 }
 
+/**
+ * Calculate what the state should be based on the previous rating and states
+ */
 export const deriveCurrentStateFromRatings = (
     ratings: HogWatcherRatingPeriod[],
     states: HogWatcherStatePeriod[]
@@ -94,28 +100,6 @@ export const deriveCurrentStateFromRatings = (
     }
 
     return currentState.state
-}
-
-export const mergeObservations = (observations: HogWatcherObservationPeriod[]): HogWatcherObservationPeriod[] => {
-    const merged: Record<number, HogWatcherObservationPeriod> = {}
-
-    observations.forEach((observation) => {
-        const period = periodTimestamp(observation.timestamp)
-        merged[period] = merged[period] ?? {
-            timestamp: period,
-            successes: 0,
-            failures: 0,
-            asyncFunctionFailures: 0,
-            asyncFunctionSuccesses: 0,
-        }
-
-        merged[period].successes += observation.successes
-        merged[period].failures += observation.failures
-        merged[period].asyncFunctionFailures += observation.asyncFunctionFailures
-        merged[period].asyncFunctionSuccesses += observation.asyncFunctionSuccesses
-    })
-
-    return Object.values(merged).sort((a, b) => a.timestamp - b.timestamp)
 }
 
 export async function runRedis<T>(
