@@ -1,5 +1,6 @@
 from functools import cached_property, lru_cache
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
+from uuid import UUID
 
 from django.db.models.query import QuerySet
 from rest_framework.exceptions import AuthenticationFailed, NotFound, ValidationError
@@ -222,7 +223,8 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         # NOTE: We check the property first as it avoids any potential DB lookups via the parents_query_dict
         return self.param_derived_from_user_current_team == "team_id" or "team_id" in self.parents_query_dict
 
-    def _is_team_view(self):
+    @property
+    def _is_project_view(self):
         # NOTE: We check the property first as it avoids any potential DB lookups via the parents_query_dict
         return self.param_derived_from_user_current_team == "project_id" or "project_id" in self.parents_query_dict
 
@@ -286,6 +288,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             return self.parents_query_dict["organization_id"]
         except KeyError:
             user = cast(User, self.request.user)
+            current_organization_id: Optional[UUID]
             if self._is_team_view:
                 # TODO: self.team.project.organization_id when project environments are rolled out
                 current_organization_id = self.team.organization_id

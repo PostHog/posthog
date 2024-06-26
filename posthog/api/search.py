@@ -10,7 +10,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.models import Action, Cohort, Insight, Dashboard, FeatureFlag, Experiment, Team, EventDefinition, Survey
+from posthog.models import Action, Cohort, Insight, Dashboard, FeatureFlag, Experiment, EventDefinition, Survey
 from posthog.models.notebook.notebook import Notebook
 
 LIMIT = 25
@@ -101,7 +101,7 @@ class SearchViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         for entity_meta in [ENTITY_MAP[entity] for entity in entities]:
             klass_qs, entity_name = class_queryset(
                 klass=entity_meta.get("klass"),
-                team__project_id=self.project_id,
+                project_id=self.project_id,
                 query=query,
                 search_fields=entity_meta.get("search_fields"),
                 extra_fields=entity_meta.get("extra_fields"),
@@ -135,7 +135,7 @@ def process_query(query: str):
 
 def class_queryset(
     klass: type[Model],
-    team: Team,
+    project_id: int,
     query: str | None,
     search_fields: dict[str, str],
     extra_fields: dict | None,
@@ -144,7 +144,7 @@ def class_queryset(
     entity_type = class_to_entity_name(klass)
     values = ["type", "result_id", "extra_fields"]
 
-    qs: QuerySet[Any] = klass.objects.filter(team=team)  # filter team
+    qs: QuerySet[Any] = klass.objects.filter(team__project_id=project_id)  # filter team
     # :TRICKY: can't use an annotation here as `type` conflicts with a field on some models
     qs = qs.extra(select={"type": f"'{entity_type}'"})  # entity type
 
