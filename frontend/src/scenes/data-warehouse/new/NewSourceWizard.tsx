@@ -42,11 +42,16 @@ export function NewSourceWizardScene(): JSX.Element {
     )
 }
 
-export function NewSourcesWizard(): JSX.Element {
-    const { modalTitle, modalCaption } = useValues(sourceWizardLogic)
-    const { onBack, onSubmit } = useActions(sourceWizardLogic)
-    const { currentStep, isLoading, canGoBack, canGoNext, nextButtonText, showSkipButton } =
-        useValues(sourceWizardLogic)
+interface NewSourcesWizardProps {
+    onComplete?: () => void
+}
+
+export function NewSourcesWizard({ onComplete }: NewSourcesWizardProps): JSX.Element {
+    const wizardLogic = sourceWizardLogic({ onComplete })
+
+    const { modalTitle, modalCaption } = useValues(wizardLogic)
+    const { onBack, onSubmit } = useActions(wizardLogic)
+    const { currentStep, isLoading, canGoBack, canGoNext, nextButtonText, showSkipButton } = useValues(wizardLogic)
     const { tableLoading: manualLinkIsLoading } = useValues(dataWarehouseTableLogic)
 
     const footer = useCallback(() => {

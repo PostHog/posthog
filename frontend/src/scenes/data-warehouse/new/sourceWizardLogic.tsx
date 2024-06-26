@@ -1,5 +1,5 @@
 import { lemonToast, Link } from '@posthog/lemon-ui'
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
@@ -337,8 +337,13 @@ const manualLinkSourceMap: Record<ManualLinkSourceType, string> = {
     'cloudflare-r2': 'Cloudflare R2',
 }
 
+interface SourceWizardLogicProps {
+    onComplete?: () => void
+}
+
 export const sourceWizardLogic = kea<sourceWizardLogicType>([
     path(['scenes', 'data-warehouse', 'external', 'sourceWizardLogic']),
+    props({} as SourceWizardLogicProps),
     actions({
         selectConnector: (connector: SourceConfig | null) => ({ connector }),
         toggleManualLinkFormVisible: (visible: boolean) => ({ visible }),
@@ -492,7 +497,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
         ],
     }),
-    selectors({
+    selectors(({ props }) => ({
         isManualLinkingSelected: [(s) => [s.selectedConnector], (selectedConnector): boolean => !selectedConnector],
         canGoBack: [
             (s) => [s.currentStep],
@@ -536,6 +541,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 }
 
                 if (currentStep === 4) {
+                    if (props.onComplete) {
+                        return 'Next'
+                    }
                     return 'Return to settings'
                 }
 
@@ -640,8 +648,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 return ''
             },
         ],
-    }),
-    listeners(({ actions, values }) => ({
+    })),
+    listeners(({ actions, values, props }) => ({
         onBack: () => {
             if (values.currentStep <= 1) {
                 actions.onClear()
@@ -685,7 +693,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             }
 
             if (values.currentStep === 4) {
-                actions.closeWizard()
+                if (props.onComplete) {
+                    props.onComplete()
+                } else {
+                    actions.closeWizard()
+                }
             }
         },
         createTableSuccess: () => {
