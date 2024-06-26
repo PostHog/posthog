@@ -251,9 +251,7 @@ export function DashboardsTable({
                 columns={columns}
                 loading={dashboardsLoading}
                 defaultSorting={tableSorting}
-                onSort={(newSorting) => {
-                    tableSortingChanged(newSorting)
-                }}
+                onSort={tableSortingChanged}
                 emptyState="No dashboards matching your filters!"
                 nouns={['dashboard', 'dashboards']}
             />
