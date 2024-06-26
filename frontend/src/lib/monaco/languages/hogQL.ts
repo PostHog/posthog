@@ -181,7 +181,6 @@ export const language: languages.IMonarchLanguage = {
         'arrayPushBack',
         'arrayPushFront',
         'arrayResize',
-        'arrayReduce',
         'arraySlice',
         'arraySort',
         'arrayReverseSort',

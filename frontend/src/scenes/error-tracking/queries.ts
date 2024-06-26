@@ -21,7 +21,7 @@ export const errorTrackingQuery = ({
             select: [
                 'any(properties) -- Error',
                 'properties.$exception_type',
-                'sparkline(arrayMap(number -> countEqual(groupArray(toHour(timestamp)), number), range(24)))',
+                'sparkline(arrayMap(number -> countEqual(groupArray(toHour(timestamp)), number), range(24))) -- Volume',
                 'count() as unique_occurrences -- Occurrences',
                 'count(distinct $session_id) as unique_sessions -- Sessions',
                 'count(distinct distinct_id) as unique_users -- Users',
@@ -112,7 +112,7 @@ const defaultProperties = ({
     const properties = filterGroup.values as AnyPropertyFilter[]
 
     return {
-        event: '$pageview',
+        event: '$exception',
         after: dateRange.date_from || undefined,
         before: dateRange.date_to || undefined,
         filterTestAccounts,

@@ -325,9 +325,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "arrayDistinct": HogQLFunctionMeta("arrayDistinct", 1, 1),
     "arrayEnumerateDense": HogQLFunctionMeta("arrayEnumerateDense", 1, 1),
     "arrayIntersect": HogQLFunctionMeta("arrayIntersect", 1, None),
-    "arrayReduce": HogQLFunctionMeta(
-        "arrayReduce", 2, None
-    ),  # takes a "parametric function" as first arg, is that safe?
+    # "arrayReduce": HogQLFunctionMeta("arrayReduce", 2,None),  # takes a "parametric function" as first arg, is that safe?
     # "arrayReduceInRanges": HogQLFunctionMeta("arrayReduceInRanges", 3,None),  # takes a "parametric function" as first arg, is that safe?
     "arrayReverse": HogQLFunctionMeta("arrayReverse", 1, 1),
     "arrayFilter": HogQLFunctionMeta("arrayFilter", 2, None),
