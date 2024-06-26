@@ -2,8 +2,7 @@ import { test, expect } from '@playwright/test'
 import { urls } from 'scenes/urls'
 
 test('test', async ({ page }) => {
-    // urls.insightNew()
-    // await page.goto('http://localhost:8080/login?next=/')
+    await page.goto(urls.projectHomepage())
     // await page.getByPlaceholder('email@yourcompany.com').click()
     // await page.getByPlaceholder('email@yourcompany.com').fill('test@posthog.com')
     // await page.getByRole('button', { name: 'Log in' }).click()
