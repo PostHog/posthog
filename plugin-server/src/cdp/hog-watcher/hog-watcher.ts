@@ -214,7 +214,9 @@ export class HogWatcher {
         if (this.isLeader) {
             await this.syncState()
         } else {
+            // Clear any states that are only relevant to the leader
             this.globalState = undefined
+            this.queuedManualStates = {}
         }
     }
 
