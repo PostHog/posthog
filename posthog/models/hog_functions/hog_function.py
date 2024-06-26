@@ -23,6 +23,7 @@ DEFAULT_STATE = {
 
 
 class HogFunctionState(enum.Enum):
+    UNKNOWN = 0
     HEALTHY = 1
     OVERFLOWED = 2
     DISABLED_TEMPORARILY = 3
