@@ -11,9 +11,7 @@ import {
     TaxonomicFilterLogicProps,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCohort } from 'lib/lemon-ui/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
 import { capitalizeFirstLetter, pluralize, toParams } from 'lib/utils'
 import { getEventDefinitionIcon, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
@@ -22,6 +20,7 @@ import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/external/dataWare
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
+import { ReplayTaxonomicFilters } from 'scenes/session-recordings/filters/ReplayTaxonomicFilters'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { actionsModel } from '~/models/actionsModel'
@@ -167,7 +166,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.metadataSource,
                 s.excludedProperties,
                 s.propertyAllowList,
-                featureFlagLogic.selectors.featureFlags,
             ],
             (
                 teamId,
@@ -177,8 +175,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 schemaColumns,
                 metadataSource,
                 excludedProperties,
-                propertyAllowList,
-                featureFlags
+                propertyAllowList
             ): TaxonomicFilterGroup[] => {
                 const groups: TaxonomicFilterGroup[] = [
                     {
@@ -213,7 +210,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         searchPlaceholder: 'data warehouse table name',
                         type: TaxonomicFilterGroupType.DataWarehouse,
                         logic: dataWarehouseSceneLogic,
-                        value: 'dataWarehouseTables',
+                        value: 'dataWarehouseTablesAndViews',
                         getName: (table: DatabaseSchemaTable) => table.name,
                         getValue: (table: DatabaseSchemaTable) => table.name,
                         getPopoverHeader: () => 'Data Warehouse Table',
@@ -230,14 +227,14 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getIcon: () => <IconServer />,
                     },
                     {
-                        name: 'Data Warehouse Person Properties',
-                        searchPlaceholder: 'person properties from data warehouse tables',
+                        name: 'Extended Person Properties',
+                        searchPlaceholder: 'person properties from tables joined on persons',
                         type: TaxonomicFilterGroupType.DataWarehousePersonProperties,
                         logic: dataWarehouseJoinsLogic,
                         value: 'columnsJoinedToPersons',
                         getName: (personProperty: PersonProperty) => personProperty.name,
                         getValue: (personProperty: PersonProperty) => personProperty.id,
-                        getPopoverHeader: () => 'Data Warehouse Person Property',
+                        getPopoverHeader: () => 'Extended Person Property',
                     },
                     {
                         name: 'Autocapture elements',
@@ -480,22 +477,11 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         name: 'Session properties',
                         searchPlaceholder: 'sessions',
                         type: TaxonomicFilterGroupType.SessionProperties,
-                        options: featureFlags[FEATURE_FLAGS.SESSION_TABLE_PROPERTY_FILTERS]
-                            ? undefined
-                            : [
-                                  {
-                                      id: '$session_duration',
-                                      name: '$session_duration',
-                                      property_type: 'Duration',
-                                      is_numerical: true,
-                                  },
-                              ],
+                        options: undefined,
                         getName: (option: any) => option.name,
                         getValue: (option) => option.name,
                         getPopoverHeader: () => 'Session',
-                        endpoint: featureFlags[FEATURE_FLAGS.SESSION_TABLE_PROPERTY_FILTERS]
-                            ? `api/projects/${teamId}/sessions/property_definitions`
-                            : undefined,
+                        endpoint: `api/projects/${teamId}/sessions/property_definitions`,
                         getIcon: getPropertyDefinitionIcon,
                     },
                     {
@@ -505,6 +491,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         render: InlineHogQLEditor,
                         getPopoverHeader: () => 'HogQL',
                         componentProps: { metadataSource },
+                    },
+                    {
+                        name: 'Replay',
+                        searchPlaceholder: 'Replay',
+                        type: TaxonomicFilterGroupType.Replay,
+                        render: ReplayTaxonomicFilters,
+                        getPopoverHeader: () => 'Replay',
                     },
                     ...groupAnalyticsTaxonomicGroups,
                     ...groupAnalyticsTaxonomicGroupNames,

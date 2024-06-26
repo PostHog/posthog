@@ -938,8 +938,7 @@
          "posthog_organization"."billing_access_level",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist",
-         "posthog_organization"."available_features"
+         "posthog_organization"."domain_whitelist"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21
@@ -1054,8 +1053,7 @@
          "posthog_organization"."billing_access_level",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist",
-         "posthog_organization"."available_features"
+         "posthog_organization"."domain_whitelist"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE "posthog_organizationmembership"."user_id" = 2
@@ -1181,8 +1179,7 @@
          "posthog_organization"."billing_access_level",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist",
-         "posthog_organization"."available_features"
+         "posthog_organization"."domain_whitelist"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE "posthog_organizationmembership"."user_id" = 2
@@ -1208,8 +1205,7 @@
          "posthog_organization"."billing_access_level",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist",
-         "posthog_organization"."available_features"
+         "posthog_organization"."domain_whitelist"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21
@@ -1220,8 +1216,6 @@
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboarditem"
   WHERE (NOT ("posthog_dashboarditem"."deleted")
-         AND NOT ("posthog_dashboarditem"."filters" = '{}'::jsonb
-                  AND "posthog_dashboarditem"."query" IS NOT NULL)
          AND "posthog_dashboarditem"."team_id" = 2)
   '''
 # ---
@@ -1367,8 +1361,6 @@
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboarditem"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_user" T4 ON ("posthog_dashboarditem"."last_modified_by_id" = T4."id")
   WHERE (NOT ("posthog_dashboarditem"."deleted")
-         AND NOT ("posthog_dashboarditem"."filters" = '{}'::jsonb
-                  AND "posthog_dashboarditem"."query" IS NOT NULL)
          AND "posthog_dashboarditem"."team_id" = 2)
   ORDER BY "posthog_dashboarditem"."order" ASC
   LIMIT 100
@@ -1466,8 +1458,7 @@
          "posthog_organization"."billing_access_level",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist",
-         "posthog_organization"."available_features"
+         "posthog_organization"."domain_whitelist"
   FROM "posthog_dashboard"
   INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboard"."id" = "posthog_dashboardtile"."dashboard_id")
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
@@ -1582,8 +1573,7 @@
          "posthog_organization"."billing_access_level",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist",
-         "posthog_organization"."available_features"
+         "posthog_organization"."domain_whitelist"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
@@ -1638,6 +1628,24 @@
   WHERE (NOT ("posthog_dashboard"."deleted")
          AND "posthog_dashboard"."id" = 2)
   LIMIT 21
+  '''
+# ---
+# name: TestInsight.test_listing_insights_does_not_nplus1.30
+  '''
+  SELECT "posthog_taggeditem"."id",
+         "posthog_taggeditem"."tag_id",
+         "posthog_taggeditem"."dashboard_id",
+         "posthog_taggeditem"."insight_id",
+         "posthog_taggeditem"."event_definition_id",
+         "posthog_taggeditem"."property_definition_id",
+         "posthog_taggeditem"."action_id",
+         "posthog_taggeditem"."feature_flag_id"
+  FROM "posthog_taggeditem"
+  WHERE "posthog_taggeditem"."insight_id" IN (1,
+                                              2,
+                                              3,
+                                              4,
+                                              5 /* ... */)
   '''
 # ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.4

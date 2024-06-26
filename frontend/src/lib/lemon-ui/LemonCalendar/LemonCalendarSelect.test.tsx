@@ -173,12 +173,12 @@ describe('LemonCalendarSelect', () => {
         // click on an earlier hour
         await clickOnTime({ unit: 'a', value: 'am' })
         // does not update the date because it is in the past
-        expect(onChange).lastCalledWith(dayjs('2023-01-10T17:22:00.000Z'))
+        expect(onChange).toHaveBeenLastCalledWith(dayjs('2023-01-10T17:22:00.000Z'))
 
         // click on a later hour
         await clickOnTime({ unit: 'h', value: '8' })
         // updates the hour to 8pm (later than 5pm)
-        expect(onChange).lastCalledWith(dayjs('2023-01-10T20:22:00.000Z'))
+        expect(onChange).toHaveBeenLastCalledWith(dayjs('2023-01-10T20:22:00.000Z'))
     })
 
     test('only allow past selection', async () => {
@@ -240,11 +240,11 @@ describe('LemonCalendarSelect', () => {
         // click on an later hour
         await clickOnTime({ unit: 'h', value: '18' })
         // does not update the date because it is in the future
-        expect(onChange).lastCalledWith(dayjs('2023-01-10T17:22:00.000Z'))
+        expect(onChange).toHaveBeenLastCalledWith(dayjs('2023-01-10T17:22:00.000Z'))
 
         // click on an earlier hour
         await clickOnTime({ unit: 'h', value: '2' })
         // updates the hour to 2pm (earlier than 5pm)
-        expect(onChange).lastCalledWith(dayjs('2023-01-10T14:22:00.000Z'))
+        expect(onChange).toHaveBeenLastCalledWith(dayjs('2023-01-10T14:22:00.000Z'))
     })
 })

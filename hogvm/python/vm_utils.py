@@ -1,2 +1,0 @@
-class HogVMException(Exception):
-    pass

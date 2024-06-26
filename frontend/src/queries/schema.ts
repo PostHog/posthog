@@ -198,10 +198,13 @@ export interface HogQLQueryModifiers {
     personsArgMaxVersion?: 'auto' | 'v1' | 'v2'
     inCohortVia?: 'auto' | 'leftjoin' | 'subquery' | 'leftjoin_conjoined'
     materializationMode?: 'auto' | 'legacy_null_as_string' | 'legacy_null_as_null' | 'disabled'
+    optimizeJoinedFilters?: boolean
     dataWarehouseEventsModifiers?: DataWarehouseEventsModifier[]
     debug?: boolean
     s3TableUseInvalidColumns?: boolean
     personsJoinMode?: 'inner' | 'left'
+    bounceRatePageViewMode?: 'count_pageviews' | 'uniq_urls'
+    sessionTableVersion?: 'auto' | 'v1' | 'v2'
 }
 
 export interface DataWarehouseEventsModifier {
@@ -228,7 +231,8 @@ export interface HogQLQueryResponse extends AnalyticsQueryResponseBase<any[]> {
     limit?: integer
     offset?: integer
 }
-export type CachedHogQLQueryResponse = HogQLQueryResponse & CachedQueryResponseMixin
+
+export type CachedHogQLQueryResponse = CachedQueryResponse<HogQLQueryResponse>
 
 /** Filters object that will be converted to a HogQL {filters} placeholder */
 export interface HogQLFilters {
@@ -250,6 +254,7 @@ export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
 export interface HogQueryResponse {
     results: any
     bytecode?: any[]
+    coloredBytecode?: any[]
     stdout?: string
 }
 
@@ -268,6 +273,7 @@ export interface HogQLNotice {
 export interface HogQLMetadataResponse {
     inputExpr?: string
     inputSelect?: string
+    inputProgram?: string
     isValid?: boolean
     isValidView?: boolean
     errors: HogQLNotice[]
@@ -341,6 +347,8 @@ export interface HogQLAutocompleteResponse {
 
 export interface HogQLMetadata extends DataNode<HogQLMetadataResponse> {
     kind: NodeKind.HogQLMetadata
+    /** Full Hog program */
+    program?: string
     /** Full select query to validate (use `select` or `expr`, but not both) */
     select?: string
     /** HogQL expression to validate (use `select` or `expr`, but not both) */
@@ -425,7 +433,8 @@ export interface EventsQueryResponse extends AnalyticsQueryResponseBase<any[][]>
     limit?: integer
     offset?: integer
 }
-export type CachedEventsQueryResponse = EventsQueryResponse & CachedQueryResponseMixin
+
+export type CachedEventsQueryResponse = CachedQueryResponse<EventsQueryResponse>
 
 export interface EventsQueryPersonColumn {
     uuid: string
@@ -641,14 +650,22 @@ interface InsightVizNodeViewProps {
 /** Base class for insight query nodes. Should not be used directly. */
 export interface InsightsQueryBase<R extends AnalyticsQueryResponseBase<any>> extends Node<R> {
     /** Date range for the query */
-    dateRange?: DateRange
-    /** Exclude internal and test users by applying the respective filters */
+    dateRange?: InsightDateRange
+    /**
+     * Exclude internal and test users by applying the respective filters
+     *
+     * @default false
+     */
     filterTestAccounts?: boolean
-    /** Property filters for all series */
+    /**
+     * Property filters for all series
+     *
+     * @default []
+     */
     properties?: AnyPropertyFilter[] | PropertyGroupFilter
     /**
      * Groups aggregation
-     **/
+     */
     aggregation_group_type_index?: integer
     /** Sampling rate */
     samplingFactor?: number | null
@@ -656,36 +673,58 @@ export interface InsightsQueryBase<R extends AnalyticsQueryResponseBase<any>> ex
     modifiers?: HogQLQueryModifiers
 }
 
-/** `TrendsFilterType` minus everything inherited from `FilterType` and
- * `hidden_legend_keys` replaced by `hidden_legend_indexes` */
-export type TrendsFilterLegacy = Omit<
-    TrendsFilterType & { hidden_legend_indexes?: number[] },
-    keyof FilterType | 'hidden_legend_keys' | 'shown_as'
->
+/** `TrendsFilterType` minus everything inherited from `FilterType` and `shown_as` */
+export type TrendsFilterLegacy = Omit<TrendsFilterType, keyof FilterType | 'shown_as'>
 
 export type TrendsFilter = {
-    smoothingIntervals?: TrendsFilterLegacy['smoothing_intervals']
-    compare?: TrendsFilterLegacy['compare']
+    /** @default 1 */
+    smoothingIntervals?: integer
     formula?: TrendsFilterLegacy['formula']
+    /** @default ActionsLineGraph */
     display?: TrendsFilterLegacy['display']
+    /** @default false */
     showLegend?: TrendsFilterLegacy['show_legend']
     breakdown_histogram_bin_count?: TrendsFilterLegacy['breakdown_histogram_bin_count'] // TODO: fully move into BreakdownFilter
+    /** @default numeric */
     aggregationAxisFormat?: TrendsFilterLegacy['aggregation_axis_format']
     aggregationAxisPrefix?: TrendsFilterLegacy['aggregation_axis_prefix']
     aggregationAxisPostfix?: TrendsFilterLegacy['aggregation_axis_postfix']
     decimalPlaces?: TrendsFilterLegacy['decimal_places']
+    /** @default false */
     showValuesOnSeries?: TrendsFilterLegacy['show_values_on_series']
     showLabelsOnSeries?: TrendsFilterLegacy['show_labels_on_series']
+    /** @default false */
     showPercentStackView?: TrendsFilterLegacy['show_percent_stack_view']
-    hidden_legend_indexes?: TrendsFilterLegacy['hidden_legend_indexes']
+    hiddenLegendIndexes?: integer[]
 }
 
+export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
+    'smoothingIntervals',
+    'formula',
+    'display',
+    'showLegend',
+    'breakdown_histogram_bin_count',
+    'aggregationAxisFormat',
+    'aggregationAxisPrefix',
+    'aggregationAxisPostfix',
+    'decimalPlaces',
+    'showValuesOnSeries',
+    'showLabelsOnSeries',
+    'showPercentStackView',
+    'hiddenLegendIndexes',
+])
+
 export interface TrendsQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}
-export type CachedTrendsQueryResponse = TrendsQueryResponse & CachedQueryResponseMixin
+
+export type CachedTrendsQueryResponse = CachedQueryResponse<TrendsQueryResponse>
 
 export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     kind: NodeKind.TrendsQuery
-    /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
+    /**
+     * Granularity of the response. Can be one of `hour`, `day`, `week` or `month`
+     *
+     * @default day
+     */
     interval?: IntervalType
     /** Events and actions to include */
     series: AnyEntityNode[]
@@ -693,14 +732,14 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     trendsFilter?: TrendsFilter
     /** Breakdown of the events and actions */
     breakdownFilter?: BreakdownFilter
+    /** Compare to date range */
+    compareFilter?: CompareFilter
 }
 
-/** `FunnelsFilterType` minus everything inherited from `FilterType` and persons modal related params
- * and `hidden_legend_keys` replaced by `hidden_legend_breakdowns` */
+/** `FunnelsFilterType` minus everything inherited from `FilterType` and persons modal related params */
 export type FunnelsFilterLegacy = Omit<
-    FunnelsFilterType & { hidden_legend_breakdowns?: string[] },
+    FunnelsFilterType,
     | keyof FilterType
-    | 'hidden_legend_keys'
     | 'funnel_step_breakdown'
     | 'funnel_correlation_person_entity'
     | 'funnel_correlation_person_converted'
@@ -719,20 +758,28 @@ export interface FunnelExclusionActionsNode extends ActionsNode, FunnelExclusion
 export type FunnelExclusion = FunnelExclusionEventsNode | FunnelExclusionActionsNode
 
 export type FunnelsFilter = {
+    /** @default [] */
     exclusions?: FunnelExclusion[]
+    /** @default vertical */
     layout?: FunnelsFilterLegacy['layout']
     /** @asType integer */
     binCount?: FunnelsFilterLegacy['bin_count']
+    /** @default first_touch */
     breakdownAttributionType?: FunnelsFilterLegacy['breakdown_attribution_type']
     breakdownAttributionValue?: integer
     funnelAggregateByHogQL?: FunnelsFilterLegacy['funnel_aggregate_by_hogql']
     funnelToStep?: integer
     funnelFromStep?: integer
+    /** @default ordered */
     funnelOrderType?: FunnelsFilterLegacy['funnel_order_type']
+    /** @default steps */
     funnelVizType?: FunnelsFilterLegacy['funnel_viz_type']
+    /** @default 14 */
     funnelWindowInterval?: integer
+    /** @default day */
     funnelWindowIntervalUnit?: FunnelsFilterLegacy['funnel_window_interval_unit']
-    hidden_legend_breakdowns?: FunnelsFilterLegacy['hidden_legend_breakdowns']
+    hiddenLegendBreakdowns?: string[]
+    /** @default total */
     funnelStepReference?: FunnelsFilterLegacy['funnel_step_reference']
 }
 
@@ -761,7 +808,8 @@ export interface FunnelsQueryResponse
     extends AnalyticsQueryResponseBase<
         FunnelStepsResults | FunnelStepsBreakdownResults | FunnelTimeToConvertResults | FunnelTrendsResults
     > {}
-export type CachedFunnelsQueryResponse = FunnelsQueryResponse & CachedQueryResponseMixin
+
+export type CachedFunnelsQueryResponse = CachedQueryResponse<FunnelsQueryResponse>
 
 /** `RetentionFilterType` minus everything inherited from `FilterType` */
 export type RetentionFilterLegacy = Omit<RetentionFilterType, keyof FilterType>
@@ -769,9 +817,11 @@ export type RetentionFilterLegacy = Omit<RetentionFilterType, keyof FilterType>
 export type RetentionFilter = {
     retentionType?: RetentionFilterLegacy['retention_type']
     retentionReference?: RetentionFilterLegacy['retention_reference']
-    totalIntervals?: RetentionFilterLegacy['total_intervals']
+    /** @default 11 */
+    totalIntervals?: integer
     returningEntity?: RetentionFilterLegacy['returning_entity']
     targetEntity?: RetentionFilterLegacy['target_entity']
+    /** @default Day */
     period?: RetentionFilterLegacy['period']
     showMean?: RetentionFilterLegacy['show_mean']
 }
@@ -788,7 +838,8 @@ export interface RetentionResult {
 }
 
 export interface RetentionQueryResponse extends AnalyticsQueryResponseBase<RetentionResult[]> {}
-export type CachedRetentionQueryResponse = RetentionQueryResponse & CachedQueryResponseMixin
+
+export type CachedRetentionQueryResponse = CachedQueryResponse<RetentionQueryResponse>
 
 export interface RetentionQuery extends InsightsQueryBase<RetentionQueryResponse> {
     kind: NodeKind.RetentionQuery
@@ -797,7 +848,8 @@ export interface RetentionQuery extends InsightsQueryBase<RetentionQueryResponse
 }
 
 export interface PathsQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}
-export type CachedPathsQueryResponse = PathsQueryResponse & CachedQueryResponseMixin
+
+export type CachedPathsQueryResponse = CachedQueryResponse<PathsQueryResponse>
 
 /** `PathsFilterType` minus everything inherited from `FilterType` and persons modal related params */
 export type PathsFilterLegacy = Omit<
@@ -806,14 +858,16 @@ export type PathsFilterLegacy = Omit<
 >
 
 export type PathsFilter = {
-    edgeLimit?: PathsFilterLegacy['edge_limit']
+    /** @default 50 */
+    edgeLimit?: integer
     pathsHogQLExpression?: PathsFilterLegacy['paths_hogql_expression']
     includeEventTypes?: PathsFilterLegacy['include_event_types']
     startPoint?: PathsFilterLegacy['start_point']
     endPoint?: PathsFilterLegacy['end_point']
     pathGroupings?: PathsFilterLegacy['path_groupings']
     excludeEvents?: PathsFilterLegacy['exclude_events']
-    stepLimit?: PathsFilterLegacy['step_limit']
+    /** @default 5 */
+    stepLimit?: integer
     pathReplacements?: PathsFilterLegacy['path_replacements']
     localPathCleaningFilters?: PathsFilterLegacy['local_path_cleaning_filters']
     minEdgeWeight?: PathsFilterLegacy['min_edge_weight']
@@ -841,33 +895,41 @@ export interface PathsQuery extends InsightsQueryBase<PathsQueryResponse> {
     funnelPathsFilter?: FunnelPathsFilter
 }
 
-/** `StickinessFilterType` minus everything inherited from `FilterType` and persons modal related params
- * and `hidden_legend_keys` replaced by `hidden_legend_indexes` */
-export type StickinessFilterLegacy = Omit<
-    StickinessFilterType & { hidden_legend_indexes?: number[] },
-    keyof FilterType | 'hidden_legend_keys' | 'stickiness_days' | 'shown_as'
->
+/** `StickinessFilterType` minus everything inherited from `FilterType` and persons modal related params  */
+export type StickinessFilterLegacy = Omit<StickinessFilterType, keyof FilterType | 'stickiness_days' | 'shown_as'>
 
 export type StickinessFilter = {
-    compare?: StickinessFilterLegacy['compare']
     display?: StickinessFilterLegacy['display']
     showLegend?: StickinessFilterLegacy['show_legend']
     showValuesOnSeries?: StickinessFilterLegacy['show_values_on_series']
-    hidden_legend_indexes?: StickinessFilterLegacy['hidden_legend_indexes']
+    hiddenLegendIndexes?: integer[]
 }
 
+export const STICKINESS_FILTER_PROPERTIES = new Set<keyof StickinessFilter>([
+    'display',
+    'showLegend',
+    'showValuesOnSeries',
+    'hiddenLegendIndexes',
+])
+
 export interface StickinessQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}
-export type CachedStickinessQueryResponse = StickinessQueryResponse & CachedQueryResponseMixin
+
+export type CachedStickinessQueryResponse = CachedQueryResponse<StickinessQueryResponse>
 
 export interface StickinessQuery
     extends Omit<InsightsQueryBase<StickinessQueryResponse>, 'aggregation_group_type_index'> {
     kind: NodeKind.StickinessQuery
-    /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
+    /**
+     * Granularity of the response. Can be one of `hour`, `day`, `week` or `month`
+     * @default day
+     */
     interval?: IntervalType
     /** Events and actions to include */
     series: AnyEntityNode[]
     /** Properties specific to the stickiness insight */
     stickinessFilter?: StickinessFilter
+    /** Compare to date range */
+    compareFilter?: CompareFilter
 }
 
 /** `LifecycleFilterType` minus everything inherited from `FilterType` */
@@ -879,20 +941,31 @@ export type LifecycleFilterLegacy = Omit<LifecycleFilterType, keyof FilterType |
 export type LifecycleFilter = {
     showValuesOnSeries?: LifecycleFilterLegacy['show_values_on_series']
     toggledLifecycles?: LifecycleFilterLegacy['toggledLifecycles']
+    /** @default false */
     showLegend?: LifecycleFilterLegacy['show_legend']
 }
+
+export type RefreshType =
+    | boolean
+    | 'async'
+    | 'blocking'
+    | 'force_async'
+    | 'force_blocking'
+    | 'force_cache'
+    | 'lazy_async'
 
 export interface QueryRequest {
     /** Client provided query ID. Can be used to retrieve the status or cancel the query. */
     client_query_id?: string
-    refresh?: boolean
     /**
      * (Experimental)
      * Whether to run the query asynchronously. Defaults to False.
      * If True, the `id` of the query can be used to check the status and to cancel it.
      * @example true
+     * @deprecated Use `refresh` instead.
      */
     async?: boolean
+    refresh?: RefreshType
     /**
      * Submit a JSON string representing a query for PostHog data analysis,
      * for example a HogQL query.
@@ -929,22 +1002,35 @@ export interface AnalyticsQueryResponseBase<T> {
 
 interface CachedQueryResponseMixin {
     is_cached: boolean
+    /**  @format date-time */
     last_refresh: string
+    /**  @format date-time */
     next_allowed_client_refresh: string
     cache_key: string
     timezone: string
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus
+}
+
+type CachedQueryResponse<T> = T & CachedQueryResponseMixin
+
+export type GenericCachedQueryResponse = CachedQueryResponse<Record<string, any>>
+
+export interface QueryStatusResponse {
+    query_status: QueryStatus
 }
 
 /** @deprecated Only exported for use in test_query_runner.py! Don't use anywhere else. */
 export interface TestBasicQueryResponse extends AnalyticsQueryResponseBase<any[]> {}
 /** @deprecated Only exported for use in test_query_runner.py! Don't use anywhere else. */
-export type TestCachedBasicQueryResponse = TestBasicQueryResponse & CachedQueryResponseMixin
+export type TestCachedBasicQueryResponse = CachedQueryResponse<TestBasicQueryResponse>
 
 export interface CacheMissResponse {
     cache_key: string | null
+    query_status?: QueryStatus
 }
 
-export type ClickhouseQueryStatus = {
+export type ClickhouseQueryProgress = {
     bytes_read: integer
     rows_read: integer
     estimated_rows_total: integer
@@ -974,15 +1060,19 @@ export type QueryStatus = {
     /**  @format date-time */
     expiration_time?: string
     task_id?: string
-    query_progress?: ClickhouseQueryStatus
+    query_progress?: ClickhouseQueryProgress
 }
 
 export interface LifecycleQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}
-export type CachedLifecycleQueryResponse = LifecycleQueryResponse & CachedQueryResponseMixin
+
+export type CachedLifecycleQueryResponse = CachedQueryResponse<LifecycleQueryResponse>
 
 export interface LifecycleQuery extends InsightsQueryBase<LifecycleQueryResponse> {
     kind: NodeKind.LifecycleQuery
-    /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
+    /**
+     * Granularity of the response. Can be one of `hour`, `day`, `week` or `month`
+     * @default day
+     */
     interval?: IntervalType
     /** Events and actions to include */
     series: AnyEntityNode[]
@@ -999,7 +1089,8 @@ export interface ActorsQueryResponse extends AnalyticsQueryResponseBase<any[][]>
     offset: integer
     missing_actors_count?: integer
 }
-export type CachedActorsQueryResponse = ActorsQueryResponse & CachedQueryResponseMixin
+
+export type CachedActorsQueryResponse = CachedQueryResponse<ActorsQueryResponse>
 
 export interface ActorsQuery extends DataNode<ActorsQueryResponse> {
     kind: NodeKind.ActorsQuery
@@ -1026,7 +1117,8 @@ export interface TimelineEntry {
 export interface SessionsTimelineQueryResponse extends AnalyticsQueryResponseBase<TimelineEntry[]> {
     hasMore?: boolean
 }
-export type CachedSessionsTimelineQueryResponse = SessionsTimelineQueryResponse & CachedQueryResponseMixin
+
+export type CachedSessionsTimelineQueryResponse = CachedQueryResponse<SessionsTimelineQueryResponse>
 
 export interface SessionsTimelineQuery extends DataNode<SessionsTimelineQueryResponse> {
     kind: NodeKind.SessionsTimelineQuery
@@ -1047,6 +1139,7 @@ interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<
         enabled?: boolean
         forceSamplingRate?: SamplingRate
     }
+    /** @deprecated ignored, always treated as enabled **/
     useSessionsTable?: boolean
 }
 
@@ -1074,7 +1167,8 @@ export interface WebOverviewQueryResponse extends AnalyticsQueryResponseBase<Web
     dateFrom?: string
     dateTo?: string
 }
-export type CachedWebOverviewQueryResponse = WebOverviewQueryResponse & CachedQueryResponseMixin
+
+export type CachedWebOverviewQueryResponse = CachedQueryResponse<WebOverviewQueryResponse>
 
 export interface WebTopClicksQuery extends WebAnalyticsQueryBase<WebTopClicksQueryResponse> {
     kind: NodeKind.WebTopClicksQuery
@@ -1084,7 +1178,10 @@ export interface WebTopClicksQueryResponse extends AnalyticsQueryResponseBase<un
     columns?: unknown[]
     samplingRate?: SamplingRate
 }
-export type CachedWebTopClicksQueryResponse = WebTopClicksQueryResponse & CachedQueryResponseMixin
+
+export type CachedWebTopClicksQueryResponse = CachedQueryResponse<WebTopClicksQueryResponse>
+
+export type ErrorTrackingOrder = 'last_seen' | 'first_seen' | 'unique_occurrences' | 'unique_users' | 'unique_sessions'
 
 export enum WebStatsBreakdown {
     Page = 'Page',
@@ -1121,7 +1218,8 @@ export interface WebStatsTableQueryResponse extends AnalyticsQueryResponseBase<u
     limit?: integer
     offset?: integer
 }
-export type CachedWebStatsTableQueryResponse = WebStatsTableQueryResponse & CachedQueryResponseMixin
+
+export type CachedWebStatsTableQueryResponse = CachedQueryResponse<WebStatsTableQueryResponse>
 
 export type InsightQueryNode =
     | TrendsQuery
@@ -1284,7 +1382,7 @@ export const insightActorsQueryOptionsResponseKeys: string[] = [
     'compare',
 ]
 
-export type CachedInsightActorsQueryOptionsResponse = InsightActorsQueryOptionsResponse & CachedQueryResponseMixin
+export type CachedInsightActorsQueryOptionsResponse = CachedQueryResponse<InsightActorsQueryOptionsResponse>
 
 export interface InsightActorsQueryOptions extends Node<InsightActorsQueryOptionsResponse> {
     kind: NodeKind.InsightActorsQueryOptions
@@ -1342,7 +1440,7 @@ export interface DatabaseSchemaField {
 }
 
 export interface DatabaseSchemaTableCommon {
-    type: 'posthog' | 'data_warehouse' | 'view'
+    type: 'posthog' | 'data_warehouse' | 'view' | 'batch_export'
     id: string
     name: string
     fields: Record<string, DatabaseSchemaField>
@@ -1365,10 +1463,15 @@ export interface DatabaseSchemaDataWarehouseTable extends DatabaseSchemaTableCom
     source?: DatabaseSchemaSource
 }
 
+export interface DatabaseSchemaBatchExportTable extends DatabaseSchemaTableCommon {
+    type: 'batch_export'
+}
+
 export type DatabaseSchemaTable =
     | DatabaseSchemaPostHogTable
     | DatabaseSchemaDataWarehouseTable
     | DatabaseSchemaViewTable
+    | DatabaseSchemaBatchExportTable
 
 export interface DatabaseSchemaQueryResponse {
     tables: Record<string, DatabaseSchemaTable>
@@ -1428,12 +1531,27 @@ export type HogQLExpression = string
 export interface DateRange {
     date_from?: string | null
     date_to?: string | null
-    /** Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period. */
+    /** Whether the date_from and date_to should be used verbatim. Disables
+     * rounding to the start and end of period.
+     * @default false
+     * */
+    explicitDate?: boolean | null
+}
+
+export interface InsightDateRange {
+    /** @default -7d */
+    date_from?: string | null
+    date_to?: string | null
+    /** Whether the date_from and date_to should be used verbatim. Disables
+     * rounding to the start and end of period.
+     * @default false
+     * */
     explicitDate?: boolean | null
 }
 
 export interface BreakdownFilter {
     // TODO: unclutter
+    /** @default event */
     breakdown_type?: BreakdownType | null
     breakdown_limit?: integer
     breakdown?: BreakdownKeyType
@@ -1442,6 +1560,11 @@ export interface BreakdownFilter {
     breakdown_group_type_index?: integer | null
     breakdown_histogram_bin_count?: integer // trends breakdown histogram bin
     breakdown_hide_other_aggregation?: boolean | null // hides the "other" field for trends
+}
+
+export interface CompareFilter {
+    compare?: boolean
+    compare_to?: string
 }
 
 // TODO: Rename to `DashboardFilters` for consistency with `HogQLFilters`

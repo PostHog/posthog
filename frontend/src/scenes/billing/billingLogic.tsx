@@ -161,28 +161,29 @@ export const billingLogic = kea<billingLogicType>([
                 setUnsubscribeError: (_, { error }) => error,
             },
         ],
-        daysRemaining: [
+        timeRemainingInSeconds: [
             0,
             {
                 loadBillingSuccess: (_, { billing }) => {
                     if (!billing?.billing_period) {
                         return 0
                     }
-                    return billing.billing_period.current_period_end.diff(dayjs(), 'days')
+                    const currentTime = dayjs()
+                    const periodEnd = dayjs(billing.billing_period.current_period_end)
+                    return periodEnd.diff(currentTime, 'second')
                 },
             },
         ],
-        daysTotal: [
+        timeTotalInSeconds: [
             0,
             {
                 loadBillingSuccess: (_, { billing }) => {
                     if (!billing?.billing_period) {
                         return 0
                     }
-                    return billing.billing_period.current_period_end.diff(
-                        billing.billing_period.current_period_start,
-                        'days'
-                    )
+                    const periodStart = dayjs(billing.billing_period.current_period_start)
+                    const periodEnd = dayjs(billing.billing_period.current_period_end)
+                    return periodEnd.diff(periodStart, 'second')
                 },
             },
         ],
@@ -192,13 +193,13 @@ export const billingLogic = kea<billingLogicType>([
             null as BillingV2Type | null,
             {
                 loadBilling: async () => {
-                    const response = await api.get('api/billing-v2')
+                    const response = await api.get('api/billing')
 
                     return parseBillingResponse(response)
                 },
 
                 updateBillingLimits: async (limits: { [key: string]: string | null }) => {
-                    const response = await api.update('api/billing-v2', { custom_limits_usd: limits })
+                    const response = await api.update('api/billing', { custom_limits_usd: limits })
 
                     lemonToast.success('Billing limits updated')
                     return parseBillingResponse(response)
@@ -207,9 +208,9 @@ export const billingLogic = kea<billingLogicType>([
                 deactivateProduct: async (key: string) => {
                     actions.resetUnsubscribeError()
                     try {
-                        const response = await api.getResponse('api/billing-v2/deactivate?products=' + key)
+                        const response = await api.getResponse('api/billing/deactivate?products=' + key)
                         const jsonRes = await getJSONOrNull(response)
-                        lemonToast.success('Product unsubscribed')
+                        lemonToast.success('You have been unsubscribed')
                         actions.reportProductUnsubscribed(key)
                         return parseBillingResponse(jsonRes)
                     } catch (error: any) {
@@ -258,7 +259,7 @@ export const billingLogic = kea<billingLogicType>([
                 getInvoices: async () => {
                     // First check to see if there are open invoices
                     try {
-                        const res = await api.getResponse('api/billing-v2/get_invoices?status=open')
+                        const res = await api.getResponse('api/billing/get_invoices?status=open')
                         const jsonRes = await getJSONOrNull(res)
                         const numOpenInvoices = jsonRes['count']
                         if (numOpenInvoices > 0) {
@@ -291,7 +292,7 @@ export const billingLogic = kea<billingLogicType>([
             [] as BillingProductV2Type[],
             {
                 loadProducts: async () => {
-                    const response = await api.get('api/billing-v2/available_products')
+                    const response = await api.get('api/billing/available_products')
                     return response
                 },
             },
@@ -390,7 +391,7 @@ export const billingLogic = kea<billingLogicType>([
             submit: async ({ license }, breakpoint) => {
                 await breakpoint(500)
                 try {
-                    await api.update('api/billing-v2/license', {
+                    await api.update('api/billing/license', {
                         license,
                     })
 

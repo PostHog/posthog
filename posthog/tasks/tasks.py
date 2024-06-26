@@ -7,8 +7,10 @@ from django.conf import settings
 from django.db import connection
 from django.utils import timezone
 from prometheus_client import Gauge
+from redis import Redis
 from structlog import get_logger
 
+from posthog.clickhouse.client.limit import limit_concurrency, CeleryConcurrencyLimitExceeded
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.hogql.constants import LimitContext
@@ -39,18 +41,25 @@ def redis_heartbeat() -> None:
     autoretry_for=(
         # Important: Only retry for things that might be okay on the next try
         CHQueryErrorTooManySimultaneousQueries,
+        CeleryConcurrencyLimitExceeded,
     ),
     retry_backoff=1,
-    retry_backoff_max=2,
+    retry_backoff_max=10,
     max_retries=3,
+    expires=60 * 10,  # Do not run queries that got stuck for more than this
+    reject_on_worker_lost=True,
 )
+@limit_concurrency(90)  # Do not go above what CH can handle (max_concurrent_queries)
+@limit_concurrency(
+    10, key=lambda *args, **kwargs: kwargs.get("team_id") or args[0]
+)  # Do not run too many queries at once for the same team
 def process_query_task(
     team_id: int,
-    user_id: int,
+    user_id: Optional[int],
     query_id: str,
     query_json: dict,
     limit_context: Optional[LimitContext] = None,
-    refresh_requested: bool = False,
+    refresh_requested: bool = False,  # TODO: Remove this parameter after the next deploy
 ) -> None:
     """
     Kick off query
@@ -64,7 +73,6 @@ def process_query_task(
         query_id=query_id,
         query_json=query_json,
         limit_context=limit_context,
-        refresh_requested=refresh_requested,
     )
 
 
@@ -173,7 +181,6 @@ CLICKHOUSE_TABLES = [
     "log_entries",
 ]
 
-
 HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC = {
     "heartbeat": "ingestion",
     "heartbeat_buffer": "ingestion_buffer",
@@ -219,6 +226,58 @@ def ingestion_lag() -> None:
                 lag_gauge.labels(scenario=metric).set(lag)
     except:
         pass
+
+
+@shared_task(ignore_result=True)
+def invalid_web_replays() -> None:
+    from posthog.client import sync_execute
+
+    # ultimately I want to observe values by team id, but at the moment that would be lots of series, let's reduce the value first
+    query = """
+    select
+        --team_id,
+        count() as all_recordings,
+        countIf(snapshot_source == 'mobile') as mobile_recordings,
+        countIf(snapshot_source == 'web') as web_recordings,
+        countIf(snapshot_source =='web' and first_url is null) as invalid_web_recordings
+    from (
+        select any(team_id) as team_id, argMinMerge(first_url) as first_url, argMinMerge(snapshot_source) as snapshot_source
+        from session_replay_events
+        where min_first_timestamp >= now() - interval 65 minute
+        and min_first_timestamp <= now() - interval 5 minute
+        group by session_id
+    )
+    --group by team_id
+    """
+
+    try:
+        results = sync_execute(
+            query,
+        )
+
+        metrics = [
+            "all_recordings",
+            "mobile_recordings",
+            "web_recordings",
+            "invalid_web_recordings",
+        ]
+        descriptions = [
+            "All recordings that started in the last hour",
+            "Recordings started in the last hour that are from mobile",
+            "Recordings started in the last hour that are from web",
+            "Acts as a proxy for replay sessions which haven't received a full snapshot",
+        ]
+        with pushed_metrics_registry("celery_replay_tracking") as registry:
+            for i in range(0, 4):
+                gauge = Gauge(
+                    f"replay_tracking_{metrics[i]}",
+                    descriptions[i],
+                    registry=registry,
+                )
+                count = results[0][i]
+                gauge.set(count)
+    except Exception as e:
+        logger.error("Failed to run invalid web replays task", error=e, inc_exc_info=True)
 
 
 KNOWN_CELERY_TASK_IDENTIFIERS = {
@@ -502,11 +561,92 @@ def monitoring_check_clickhouse_schema_drift() -> None:
     check_clickhouse_schema_drift()
 
 
-@shared_task(ignore_result=True)
+@shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value)
 def calculate_cohort() -> None:
     from posthog.tasks.calculate_cohort import calculate_cohorts
 
     calculate_cohorts()
+
+
+class Polling:
+    _SINGLETON_REDIS_KEY = "POLL_QUERY_PERFORMANCE_SINGLETON_REDIS_KEY"
+    NANOSECONDS_IN_SECOND = int(1e9)
+    TIME_BETWEEN_RUNS_SECONDS = 2
+    SOFT_TIME_LIMIT_SECONDS = 10
+    HARD_TIME_LIMIT_SECONDS = 12
+    ASSUME_TASK_DEAD_SECONDS = 14  # the time after which we start a new task
+
+    TIME_BETWEEN_RUNS_NANOSECONDS = NANOSECONDS_IN_SECOND * TIME_BETWEEN_RUNS_SECONDS
+    ASSUME_TASK_DEAD_NANOSECONDS = NANOSECONDS_IN_SECOND * ASSUME_TASK_DEAD_SECONDS
+
+    @staticmethod
+    def _encode_redis_key(time_ns: int) -> bytes:
+        return time_ns.to_bytes(8, "big")
+
+    @staticmethod
+    def _decode_redis_key(time_ns: bytes | None) -> int:
+        return 0 if time_ns is None else int.from_bytes(time_ns, "big")
+
+    @staticmethod
+    def set_last_run_time(client: Redis, time_ns: int) -> None:
+        client.set(Polling._SINGLETON_REDIS_KEY, Polling._encode_redis_key(time_ns))
+
+    @staticmethod
+    def get_last_run_time(client: Redis) -> int:
+        return Polling._decode_redis_key(client.get(Polling._SINGLETON_REDIS_KEY))
+
+
+@shared_task(
+    ignore_result=True,
+    max_retries=0,
+    soft_time_limit=Polling.SOFT_TIME_LIMIT_SECONDS,
+    time_limit=Polling.HARD_TIME_LIMIT_SECONDS,
+)
+def poll_query_performance(last_known_run_time_ns: int) -> None:
+    start_time_ns = time.time_ns()
+
+    try:
+        redis_client = get_client()
+        if Polling.get_last_run_time(redis_client) != last_known_run_time_ns:
+            logger.error("Poll query performance task terminating: another poller is running")
+            return
+        Polling.set_last_run_time(redis_client, start_time_ns)
+        from posthog.tasks.poll_query_performance import poll_query_performance as poll_query_performance_nontask
+
+        poll_query_performance_nontask()
+    except Exception as e:
+        logger.error("Poll query performance failed", error=e)
+
+    elapsed_ns = time.time_ns() - start_time_ns
+    if elapsed_ns > Polling.TIME_BETWEEN_RUNS_NANOSECONDS:
+        # right again right away if more than time_between_runs has elapsed
+        poll_query_performance.delay(start_time_ns)
+    else:
+        # delay until time_between_runs has elapsed
+        poll_query_performance.apply_async(
+            args=[start_time_ns],
+            countdown=((Polling.TIME_BETWEEN_RUNS_NANOSECONDS - elapsed_ns) / Polling.NANOSECONDS_IN_SECOND),
+        )
+
+
+@shared_task(ignore_result=True, max_retries=1)
+def start_poll_query_performance() -> None:
+    redis_client = get_client()
+    last_run_start_time_ns = Polling.get_last_run_time(redis_client)
+    now_ns: int = time.time_ns()
+    try:
+        # The key should never be in the future
+        # If the key is in the future or more than 15 seconds in the past, start a worker
+        if last_run_start_time_ns > now_ns + Polling.TIME_BETWEEN_RUNS_NANOSECONDS:
+            logger.error("Restarting poll query performance because key is in future")
+            poll_query_performance.delay(last_run_start_time_ns)
+        elif now_ns - last_run_start_time_ns > Polling.ASSUME_TASK_DEAD_NANOSECONDS:
+            logger.error("Restarting poll query performance because of a long delay")
+            poll_query_performance.delay(last_run_start_time_ns)
+
+    except Exception as e:
+        logger.error("Restarting poll query performance because of an error", error=e)
+        poll_query_performance.delay(last_run_start_time_ns)
 
 
 @shared_task(ignore_result=True)
@@ -544,6 +684,7 @@ def schedule_cache_updates_task() -> None:
     retry_backoff_max=30,
     max_retries=3,
     retry_jitter=True,
+    queue=CeleryQueue.LONG_RUNNING.value,
 )
 def update_cache_task(caching_state_id: UUID) -> None:
     from posthog.caching.insight_cache import update_cache
@@ -630,6 +771,13 @@ def stop_surveys_reached_target() -> None:
     from posthog.tasks.stop_surveys_reached_target import stop_surveys_reached_target
 
     stop_surveys_reached_target()
+
+
+@shared_task(ignrore_result=True)
+def update_survey_iteration() -> None:
+    from posthog.tasks.update_survey_iteration import update_survey_iteration
+
+    update_survey_iteration()
 
 
 def recompute_materialized_columns_enabled() -> bool:

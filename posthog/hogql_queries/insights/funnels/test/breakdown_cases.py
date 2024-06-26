@@ -491,11 +491,6 @@ def funnel_breakdown_test_factory(
                         "timestamp": datetime(2020, 1, 1, 13),
                         "properties": {"$browser": "Chrome"},
                     },
-                    {
-                        "event": "buy",
-                        "timestamp": datetime(2020, 1, 1, 15),
-                        "properties": {"$browser": "Chrome"},
-                    },
                 ],
                 "person2": [
                     {
@@ -505,6 +500,11 @@ def funnel_breakdown_test_factory(
                     },
                     {
                         "event": "play movie",
+                        "timestamp": datetime(2020, 1, 2, 15),
+                        "properties": {"$browser": "Safari"},
+                    },
+                    {
+                        "event": "buy",
                         "timestamp": datetime(2020, 1, 2, 16),
                         "properties": {"$browser": "Safari"},
                     },
@@ -546,10 +546,16 @@ def funnel_breakdown_test_factory(
                         name="play movie",
                         breakdown=["Safari"],
                         count=1,
-                        average_conversion_time=7200.0,
-                        median_conversion_time=7200.0,
+                        average_conversion_time=3600.0,
+                        median_conversion_time=3600.0,
                     ),
-                    FunnelStepResult(name="buy", breakdown=["Safari"], count=0),
+                    FunnelStepResult(
+                        name="buy",
+                        breakdown=["Safari"],
+                        average_conversion_time=3600.0,
+                        median_conversion_time=3600.0,
+                        count=1,
+                    ),
                 ],
             )
 
@@ -576,9 +582,7 @@ def funnel_breakdown_test_factory(
                     FunnelStepResult(
                         name="buy",
                         breakdown=["Other"],
-                        count=1,
-                        average_conversion_time=7200.0,
-                        median_conversion_time=7200.0,
+                        count=0,
                     ),
                 ],
             )
@@ -2662,9 +2666,7 @@ def funnel_breakdown_test_factory(
     return TestFunnelBreakdown
 
 
-def funnel_breakdown_group_test_factory(FunnelPerson):
-    funnel_order_type = FunnelOrderType.ORDERED
-
+def funnel_breakdown_group_test_factory(funnel_order_type: FunnelOrderType, FunnelPerson):
     class TestFunnelBreakdownGroup(APIBaseTest):
         def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
             filter = Filter(data=filter, team=self.team)
@@ -2785,6 +2787,7 @@ def funnel_breakdown_group_test_factory(FunnelPerson):
                 "breakdown": "industry",
                 "breakdown_type": "group",
                 "breakdown_group_type_index": 0,
+                "funnel_order_type": funnel_order_type,
             }
 
             query = cast(FunnelsQuery, filter_to_query(filters))
@@ -2906,6 +2909,7 @@ def funnel_breakdown_group_test_factory(FunnelPerson):
                 "breakdown_type": "group",
                 "breakdown_group_type_index": 0,
                 "aggregation_group_type_index": 0,
+                "funnel_order_type": funnel_order_type,
             }
 
             query = cast(FunnelsQuery, filter_to_query(filters))
@@ -3018,6 +3022,7 @@ def funnel_breakdown_group_test_factory(FunnelPerson):
                 "breakdown_type": "group",
                 "breakdown_group_type_index": 0,
                 "aggregation_group_type_index": 0,
+                "funnel_order_type": funnel_order_type,
             }
             with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
                 query = cast(FunnelsQuery, filter_to_query(filters))
@@ -3095,7 +3100,7 @@ def assert_funnel_results_equal(left: list[dict[str, Any]], right: list[dict[str
                 assert item[key] == other[key]
             except AssertionError as e:
                 e.args += (
-                    f"failed comparing ${key}",
-                    f'Got "{item[key]}" and "{other[key]}"',
+                    f"failed comparing '{key}' on step {index}",
+                    f'Got "{item[key]}", expected "{other[key]}"',
                 )
                 raise

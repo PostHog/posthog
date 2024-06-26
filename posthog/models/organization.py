@@ -1,4 +1,3 @@
-import json
 import sys
 from typing import TYPE_CHECKING, Any, Optional, TypedDict, Union
 
@@ -21,7 +20,7 @@ from posthog.models.utils import (
     create_with_slug,
     sane_repr,
 )
-from posthog.redis import get_client
+from posthog.plugins.plugin_server_api import reset_available_product_features_cache_on_workers
 from posthog.utils import absolute_uri
 
 if TYPE_CHECKING:
@@ -167,9 +166,6 @@ class Organization(UUIDModel):
     domain_whitelist: ArrayField = ArrayField(
         models.CharField(max_length=256, blank=False), blank=True, default=list
     )  # DEPRECATED in favor of `OrganizationDomain` model; previously used to allow self-serve account creation based on social login (#5111)
-    available_features = ArrayField(
-        models.CharField(max_length=64, blank=False), blank=True, default=list
-    )  # DEPRECATED in favor of `available_product_features`
 
     objects: OrganizationManager = OrganizationManager()
 
@@ -262,10 +258,8 @@ def ensure_available_product_features_sync(sender, instance: Organization, **kwa
             "Notifying plugin-server to reset available product features cache.",
             {"organization_id": instance.id},
         )
-        get_client().publish(
-            "reset-available-product-features-cache",
-            json.dumps({"organization_id": str(instance.id)}),
-        )
+
+        reset_available_product_features_cache_on_workers(organization_id=str(instance.id))
 
 
 class OrganizationMembership(UUIDModel):

@@ -39,12 +39,15 @@ from posthog.tasks.tasks import (
     schedule_all_subscriptions,
     schedule_cache_updates_task,
     send_org_usage_reports,
+    start_poll_query_performance,
     stop_surveys_reached_target,
     sync_all_organization_available_product_features,
     sync_insight_cache_states_task,
     update_event_partitions,
     update_quota_limiting,
     verify_persons_data_in_sync,
+    update_survey_iteration,
+    invalid_web_replays,
 )
 from posthog.utils import get_crontab
 
@@ -85,6 +88,8 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
 
     # Heartbeat every 10sec to make sure the worker is alive
     add_periodic_task_with_expiry(sender, 10, redis_heartbeat.s(), "10 sec heartbeat")
+
+    add_periodic_task_with_expiry(sender, 20, start_poll_query_performance.s(), "20 sec query performance heartbeat")
 
     # Update events table partitions twice a week
     sender.add_periodic_task(
@@ -195,6 +200,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         pg_plugin_server_query_timing.s(),
         name="PG plugin server query timing",
     )
+
     add_periodic_task_with_expiry(
         sender,
         60,
@@ -234,6 +240,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="*/12"),
         stop_surveys_reached_target.s(),
         name="stop surveys that reached responses limits",
+    )
+
+    sender.add_periodic_task(
+        crontab(hour="*/12"),
+        update_survey_iteration.s(),
+        name="update survey iteration based on date",
     )
 
     if settings.EE_AVAILABLE:
@@ -300,4 +312,11 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*/20"),
         check_data_import_row_limits.s(),
         name="check external data rows synced",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        3600,
+        invalid_web_replays.s(),
+        name="Invalid web replays count",
     )

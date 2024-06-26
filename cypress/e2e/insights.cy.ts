@@ -97,7 +97,7 @@ describe('Insights', () => {
 
     it('Loads default filters correctly', () => {
         // Test that default params are set correctly even if the app doesn't start on insights
-        cy.visit('/events/') // Should work with trailing slash just like without it
+        cy.visit('/activity/explore/') // Should work with trailing slash just like without it
         cy.reload()
 
         cy.clickNavMenu('insight')
@@ -114,13 +114,24 @@ describe('Insights', () => {
         cy.get('[data-attr=insight-tags]').should('not.exist')
     })
 
-    describe('view source', () => {
-        it('can open the query editor', () => {
-            insight.newInsight('TRENDS')
-            insight.save()
-            cy.get('[data-attr="more-button"]').click()
-            cy.get('[data-attr="show-insight-source"]').click()
-            cy.get('[data-attr="query-editor"]').should('exist')
-        })
+    it('can edit via the query editor', () => {
+        insight.newInsight('TRENDS')
+        insight.save()
+        cy.get('[data-attr="more-button"]').click()
+        cy.get('[data-attr="show-insight-source"]').click()
+        // Find "day"
+        cy.get('.monaco-editor')
+            .click()
+            // change subject to currently focused element
+            .focused()
+            .type('{ctrl}f')
+            .focused()
+            .type('day')
+
+        // Remove day and add hour
+        cy.get('.monaco-editor').click().focused().type('{leftArrow}{leftArrow}{backspace}{backspace}{backspace}hour')
+        cy.get('[data-attr=query-editor-save]').click()
+
+        cy.get('[data-attr="interval-filter').contains('hour').should('exist')
     })
 })

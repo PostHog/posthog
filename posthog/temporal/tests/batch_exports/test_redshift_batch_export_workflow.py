@@ -215,7 +215,7 @@ TEST_SCHEMAS = [
     {
         "fields": [
             {"expression": "event", "alias": "event"},
-            {"expression": "inserted_at", "alias": "inserted_at"},
+            {"expression": "_inserted_at", "alias": "inserted_at"},
             {"expression": "toInt8(1 + 1)", "alias": "two"},
         ],
         "values": {},
@@ -511,7 +511,6 @@ async def test_redshift_export_workflow_handles_insert_activity_errors(ateam, re
     assert run.status == "FailedRetryable"
     assert run.latest_error == "ValueError: A useful error message"
     assert run.records_completed is None
-    assert run.records_total_count == 1
 
 
 async def test_redshift_export_workflow_handles_insert_activity_non_retryable_errors(
@@ -564,4 +563,3 @@ async def test_redshift_export_workflow_handles_insert_activity_non_retryable_er
     assert run.status == "Failed"
     assert run.latest_error == "InsufficientPrivilege: A useful error message"
     assert run.records_completed is None
-    assert run.records_total_count == 1

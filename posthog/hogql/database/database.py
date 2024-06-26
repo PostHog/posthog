@@ -1,12 +1,16 @@
 import dataclasses
-from typing import TYPE_CHECKING, Any, ClassVar, Optional, TypeAlias, cast
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, ClassVar, Optional, TypeAlias, cast, Union
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from django.db.models import Q
 from pydantic import ConfigDict, BaseModel
 from sentry_sdk import capture_exception
-from django.db.models import Q
+
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
+    FieldOrTable,
     FieldTraverser,
     SavedQuery,
     StringDatabaseField,
@@ -25,15 +29,15 @@ from posthog.hogql.database.models import (
     ExpressionField,
 )
 from posthog.hogql.database.schema.channel_type import create_initial_channel_type, create_initial_domain_type
+from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
+from posthog.hogql.database.schema.events import EventsTable
+from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.heatmaps import HeatmapsTable
 from posthog.hogql.database.schema.log_entries import (
     LogEntriesTable,
     ReplayConsoleLogsLogEntriesTable,
     BatchExportLogEntriesTable,
 )
-from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
-from posthog.hogql.database.schema.events import EventsTable
-from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.database.schema.person_distinct_id_overrides import (
     PersonDistinctIdOverridesTable,
@@ -44,17 +48,22 @@ from posthog.hogql.database.schema.person_distinct_ids import (
     PersonDistinctIdsTable,
     RawPersonDistinctIdsTable,
 )
-from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable, join_with_persons_table
-from posthog.hogql.database.schema.person_overrides import (
-    PersonOverridesTable,
-    RawPersonOverridesTable,
-    join_with_person_overrides_table,
+from posthog.hogql.database.schema.persons import (
+    PersonsTable,
+    RawPersonsTable,
+    join_with_persons_table,
 )
 from posthog.hogql.database.schema.session_replay_events import (
     RawSessionReplayEventsTable,
     SessionReplayEventsTable,
+    join_replay_table_to_sessions_table_v2,
 )
-from posthog.hogql.database.schema.sessions import RawSessionsTable, SessionsTable
+from posthog.hogql.database.schema.sessions_v1 import RawSessionsTableV1, SessionsTableV1
+from posthog.hogql.database.schema.sessions_v2 import (
+    SessionsTableV2,
+    RawSessionsTableV2,
+    join_events_table_to_sessions_table_v2,
+)
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
 from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_expr
@@ -71,11 +80,15 @@ from posthog.schema import (
     HogQLQuery,
     HogQLQueryModifiers,
     PersonsOnEventsMode,
+    SessionTableVersion,
 )
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.external_data_source import ExternalDataSource
-from posthog.warehouse.models.table import DataWarehouseTable, DataWarehouseTableColumns
+from posthog.warehouse.models.table import (
+    DataWarehouseTable,
+    DataWarehouseTableColumns,
+)
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -90,7 +103,6 @@ class Database(BaseModel):
     persons: PersonsTable = PersonsTable()
     person_distinct_ids: PersonDistinctIdsTable = PersonDistinctIdsTable()
     person_distinct_id_overrides: PersonDistinctIdOverridesTable = PersonDistinctIdOverridesTable()
-    person_overrides: PersonOverridesTable = PersonOverridesTable()
 
     session_replay_events: SessionReplayEventsTable = SessionReplayEventsTable()
     cohort_people: CohortPeople = CohortPeople()
@@ -98,7 +110,7 @@ class Database(BaseModel):
     log_entries: LogEntriesTable = LogEntriesTable()
     console_logs_log_entries: ReplayConsoleLogsLogEntriesTable = ReplayConsoleLogsLogEntriesTable()
     batch_export_log_entries: BatchExportLogEntriesTable = BatchExportLogEntriesTable()
-    sessions: SessionsTable = SessionsTable()
+    sessions: Union[SessionsTableV1, SessionsTableV2] = SessionsTableV1()
     heatmaps: HeatmapsTable = HeatmapsTable()
 
     raw_session_replay_events: RawSessionReplayEventsTable = RawSessionReplayEventsTable()
@@ -107,8 +119,7 @@ class Database(BaseModel):
     raw_groups: RawGroupsTable = RawGroupsTable()
     raw_cohort_people: RawCohortPeople = RawCohortPeople()
     raw_person_distinct_id_overrides: RawPersonDistinctIdOverridesTable = RawPersonDistinctIdOverridesTable()
-    raw_person_overrides: RawPersonOverridesTable = RawPersonOverridesTable()
-    raw_sessions: RawSessionsTable = RawSessionsTable()
+    raw_sessions: Union[RawSessionsTableV1, RawSessionsTableV2] = RawSessionsTableV1()
 
     # system tables
     numbers: NumbersTable = NumbersTable()
@@ -119,7 +130,6 @@ class Database(BaseModel):
         "groups",
         "persons",
         "person_distinct_ids",
-        "person_overrides",
         "session_replay_events",
         "cohort_people",
         "static_cohort_people",
@@ -183,41 +193,28 @@ def _use_person_properties_from_events(database: Database) -> None:
     database.events.fields["person"] = FieldTraverser(chain=["poe"])
 
 
-def _use_person_id_from_person_overrides(database: Database, use_distinct_id_overrides: bool) -> None:
+def _use_person_id_from_person_overrides(database: Database) -> None:
     database.events.fields["event_person_id"] = StringDatabaseField(name="person_id")
-    if use_distinct_id_overrides:
-        database.events.fields["override"] = LazyJoin(
-            from_field=["distinct_id"],
-            join_table=PersonDistinctIdOverridesTable(),
-            join_function=join_with_person_distinct_id_overrides_table,
-        )
-        database.events.fields["person_id"] = ExpressionField(
-            name="person_id",
-            expr=parse_expr(
-                # NOTE: assumes `join_use_nulls = 0` (the default), as ``override.distinct_id`` is not Nullable
-                "if(not(empty(override.distinct_id)), override.person_id, event_person_id)",
-                start=None,
-            ),
-        )
-    else:
-        database.events.fields["override"] = LazyJoin(
-            from_field=["event_person_id"],
-            join_table=PersonOverridesTable(),
-            join_function=join_with_person_overrides_table,
-        )
-        database.events.fields["person_id"] = ExpressionField(
-            name="person_id",
-            expr=parse_expr(
-                "ifNull(nullIf(override.override_person_id, '00000000-0000-0000-0000-000000000000'), event_person_id)",
-                start=None,
-            ),
-        )
+    database.events.fields["override"] = LazyJoin(
+        from_field=["distinct_id"],
+        join_table=PersonDistinctIdOverridesTable(),
+        join_function=join_with_person_distinct_id_overrides_table,
+    )
+    database.events.fields["person_id"] = ExpressionField(
+        name="person_id",
+        expr=parse_expr(
+            # NOTE: assumes `join_use_nulls = 0` (the default), as ``override.distinct_id`` is not Nullable
+            "if(not(empty(override.distinct_id)), override.person_id, event_person_id)",
+            start=None,
+        ),
+    )
 
 
 def create_hogql_database(
     team_id: int, modifiers: Optional[HogQLQueryModifiers] = None, team_arg: Optional["Team"] = None
 ) -> Database:
     from posthog.models import Team
+    from posthog.hogql.database.s3_table import S3Table
     from posthog.hogql.query import create_default_modifiers_for_team
     from posthog.warehouse.models import (
         DataWarehouseTable,
@@ -229,27 +226,53 @@ def create_hogql_database(
     modifiers = create_default_modifiers_for_team(team, modifiers)
     database = Database(timezone=team.timezone, week_start_day=team.week_start_day)
 
-    if modifiers.personsOnEventsMode == PersonsOnEventsMode.disabled:
+    if modifiers.personsOnEventsMode == PersonsOnEventsMode.DISABLED:
         # no change
         database.events.fields["person"] = FieldTraverser(chain=["pdi", "person"])
         database.events.fields["person_id"] = FieldTraverser(chain=["pdi", "person_id"])
 
-    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.person_id_no_override_properties_on_events:
+    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
         database.events.fields["person_id"] = StringDatabaseField(name="person_id")
         _use_person_properties_from_events(database)
 
-    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.person_id_override_properties_on_events:
-        _use_person_id_from_person_overrides(database, use_distinct_id_overrides=False)
+    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
+        _use_person_id_from_person_overrides(database)
         _use_person_properties_from_events(database)
         database.events.fields["poe"].fields["id"] = database.events.fields["person_id"]
 
-    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.person_id_override_properties_joined:
-        _use_person_id_from_person_overrides(database, use_distinct_id_overrides=True)
+    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED:
+        _use_person_id_from_person_overrides(database)
         database.events.fields["person"] = LazyJoin(
             from_field=["person_id"],
             join_table=PersonsTable(),
             join_function=join_with_persons_table,
         )
+
+    if modifiers.sessionTableVersion in [SessionTableVersion.V2]:
+        raw_sessions = RawSessionsTableV2()
+        database.raw_sessions = raw_sessions
+        sessions = SessionsTableV2()
+        database.sessions = sessions
+        events = database.events
+        events.fields["session"] = LazyJoin(
+            from_field=["$session_id"],
+            join_table=sessions,
+            join_function=join_events_table_to_sessions_table_v2,
+        )
+        replay_events = database.session_replay_events
+        replay_events.fields["session"] = LazyJoin(
+            from_field=["session_id"],
+            join_table=sessions,
+            join_function=join_replay_table_to_sessions_table_v2,
+        )
+        replay_events.fields["events"].join_table = events
+        raw_replay_events = database.raw_session_replay_events
+        raw_replay_events.fields["session"] = LazyJoin(
+            from_field=["session_id"],
+            join_table=sessions,
+            join_function=join_replay_table_to_sessions_table_v2,
+        )
+        raw_replay_events.fields["events"].join_table = events
 
     database.persons.fields["$virt_initial_referring_domain_type"] = create_initial_domain_type(
         "$virt_initial_referring_domain_type"
@@ -264,53 +287,88 @@ def create_hogql_database(
     views: dict[str, Table] = {}
 
     for table in DataWarehouseTable.objects.filter(team_id=team.pk).exclude(deleted=True):
-        warehouse_tables[table.name] = table.hogql_definition(modifiers)
+        s3_table = table.hogql_definition(modifiers)
 
-    if modifiers.dataWarehouseEventsModifiers:
-        for warehouse_modifier in modifiers.dataWarehouseEventsModifiers:
-            # TODO: add all field mappings
-            if "id" not in warehouse_tables[warehouse_modifier.table_name].fields.keys():
-                warehouse_tables[warehouse_modifier.table_name].fields["id"] = ExpressionField(
-                    name="id",
-                    expr=parse_expr(warehouse_modifier.id_field),
-                )
+        # If the warehouse table has no _properties_ field, then set it as a virtual table
+        if s3_table.fields.get("properties") is None:
 
-            if "timestamp" not in warehouse_tables[warehouse_modifier.table_name].fields.keys():
-                table_model = DataWarehouseTable.objects.filter(
-                    team_id=team.pk, name=warehouse_modifier.table_name
-                ).latest("created_at")
-                timestamp_field_type = table_model.get_clickhouse_column_type(warehouse_modifier.timestamp_field)
+            class WarehouseProperties(VirtualTable):
+                fields: dict[str, FieldOrTable] = s3_table.fields
+                parent_table: S3Table = s3_table
 
-                # If field type is none or datetime, we can use the field directly
-                if timestamp_field_type is None or timestamp_field_type.startswith("DateTime"):
-                    warehouse_tables[warehouse_modifier.table_name].fields["timestamp"] = ExpressionField(
-                        name="timestamp",
-                        expr=ast.Field(chain=[warehouse_modifier.timestamp_field]),
-                    )
-                else:
-                    warehouse_tables[warehouse_modifier.table_name].fields["timestamp"] = ExpressionField(
-                        name="timestamp",
-                        expr=ast.Call(name="toDateTime", args=[ast.Field(chain=[warehouse_modifier.timestamp_field])]),
-                    )
+                def to_printed_hogql(self):
+                    return self.parent_table.to_printed_hogql()
 
-            # TODO: Need to decide how the distinct_id and person_id fields are going to be handled
-            if "distinct_id" not in warehouse_tables[warehouse_modifier.table_name].fields.keys():
-                warehouse_tables[warehouse_modifier.table_name].fields["distinct_id"] = ExpressionField(
-                    name="distinct_id",
-                    expr=parse_expr(warehouse_modifier.distinct_id_field),
-                )
+                def to_printed_clickhouse(self, context):
+                    return self.parent_table.to_printed_clickhouse(context)
 
-            if "person_id" not in warehouse_tables[warehouse_modifier.table_name].fields.keys():
-                warehouse_tables[warehouse_modifier.table_name].fields["person_id"] = ExpressionField(
-                    name="person_id",
-                    expr=parse_expr(warehouse_modifier.distinct_id_field),
-                )
+            s3_table.fields["properties"] = WarehouseProperties()
 
-    database.add_warehouse_tables(**warehouse_tables)
+        warehouse_tables[table.name] = s3_table
 
     for saved_query in DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True):
         views[saved_query.name] = saved_query.hogql_definition()
 
+    def define_mappings(warehouse: dict[str, Table], get_table: Callable):
+        if "id" not in warehouse[warehouse_modifier.table_name].fields.keys():
+            warehouse[warehouse_modifier.table_name].fields["id"] = ExpressionField(
+                name="id",
+                expr=parse_expr(warehouse_modifier.id_field),
+            )
+
+        if "timestamp" not in warehouse[warehouse_modifier.table_name].fields.keys():
+            table_model = get_table(team=team, warehouse_modifier=warehouse_modifier)
+            timestamp_field_type = table_model.get_clickhouse_column_type(warehouse_modifier.timestamp_field)
+
+            # If field type is none or datetime, we can use the field directly
+            if timestamp_field_type is None or timestamp_field_type.startswith("DateTime"):
+                warehouse[warehouse_modifier.table_name].fields["timestamp"] = ExpressionField(
+                    name="timestamp",
+                    expr=ast.Field(chain=[warehouse_modifier.timestamp_field]),
+                )
+            else:
+                warehouse[warehouse_modifier.table_name].fields["timestamp"] = ExpressionField(
+                    name="timestamp",
+                    expr=ast.Call(name="toDateTime", args=[ast.Field(chain=[warehouse_modifier.timestamp_field])]),
+                )
+
+        # TODO: Need to decide how the distinct_id and person_id fields are going to be handled
+        if "distinct_id" not in warehouse[warehouse_modifier.table_name].fields.keys():
+            warehouse[warehouse_modifier.table_name].fields["distinct_id"] = ExpressionField(
+                name="distinct_id",
+                expr=parse_expr(warehouse_modifier.distinct_id_field),
+            )
+
+        if "person_id" not in warehouse[warehouse_modifier.table_name].fields.keys():
+            warehouse[warehouse_modifier.table_name].fields["person_id"] = ExpressionField(
+                name="person_id",
+                expr=parse_expr(warehouse_modifier.distinct_id_field),
+            )
+
+        return warehouse
+
+    if modifiers.dataWarehouseEventsModifiers:
+        for warehouse_modifier in modifiers.dataWarehouseEventsModifiers:
+            # TODO: add all field mappings
+
+            is_view = warehouse_modifier.table_name in views.keys()
+
+            if is_view:
+                views = define_mappings(
+                    views,
+                    lambda team, warehouse_modifier: DataWarehouseSavedQuery.objects.filter(
+                        team_id=team.pk, name=warehouse_modifier.table_name
+                    ).latest("created_at"),
+                )
+            else:
+                warehouse_tables = define_mappings(
+                    warehouse_tables,
+                    lambda team, warehouse_modifier: DataWarehouseTable.objects.filter(
+                        team_id=team.pk, name=warehouse_modifier.table_name
+                    ).latest("created_at"),
+                )
+
+    database.add_warehouse_tables(**warehouse_tables)
     database.add_views(**views)
 
     for join in DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True):
@@ -421,7 +479,7 @@ def serialize_database(
         elif isinstance(table, Table):
             field_input = table.fields
 
-        fields = serialize_fields(field_input, context)
+        fields = serialize_fields(field_input, context, table_key)
         fields_dict = {field.name: field for field in fields}
         tables[table_key] = DatabaseSchemaPostHogTable(fields=fields_dict, id=table_key, name=table_key)
 
@@ -449,7 +507,7 @@ def serialize_database(
         if isinstance(table, Table):
             field_input = table.fields
 
-        fields = serialize_fields(field_input, context, warehouse_table.columns)
+        fields = serialize_fields(field_input, context, table_key, warehouse_table.columns)
         fields_dict = {field.name: field for field in fields}
 
         # Schema
@@ -505,7 +563,7 @@ def serialize_database(
         if view is None:
             continue
 
-        fields = serialize_fields(view.fields, context)
+        fields = serialize_fields(view.fields, context, view_name)
         fields_dict = {field.name: field for field in fields}
 
         saved_query: list[DataWarehouseSavedQuery] = list(
@@ -519,13 +577,36 @@ def serialize_database(
     return tables
 
 
+def constant_type_to_serialized_field_type(constant_type: ast.ConstantType) -> DatabaseSerializedFieldType | None:
+    if isinstance(constant_type, ast.StringType):
+        return DatabaseSerializedFieldType.STRING
+    if isinstance(constant_type, ast.BooleanType):
+        return DatabaseSerializedFieldType.BOOLEAN
+    if isinstance(constant_type, ast.DateType):
+        return DatabaseSerializedFieldType.DATE
+    if isinstance(constant_type, ast.DateTimeType):
+        return DatabaseSerializedFieldType.DATETIME
+    if isinstance(constant_type, ast.UUIDType):
+        return DatabaseSerializedFieldType.STRING
+    if isinstance(constant_type, ast.ArrayType):
+        return DatabaseSerializedFieldType.ARRAY
+    if isinstance(constant_type, ast.TupleType):
+        return DatabaseSerializedFieldType.JSON
+    if isinstance(constant_type, ast.IntegerType):
+        return DatabaseSerializedFieldType.INTEGER
+    if isinstance(constant_type, ast.FloatType):
+        return DatabaseSerializedFieldType.FLOAT
+    return None
+
+
 HOGQL_CHARACTERS_TO_BE_WRAPPED = ["@", "-", "!", "$", "+"]
 
 
 def serialize_fields(
-    field_input, context: HogQLContext, db_columns: Optional[DataWarehouseTableColumns] = None
+    field_input, context: HogQLContext, table_name: str, db_columns: Optional[DataWarehouseTableColumns] = None
 ) -> list[DatabaseSchemaField]:
     from posthog.hogql.database.models import SavedQuery
+    from posthog.hogql.resolver import resolve_types_from_table
 
     field_output: list[DatabaseSchemaField] = []
     for field_key, field in field_input.items():
@@ -558,7 +639,7 @@ def serialize_fields(
                     DatabaseSchemaField(
                         name=field_key,
                         hogql_value=hogql_value,
-                        type=DatabaseSerializedFieldType.integer,
+                        type=DatabaseSerializedFieldType.INTEGER,
                         schema_valid=schema_valid,
                     )
                 )
@@ -567,7 +648,7 @@ def serialize_fields(
                     DatabaseSchemaField(
                         name=field_key,
                         hogql_value=hogql_value,
-                        type=DatabaseSerializedFieldType.float,
+                        type=DatabaseSerializedFieldType.FLOAT,
                         schema_valid=schema_valid,
                     )
                 )
@@ -576,7 +657,7 @@ def serialize_fields(
                     DatabaseSchemaField(
                         name=field_key,
                         hogql_value=hogql_value,
-                        type=DatabaseSerializedFieldType.string,
+                        type=DatabaseSerializedFieldType.STRING,
                         schema_valid=schema_valid,
                     )
                 )
@@ -585,7 +666,7 @@ def serialize_fields(
                     DatabaseSchemaField(
                         name=field_key,
                         hogql_value=hogql_value,
-                        type=DatabaseSerializedFieldType.datetime,
+                        type=DatabaseSerializedFieldType.DATETIME,
                         schema_valid=schema_valid,
                     )
                 )
@@ -594,7 +675,7 @@ def serialize_fields(
                     DatabaseSchemaField(
                         name=field_key,
                         hogql_value=hogql_value,
-                        type=DatabaseSerializedFieldType.date,
+                        type=DatabaseSerializedFieldType.DATE,
                         schema_valid=schema_valid,
                     )
                 )
@@ -603,7 +684,7 @@ def serialize_fields(
                     DatabaseSchemaField(
                         name=field_key,
                         hogql_value=hogql_value,
-                        type=DatabaseSerializedFieldType.boolean,
+                        type=DatabaseSerializedFieldType.BOOLEAN,
                         schema_valid=schema_valid,
                     )
                 )
@@ -612,7 +693,7 @@ def serialize_fields(
                     DatabaseSchemaField(
                         name=field_key,
                         hogql_value=hogql_value,
-                        type=DatabaseSerializedFieldType.json,
+                        type=DatabaseSerializedFieldType.JSON,
                         schema_valid=schema_valid,
                     )
                 )
@@ -621,16 +702,24 @@ def serialize_fields(
                     DatabaseSchemaField(
                         name=field_key,
                         hogql_value=hogql_value,
-                        type=DatabaseSerializedFieldType.array,
+                        type=DatabaseSerializedFieldType.ARRAY,
                         schema_valid=schema_valid,
                     )
                 )
             elif isinstance(field, ExpressionField):
+                field_expr = resolve_types_from_table(field.expr, table_name, context, "hogql")
+                assert field_expr.type is not None
+                constant_type = field_expr.type.resolve_constant_type(context)
+
+                field_type = constant_type_to_serialized_field_type(constant_type)
+                if field_type is None:
+                    field_type = DatabaseSerializedFieldType.EXPRESSION
+
                 field_output.append(
                     DatabaseSchemaField(
                         name=field_key,
                         hogql_value=hogql_value,
-                        type=DatabaseSerializedFieldType.expression,
+                        type=field_type,
                         schema_valid=schema_valid,
                     )
                 )
@@ -640,7 +729,7 @@ def serialize_fields(
                 DatabaseSchemaField(
                     name=field_key,
                     hogql_value=hogql_value,
-                    type=DatabaseSerializedFieldType.view if is_view else DatabaseSerializedFieldType.lazy_table,
+                    type=DatabaseSerializedFieldType.VIEW if is_view else DatabaseSerializedFieldType.LAZY_TABLE,
                     schema_valid=schema_valid,
                     table=field.resolve_table(context).to_printed_hogql(),
                     fields=list(field.resolve_table(context).fields.keys()),
@@ -651,7 +740,7 @@ def serialize_fields(
                 DatabaseSchemaField(
                     name=field_key,
                     hogql_value=hogql_value,
-                    type=DatabaseSerializedFieldType.virtual_table,
+                    type=DatabaseSerializedFieldType.VIRTUAL_TABLE,
                     schema_valid=schema_valid,
                     table=field.to_printed_hogql(),
                     fields=list(field.fields.keys()),
@@ -662,7 +751,7 @@ def serialize_fields(
                 DatabaseSchemaField(
                     name=field_key,
                     hogql_value=hogql_value,
-                    type=DatabaseSerializedFieldType.field_traverser,
+                    type=DatabaseSerializedFieldType.FIELD_TRAVERSER,
                     schema_valid=schema_valid,
                     chain=field.chain,
                 )

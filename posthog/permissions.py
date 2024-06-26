@@ -5,6 +5,7 @@ from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.db.models import Model
 from django.views import View
+import posthoganalytics
 from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAdminUser
 from rest_framework.request import Request
@@ -352,6 +353,10 @@ class APIScopePermission(BasePermission):
         return True
 
     def check_team_and_org_permissions(self, request, view) -> None:
+        scope_object = self.get_scope_object(request, view)
+        if scope_object == "user":
+            return  # The /api/users/@me/ endpoint is exempt from team and org scoping
+
         scoped_organizations = request.successful_authenticator.personal_api_key.scoped_organizations
         scoped_teams = request.successful_authenticator.personal_api_key.scoped_teams
 
@@ -359,16 +364,16 @@ class APIScopePermission(BasePermission):
             try:
                 team = view.team
                 if team.id not in scoped_teams:
-                    raise PermissionDenied(f"API key does not have access to the requested project '{team.id}'")
-            except (ValueError, KeyError):
-                raise PermissionDenied(f"API key with scoped projects are only supported on project-based views.")
+                    raise PermissionDenied(f"API key does not have access to the requested project: ID {team.id}.")
+            except (KeyError, AttributeError):
+                raise PermissionDenied(f"API keys with scoped projects are only supported on project-based endpoints.")
 
         if scoped_organizations:
             try:
                 organization = get_organization_from_view(view)
                 if str(organization.id) not in scoped_organizations:
                     raise PermissionDenied(
-                        f"API key does not have access to the requested organization '{organization.id}'"
+                        f"API key does not have access to the requested organization: ID {organization.id}."
                     )
             except ValueError:
                 # Indicates this is not an organization scoped view
@@ -403,3 +408,39 @@ class APIScopePermission(BasePermission):
             raise ImproperlyConfigured("APIScopePermission requires the view to define the scope_object attribute.")
 
         return view.scope_object
+
+
+class PostHogFeatureFlagPermission(BasePermission):
+    def has_permission(self, request, view) -> bool:
+        user = cast(User, request.user)
+        organization = get_organization_from_view(view)
+        flag = getattr(view, "posthog_feature_flag", None)
+
+        config = {}
+
+        if not flag:
+            raise ImproperlyConfigured(
+                "PostHogFeatureFlagPermission requires the view to define the posthog_feature_flag attribute."
+            )
+
+        if isinstance(flag, str):
+            config[flag] = ["*"]
+        else:
+            config = flag
+
+        for required_flag, actions in config.items():
+            if "*" in actions or view.action in actions:
+                org_id = str(organization.id)
+
+                enabled = posthoganalytics.feature_enabled(
+                    required_flag,
+                    user.distinct_id,
+                    groups={"organization": org_id},
+                    group_properties={"organization": {"id": org_id}},
+                    only_evaluate_locally=False,
+                    send_feature_flag_events=False,
+                )
+
+                return enabled or False
+
+        return True

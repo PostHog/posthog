@@ -35,7 +35,10 @@ from posthog.api.decide import hostname_in_allowed_url_list
 from posthog.api.email_verification import EmailVerifier
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
-from posthog.api.utils import PublicIPOnlyHttpAdapter, raise_if_user_provided_url_unsafe
+from posthog.api.utils import (
+    PublicIPOnlyHttpAdapter,
+    raise_if_user_provided_url_unsafe,
+)
 from posthog.auth import (
     PersonalAPIKeyAuthentication,
     SessionAuthentication,
@@ -473,7 +476,7 @@ class UserViewSet(
     def hedgehog_config(self, request, **kwargs):
         instance = self.get_object()
         if request.method == "GET":
-            return Response(instance.hedgehog_config)
+            return Response(instance.hedgehog_config or {})
         else:
             instance.hedgehog_config = request.data
             instance.save()

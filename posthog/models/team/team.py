@@ -303,31 +303,31 @@ class Team(UUIDClassicModel):
     @property
     def person_on_events_mode(self) -> PersonsOnEventsMode:
         if self._person_on_events_person_id_override_properties_on_events:
-            tag_queries(person_on_events_mode=PersonsOnEventsMode.person_id_override_properties_on_events)
-            return PersonsOnEventsMode.person_id_override_properties_on_events
+            tag_queries(person_on_events_mode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS)
+            return PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
 
         if self._person_on_events_person_id_no_override_properties_on_events:
             # also tag person_on_events_enabled for legacy compatibility
             tag_queries(
                 person_on_events_enabled=True,
-                person_on_events_mode=PersonsOnEventsMode.person_id_no_override_properties_on_events,
+                person_on_events_mode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
             )
-            return PersonsOnEventsMode.person_id_no_override_properties_on_events
+            return PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
 
         if self._person_on_events_person_id_override_properties_joined:
             tag_queries(
                 person_on_events_enabled=True,
-                person_on_events_mode=PersonsOnEventsMode.person_id_override_properties_joined,
+                person_on_events_mode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
             )
-            return PersonsOnEventsMode.person_id_override_properties_joined
+            return PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED
 
-        return PersonsOnEventsMode.disabled
+        return PersonsOnEventsMode.DISABLED
 
     # KLUDGE: DO NOT REFERENCE IN THE BACKEND!
     # Keeping this property for now only to be used by the frontend in certain cases
     @property
     def person_on_events_querying_enabled(self) -> bool:
-        return self.person_on_events_mode != PersonsOnEventsMode.disabled
+        return self.person_on_events_mode != PersonsOnEventsMode.DISABLED
 
     @property
     def _person_on_events_person_id_no_override_properties_on_events(self) -> bool:
@@ -481,15 +481,6 @@ def put_team_in_cache_on_save(sender, instance: Team, **kwargs):
 @mutable_receiver(post_delete, sender=Team)
 def delete_team_in_cache_on_delete(sender, instance: Team, **kwargs):
     set_team_in_cache(instance.api_token, None)
-
-
-def groups_on_events_querying_enabled():
-    """
-    Returns whether to allow querying groups columns on events.
-
-    Remove all usages of this when the feature is released to everyone.
-    """
-    return get_instance_setting("GROUPS_ON_EVENTS_ENABLED")
 
 
 def check_is_feature_available_for_team(team_id: int, feature_key: str, current_usage: Optional[int] = None):

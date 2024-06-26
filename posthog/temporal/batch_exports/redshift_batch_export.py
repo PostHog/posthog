@@ -1,10 +1,9 @@
 import collections.abc
 import contextlib
+import dataclasses
 import datetime as dt
-import itertools
 import json
 import typing
-from dataclasses import dataclass
 
 import psycopg
 import pyarrow as pa
@@ -13,7 +12,12 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.models import BatchExportRun
-from posthog.batch_exports.service import BatchExportField, RedshiftBatchExportInputs
+from posthog.batch_exports.service import (
+    BatchExportField,
+    BatchExportModel,
+    BatchExportSchema,
+    RedshiftBatchExportInputs,
+)
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
     FinishBatchExportRunInputs,
@@ -21,9 +25,8 @@ from posthog.temporal.batch_exports.batch_exports import (
     StartBatchExportRunInputs,
     default_fields,
     execute_batch_export_insert_activity,
-    finish_batch_export_run,
     get_data_interval,
-    iter_records,
+    iter_model_records,
     start_batch_export_run,
 )
 from posthog.temporal.batch_exports.metrics import get_rows_exported_metric
@@ -32,8 +35,9 @@ from posthog.temporal.batch_exports.postgres_batch_export import (
     create_table_in_postgres,
     postgres_connection,
 )
-from posthog.temporal.batch_exports.utils import peek_first_and_rewind
+from posthog.temporal.batch_exports.utils import apeek_first_and_rewind, try_set_batch_export_run_to_running
 from posthog.temporal.common.clickhouse import get_client
+from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 
 
@@ -167,7 +171,7 @@ def get_redshift_fields_from_record_schema(
 
 
 async def insert_records_to_redshift(
-    records: collections.abc.Iterator[dict[str, typing.Any]],
+    records: collections.abc.AsyncGenerator[dict[str, typing.Any], None],
     redshift_connection: psycopg.AsyncConnection,
     schema: str | None,
     table: str,
@@ -192,8 +196,11 @@ async def insert_records_to_redshift(
             make us go OOM or exceed Redshift's SQL statement size limit (16MB). Setting this too low
             can significantly affect performance due to Redshift's poor handling of INSERTs.
     """
-    first_record = next(records)
-    columns = first_record.keys()
+    first_record_batch, records_iterator = await apeek_first_and_rewind(records)
+    if first_record_batch is None:
+        return 0
+
+    columns = first_record_batch.keys()
 
     if schema:
         table_identifier = sql.Identifier(schema, table)
@@ -225,7 +232,7 @@ async def insert_records_to_redshift(
             # the byte size of each batch the way things are currently written. We can revisit this
             # in the future if we decide it's useful enough.
 
-        for record in itertools.chain([first_record], records):
+        async for record in records_iterator:
             batch.append(cursor.mogrify(template, record).encode("utf-8"))
             if len(batch) < batch_size:
                 continue
@@ -260,7 +267,7 @@ async def async_client_cursor_from_connection(
         psycopg_connection.cursor_factory = current_factory
 
 
-@dataclass
+@dataclasses.dataclass
 class RedshiftInsertInputs(PostgresInsertInputs):
     """Inputs for Redshift insert activity.
 
@@ -298,91 +305,102 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
         inputs.table_name,
     )
 
-    async with get_client(team_id=inputs.team_id) as client:
-        if not await client.is_alive():
-            raise ConnectionError("Cannot establish connection to ClickHouse")
+    async with Heartbeater():
+        await try_set_batch_export_run_to_running(run_id=inputs.run_id, logger=logger)
 
-        if inputs.batch_export_schema is None:
-            fields = redshift_default_fields()
-            query_parameters = None
+        async with get_client(team_id=inputs.team_id) as client:
+            if not await client.is_alive():
+                raise ConnectionError("Cannot establish connection to ClickHouse")
 
-        else:
-            fields = inputs.batch_export_schema["fields"]
-            query_parameters = inputs.batch_export_schema["values"]
+            model: BatchExportModel | BatchExportSchema | None = None
+            if inputs.batch_export_schema is None and "batch_export_model" in {
+                field.name for field in dataclasses.fields(inputs)
+            }:
+                model = inputs.batch_export_model
 
-        record_iterator = iter_records(
-            client=client,
-            team_id=inputs.team_id,
-            interval_start=inputs.data_interval_start,
-            interval_end=inputs.data_interval_end,
-            exclude_events=inputs.exclude_events,
-            include_events=inputs.include_events,
-            fields=fields,
-            extra_query_parameters=query_parameters,
-        )
+            else:
+                model = inputs.batch_export_schema
 
-        known_super_columns = ["properties", "set", "set_once", "person_properties"]
-
-        if inputs.properties_data_type != "varchar":
-            properties_type = "SUPER"
-        else:
-            properties_type = "VARCHAR(65535)"
-
-        if inputs.batch_export_schema is None:
-            table_fields = [
-                ("uuid", "VARCHAR(200)"),
-                ("event", "VARCHAR(200)"),
-                ("properties", properties_type),
-                ("elements", "VARCHAR(65535)"),
-                ("set", properties_type),
-                ("set_once", properties_type),
-                ("distinct_id", "VARCHAR(200)"),
-                ("team_id", "INTEGER"),
-                ("ip", "VARCHAR(200)"),
-                ("site_url", "VARCHAR(200)"),
-                ("timestamp", "TIMESTAMP WITH TIME ZONE"),
-            ]
-        else:
-            first_record, record_iterator = peek_first_and_rewind(record_iterator)
-
-            column_names = [column for column in first_record.schema.names if column != "_inserted_at"]
-            record_schema = first_record.select(column_names).schema
-            table_fields = get_redshift_fields_from_record_schema(
-                record_schema, known_super_columns=known_super_columns
+            record_iterator = iter_model_records(
+                client=client,
+                model=model,
+                team_id=inputs.team_id,
+                interval_start=inputs.data_interval_start,
+                interval_end=inputs.data_interval_end,
+                exclude_events=inputs.exclude_events,
+                include_events=inputs.include_events,
+                destination_default_fields=redshift_default_fields(),
+                is_backfill=inputs.is_backfill,
             )
+            first_record_batch, record_iterator = await apeek_first_and_rewind(record_iterator)
+            if first_record_batch is None:
+                return 0
 
-        async with redshift_connection(inputs) as connection:
-            await create_table_in_postgres(
-                connection,
-                schema=inputs.schema,
-                table_name=inputs.table_name,
-                fields=table_fields,
-            )
+            known_super_columns = ["properties", "set", "set_once", "person_properties"]
 
-        schema_columns = {field[0] for field in table_fields}
+            if inputs.properties_data_type != "varchar":
+                properties_type = "SUPER"
+            else:
+                properties_type = "VARCHAR(65535)"
 
-        def map_to_record(row: dict) -> dict:
-            """Map row to a record to insert to Redshift."""
-            record = {k: v for k, v in row.items() if k in schema_columns}
+            if inputs.batch_export_schema is None:
+                table_fields = [
+                    ("uuid", "VARCHAR(200)"),
+                    ("event", "VARCHAR(200)"),
+                    ("properties", properties_type),
+                    ("elements", "VARCHAR(65535)"),
+                    ("set", properties_type),
+                    ("set_once", properties_type),
+                    ("distinct_id", "VARCHAR(200)"),
+                    ("team_id", "INTEGER"),
+                    ("ip", "VARCHAR(200)"),
+                    ("site_url", "VARCHAR(200)"),
+                    ("timestamp", "TIMESTAMP WITH TIME ZONE"),
+                ]
+            else:
+                column_names = [column for column in first_record_batch.schema.names if column != "_inserted_at"]
+                record_schema = first_record_batch.select(column_names).schema
+                table_fields = get_redshift_fields_from_record_schema(
+                    record_schema, known_super_columns=known_super_columns
+                )
 
-            for column in known_super_columns:
-                if record.get(column, None) is not None:
-                    # TODO: We should be able to save a json.loads here.
-                    record[column] = json.dumps(
-                        remove_escaped_whitespace_recursive(json.loads(record[column])), ensure_ascii=False
-                    )
+            async with redshift_connection(inputs) as connection:
+                await create_table_in_postgres(
+                    connection,
+                    schema=inputs.schema,
+                    table_name=inputs.table_name,
+                    fields=table_fields,
+                )
 
-            return record
+            schema_columns = {field[0] for field in table_fields}
 
-        async with postgres_connection(inputs) as connection:
-            records_completed = await insert_records_to_redshift(
-                (map_to_record(record) for record_batch in record_iterator for record in record_batch.to_pylist()),
-                connection,
-                inputs.schema,
-                inputs.table_name,
-            )
+            def map_to_record(row: dict) -> dict:
+                """Map row to a record to insert to Redshift."""
+                record = {k: v for k, v in row.items() if k in schema_columns}
 
-        return records_completed
+                for column in known_super_columns:
+                    if record.get(column, None) is not None:
+                        # TODO: We should be able to save a json.loads here.
+                        record[column] = json.dumps(
+                            remove_escaped_whitespace_recursive(json.loads(record[column])), ensure_ascii=False
+                        )
+
+                return record
+
+            async def record_generator() -> collections.abc.AsyncGenerator[dict[str, typing.Any], None]:
+                async for record_batch in record_iterator:
+                    for record in record_batch.to_pylist():
+                        yield map_to_record(record)
+
+            async with postgres_connection(inputs) as connection:
+                records_completed = await insert_records_to_redshift(
+                    record_generator(),
+                    connection,
+                    inputs.schema,
+                    inputs.table_name,
+                )
+
+            return records_completed
 
 
 @workflow.defn(name="redshift-export")
@@ -413,8 +431,9 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
             data_interval_end=data_interval_end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
+            is_backfill=inputs.is_backfill,
         )
-        run_id, records_total_count = await workflow.execute_activity(
+        run_id = await workflow.execute_activity(
             start_batch_export_run,
             start_batch_export_run_inputs,
             start_to_close_timeout=dt.timedelta(minutes=5),
@@ -433,20 +452,6 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
             team_id=inputs.team_id,
         )
 
-        if records_total_count == 0:
-            await workflow.execute_activity(
-                finish_batch_export_run,
-                finish_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=5),
-                retry_policy=RetryPolicy(
-                    initial_interval=dt.timedelta(seconds=10),
-                    maximum_interval=dt.timedelta(seconds=60),
-                    maximum_attempts=0,
-                    non_retryable_error_types=["NotNullViolation", "IntegrityError"],
-                ),
-            )
-            return
-
         insert_inputs = RedshiftInsertInputs(
             team_id=inputs.team_id,
             user=inputs.user,
@@ -462,8 +467,10 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             properties_data_type=inputs.properties_data_type,
-            batch_export_schema=inputs.batch_export_schema,
             run_id=run_id,
+            is_backfill=inputs.is_backfill,
+            batch_export_model=inputs.batch_export_model,
+            batch_export_schema=inputs.batch_export_schema,
         )
 
         await execute_batch_export_insert_activity(
@@ -480,6 +487,4 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
                 "InsufficientPrivilege",
             ],
             finish_inputs=finish_inputs,
-            # Disable heartbeat timeout until we add heartbeat support.
-            heartbeat_timeout_seconds=None,
         )

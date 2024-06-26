@@ -70,7 +70,7 @@ async def test_postgres_source_without_ssh_tunnel(activity_environment, team, **
     activity_inputs = await _setup(team, job_inputs)
 
     with (
-        mock.patch("posthog.temporal.data_imports.pipelines.postgres.postgres_source") as postgres_source,
+        mock.patch("posthog.temporal.data_imports.pipelines.sql_database.postgres_source") as postgres_source,
         mock.patch("posthog.temporal.data_imports.workflow_activities.import_data._run"),
     ):
         await activity_environment.run(import_data_activity, activity_inputs)
@@ -84,6 +84,8 @@ async def test_postgres_source_without_ssh_tunnel(activity_environment, team, **
             sslmode="prefer",
             schema="schema",
             table_names=["table_1"],
+            incremental_field=None,
+            incremental_field_type=None,
         )
 
 
@@ -105,7 +107,7 @@ async def test_postgres_source_with_ssh_tunnel_disabled(activity_environment, te
     activity_inputs = await _setup(team, job_inputs)
 
     with (
-        mock.patch("posthog.temporal.data_imports.pipelines.postgres.postgres_source") as postgres_source,
+        mock.patch("posthog.temporal.data_imports.pipelines.sql_database.postgres_source") as postgres_source,
         mock.patch("posthog.temporal.data_imports.workflow_activities.import_data._run"),
     ):
         await activity_environment.run(import_data_activity, activity_inputs)
@@ -119,6 +121,8 @@ async def test_postgres_source_with_ssh_tunnel_disabled(activity_environment, te
             sslmode="prefer",
             schema="schema",
             table_names=["table_1"],
+            incremental_field=None,
+            incremental_field_type=None,
         )
 
 
@@ -156,7 +160,7 @@ async def test_postgres_source_with_ssh_tunnel_enabled(activity_environment, tea
         return MockedTunnel()
 
     with (
-        mock.patch("posthog.temporal.data_imports.pipelines.postgres.postgres_source") as postgres_source,
+        mock.patch("posthog.temporal.data_imports.pipelines.sql_database.postgres_source") as postgres_source,
         mock.patch("posthog.temporal.data_imports.workflow_activities.import_data._run"),
         mock.patch.object(SSHTunnel, "get_tunnel", mock_get_tunnel),
     ):
@@ -171,4 +175,6 @@ async def test_postgres_source_with_ssh_tunnel_enabled(activity_environment, tea
             sslmode="prefer",
             schema="schema",
             table_names=["table_1"],
+            incremental_field=None,
+            incremental_field_type=None,
         )

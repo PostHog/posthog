@@ -168,7 +168,11 @@ describe('eachBatchX', () => {
     describe('eachBatchWebhooksHandlers', () => {
         it('calls runWebhooksHandlersEventPipeline', async () => {
             const actionManager = new ActionManager(queue.pluginsServer.postgres, queue.pluginsServer)
-            const actionMatcher = new ActionMatcher(queue.pluginsServer.postgres, actionManager)
+            const actionMatcher = new ActionMatcher(
+                queue.pluginsServer.postgres,
+                actionManager,
+                queue.pluginsServer.teamManager
+            )
             const hookCannon = new HookCommander(
                 queue.pluginsServer.postgres,
                 queue.pluginsServer.teamManager,
@@ -363,7 +367,7 @@ describe('eachBatchX', () => {
                 ip: null,
                 now: null,
                 sent_at: null,
-                site_url: null,
+                site_url: '',
                 team_id: 1,
                 uuid: 'uuid1',
             })

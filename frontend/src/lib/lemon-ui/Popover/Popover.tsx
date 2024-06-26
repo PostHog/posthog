@@ -50,7 +50,7 @@ export interface PopoverProps {
     /** Any other refs that needs to be taken into account for handling outside clicks e.g. other nested popovers.
      * Works also with strings, matching classnames or ids, for antd legacy components that don't support refs
      * **/
-    additionalRefs?: (React.MutableRefObject<HTMLDivElement | null> | string)[]
+    additionalRefs?: React.MutableRefObject<HTMLDivElement | null>[]
     referenceRef?: UseFloatingReturn['refs']['reference']
     floatingRef?: UseFloatingReturn['refs']['floating']
     style?: React.CSSProperties
@@ -223,73 +223,77 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                     {clonedChildren}
                 </PopoverReferenceContext.Provider>
             )}
-            <FloatingPortal root={floatingContainer}>
-                <CSSTransition in={visible} timeout={50} classNames="Popover-" appear mountOnEnter unmountOnExit>
-                    <PopoverReferenceContext.Provider value={null /* Resetting the reference, since there's none */}>
-                        <PopoverOverlayContext.Provider value={[visible, currentPopoverLevel]}>
-                            <div
-                                className={clsx(
-                                    'Popover',
-                                    padded && 'Popover--padded',
-                                    maxContentWidth && 'Popover--max-content-width',
-                                    !isAttached && 'Popover--top-centered',
-                                    showArrow && 'Popover--with-arrow',
-                                    className
-                                )}
-                                data-placement={effectivePlacement}
-                                ref={(el) => {
-                                    setFloatingElement(el)
-                                    floatingRef.current = el
-                                    if (extraFloatingRef) {
-                                        extraFloatingRef.current = el
-                                    }
-                                }}
-                                // eslint-disable-next-line react/forbid-dom-props
-                                style={{
-                                    display: middlewareData.hide?.referenceHidden ? 'none' : undefined,
-                                    position: strategy,
-                                    top,
-                                    left,
-                                    ...style,
-                                }}
-                                onClick={_onClickInside}
-                                onMouseEnter={onMouseEnterInside}
-                                onMouseLeave={onMouseLeaveInside}
-                                aria-level={currentPopoverLevel}
-                            >
-                                <div className="Popover__box">
-                                    {showArrow && isAttached && (
-                                        // Arrow is outside of .Popover__content to avoid affecting :nth-child for content
-                                        <div
-                                            ref={arrowRef}
-                                            className="Popover__arrow"
-                                            // eslint-disable-next-line react/forbid-dom-props
-                                            style={arrowStyle}
-                                        />
+            {visible ? (
+                <FloatingPortal root={floatingContainer}>
+                    <CSSTransition in={visible} timeout={50} classNames="Popover-" appear mountOnEnter unmountOnExit>
+                        <PopoverReferenceContext.Provider
+                            value={null /* Resetting the reference, since there's none */}
+                        >
+                            <PopoverOverlayContext.Provider value={[visible, currentPopoverLevel]}>
+                                <div
+                                    className={clsx(
+                                        'Popover',
+                                        padded && 'Popover--padded',
+                                        maxContentWidth && 'Popover--max-content-width',
+                                        !isAttached && 'Popover--top-centered',
+                                        showArrow && 'Popover--with-arrow',
+                                        className
                                     )}
+                                    data-placement={effectivePlacement}
+                                    ref={(el) => {
+                                        setFloatingElement(el)
+                                        floatingRef.current = el
+                                        if (extraFloatingRef) {
+                                            extraFloatingRef.current = el
+                                        }
+                                    }}
+                                    // eslint-disable-next-line react/forbid-dom-props
+                                    style={{
+                                        display: middlewareData.hide?.referenceHidden ? 'none' : undefined,
+                                        position: strategy,
+                                        top,
+                                        left,
+                                        ...style,
+                                    }}
+                                    onClick={_onClickInside}
+                                    onMouseEnter={onMouseEnterInside}
+                                    onMouseLeave={onMouseLeaveInside}
+                                    aria-level={currentPopoverLevel}
+                                >
+                                    <div className="Popover__box">
+                                        {showArrow && isAttached && (
+                                            // Arrow is outside of .Popover__content to avoid affecting :nth-child for content
+                                            <div
+                                                ref={arrowRef}
+                                                className="Popover__arrow"
+                                                // eslint-disable-next-line react/forbid-dom-props
+                                                style={arrowStyle}
+                                            />
+                                        )}
 
-                                    {!overflowHidden ? (
-                                        <ScrollableShadows
-                                            className="Popover__content"
-                                            ref={contentRef}
-                                            direction="vertical"
-                                        >
-                                            {overlay}
-                                        </ScrollableShadows>
-                                    ) : (
-                                        <div
-                                            className="Popover__content flex flex-col overflow-hidden"
-                                            ref={contentRef}
-                                        >
-                                            {overlay}
-                                        </div>
-                                    )}
+                                        {!overflowHidden ? (
+                                            <ScrollableShadows
+                                                className="Popover__content"
+                                                ref={contentRef}
+                                                direction="vertical"
+                                            >
+                                                {overlay}
+                                            </ScrollableShadows>
+                                        ) : (
+                                            <div
+                                                className="Popover__content flex flex-col overflow-hidden"
+                                                ref={contentRef}
+                                            >
+                                                {overlay}
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
-                            </div>
-                        </PopoverOverlayContext.Provider>
-                    </PopoverReferenceContext.Provider>
-                </CSSTransition>
-            </FloatingPortal>
+                            </PopoverOverlayContext.Provider>
+                        </PopoverReferenceContext.Provider>
+                    </CSSTransition>
+                </FloatingPortal>
+            ) : null}
         </>
     )
 })

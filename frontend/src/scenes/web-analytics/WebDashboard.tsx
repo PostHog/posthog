@@ -68,9 +68,8 @@ const Tiles = (): JSX.Element => {
                     return <QueryTileItem key={i} tile={tile} />
                 } else if ('tabs' in tile) {
                     return <TabsTileItem key={i} tile={tile} />
-                } else {
-                    return null
                 }
+                return null
             })}
         </div>
     )

@@ -24,7 +24,6 @@ from posthog.models.property.util import (
     get_single_or_multi_property_string_expr,
     parse_prop_grouped_clauses,
 )
-from posthog.models.team.team import groups_on_events_querying_enabled
 from posthog.queries.breakdown_props import (
     format_breakdown_cohort_join_query,
     get_breakdown_cohort_name,
@@ -32,7 +31,7 @@ from posthog.queries.breakdown_props import (
 )
 from posthog.queries.funnels.funnel_event_query import FunnelEventQuery
 from posthog.queries.insight import insight_sync_execute
-from posthog.queries.util import correct_result_for_sampling, get_person_properties_mode
+from posthog.queries.util import alias_poe_mode_for_legacy, correct_result_for_sampling, get_person_properties_mode
 from posthog.schema import PersonsOnEventsMode
 from posthog.utils import relative_date_parse, generate_short_id
 
@@ -228,9 +227,11 @@ class ClickhouseFunnelBase(ABC):
                 # breakdown_value will return the underlying id if different from display ready value (ex: cohort id)
                 serialized_result.update(
                     {
-                        "breakdown": get_breakdown_cohort_name(breakdown_value)
-                        if self._filter.breakdown_type == "cohort"
-                        else breakdown_value,
+                        "breakdown": (
+                            get_breakdown_cohort_name(breakdown_value)
+                            if self._filter.breakdown_type == "cohort"
+                            else breakdown_value
+                        ),
                         "breakdown_value": breakdown_value,
                     }
                 )
@@ -728,7 +729,7 @@ class ClickhouseFunnelBase(ABC):
 
         self.params.update({"breakdown": self._filter.breakdown})
         if self._filter.breakdown_type == "person":
-            if self._team.person_on_events_mode != PersonsOnEventsMode.disabled:
+            if alias_poe_mode_for_legacy(self._team.person_on_events_mode) != PersonsOnEventsMode.DISABLED:
                 basic_prop_selector, basic_prop_params = get_single_or_multi_property_string_expr(
                     self._filter.breakdown,
                     table="events",
@@ -758,24 +759,13 @@ class ClickhouseFunnelBase(ABC):
             # :TRICKY: We only support string breakdown for group properties
             assert isinstance(self._filter.breakdown, str)
 
-            if self._team.person_on_events_mode != PersonsOnEventsMode.disabled and groups_on_events_querying_enabled():
-                properties_field = f"group{self._filter.breakdown_group_type_index}_properties"
-                expression, _ = get_property_string_expr(
-                    table="events",
-                    property_name=self._filter.breakdown,
-                    var="%(breakdown)s",
-                    column=properties_field,
-                    allow_denormalized_props=True,
-                    materialised_table_column=properties_field,
-                )
-            else:
-                properties_field = f"group_properties_{self._filter.breakdown_group_type_index}"
-                expression, _ = get_property_string_expr(
-                    table="groups",
-                    property_name=self._filter.breakdown,
-                    var="%(breakdown)s",
-                    column=properties_field,
-                )
+            properties_field = f"group_properties_{self._filter.breakdown_group_type_index}"
+            expression, _ = get_property_string_expr(
+                table="groups",
+                property_name=self._filter.breakdown,
+                var="%(breakdown)s",
+                column=properties_field,
+            )
             basic_prop_selector = f"{expression} AS prop_basic"
         elif self._filter.breakdown_type == "hogql":
             from posthog.hogql.hogql import translate_hogql

@@ -30,11 +30,12 @@ class ProxyRecordSerializer(serializers.ModelSerializer):
             "domain",
             "target_cname",
             "status",
+            "message",
             "created_at",
             "updated_at",
             "created_by",
         )
-        read_only_fields = ("target_cname", "created_at", "created_by", "status")
+        read_only_fields = ("target_cname", "created_at", "created_by", "status", "message")
 
 
 class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):

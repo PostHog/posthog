@@ -128,7 +128,7 @@ export function PropertyValue({
             loading={options[propertyKey]?.status === 'loading'}
             value={formattedValues}
             mode={isMultiSelect ? 'multiple' : 'single'}
-            allowCustomValues
+            allowCustomValues={options[propertyKey]?.allowCustomValues}
             onChange={(nextVal) => (isMultiSelect ? setValue(nextVal) : setValue(nextVal[0]))}
             onInputChange={onSearchTextChange}
             placeholder={placeholder}

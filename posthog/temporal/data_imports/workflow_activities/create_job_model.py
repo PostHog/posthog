@@ -11,7 +11,11 @@ from posthog.warehouse.external_data_source.jobs import (
     create_external_data_job,
 )
 from posthog.warehouse.models import sync_old_schemas_with_new_schemas, ExternalDataSource, aget_schema_by_id
-from posthog.warehouse.models.external_data_schema import ExternalDataSchema, get_postgres_schemas
+from posthog.warehouse.models.external_data_schema import (
+    ExternalDataSchema,
+    get_postgres_schemas,
+    get_snowflake_schemas,
+)
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
 
@@ -46,7 +50,7 @@ async def create_external_data_job_model_activity(inputs: CreateExternalDataJobM
         database = source.job_inputs.get("database")
         db_schema = source.job_inputs.get("schema")
 
-        using_ssh_tunnel = source.job_inputs.get("ssh_tunnel_enabled")
+        using_ssh_tunnel = str(source.job_inputs.get("ssh_tunnel_enabled", False)) == "True"
         ssh_tunnel_host = source.job_inputs.get("ssh_tunnel_host")
         ssh_tunnel_port = source.job_inputs.get("ssh_tunnel_port")
         ssh_tunnel_auth_type = source.job_inputs.get("ssh_tunnel_auth_type")
@@ -68,6 +72,18 @@ async def create_external_data_job_model_activity(inputs: CreateExternalDataJobM
 
         schemas_to_sync = await sync_to_async(get_postgres_schemas)(
             host, port, database, user, password, db_schema, ssh_tunnel
+        )
+    elif source.source_type == ExternalDataSource.Type.SNOWFLAKE:
+        account_id = source.job_inputs.get("account_id")
+        user = source.job_inputs.get("user")
+        password = source.job_inputs.get("password")
+        database = source.job_inputs.get("database")
+        warehouse = source.job_inputs.get("warehouse")
+        sf_schema = source.job_inputs.get("schema")
+        role = source.job_inputs.get("role")
+
+        schemas_to_sync = await sync_to_async(get_snowflake_schemas)(
+            account_id, database, warehouse, user, password, sf_schema, role
         )
     else:
         schemas_to_sync = list(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING.get(source.source_type, ()))

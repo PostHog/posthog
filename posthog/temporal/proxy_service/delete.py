@@ -4,6 +4,7 @@ import datetime as dt
 import grpc.aio
 import json
 import uuid
+from django.db import connection
 
 from temporalio import activity, workflow
 import temporalio.common
@@ -49,6 +50,7 @@ async def delete_proxy_record(inputs: DeleteProxyRecordInputs):
 
     @sync_to_async
     def delete_record(proxy_record_id):
+        connection.connect()
         pr = ProxyRecord.objects.get(id=proxy_record_id)
         pr.delete()
 

@@ -1,7 +1,8 @@
 import { LemonDialog } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
-import { confirmUpgradeModalLogic } from 'lib/components/ConfirmUpgradeModal/confirmUpgradeModalLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'posthog-js'
 import React from 'react'
 
@@ -25,7 +26,12 @@ export const billingProductLogic = kea<billingProductLogicType>([
     key((props) => props.product.type),
     path(['scenes', 'billing', 'billingProductLogic']),
     connect({
-        values: [billingLogic, ['billing', 'isUnlicensedDebug', 'scrollToProductKey', 'unsubscribeError']],
+        values: [
+            billingLogic,
+            ['billing', 'isUnlicensedDebug', 'scrollToProductKey', 'unsubscribeError'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
         actions: [
             billingLogic,
             [
@@ -37,8 +43,6 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 'setScrollToProductKey',
                 'deactivateProductSuccess',
             ],
-            confirmUpgradeModalLogic,
-            ['showConfirmUpgradeModal'],
         ],
     }),
     actions({
@@ -66,13 +70,8 @@ export const billingProductLogic = kea<billingProductLogicType>([
             product,
             redirectPath,
         }),
-        handleProductUpgrade: (
-            product: BillingProductV2Type | BillingProductV2AddonType,
-            plan: BillingV2PlanType,
-            redirectPath?: string
-        ) => ({
-            plan,
-            product,
+        handleProductUpgrade: (products: string, redirectPath?: string) => ({
+            products,
             redirectPath,
         }),
     }),
@@ -169,12 +168,6 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 return { currentPlan, upgradePlan, downgradePlan }
             },
         ],
-        showBillingLimitInput: [
-            (s) => [s.billing, s.customLimitUsd, s.isEditingBillingLimit],
-            (billing, customLimitUsd, isEditingBillingLimit) => {
-                return billing?.billing_period?.interval == 'month' && (customLimitUsd || isEditingBillingLimit)
-            },
-        ],
         freeTier: [
             (_s, p) => [p.product],
             (product) => {
@@ -245,6 +238,11 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     },
                 ].filter(Boolean)
             },
+        ],
+        isAddonProduct: [
+            (s, p) => [s.billing, p.product],
+            (billing, product): boolean =>
+                !!billing?.products?.some((p) => p.addons?.some((addon) => addon.type === product?.type)),
         ],
     })),
     listeners(({ actions, values, props }) => ({
@@ -322,8 +320,6 @@ export const billingProductLogic = kea<billingProductLogicType>([
                                 behavior: 'smooth',
                                 block: 'center',
                             })
-                            props.productRef?.current.classList.add('border')
-                            props.productRef?.current.classList.add('border-primary-3000')
                         }
                     }, 0)
                 }
@@ -331,18 +327,17 @@ export const billingProductLogic = kea<billingProductLogicType>([
         },
         initiateProductUpgrade: ({ plan, product, redirectPath }) => {
             actions.setBillingProductLoading(product.type)
-            if (values.currentAndUpgradePlans.upgradePlan?.flat_rate) {
-                actions.showConfirmUpgradeModal(
-                    values.currentAndUpgradePlans.upgradePlan,
-                    () => actions.handleProductUpgrade(product, plan, redirectPath),
-                    () => actions.setBillingProductLoading(null)
-                )
-            } else {
-                actions.handleProductUpgrade(product, plan, redirectPath)
+            let products = `${product.type}:${plan?.plan_key}`
+            if (
+                values.featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' &&
+                values.billing?.subscription_level == 'free'
+            ) {
+                products += ',all_products:'
             }
+            actions.handleProductUpgrade(products, redirectPath)
         },
-        handleProductUpgrade: ({ plan, product, redirectPath }) => {
-            window.location.href = `/api/billing-v2/activation?products=${product.type}:${plan?.plan_key}${
+        handleProductUpgrade: ({ products, redirectPath }) => {
+            window.location.href = `/api/billing/activate?products=${products}${
                 redirectPath && `&redirect_path=${redirectPath}`
             }`
         },

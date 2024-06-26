@@ -184,7 +184,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             self.client.get(f"/api/projects/{self.team.id}/session_recordings")
 
             base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
-            num_queries = FuzzyInt(12, 26)  # PoE on or off adds queries here :shrug:
+            num_queries = FuzzyInt(7, 26)  # PoE on or off adds queries here :shrug:
 
             # loop from 1 to 10
             for i in range(1, 11):
@@ -254,7 +254,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "recording_duration": ANY,
                 "snapshot_source": "web",
                 "start_time": ANY,
-                "start_url": None,
+                "start_url": "https://not-provided-by-test.com",
                 "storage": "object_storage",
                 "viewed": False,
             },
@@ -399,7 +399,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "end_time": (base_time + relativedelta(seconds=30)).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "click_count": 0,
             "keypress_count": 0,
-            "start_url": None,
+            "start_url": "https://not-provided-by-test.com",
             "mouse_activity_count": 0,
             "inactive_seconds": 30,
             "active_seconds": 0,

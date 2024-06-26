@@ -409,13 +409,10 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     },
                     "plugins_enabled": {"Installed and enabled": 1},
                     "instance_tag": "none",
-                    "event_count_lifetime": 57,
                     "event_count_in_period": 24,
                     "enhanced_persons_event_count_in_period": 23,
-                    "event_count_in_month": 44,
                     "event_count_with_groups_in_period": 2,
                     "recording_count_in_period": 5,
-                    "recording_count_total": 16,
                     "mobile_recording_count_in_period": 0,
                     "group_types_total": 2,
                     "dashboard_count": 2,
@@ -424,14 +421,10 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "dashboard_tagged_count": 0,
                     "ff_count": 2,
                     "ff_active_count": 1,
-                    "decide_requests_count_in_month": 0,
                     "decide_requests_count_in_period": 0,
-                    "local_evaluation_requests_count_in_month": 0,
                     "local_evaluation_requests_count_in_period": 0,
-                    "billable_feature_flag_requests_count_in_month": 0,
                     "billable_feature_flag_requests_count_in_period": 0,
                     "survey_responses_count_in_period": 1,
-                    "survey_responses_count_in_month": 1,
                     "hogql_app_bytes_read": 0,
                     "hogql_app_rows_read": 0,
                     "hogql_app_duration_ms": 0,
@@ -453,13 +446,10 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "team_count": 2,
                     "teams": {
                         str(self.org_1_team_1.id): {
-                            "event_count_lifetime": 46,
                             "event_count_in_period": 14,
                             "enhanced_persons_event_count_in_period": 13,
-                            "event_count_in_month": 34,
                             "event_count_with_groups_in_period": 2,
                             "recording_count_in_period": 0,
-                            "recording_count_total": 0,
                             "mobile_recording_count_in_period": 0,
                             "group_types_total": 2,
                             "dashboard_count": 2,
@@ -468,14 +458,10 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "dashboard_tagged_count": 0,
                             "ff_count": 2,
                             "ff_active_count": 1,
-                            "decide_requests_count_in_month": 0,
                             "decide_requests_count_in_period": 0,
-                            "local_evaluation_requests_count_in_month": 0,
                             "local_evaluation_requests_count_in_period": 0,
-                            "billable_feature_flag_requests_count_in_month": 0,
                             "billable_feature_flag_requests_count_in_period": 0,
                             "survey_responses_count_in_period": 1,
-                            "survey_responses_count_in_month": 1,
                             "hogql_app_bytes_read": 0,
                             "hogql_app_rows_read": 0,
                             "hogql_app_duration_ms": 0,
@@ -491,13 +477,10 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "rows_synced_in_period": 0,
                         },
                         str(self.org_1_team_2.id): {
-                            "event_count_lifetime": 11,
                             "event_count_in_period": 10,
                             "enhanced_persons_event_count_in_period": 10,
-                            "event_count_in_month": 10,
                             "event_count_with_groups_in_period": 0,
                             "recording_count_in_period": 5,
-                            "recording_count_total": 16,
                             "mobile_recording_count_in_period": 0,
                             "group_types_total": 0,
                             "dashboard_count": 0,
@@ -506,14 +489,10 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "dashboard_tagged_count": 0,
                             "ff_count": 0,
                             "ff_active_count": 0,
-                            "decide_requests_count_in_month": 0,
                             "decide_requests_count_in_period": 0,
-                            "local_evaluation_requests_count_in_month": 0,
                             "local_evaluation_requests_count_in_period": 0,
-                            "billable_feature_flag_requests_count_in_month": 0,
                             "billable_feature_flag_requests_count_in_period": 0,
                             "survey_responses_count_in_period": 0,
-                            "survey_responses_count_in_month": 0,
                             "hogql_app_bytes_read": 0,
                             "hogql_app_rows_read": 0,
                             "hogql_app_duration_ms": 0,
@@ -552,13 +531,10 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     },
                     "plugins_enabled": {"Installed and enabled": 1},
                     "instance_tag": "none",
-                    "event_count_lifetime": 11,
                     "event_count_in_period": 10,
                     "enhanced_persons_event_count_in_period": 10,
-                    "event_count_in_month": 10,
                     "event_count_with_groups_in_period": 0,
                     "recording_count_in_period": 0,
-                    "recording_count_total": 0,
                     "mobile_recording_count_in_period": 0,
                     "group_types_total": 0,
                     "dashboard_count": 0,
@@ -567,14 +543,10 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "dashboard_tagged_count": 0,
                     "ff_count": 0,
                     "ff_active_count": 0,
-                    "decide_requests_count_in_month": 0,
                     "decide_requests_count_in_period": 0,
-                    "local_evaluation_requests_count_in_month": 0,
                     "local_evaluation_requests_count_in_period": 0,
-                    "billable_feature_flag_requests_count_in_month": 0,
                     "billable_feature_flag_requests_count_in_period": 0,
                     "survey_responses_count_in_period": 0,
-                    "survey_responses_count_in_month": 0,
                     "hogql_app_bytes_read": 0,
                     "hogql_app_rows_read": 0,
                     "hogql_app_duration_ms": 0,
@@ -596,13 +568,10 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "team_count": 1,
                     "teams": {
                         str(self.org_2_team_3.id): {
-                            "event_count_lifetime": 11,
                             "event_count_in_period": 10,
                             "enhanced_persons_event_count_in_period": 10,
-                            "event_count_in_month": 10,
                             "event_count_with_groups_in_period": 0,
                             "recording_count_in_period": 0,
-                            "recording_count_total": 0,
                             "mobile_recording_count_in_period": 0,
                             "group_types_total": 0,
                             "dashboard_count": 0,
@@ -611,14 +580,10 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "dashboard_tagged_count": 0,
                             "ff_count": 0,
                             "ff_active_count": 0,
-                            "decide_requests_count_in_month": 0,
                             "decide_requests_count_in_period": 0,
-                            "local_evaluation_requests_count_in_month": 0,
                             "local_evaluation_requests_count_in_period": 0,
-                            "billable_feature_flag_requests_count_in_month": 0,
                             "billable_feature_flag_requests_count_in_period": 0,
                             "survey_responses_count_in_period": 0,
-                            "survey_responses_count_in_month": 0,
                             "hogql_app_bytes_read": 0,
                             "hogql_app_rows_read": 0,
                             "hogql_app_duration_ms": 0,
@@ -707,9 +672,7 @@ class ReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTable
         all_reports = _get_all_usage_data_as_team_rows(period_start, period_end)
         report = _get_team_report(all_reports, self.team)
 
-        assert all_reports["teams_with_recording_count_total"] == {self.team.pk: 16}
         assert report.recording_count_in_period == 5
-        assert report.recording_count_total == 16
 
         assert report.mobile_recording_count_in_period == 0
 
@@ -721,10 +684,6 @@ class ReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTable
 
         all_reports = _get_all_usage_data_as_team_rows(period_start, period_end)
         report = _get_team_report(all_reports, self.team)
-
-        # we don't split mobile recordings out of the total since that field is not used
-        assert all_reports["teams_with_recording_count_total"] == {self.team.pk: 18}
-        assert report.recording_count_total == 18
 
         # but we do split them out of the daily usage since that field is used
         assert report.recording_count_in_period == 5
@@ -853,28 +812,18 @@ class TestFeatureFlagsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickh
 
         assert org_1_report["organization_name"] == "Org 1"
         assert org_1_report["decide_requests_count_in_period"] == 11
-        assert org_1_report["decide_requests_count_in_month"] == 105
         assert org_1_report["billable_feature_flag_requests_count_in_period"] == 11
-        assert org_1_report["billable_feature_flag_requests_count_in_month"] == 105
         assert org_1_report["teams"]["3"]["decide_requests_count_in_period"] == 10
-        assert org_1_report["teams"]["3"]["decide_requests_count_in_month"] == 100
         assert org_1_report["teams"]["3"]["billable_feature_flag_requests_count_in_period"] == 10
-        assert org_1_report["teams"]["3"]["billable_feature_flag_requests_count_in_month"] == 100
         assert org_1_report["teams"]["4"]["decide_requests_count_in_period"] == 1
-        assert org_1_report["teams"]["4"]["decide_requests_count_in_month"] == 5
         assert org_1_report["teams"]["4"]["billable_feature_flag_requests_count_in_period"] == 1
-        assert org_1_report["teams"]["4"]["billable_feature_flag_requests_count_in_month"] == 5
 
         # because of wrong token, Org 2 has no decide counts.
         assert org_2_report["organization_name"] == "Org 2"
         assert org_2_report["decide_requests_count_in_period"] == 0
-        assert org_2_report["decide_requests_count_in_month"] == 0
-        assert org_2_report["billable_feature_flag_requests_count_in_month"] == 0
         assert org_2_report["billable_feature_flag_requests_count_in_period"] == 0
         assert org_2_report["teams"]["5"]["decide_requests_count_in_period"] == 0
-        assert org_2_report["teams"]["5"]["decide_requests_count_in_month"] == 0
         assert org_2_report["teams"]["5"]["billable_feature_flag_requests_count_in_period"] == 0
-        assert org_2_report["teams"]["5"]["billable_feature_flag_requests_count_in_month"] == 0
 
     @patch("posthog.tasks.usage_report.Client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
@@ -943,32 +892,20 @@ class TestFeatureFlagsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickh
 
         assert org_1_report["organization_name"] == "Org 1"
         assert org_1_report["local_evaluation_requests_count_in_period"] == 11
-        assert org_1_report["local_evaluation_requests_count_in_month"] == 105
         assert org_1_report["decide_requests_count_in_period"] == 0
-        assert org_1_report["decide_requests_count_in_month"] == 0
         assert org_1_report["billable_feature_flag_requests_count_in_period"] == 110
-        assert org_1_report["billable_feature_flag_requests_count_in_month"] == 1050
         assert org_1_report["teams"]["3"]["local_evaluation_requests_count_in_period"] == 10
-        assert org_1_report["teams"]["3"]["local_evaluation_requests_count_in_month"] == 100
         assert org_1_report["teams"]["4"]["local_evaluation_requests_count_in_period"] == 1
-        assert org_1_report["teams"]["4"]["local_evaluation_requests_count_in_month"] == 5
         assert org_1_report["teams"]["3"]["billable_feature_flag_requests_count_in_period"] == 100
-        assert org_1_report["teams"]["3"]["billable_feature_flag_requests_count_in_month"] == 1000
         assert org_1_report["teams"]["4"]["billable_feature_flag_requests_count_in_period"] == 10
-        assert org_1_report["teams"]["4"]["billable_feature_flag_requests_count_in_month"] == 50
 
         # because of wrong token, Org 2 has no decide counts.
         assert org_2_report["organization_name"] == "Org 2"
         assert org_2_report["local_evaluation_requests_count_in_period"] == 0
-        assert org_2_report["local_evaluation_requests_count_in_month"] == 0
         assert org_1_report["decide_requests_count_in_period"] == 0
-        assert org_1_report["decide_requests_count_in_month"] == 0
-        assert org_2_report["billable_feature_flag_requests_count_in_month"] == 0
         assert org_2_report["billable_feature_flag_requests_count_in_period"] == 0
         assert org_2_report["teams"]["5"]["local_evaluation_requests_count_in_period"] == 0
-        assert org_2_report["teams"]["5"]["local_evaluation_requests_count_in_month"] == 0
         assert org_2_report["teams"]["5"]["billable_feature_flag_requests_count_in_period"] == 0
-        assert org_2_report["teams"]["5"]["billable_feature_flag_requests_count_in_month"] == 0
 
 
 @freeze_time("2022-01-10T00:01:00Z")
@@ -1058,19 +995,13 @@ class TestSurveysUsageReport(ClickhouseDestroyTablesMixin, TestCase, ClickhouseT
 
         assert org_1_report["organization_name"] == "Org 1"
         assert org_1_report["survey_responses_count_in_period"] == 2
-        assert org_1_report["survey_responses_count_in_month"] == 10
         assert org_1_report["teams"]["3"]["survey_responses_count_in_period"] == 1
-        assert org_1_report["teams"]["3"]["survey_responses_count_in_month"] == 5
         assert org_1_report["teams"]["4"]["survey_responses_count_in_period"] == 1
-        assert org_1_report["teams"]["4"]["survey_responses_count_in_month"] == 5
 
         assert org_2_report["organization_name"] == "Org 2"
         assert org_2_report["decide_requests_count_in_period"] == 0
-        assert org_2_report["decide_requests_count_in_month"] == 0
         assert org_2_report["survey_responses_count_in_period"] == 1
-        assert org_2_report["survey_responses_count_in_month"] == 7
         assert org_2_report["teams"]["5"]["survey_responses_count_in_period"] == 1
-        assert org_2_report["teams"]["5"]["survey_responses_count_in_month"] == 7
 
     @patch("posthog.tasks.usage_report.Client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
@@ -1109,9 +1040,7 @@ class TestSurveysUsageReport(ClickhouseDestroyTablesMixin, TestCase, ClickhouseT
             _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
         )
         assert report["organization_name"] == "Org 1"
-        assert report["survey_responses_count_in_month"] == 5
         assert report["event_count_in_period"] == 0
-        assert report["event_count_in_month"] == 0
 
 
 @freeze_time("2022-01-10T00:01:00Z")
