@@ -110,7 +110,7 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
         upsertHogFunction: (configuration: HogFunctionConfigurationType) => ({ configuration }),
         duplicate: true,
         duplicateFromTemplate: true,
-        resetToTemplate: (keepInputValues: boolean) => ({ keepInputValues }),
+        resetToTemplate: true,
     }),
     reducers({
         showSource: [
