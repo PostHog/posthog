@@ -6,7 +6,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { ManualLinkSourceType, SourceConfig } from '~/types'
 
-import { DataWarehouseBetaNotice } from '../DataWarehouseBetaNotice'
 import PostgresSchemaForm from '../external/forms/PostgresSchemaForm'
 import SourceForm from '../external/forms/SourceForm'
 import { SyncProgressStep } from '../external/forms/SyncProgressStep'
@@ -16,12 +15,36 @@ import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
 import { sourceWizardLogic } from './sourceWizardLogic'
 
 export const scene: SceneExport = {
-    component: NewSourceWizard,
+    component: NewSourceWizardScene,
     logic: sourceWizardLogic,
 }
-export function NewSourceWizard(): JSX.Element {
+export function NewSourceWizardScene(): JSX.Element {
+    const { closeWizard } = useActions(sourceWizardLogic)
+
+    return (
+        <>
+            <PageHeader
+                buttons={
+                    <>
+                        <LemonButton
+                            type="secondary"
+                            center
+                            data-attr="source-form-cancel-button"
+                            onClick={closeWizard}
+                        >
+                            Cancel
+                        </LemonButton>
+                    </>
+                }
+            />
+            <NewSourcesWizard />
+        </>
+    )
+}
+
+export function NewSourcesWizard(): JSX.Element {
     const { modalTitle, modalCaption } = useValues(sourceWizardLogic)
-    const { onBack, onSubmit, closeWizard } = useActions(sourceWizardLogic)
+    const { onBack, onSubmit } = useActions(sourceWizardLogic)
     const { currentStep, isLoading, canGoBack, canGoNext, nextButtonText, showSkipButton } =
         useValues(sourceWizardLogic)
     const { tableLoading: manualLinkIsLoading } = useValues(dataWarehouseTableLogic)
@@ -58,30 +81,13 @@ export function NewSourceWizard(): JSX.Element {
 
     return (
         <>
-            <PageHeader
-                buttons={
-                    <>
-                        <LemonButton
-                            type="secondary"
-                            center
-                            data-attr="source-form-cancel-button"
-                            onClick={closeWizard}
-                        >
-                            Cancel
-                        </LemonButton>
-                    </>
-                }
-            />
-            <DataWarehouseBetaNotice />
-            <>
-                <h3>{modalTitle}</h3>
-                <p>{modalCaption}</p>
-                <FirstStep />
-                <SecondStep />
-                <ThirdStep />
-                <FourthStep />
-                {footer()}
-            </>
+            <h3>{modalTitle}</h3>
+            <p>{modalCaption}</p>
+            <FirstStep />
+            <SecondStep />
+            <ThirdStep />
+            <FourthStep />
+            {footer()}
         </>
     )
 }

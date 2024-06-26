@@ -1,4 +1,4 @@
-import { NewSourceWizard } from 'scenes/data-warehouse/new/NewSourceWizard'
+import { NewSourcesWizard } from 'scenes/data-warehouse/new/NewSourceWizard'
 
 import { OnboardingStepKey } from '../onboardingLogic'
 import { OnboardingStep } from '../OnboardingStep'
@@ -12,7 +12,7 @@ export function Sources({
 }): JSX.Element {
     return (
         <OnboardingStep title="Install" stepKey={stepKey} continueOverride={<></>}>
-            <NewSourceWizard />
+            <NewSourcesWizard />
         </OnboardingStep>
     )
 }

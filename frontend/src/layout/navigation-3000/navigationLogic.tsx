@@ -491,7 +491,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             label: 'Data warehouse',
                             icon: <IconServer />,
                             to: isUsingSidebar ? undefined : urls.dataWarehouse(),
-                            tag: 'beta' as const,
                         },
                         featureFlags[FEATURE_FLAGS.PRODUCT_INTRO_PAGES] !== 'test' || hasOnboardedFeatureFlags
                             ? {
