@@ -170,7 +170,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
 
             if (values.isMultipleBreakdownsEnabled && isMultipleBreakdownType(breakdownType)) {
                 const newBreakdown = {
-                    property: breakdown as string | number,
+                    property: breakdown as string,
                     type: breakdownType,
                     group_type_index: taxonomicGroup.groupTypeIndex,
                     histogram_bin_count: isHistogramable ? 10 : undefined,

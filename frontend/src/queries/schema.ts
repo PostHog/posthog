@@ -1382,6 +1382,7 @@ export const insightActorsQueryOptionsResponseKeys: string[] = [
     'status',
     'interval',
     'breakdown',
+    'breakdowns',
     'series',
     'compare',
 ]
