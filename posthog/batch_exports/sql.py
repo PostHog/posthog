@@ -36,18 +36,18 @@ CREATE OR REPLACE VIEW persons_batch_export AS (
 
 CREATE_EVENTS_BATCH_EXPORT_VIEW = """
 CREATE OR REPLACE VIEW events_batch_export AS (
-    SELECT
+    SELECT DISTINCT ON (team_id, event, cityHash64(events.distinct_id), cityHash64(events.uuid))
         team_id AS team_id,
-        min(timestamp) AS timestamp,
+        timestamp AS timestamp,
         event AS event,
-        any(distinct_id) AS distinct_id,
-        any(toString(uuid)) AS uuid,
-        min(COALESCE(inserted_at, _timestamp)) AS _inserted_at,
-        any(created_at) AS created_at,
-        any(elements_chain) AS elements_chain,
-        any(toString(person_id)) AS person_id,
-        any(nullIf(properties, '')) AS properties,
-        any(nullIf(person_properties, '')) AS person_properties,
+        distinct_id AS distinct_id,
+        toString(uuid) AS uuid,
+        COALESCE(inserted_at, _timestamp) AS _inserted_at,
+        created_at AS created_at,
+        elements_chain AS elements_chain,
+        toString(person_id) AS person_id,
+        nullIf(properties, '') AS properties,
+        nullIf(person_properties, '') AS person_properties,
         nullIf(JSONExtractString(properties, '$set'), '') AS set,
         nullIf(JSONExtractString(properties, '$set_once'), '') AS set_once
     FROM
@@ -61,8 +61,6 @@ CREATE OR REPLACE VIEW events_batch_export AS (
         AND events.timestamp < {interval_end:DateTime64} + INTERVAL 1 DAY
         AND (length({include_events:Array(String)}) = 0 OR event IN {include_events:Array(String)})
         AND (length({exclude_events:Array(String)}) = 0 OR event NOT IN {exclude_events:Array(String)})
-    GROUP BY
-        team_id, toDate(events.timestamp), event, cityHash64(events.distinct_id), cityHash64(events.uuid)
     ORDER BY
         _inserted_at, event
     SETTINGS optimize_aggregation_in_order=1
@@ -71,18 +69,18 @@ CREATE OR REPLACE VIEW events_batch_export AS (
 
 CREATE_EVENTS_BATCH_EXPORT_VIEW_UNBOUNDED = """
 CREATE OR REPLACE VIEW events_batch_export_unbounded AS (
-    SELECT
+    SELECT DISTINCT ON (team_id, event, cityHash64(events.distinct_id), cityHash64(events.uuid))
         team_id AS team_id,
-        min(timestamp) AS timestamp,
+        timestamp AS timestamp,
         event AS event,
-        any(distinct_id) AS distinct_id,
-        any(toString(uuid)) AS uuid,
-        min(COALESCE(inserted_at, _timestamp)) AS _inserted_at,
-        any(created_at) AS created_at,
-        any(elements_chain) AS elements_chain,
-        any(toString(person_id)) AS person_id,
-        any(nullIf(properties, '')) AS properties,
-        any(nullIf(person_properties, '')) AS person_properties,
+        distinct_id AS distinct_id,
+        toString(uuid) AS uuid,
+        COALESCE(inserted_at, _timestamp) AS _inserted_at,
+        created_at AS created_at,
+        elements_chain AS elements_chain,
+        toString(person_id) AS person_id,
+        nullIf(properties, '') AS properties,
+        nullIf(person_properties, '') AS person_properties,
         nullIf(JSONExtractString(properties, '$set'), '') AS set,
         nullIf(JSONExtractString(properties, '$set_once'), '') AS set_once
     FROM
@@ -94,8 +92,6 @@ CREATE OR REPLACE VIEW events_batch_export_unbounded AS (
         team_id = {team_id:Int64}
         AND (length({include_events:Array(String)}) = 0 OR event IN {include_events:Array(String)})
         AND (length({exclude_events:Array(String)}) = 0 OR event NOT IN {exclude_events:Array(String)})
-    GROUP BY
-        team_id, toDate(events.timestamp), event, cityHash64(events.distinct_id), cityHash64(events.uuid)
     ORDER BY
         _inserted_at, event
     SETTINGS optimize_aggregation_in_order=1
@@ -104,18 +100,18 @@ CREATE OR REPLACE VIEW events_batch_export_unbounded AS (
 
 CREATE_EVENTS_BATCH_EXPORT_VIEW_BACKFILL = """
 CREATE OR REPLACE VIEW events_batch_export_backfill AS (
-    SELECT
+    SELECT DISTINCT ON (team_id, event, cityHash64(events.distinct_id), cityHash64(events.uuid))
         team_id AS team_id,
-        min(timestamp) AS timestamp,
+        timestamp AS timestamp,
         event AS event,
-        any(distinct_id) AS distinct_id,
-        any(toString(uuid)) AS uuid,
-        min(COALESCE(inserted_at, _timestamp)) AS _inserted_at,
-        any(created_at) AS created_at,
-        any(elements_chain) AS elements_chain,
-        any(toString(person_id)) AS person_id,
-        any(nullIf(properties, '')) AS properties,
-        any(nullIf(person_properties, '')) AS person_properties,
+        distinct_id AS distinct_id,
+        toString(uuid) AS uuid,
+        COALESCE(inserted_at, _timestamp) AS _inserted_at,
+        created_at AS created_at,
+        elements_chain AS elements_chain,
+        toString(person_id) AS person_id,
+        nullIf(properties, '') AS properties,
+        nullIf(person_properties, '') AS person_properties,
         nullIf(JSONExtractString(properties, '$set'), '') AS set,
         nullIf(JSONExtractString(properties, '$set_once'), '') AS set_once
     FROM
@@ -126,8 +122,6 @@ CREATE OR REPLACE VIEW events_batch_export_backfill AS (
         AND events.timestamp < {interval_end:DateTime64}
         AND (length({include_events:Array(String)}) = 0 OR event IN {include_events:Array(String)})
         AND (length({exclude_events:Array(String)}) = 0 OR event NOT IN {exclude_events:Array(String)})
-    GROUP BY
-        team_id, toDate(events.timestamp), event, cityHash64(events.distinct_id), cityHash64(events.uuid)
     ORDER BY
         _inserted_at, event
     SETTINGS optimize_aggregation_in_order=1
