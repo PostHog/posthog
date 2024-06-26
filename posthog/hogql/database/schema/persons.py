@@ -2,7 +2,7 @@ from typing import cast, Optional
 from typing_extensions import Self
 import posthoganalytics
 
-from posthog.hogql.ast import SelectQuery, And, CompareOperation, CompareOperationOp, Field, JoinExpr, Alias
+from posthog.hogql.ast import SelectQuery, And, CompareOperation, CompareOperationOp, Field, JoinExpr
 from posthog.hogql.base import Expr
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
@@ -228,9 +228,6 @@ class PersonsTable(LazyTable):
         if self.filter is not None:
             return select_from_persons_table(table_to_add, context, node, filter=clone_expr(self.filter, True))
         return select_from_persons_table(table_to_add, context, node)
-
-    def property_swap(self, select_query: SelectQuery, context: HogQLContext):
-        return context.property_swapper.visit(select_query)
 
     def to_printed_clickhouse(self, context):
         return "person"
