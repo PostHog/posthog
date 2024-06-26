@@ -1166,6 +1166,10 @@ export const surveyLogic = kea<surveyLogicType>([
                     actions.resetSurvey()
                 }
             }
+
+            if (router.values.searchParams['edit']) {
+                actions.editingSurvey(true)
+            }
         },
     })),
     actionToUrl(({ values }) => ({
@@ -1174,6 +1178,16 @@ export const surveyLogic = kea<surveyLogicType>([
             hashParams['fromTemplate'] = true
 
             return [urls.survey(values.survey.id), router.values.searchParams, hashParams]
+        },
+        editingSurvey: () => {
+            const searchParams = router.values.searchParams
+            if (values.isEditingSurvey) {
+                searchParams['edit'] = true
+            } else {
+                delete searchParams['edit']
+            }
+
+            return [urls.survey(values.survey.id), router.values.searchParams, router.values.hashParams]
         },
     })),
     afterMount(({ props, actions }) => {

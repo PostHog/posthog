@@ -211,6 +211,9 @@ export const defaultSurveyTemplates = [
                 buttonText: 'Schedule',
             },
         ],
+        appearance: {
+            thankYouMessageHeader: 'Looking forward to chatting with you!',
+        },
         description: 'Send users straight to your calendar.',
     },
     {
