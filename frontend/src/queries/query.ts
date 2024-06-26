@@ -21,7 +21,7 @@ import {
     isTimeToSeeDataSessionsQuery,
 } from './utils'
 
-const QUERY_ASYNC_MAX_INTERVAL_SECONDS = 5
+const QUERY_ASYNC_MAX_INTERVAL_SECONDS = 3
 const QUERY_ASYNC_TOTAL_POLL_SECONDS = 10 * 60 + 6 // keep in sync with backend-side timeout (currently 10min) + a small buffer
 
 //get export context for a given query
