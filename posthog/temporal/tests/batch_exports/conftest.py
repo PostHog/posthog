@@ -46,6 +46,17 @@ async def truncate_events(clickhouse_client):
     await clickhouse_client.execute_query("TRUNCATE TABLE IF EXISTS `sharded_events`")
 
 
+@pytest_asyncio.fixture(autouse=True)
+async def truncate_persons(clickhouse_client):
+    """Fixture to automatically truncate person and person_distinct_id2 after a test.
+
+    This is useful if during the test setup we insert a lot of persons we wish to clean-up.
+    """
+    yield
+    await clickhouse_client.execute_query("TRUNCATE TABLE IF EXISTS `person`")
+    await clickhouse_client.execute_query("TRUNCATE TABLE IF EXISTS `person_distinct_id2`")
+
+
 @pytest.fixture
 def batch_export_schema(request) -> dict | None:
     """A parametrizable fixture to configure a batch export schema.
@@ -135,7 +146,7 @@ async def create_clickhouse_tables_and_views(clickhouse_client, django_db_setup)
         CREATE_EVENTS_BATCH_EXPORT_VIEW_UNBOUNDED,
         CREATE_PERSONS_BATCH_EXPORT_VIEW,
     )
-    from posthog.clickhouse.schema import CREATE_KAFKA_TABLE_QUERIES
+    from posthog.clickhouse.schema import CREATE_KAFKA_TABLE_QUERIES, build_query
 
     create_view_queries = (
         CREATE_EVENTS_BATCH_EXPORT_VIEW,
@@ -145,11 +156,18 @@ async def create_clickhouse_tables_and_views(clickhouse_client, django_db_setup)
     )
 
     clickhouse_tasks = set()
-    for query in create_view_queries + CREATE_KAFKA_TABLE_QUERIES:
+    for query in create_view_queries + tuple(map(build_query, CREATE_KAFKA_TABLE_QUERIES)):
         task = asyncio.create_task(clickhouse_client.execute_query(query))
         clickhouse_tasks.add(task)
         task.add_done_callback(clickhouse_tasks.discard)
 
-    await asyncio.wait(clickhouse_tasks)
+    done, pending = await asyncio.wait(clickhouse_tasks)
+
+    if len(pending) > 0:
+        raise ValueError("Not all required tables and views were created in time")
+
+    for task in done:
+        if exc := task.exception():
+            raise exc
 
     return

@@ -16,7 +16,7 @@ from django.db.models import Q
 
 logger = structlog.get_logger(__name__)
 
-MONTHLY_LIMIT = 200_000_000
+MONTHLY_LIMIT = 500_000_000
 
 # TODO: adjust to whenever billing officially starts
 DEFAULT_DATE_TIME = datetime.datetime(2024, 7, 31, tzinfo=datetime.timezone.utc)

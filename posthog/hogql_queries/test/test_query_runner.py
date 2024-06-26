@@ -90,6 +90,7 @@ class TestQueryRunner(BaseTest):
                     "optimizeJoinedFilters": False,
                     "personsOnEventsMode": "disabled",
                     "bounceRatePageViewMode": "count_pageviews",
+                    "sessionTableVersion": "v1",
                 },
                 "limit_context": "query",
                 "query": {"kind": "TestQuery", "some_attr": "bla"},
@@ -108,7 +109,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        self.assertEqual(cache_key, "cache_572f46c782b801255ff656aa93dc83f5")
+        self.assertEqual(cache_key, "cache_19dbcf2dbe2bd72239f37007f2eb6224")
 
     def test_cache_key_runner_subclass(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -122,7 +123,7 @@ class TestQueryRunner(BaseTest):
         runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        self.assertEqual(cache_key, "cache_22c01496fcc31f96bb6a30e31acc4fbf")
+        self.assertEqual(cache_key, "cache_325bbd17cd27dd556d765984ba993da0")
 
     def test_cache_key_different_timezone(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -133,7 +134,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        self.assertEqual(cache_key, "cache_5ac065d0a34c518dc0f5bc4c37434063")
+        self.assertEqual(cache_key, "cache_c1d666350117520920dbc3cc9286195c")
 
     @mock.patch("django.db.transaction.on_commit")
     def test_cache_response(self, mock_on_commit):
