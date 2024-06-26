@@ -249,7 +249,7 @@ export function DashboardsTable({
                 rowClassName={(record) => (record._highlight ? 'highlighted' : null)}
                 columns={columns}
                 loading={dashboardsLoading}
-                defaultSorting={{ columnKey: 'name', order: 1 }}
+                defaultSorting={{ columnKey: 'created_at', order: -1 }}
                 emptyState="No dashboards matching your filters!"
                 nouns={['dashboard', 'dashboards']}
             />
