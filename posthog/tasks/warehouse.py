@@ -40,9 +40,11 @@ def check_synced_row_limits() -> None:
 def check_synced_row_limits_of_team(team_id: int) -> None:
     logger.info("Checking synced row limits of team", team_id=team_id)
 
-    from ee.billing.quota_limiting import list_limited_team_attributes, QuotaResource
+    from ee.billing.quota_limiting import list_limited_team_attributes, QuotaResource, QuotaLimitingCaches
 
-    limited_teams_rows_synced = list_limited_team_attributes(QuotaResource.ROWS_SYNCED)
+    limited_teams_rows_synced = list_limited_team_attributes(
+        QuotaResource.ROWS_SYNCED, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+    )
 
     if team_id in limited_teams_rows_synced:
         running_jobs = ExternalDataJob.objects.filter(team_id=team_id, status=ExternalDataJob.Status.RUNNING)
