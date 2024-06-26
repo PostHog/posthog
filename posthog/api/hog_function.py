@@ -196,25 +196,3 @@ class HogFunctionViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, ForbidDestroyMod
             return Response({"status": "error"}, status=res.status_code)
 
         return Response(res.json())
-
-    @action(detail=True, methods=["GET", "PATCH"])
-    def status(self, request: Request, *args, **kwargs):
-        hog_function = self.get_object()
-
-        raise NotImplementedError("This endpoint is not yet implemented")
-
-        # state = request.GET.get("state")
-
-        # if request.method == "PATCH":
-        #     if "state" not in request.data and HogFunctionState(request.data["state"]) not in HogFunctionState:
-        #         return Response({"message": "Invalid state"}, status=400)
-        #     res = hog_function.set_function_status(request.data["state"])
-        #     if res.status_code != 200:
-        #         return Response({"message": "Error updating status"}, status=res.status_code)
-        #     return hog_function.set_function_status()
-
-        # else:
-        #     status = hog_function.get_function_status()
-        #     if not status:
-        #         return Response({"message": "Error getting status"}, status=500)
-        #     return Response(status)
