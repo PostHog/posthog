@@ -10,10 +10,9 @@ import { isFilterWithDisplay, isLifecycleFilter } from 'scenes/insights/sharedUt
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { FilterType, InsightLogicProps, InsightType } from '~/types'
+import { FilterType, InsightLogicProps, InsightType, MathAvailability } from '~/types'
 
 import { ActionFilter, ActionFilterProps } from './ActionFilter'
-import { MathAvailability } from './ActionFilterRow/ActionFilterRow'
 
 type Story = StoryObj<typeof ActionFilter>
 const meta: Meta<typeof ActionFilter> = {

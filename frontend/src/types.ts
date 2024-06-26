@@ -4261,3 +4261,9 @@ export interface AlertType {
     target_value: string
     anomaly_condition: AnomalyCondition
 }
+
+export enum MathAvailability {
+    All,
+    ActorsOnly,
+    None,
+}

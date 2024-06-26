@@ -19,10 +19,9 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import { groupsModel } from '~/models/groupsModel'
-import { EntityTypes } from '~/types'
+import { EntityTypes, MathAvailability } from '~/types'
 
 import { HogFunctionIconEditable } from './HogFunctionIcon'
 import { HogFunctionInputs } from './HogFunctionInputs'

@@ -11,7 +11,6 @@ import { useEffect } from 'react'
 import { Attribution } from 'scenes/insights/EditorFilters/AttributionFilter'
 import { SamplingFilter } from 'scenes/insights/EditorFilters/SamplingFilter'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { AggregationSelect } from 'scenes/insights/filters/AggregationSelect'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -23,7 +22,14 @@ import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeT
 import { InsightTestAccountFilter } from '~/queries/nodes/InsightViz/filters/InsightTestAccountFilter'
 import { Query } from '~/queries/Query/Query'
 import { FunnelsQuery, InsightQueryNode, TrendsQuery } from '~/queries/schema'
-import { EditorFilterProps, FilterType, InsightLogicProps, InsightShortId, InsightType } from '~/types'
+import {
+    EditorFilterProps,
+    FilterType,
+    InsightLogicProps,
+    InsightShortId,
+    InsightType,
+    MathAvailability,
+} from '~/types'
 
 export interface MetricSelectorProps {
     dashboardItemId: InsightShortId

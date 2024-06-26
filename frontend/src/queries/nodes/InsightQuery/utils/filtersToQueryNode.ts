@@ -1,7 +1,6 @@
 import * as Sentry from '@sentry/react'
 import { objectCleanWithEmpty } from 'lib/utils'
 import { transformLegacyHiddenLegendKeys } from 'scenes/funnels/funnelUtils'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import {
     isFunnelsFilter,
     isLifecycleFilter,
@@ -55,6 +54,7 @@ import {
     HogQLMathType,
     InsightType,
     isDataWarehouseFilter,
+    MathAvailability,
     PathsFilterType,
     RetentionEntity,
     RetentionFilterType,

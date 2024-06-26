@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
@@ -10,7 +9,7 @@ import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/fil
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { FunnelsQuery } from '~/queries/schema'
 import { isInsightQueryNode } from '~/queries/utils'
-import { EditorFilterProps, FilterType } from '~/types'
+import { EditorFilterProps, FilterType, MathAvailability } from '~/types'
 
 import { ActionFilter } from '../filters/ActionFilter/ActionFilter'
 import { AggregationSelect } from '../filters/AggregationSelect'

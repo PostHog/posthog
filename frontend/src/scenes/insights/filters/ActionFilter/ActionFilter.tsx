@@ -14,6 +14,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React, { useEffect } from 'react'
 import { RenameModal } from 'scenes/insights/filters/ActionFilter/RenameModal'
 import { isTrendsFilter } from 'scenes/insights/sharedUtils'
+import { teamLogic } from 'scenes/teamLogic'
 
 import {
     ActionFilter as ActionFilterType,
@@ -21,11 +22,11 @@ import {
     FilterType,
     FunnelExclusionLegacy,
     InsightType,
+    MathAvailability,
     Optional,
 } from '~/types'
 
-import { teamLogic } from '../../../teamLogic'
-import { ActionFilterRow, MathAvailability } from './ActionFilterRow/ActionFilterRow'
+import { ActionFilterRow } from './ActionFilterRow/ActionFilterRow'
 import { entityFilterLogic, LocalFilter, toFilters } from './entityFilterLogic'
 
 export interface ActionFilterProps {

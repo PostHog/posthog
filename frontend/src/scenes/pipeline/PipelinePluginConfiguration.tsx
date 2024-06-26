@@ -10,11 +10,10 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import React from 'react'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { getConfigSchemaArray, isValidField } from 'scenes/pipeline/configUtils'
 import { PluginField } from 'scenes/plugins/edit/PluginField'
 
-import { EntityTypes, PipelineStage } from '~/types'
+import { EntityTypes, MathAvailability, PipelineStage } from '~/types'
 
 import { pipelinePluginConfigurationLogic } from './pipelinePluginConfigurationLogic'
 import { RenderApp } from './utils'

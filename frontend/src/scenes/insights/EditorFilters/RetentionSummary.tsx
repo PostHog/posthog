@@ -15,10 +15,9 @@ import {
 } from 'scenes/retention/constants'
 
 import { groupsModel } from '~/models/groupsModel'
-import { EditorFilterProps, FilterType, RetentionType } from '~/types'
+import { EditorFilterProps, FilterType, MathAvailability, RetentionType } from '~/types'
 
 import { ActionFilter } from '../filters/ActionFilter/ActionFilter'
-import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 export function RetentionSummary({ insightProps }: EditorFilterProps): JSX.Element {
     const { showGroupsOptions } = useValues(groupsModel)
