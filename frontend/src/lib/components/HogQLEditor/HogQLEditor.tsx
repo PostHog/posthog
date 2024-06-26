@@ -27,18 +27,18 @@ export function HogQLEditor({
     submitText,
     placeholder,
 }: HogQLEditorProps): JSX.Element {
-    const [localValue, setLocalValue] = useState(value ?? '')
+    const [bufferedValue, setBufferedValue] = useState(value ?? '')
     useEffect(() => {
-        setLocalValue(value ?? '')
+        setBufferedValue(value ?? '')
     }, [value])
 
     return (
         <>
             <CodeEditorInline
                 data-attr="inline-hogql-editor"
-                value={localValue || ''}
+                value={bufferedValue || ''}
                 onChange={(newValue) => {
-                    setLocalValue(newValue ?? '')
+                    setBufferedValue(newValue ?? '')
                 }}
                 language="hogQLExpr"
                 className={CLICK_OUTSIDE_BLOCK_CLASS}
@@ -65,8 +65,8 @@ export function HogQLEditor({
                 className="mt-2"
                 fullWidth
                 type="primary"
-                onClick={() => onChange(localValue)}
-                disabledReason={!localValue ? 'Please enter a HogQL expression' : null}
+                onClick={() => onChange(bufferedValue)}
+                disabledReason={!bufferedValue ? 'Please enter a HogQL expression' : null}
                 center
             >
                 {submitText ?? 'Update HogQL expression'}
