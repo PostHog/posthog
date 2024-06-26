@@ -2413,7 +2413,6 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = runner.to_actors_query_options()
 
         assert response.series == [InsightActorsQuerySeries(label="$pageview", value=0)]
-
         assert response.breakdown == [
             BreakdownItem(label="[10,17.5]", value="[10,17.5]"),
             BreakdownItem(label="[17.5,25]", value="[17.5,25]"),

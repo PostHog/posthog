@@ -33,7 +33,7 @@ BREAKDOWN_NULL_STRING_LABEL = "$$_posthog_breakdown_null_$$"
 BREAKDOWN_OTHER_DISPLAY = "Other (i.e. all remaining values)"
 BREAKDOWN_NULL_DISPLAY = "None (i.e. no value)"
 
-BREAKDOWN_NUMERIC_ALL_VALUES_PLACEHOLDER = '["", ""]'
+BREAKDOWN_NUMERIC_ALL_VALUES_PLACEHOLDER = '["",""]'
 
 
 def hogql_to_string(expr: ast.Expr) -> ast.Call:
