@@ -322,9 +322,10 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="Invalid web replays count",
     )
 
-    # Every 30 minutes try to retrieve and calculate total rows synced in period
+    # Every 20 minutes try to retrieve and calculate total rows synced in period
+
     sender.add_periodic_task(
-        crontab(minute="*/30"),
+        crontab(minute="*/20"),
         calculate_external_data_rows_synced.s(),
         name="calculate external data rows synced",
     )
