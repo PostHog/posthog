@@ -347,6 +347,10 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
                     "",
                     1,
                 )
+                if query_lookup == "project_id":
+                    # KLUDGE: This will be just "project_id" once the relevant models get that field directly
+                    query_lookup = "team__project_id"
+
                 query_value = kwarg_value
                 if query_value == "@current":
                     if not self.request.user.is_authenticated:
@@ -359,8 +363,6 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
                             )
                         query_value = current_team.id
                     elif query_lookup == "project_id":
-                        # KLUDGE: This will be just "project_id" once the relevant models get that field directly
-                        query_lookup = "team__project_id"
                         current_team = self.request.user.team
                         if current_team is None:
                             raise NotFound("Project not found.")
@@ -374,7 +376,13 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
                     try:
                         query_value = team_from_request.id if team_from_request else int(query_value)
                     except ValueError:
-                        raise NotFound()
+                        raise NotFound("Project not found.")  # TODO: "Environment"
+                elif query_lookup == "project_id":
+                    try:
+                        query_value = team_from_request.project_id if team_from_request else int(query_value)
+                    except ValueError:
+                        raise NotFound("Project not found.")
+
                 result[query_lookup] = query_value
 
         return result
