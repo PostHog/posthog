@@ -41,8 +41,8 @@ function initEditor(
     if (editorProps?.language === 'hog') {
         if (!monaco.languages.getLanguages().some(({ id }) => id === 'hog')) {
             monaco.languages.register({ id: 'hog', extensions: ['.hog'], mimetypes: ['application/hog'] })
-            monaco.languages.setLanguageConfiguration('hog', hog.conf)
-            monaco.languages.setMonarchTokensProvider('hog', hog.language)
+            monaco.languages.setLanguageConfiguration('hog', hog.conf())
+            monaco.languages.setMonarchTokensProvider('hog', hog.language())
             monaco.languages.registerCodeActionProvider('hog', hogQLMetadataProvider())
         }
     }
@@ -61,8 +61,8 @@ function initEditor(
                           mimetypes: ['application/hogql+expr'],
                       }
             )
-            monaco.languages.setLanguageConfiguration(language, hogQL.conf)
-            monaco.languages.setMonarchTokensProvider(language, hogQL.language)
+            monaco.languages.setLanguageConfiguration(language, hogQL.conf())
+            monaco.languages.setMonarchTokensProvider(language, hogQL.language())
             monaco.languages.registerCompletionItemProvider(language, hogQLAutocompleteProvider(language))
             monaco.languages.registerCodeActionProvider(language, hogQLMetadataProvider())
         }
@@ -73,8 +73,8 @@ function initEditor(
                 id: 'hogTemplate',
                 mimetypes: ['application/hog+template'],
             })
-            monaco.languages.setLanguageConfiguration('hogTemplate', hogTemplate.conf)
-            monaco.languages.setMonarchTokensProvider('hogTemplate', hogTemplate.language)
+            monaco.languages.setLanguageConfiguration('hogTemplate', hogTemplate.conf())
+            monaco.languages.setMonarchTokensProvider('hogTemplate', hogTemplate.language())
             monaco.languages.registerCompletionItemProvider('hogTemplate', hogQLAutocompleteProvider('hogTemplate'))
             monaco.languages.registerCodeActionProvider('hogTemplate', hogQLMetadataProvider())
         }

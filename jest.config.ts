@@ -100,6 +100,7 @@ const config: Config = {
         '^@posthog/apps-common(|/.*)$': '<rootDir>/frontend/@posthog/apps-common/src/$1',
         '^@posthog/ee/exports': ['<rootDir>/ee/frontend/exports', '<rootDir>/frontend/@posthog/ee/exports'],
         '^lib/(.*)$': '<rootDir>/frontend/src/lib/$1',
+        'monaco-editor': '<rootDir>/node_modules/monaco-editor/esm/vs/editor/editor.api.d.ts',
         '^scenes/(.*)$': '<rootDir>/frontend/src/scenes/$1',
         '^antd/es/(.*)$': 'antd/lib/$1',
         '^react-virtualized/dist/es/(.*)$': 'react-virtualized/dist/commonjs/$1',
