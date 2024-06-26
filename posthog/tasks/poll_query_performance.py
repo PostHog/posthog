@@ -1,5 +1,5 @@
 from itertools import groupby
-from typing import Optional
+from typing import Optional, Any
 
 from structlog import get_logger
 
@@ -23,7 +23,7 @@ def query_manager_from_initial_query_id(initial_query_id: str) -> Optional[Query
     return QueryStatusManager(query_id, team_id)
 
 
-def get_query_results() -> list[any]:
+def get_query_results() -> list[Any]:
     SYSTEM_PROCESSES_SQL = r"""
         SELECT
             initial_query_id,
