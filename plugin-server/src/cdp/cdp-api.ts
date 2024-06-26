@@ -76,6 +76,9 @@ export class CdpApi {
                 await this.hogWatcher.forceStateChange(id, state)
             }
 
+            // Hacky - wait for a little to give a chance for the state to change
+            await new Promise((resolve) => setTimeout(resolve, 100))
+
             res.json(await this.hogWatcher.fetchWatcher(id))
         }
 
