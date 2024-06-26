@@ -274,6 +274,7 @@ export interface HogQLMetadataResponse {
     inputExpr?: string
     inputSelect?: string
     inputProgram?: string
+    inputTemplate?: string
     isValid?: boolean
     isValidView?: boolean
     errors: HogQLNotice[]
@@ -347,13 +348,15 @@ export interface HogQLAutocompleteResponse {
 
 export interface HogQLMetadata extends DataNode<HogQLMetadataResponse> {
     kind: NodeKind.HogQLMetadata
-    /** Full Hog program */
+    /** Hog program to validate */
     program?: string
-    /** Full select query to validate (use `select` or `expr`, but not both) */
+    /** Template string to validate */
+    template?: string
+    /** Select query to validate */
     select?: string
-    /** HogQL expression to validate (use `select` or `expr`, but not both) */
+    /** HogQL expression to validate */
     expr?: string
-    /** Query within which "expr" is validated. Defaults to "select * from events" */
+    /** Query within which "expr" and "template" are validated. Defaults to "select * from events" */
     exprSource?: AnyDataNode
     /** Table to validate the expression against */
     table?: string
@@ -365,8 +368,14 @@ export interface HogQLMetadata extends DataNode<HogQLMetadataResponse> {
 
 export interface HogQLAutocomplete extends DataNode<HogQLAutocompleteResponse> {
     kind: NodeKind.HogQLAutocomplete
-    /** Full select query to validate */
-    select: string
+    /** HogQL string template to validate */
+    template?: string
+    /** Select query to validate */
+    select?: string
+    /** HogQL expression to validate */
+    expr?: string
+    /** Query within which "expr" and "template" are validated. Defaults to "select * from events" */
+    exprSource?: string
     /** Table to validate the expression against */
     filters?: HogQLFilters
     /**
