@@ -372,7 +372,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                                           to: urls.dashboard(dashboard.id),
                                                       })),
                                                       footer: dashboardsLoading && (
-                                                          <div className="px-2 py-1 text-text-secondary-3000">
+                                                          <div className="px-2 py-1 text-muted-3000">
                                                               <Spinner /> Loading…
                                                           </div>
                                                       ),
