@@ -105,16 +105,18 @@ class TestExports(APIBaseTest):
         access_token = get_public_access_token(exported_asset, timedelta(minutes=15))
         url_to_render = absolute_uri(f"/exporter?token={access_token}")
 
-        # Request does not calculate the result and cache is not warmed up
-        response = self.client.get(url_to_render)
-        self.assertContains(response, '"result": null')
+        with patch("posthog.tasks.exports.image_exporter.process_query_dict") as mock_process_query_dict:
+            # Request does not calculate the result and cache is not warmed up
+            response = self.client.get(url_to_render)
+            self.assertContains(response, '"result": null')
 
-        # Should warm up the cache
-        export_image(exported_asset)
-        mock_export_to_png.assert_called_once_with(exported_asset)
+            mock_process_query_dict.assert_not_called()
 
-        response = self.client.get(url_to_render)
-        self.assertNotContains(response, '"result": null')
+            # Should warm up the cache
+            export_image(exported_asset)
+            mock_export_to_png.assert_called_once_with(exported_asset)
+
+            mock_process_query_dict.assert_called_once()
 
     @patch("posthog.api.exports.exporter")
     def test_can_create_export_with_ttl(self, mock_exporter_task) -> None:
