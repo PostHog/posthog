@@ -29,7 +29,12 @@ from posthog.hogql.escape_sql import (
     escape_hogql_identifier,
     escape_hogql_string,
 )
-from posthog.hogql.functions.mapping import ALL_EXPOSED_FUNCTION_NAMES, validate_function_args, HOGQL_COMPARISON_MAPPING
+from posthog.hogql.functions.mapping import (
+    ALL_EXPOSED_FUNCTION_NAMES,
+    validate_function_args,
+    HOGQL_COMPARISON_MAPPING,
+    ALLOWED_PARAMETRIC_FUNCTIONS,
+)
 from posthog.hogql.modifiers import create_default_modifiers_for_team, set_default_in_cohort_via
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.resolver_utils import lookup_field_by_name
@@ -807,6 +812,15 @@ class _Printer(Visitor):
                                 args.append(f"ifNull({self.visit(arg)}, '')")
                         else:
                             args.append(f"ifNull(toString({self.visit(arg)}), '')")
+                elif node.name == "arrayReduce":
+                    reduceFuncArg = node.args[0]
+                    if not isinstance(reduceFuncArg, ast.Constant):
+                        raise QueryError(f"Function 'arrayReduce' expects a constant as the first argument")
+                    if reduceFuncArg.value not in ALLOWED_PARAMETRIC_FUNCTIONS:
+                        raise QueryError(
+                            f"Function 'arrayReduce' is not permitted to call the '{reduceFuncArg.value}' function"
+                        )
+                    args = [self.visit(arg) for arg in node.args]
                 else:
                     args = [self.visit(arg) for arg in node.args]
 

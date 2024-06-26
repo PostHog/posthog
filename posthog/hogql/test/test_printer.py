@@ -339,6 +339,7 @@ class TestPrinter(BaseTest):
             self._expr("toDecimal('3.14')", context), "accurateCastOrNull(%(hogql_val_6)s, %(hogql_val_7)s)"
         )
         self.assertEqual(self._expr("quantile(0.95)( event )"), "quantile(0.95)(events.event)")
+        self.assertEqual(self._expr("arrayReduce('sumMap', [])"), "arrayReduce(%(hogql_val_0)s, [])")
 
     def test_expr_parse_errors(self):
         self._assert_expr_error("", "Empty query")
@@ -388,6 +389,14 @@ class TestPrinter(BaseTest):
         self._assert_expr_error(
             "event as `as%d`",
             'The HogQL identifier "as%d" is not permitted as it contains the "%" character',
+        )
+        self._assert_expr_error(
+            "arrayReduce('topK', [])",
+            "Function 'arrayReduce' is not permitted to call the 'topK' function",
+        )
+        self._assert_expr_error(
+            "arrayReduce('sumMap', [], [])",
+            "Function 'arrayReduce' expects 2 arguments, found 3",
         )
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=True)
