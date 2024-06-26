@@ -815,10 +815,12 @@ class _Printer(Visitor):
                 elif node.name == "arrayReduce":
                     reduceFuncArg = node.args[0]
                     if not isinstance(reduceFuncArg, ast.Constant):
-                        raise QueryError(f"Function 'arrayReduce' expects a constant as the first argument")
+                        raise QueryError(
+                            f"Function 'arrayReduce' expects an the name of an aggregate function as the first argument"
+                        )
                     if reduceFuncArg.value not in ALLOWED_PARAMETRIC_FUNCTIONS:
                         raise QueryError(
-                            f"Function 'arrayReduce' is not permitted to call the '{reduceFuncArg.value}' function"
+                            f"Function 'arrayReduce' is not permitted to aggregate the '{reduceFuncArg.value}' function"
                         )
                     args = [self.visit(arg) for arg in node.args]
                 else:

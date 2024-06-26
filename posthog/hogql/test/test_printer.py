@@ -391,8 +391,12 @@ class TestPrinter(BaseTest):
             'The HogQL identifier "as%d" is not permitted as it contains the "%" character',
         )
         self._assert_expr_error(
+            "arrayReduce(abs(1), [])",
+            "Function 'arrayReduce' expects an the name of an aggregate function as the first argument",
+        )
+        self._assert_expr_error(
             "arrayReduce('topK', [])",
-            "Function 'arrayReduce' is not permitted to call the 'topK' function",
+            "Function 'arrayReduce' is not permitted to aggregate the 'topK' function",
         )
         self._assert_expr_error(
             "arrayReduce('sumMap', [], [])",
