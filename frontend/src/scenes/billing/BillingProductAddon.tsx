@@ -1,9 +1,8 @@
-import { IconCheckCircle, IconPlus } from '@posthog/icons'
+import { IconCheckCircle, IconDocument, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonSelectOptions, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { FEATURE_FLAGS, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
+import { UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ReactNode, useMemo, useRef } from 'react'
 import { getProductIcon } from 'scenes/products/Products'
 
@@ -30,7 +29,6 @@ const formatFlatRate = (flatRate: number, unit: string | null): string | ReactNo
 
 export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element => {
     const productRef = useRef<HTMLDivElement | null>(null)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { billing, redirectPath, billingError, timeTotalInSeconds, timeRemainingInSeconds } = useValues(billingLogic)
     const { isPricingModalOpen, currentAndUpgradePlans, surveyID, billingProductLoading } = useValues(
         billingProductLogic({ product: addon, productRef })
@@ -95,14 +93,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                                 )
                             )}
                         </div>
-                        <p className="ml-0 mb-0">
-                            {addon.description}{' '}
-                            {addon.docs_url && (
-                                <>
-                                    <Link to={addon.docs_url}>Read the docs</Link> for more information.
-                                </>
-                            )}
-                        </p>
+                        <p className="ml-0 mb-0">{addon.description}</p>
                         {is_enhanced_persons_og_customer && (
                             <p className="mt-2 mb-0">
                                 <Link
@@ -119,6 +110,14 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                 </div>
                 <div>
                     <div className="ml-4 mt-2 self-center flex items-center gap-x-3 whitespace-nowrap">
+                        {addon.docs_url && (
+                            <LemonButton
+                                icon={<IconDocument />}
+                                size="small"
+                                to={addon.docs_url}
+                                tooltip="Read the docs"
+                            />
+                        )}
                         {addon.subscribed && !addon.inclusion_only ? (
                             <>
                                 <More
@@ -131,7 +130,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                                                     reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, addon.type)
                                                 }}
                                             >
-                                                Remove add-on
+                                                Remove addon
                                             </LemonButton>
                                         </>
                                     }
@@ -165,12 +164,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                                         icon={<IconPlus />}
                                         size="small"
                                         disableClientSideRouting
-                                        disabledReason={
-                                            (billingError && billingError.message) ||
-                                            (featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' &&
-                                                billing?.subscription_level === 'free' &&
-                                                'Upgrade to add add-ons')
-                                        }
+                                        disabledReason={billingError && billingError.message}
                                         loading={billingProductLoading === addon.type}
                                         onClick={() =>
                                             initiateProductUpgrade(
@@ -197,7 +191,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                 </div>
             </div>
             <div className="mt-3 ml-11">
-                {addonFeatures?.length > 2 && (
+                {addonFeatures?.length > 1 && (
                     <div>
                         <p className="ml-0 mb-2 max-w-200">Features included:</p>
                         <div className="grid grid-cols-2 gap-x-4">

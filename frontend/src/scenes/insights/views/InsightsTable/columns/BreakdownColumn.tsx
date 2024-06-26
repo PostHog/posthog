@@ -17,7 +17,7 @@ type BreakdownColumnItemProps = {
     item: IndexedTrendResult
     canCheckUncheckSeries: boolean
     isMainInsightView: boolean
-    toggleHiddenLegendIndex: (index: number) => void
+    toggleVisibility: (id: number) => void
     formatItemBreakdownLabel: (item: IndexedTrendResult) => string
 }
 
@@ -25,7 +25,7 @@ export function BreakdownColumnItem({
     item,
     canCheckUncheckSeries,
     isMainInsightView,
-    toggleHiddenLegendIndex,
+    toggleVisibility,
     formatItemBreakdownLabel,
 }: BreakdownColumnItemProps): JSX.Element {
     const breakdownLabel = formatItemBreakdownLabel(item)
@@ -34,7 +34,7 @@ export function BreakdownColumnItem({
     return (
         <div
             className={multiEntityAndToggleable ? 'cursor-pointer' : ''}
-            onClick={multiEntityAndToggleable ? () => toggleHiddenLegendIndex(item.id) : undefined}
+            onClick={multiEntityAndToggleable ? () => toggleVisibility(item.id) : undefined}
         >
             {breakdownLabel && (
                 <>

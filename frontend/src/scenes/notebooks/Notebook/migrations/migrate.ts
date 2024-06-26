@@ -82,28 +82,11 @@ function convertInsightQueryStringsToObjects(content: JSONContent[]): JSONConten
             return node
         }
 
-        let query
-
-        try {
-            query = JSON.parse(node.attrs.query)
-        } catch (e) {
-            query = {
-                kind: NodeKind.DataTableNode,
-                source: {
-                    kind: NodeKind.EventsQuery,
-                    select: ['*', 'event', 'person', 'timestamp'],
-                    orderBy: ['timestamp DESC'],
-                    after: '-24h',
-                    limit: 100,
-                },
-            }
-        }
-
         return {
             ...node,
             attrs: {
                 ...node.attrs,
-                query,
+                query: JSON.parse(node.attrs.query),
             },
         }
     })
@@ -140,7 +123,7 @@ function convertInsightQueriesToNewSchema(content: JSONContent[]): JSONContent[]
 
             query.trendsFilter = Object.fromEntries(
                 Object.entries(query.trendsFilter as TrendsFilter)
-                    .filter(([k, _]) => TRENDS_FILTER_PROPERTIES.has(k as keyof TrendsFilter))
+                    .filter(([k, _]) => TRENDS_FILTER_PROPERTIES.has(k))
                     .concat(Object.entries(trendsFilterToQuery(query.trendsFilter as any)))
             )
         }
@@ -177,7 +160,7 @@ function convertInsightQueriesToNewSchema(content: JSONContent[]): JSONContent[]
             // This has to come after compare, because it removes compare
             query.stickinessFilter = Object.fromEntries(
                 Object.entries(query.stickinessFilter as StickinessFilter)
-                    .filter(([k, _]) => STICKINESS_FILTER_PROPERTIES.has(k as keyof StickinessFilter))
+                    .filter(([k, _]) => STICKINESS_FILTER_PROPERTIES.has(k))
                     .concat(Object.entries(stickinessFilterToQuery(query.stickinessFilter as any)))
             )
         }

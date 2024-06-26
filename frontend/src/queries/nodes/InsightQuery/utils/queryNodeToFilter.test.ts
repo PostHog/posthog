@@ -1,7 +1,7 @@
 import { FunnelLayout } from 'lib/constants'
 
 import { hiddenLegendItemsToKeys, queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { FunnelsQuery, LifecycleQuery, NodeKind, PathsQuery, StickinessQuery, TrendsQuery } from '~/queries/schema'
+import { FunnelsQuery, LifecycleQuery, NodeKind, PathsQuery, TrendsQuery } from '~/queries/schema'
 import {
     BreakdownAttributionType,
     ChartDisplayType,
@@ -15,7 +15,6 @@ import {
     PathsFilterType,
     PathType,
     StepOrderValue,
-    StickinessFilterType,
     TrendsFilterType,
 } from '~/types'
 
@@ -71,12 +70,12 @@ describe('queryNodeToFilter', () => {
                 breakdown_hide_other_aggregation: true,
                 breakdown_limit: 1,
                 breakdown_type: 'event',
-                breakdown_histogram_bin_count: 5,
             },
             trendsFilter: {
                 smoothingIntervals: 3,
                 formula: 'A + B',
                 display: ChartDisplayType.ActionsBar,
+                // breakdown_histogram_bin_count?: TrendsFilterLegacy['breakdown_histogram_bin_count']
                 showLegend: true,
                 aggregationAxisFormat: 'numeric',
                 aggregationAxisPrefix: 'M',
@@ -85,7 +84,7 @@ describe('queryNodeToFilter', () => {
                 showValuesOnSeries: true,
                 showLabelsOnSeries: true,
                 showPercentStackView: true,
-                hiddenLegendIndexes: [1, 2],
+                // hidden_legend_indexes?: TrendsFilterLegacy['hidden_legend_indexes']
             },
             compareFilter: {
                 compare: true,
@@ -98,7 +97,7 @@ describe('queryNodeToFilter', () => {
         const filters: Partial<TrendsFilterType> = {
             insight: InsightType.TRENDS,
             entity_type: 'events',
-            hidden_legend_keys: { 1: true, 2: true },
+            hidden_legend_keys: undefined,
             interval: undefined,
             smoothing_intervals: 3,
             display: ChartDisplayType.ActionsBar,
@@ -113,7 +112,6 @@ describe('queryNodeToFilter', () => {
             breakdown_hide_other_aggregation: true,
             breakdown_limit: 1,
             breakdown_type: 'event',
-            breakdown_histogram_bin_count: 5,
             show_labels_on_series: true,
             show_percent_stack_view: true,
             show_legend: true,
@@ -293,39 +291,6 @@ describe('queryNodeToFilter', () => {
         }
         expect(result).toEqual(filters)
     })
-
-    test('converts a stickinessFilter into filter properties', () => {
-        const query: StickinessQuery = {
-            kind: NodeKind.StickinessQuery,
-            stickinessFilter: {
-                display: ChartDisplayType.ActionsBar,
-                showLegend: true,
-                showValuesOnSeries: true,
-                hiddenLegendIndexes: [1, 2],
-            },
-            interval: 'month',
-            series: [],
-            compareFilter: {
-                compare: true,
-                compare_to: '-4d',
-            },
-        }
-
-        const result = queryNodeToFilter(query)
-
-        const filters: Partial<StickinessFilterType> = {
-            insight: InsightType.STICKINESS,
-            compare: true,
-            compare_to: '-4d',
-            display: ChartDisplayType.ActionsBar,
-            hidden_legend_keys: { 1: true, 2: true },
-            interval: 'month',
-            show_legend: true,
-            show_values_on_series: true,
-            entity_type: 'events',
-        }
-        expect(result).toEqual(filters)
-    })
 })
 
 describe('hiddenLegendItemsToKeys', () => {
@@ -333,12 +298,12 @@ describe('hiddenLegendItemsToKeys', () => {
         expect(hiddenLegendItemsToKeys(undefined)).toEqual(undefined)
     })
 
-    it('converts keys for funnel insights (breakdowns)', () => {
+    it('converts hidden_legend_breakdowns', () => {
         expect(hiddenLegendItemsToKeys(['a'])).toEqual({ a: true })
         expect(hiddenLegendItemsToKeys(['a', 'b'])).toEqual({ a: true, b: true })
     })
 
-    it('converts keys for trends/stickiness insights', () => {
+    it('converts hidden_legend_indexes', () => {
         expect(hiddenLegendItemsToKeys([1])).toEqual({ '1': true })
         expect(hiddenLegendItemsToKeys([1, 2])).toEqual({ '1': true, '2': true })
     })

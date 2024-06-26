@@ -8,24 +8,20 @@ import { Field, Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { SurprisedHog } from 'lib/components/hedgehogs'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { BillingCTAHero } from './BillingCTAHero'
 import { BillingHero } from './BillingHero'
 import { billingLogic } from './billingLogic'
 import { BillingProduct } from './BillingProduct'
-import { UnsubscribeCard } from './UnsubscribeCard'
 
 export const scene: SceneExport = {
     component: Billing,
@@ -46,7 +42,6 @@ export function Billing(): JSX.Element {
     const { reportBillingV2Shown } = useActions(billingLogic)
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     if (preflight && !isCloudOrDev) {
         router.actions.push(urls.default())
@@ -92,9 +87,8 @@ export function Billing(): JSX.Element {
     }
 
     const products = billing?.products
-    const platformAndSupportProduct = products?.find((product) => product.type === 'platform_and_support')
     return (
-        <div ref={ref}>
+        <div ref={ref} className="pb-60">
             {showLicenseDirectInput && (
                 <>
                     <Form logic={billingLogic} formKey="activateLicense" enableFormOnSubmit className="space-y-4">
@@ -125,15 +119,11 @@ export function Billing(): JSX.Element {
                 </LemonBanner>
             ) : null}
             {!billing?.has_active_subscription && (
-                <div className="mb-6">
-                    {featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' ? (
-                        platformAndSupportProduct ? (
-                            <BillingCTAHero product={platformAndSupportProduct} />
-                        ) : null
-                    ) : (
+                <>
+                    <div className="my-8">
                         <BillingHero />
-                    )}
-                </div>
+                    </div>
+                </>
             )}
 
             <div
@@ -144,13 +134,13 @@ export function Billing(): JSX.Element {
             >
                 <div>
                     <div
-                        className={clsx('flex flex-wrap gap-4 w-fit', {
+                        className={clsx('flex flex-wrap gap-4 pb-4 w-fit', {
                             'flex-col items-stretch': size === 'small',
                             'items-center': size !== 'small',
                         })}
                     >
                         {!isOnboarding && billing?.billing_period && (
-                            <div className="flex-1 pt-2">
+                            <div className="flex-1">
                                 <div className="space-y-2">
                                     {billing?.has_active_subscription && (
                                         <>
@@ -214,7 +204,7 @@ export function Billing(): JSX.Element {
                     </div>
 
                     {!isOnboarding && billing?.has_active_subscription && (
-                        <div className="w-fit mt-2">
+                        <div className="w-fit">
                             <LemonButton
                                 type="primary"
                                 htmlType="submit"
@@ -276,11 +266,10 @@ export function Billing(): JSX.Element {
                 )}
             </div>
 
-            <LemonDivider className="mt-6 mb-8" />
-
             <div className="flex justify-between mt-4">
                 <h2>Products</h2>
             </div>
+            <LemonDivider className="mt-2 mb-8" />
 
             {products
                 ?.filter((product) => !product.inclusion_only || product.plans.some((plan) => !plan.included_if))
@@ -289,16 +278,6 @@ export function Billing(): JSX.Element {
                         <BillingProduct product={x} />
                     </div>
                 ))}
-            <div>
-                {featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' &&
-                billing?.subscription_level == 'paid' &&
-                !!platformAndSupportProduct ? (
-                    <>
-                        <LemonDivider />
-                        <UnsubscribeCard product={platformAndSupportProduct} />
-                    </>
-                ) : null}
-            </div>
         </div>
     )
 }

@@ -3,12 +3,9 @@ import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
 import { StarHog } from 'lib/components/hedgehogs'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useState } from 'react'
-import { AllProductsPlanComparison } from 'scenes/billing/AllProductsPlanComparison'
 import { getUpgradeProductLink } from 'scenes/billing/billing-utils'
 import { BillingHero } from 'scenes/billing/BillingHero'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -27,7 +24,6 @@ export const OnboardingBillingStep = ({
     product: BillingProductV2Type
     stepKey?: OnboardingStepKey
 }): JSX.Element => {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { billing, redirectPath } = useValues(billingLogic)
     const { productKey } = useValues(onboardingLogic)
     const { currentAndUpgradePlans } = useValues(billingProductLogic({ product }))
@@ -37,7 +33,6 @@ export const OnboardingBillingStep = ({
 
     const [showPlanComp, setShowPlanComp] = useState(false)
 
-    const action = featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' ? 'Upgrade' : 'Subscribe'
     return (
         <OnboardingStep
             title="Plans"
@@ -47,14 +42,7 @@ export const OnboardingBillingStep = ({
                 product?.subscribed ? undefined : (
                     <BillingUpgradeCTA
                         // TODO: redirect path won't work properly until navigation is properly set up
-                        to={getUpgradeProductLink({
-                            product,
-                            upgradeToPlanKey: plan.plan_key || '',
-                            redirectPath,
-                            includeAddons: true,
-                            subscriptionLevel: billing?.subscription_level,
-                            featureFlags,
-                        })}
+                        to={getUpgradeProductLink(product, plan.plan_key || '', redirectPath, true)}
                         type="primary"
                         status="alt"
                         center
@@ -64,7 +52,7 @@ export const OnboardingBillingStep = ({
                         }}
                         data-attr="onboarding-subscribe-button"
                     >
-                        {action}
+                        Subscribe to paid plan
                     </BillingUpgradeCTA>
                 )
             }
@@ -77,7 +65,7 @@ export const OnboardingBillingStep = ({
                                 <div className="flex gap-x-4">
                                     <IconCheckCircle className="text-success text-3xl mb-6" />
                                     <div>
-                                        <h3 className="text-lg font-bold mb-1 text-left">{action} successful</h3>
+                                        <h3 className="text-lg font-bold mb-1 text-left">Subscribe successful</h3>
                                         <p className="mx-0 mb-0">You're all ready to use {product.name}.</p>
                                     </div>
                                 </div>
@@ -107,11 +95,7 @@ export const OnboardingBillingStep = ({
                     {(!product.subscribed || showPlanComp) && (
                         <>
                             <BillingHero />
-                            {featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' ? (
-                                <AllProductsPlanComparison product={product} />
-                            ) : (
-                                <PlanComparison product={product} />
-                            )}
+                            <PlanComparison product={product} includeAddons />
                         </>
                     )}
                 </div>

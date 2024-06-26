@@ -28,6 +28,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { tagsModel } from '~/models/tagsModel'
+import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema'
 import { ExporterFormat, InsightLogicProps, InsightModel, InsightShortId, ItemMode, NotebookNodeType } from '~/types'
 
@@ -40,13 +41,13 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const {
         insightProps,
         canEditInsight,
-        queryBasedInsight: insight,
-        legacyInsight,
+        insight: legacyInsight,
         insightChanged,
         insightSaving,
         hasDashboardItemId,
     } = useValues(insightLogic(insightLogicProps))
     const { setInsightMetadata } = useActions(insightLogic(insightLogicProps))
+    const insight = getQueryBasedInsightModel(legacyInsight)
 
     // savedInsightsLogic
     const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
@@ -84,7 +85,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                     <AddToDashboardModal
                         isOpen={addToDashboardModalOpen}
                         closeModal={() => setAddToDashboardModalOpenModal(false)}
-                        insightProps={insightProps}
+                        insight={legacyInsight}
                         canEditInsight={canEditInsight}
                     />
                     <AlertsModal

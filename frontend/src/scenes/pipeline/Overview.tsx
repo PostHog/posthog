@@ -10,16 +10,14 @@ export function Overview(): JSX.Element {
     return (
         <div>
             <h2 className="mt-4">Transformations</h2>
-            <p>
-                Showing only enabled, go to{' '}
-                <Link to={urls.pipeline(PipelineTab.Transformations)}>Transformations tab</Link> to see all.
-            </p>
+            Showing only enabled, go to <Link to={urls.pipeline(PipelineTab.Transformations)}>
+                Transformations tab
+            </Link>{' '}
+            to see all.
             <TransformationsTable inOverview={true} />
             <h2 className="mt-4">Destinations</h2>
-            <p>
-                Showing only active, go to <Link to={urls.pipeline(PipelineTab.Destinations)}>Destinations tab</Link> to
-                see all.
-            </p>
+            Showing only active, go to <Link to={urls.pipeline(PipelineTab.Destinations)}>Destinations tab</Link> to see
+            all.
             <DestinationsTable inOverview={true} />
         </div>
     )

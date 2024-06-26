@@ -38,7 +38,7 @@ import { createTooltipData } from 'scenes/insights/views/LineGraph/tooltip-data'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { hexToRGBA, lightenDarkenColor } from '~/lib/utils'
+import { areObjectValuesEmpty, hexToRGBA, lightenDarkenColor } from '~/lib/utils'
 import { groupsModel } from '~/models/groupsModel'
 import { TrendsFilter } from '~/queries/schema'
 import { GraphDataset, GraphPoint, GraphPointPayload, GraphType } from '~/types'
@@ -164,14 +164,14 @@ export function onChartHover(
 }
 
 export const filterNestedDataset = (
-    hiddenLegendIndexes: number[] | undefined,
+    hiddenLegendKeys: Record<string | number, boolean | undefined> | undefined,
     datasets: GraphDataset[]
 ): GraphDataset[] => {
-    if (!hiddenLegendIndexes) {
+    if (!hiddenLegendKeys) {
         return datasets
     }
     // If series are nested (for ActionsHorizontalBar and Pie), filter out the series by index
-    const filterFn = (_: any, i: number): boolean => !hiddenLegendIndexes?.includes(i)
+    const filterFn = (_: any, i: number): boolean => !hiddenLegendKeys?.[i]
     return datasets.map((_data) => {
         // Performs a filter transformation on properties that contain arrayed data
         return Object.fromEntries(
@@ -215,7 +215,7 @@ function createPinstripePattern(color: string, isDarkMode: boolean): CanvasPatte
 
 export interface LineGraphProps {
     datasets: GraphDataset[]
-    hiddenLegendIndexes?: number[] | undefined
+    hiddenLegendKeys?: Record<string | number, boolean | undefined>
     labels: string[]
     type: GraphType
     isInProgress?: boolean
@@ -250,7 +250,7 @@ export const LineGraph = (props: LineGraphProps): JSX.Element => {
 
 export function LineGraph_({
     datasets: _datasets,
-    hiddenLegendIndexes,
+    hiddenLegendKeys,
     labels,
     type,
     isInProgress = false,
@@ -278,7 +278,7 @@ export function LineGraph_({
     const { aggregationLabel } = useValues(groupsModel)
     const { isDarkModeOn } = useValues(themeLogic)
 
-    const { insightProps, queryBasedInsight } = useValues(insightLogic)
+    const { insightProps, insight } = useValues(insightLogic)
     const { timezone, isTrends, breakdownFilter } = useValues(insightVizDataLogic(insightProps))
 
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -367,11 +367,11 @@ export function LineGraph_({
     // Build chart
     useEffect(() => {
         // Hide intentionally hidden keys
-        if (hiddenLegendIndexes && hiddenLegendIndexes.length > 0) {
+        if (!areObjectValuesEmpty(hiddenLegendKeys)) {
             if (isHorizontal) {
-                datasets = filterNestedDataset(hiddenLegendIndexes, datasets)
+                datasets = filterNestedDataset(hiddenLegendKeys, datasets)
             } else {
-                datasets = datasets.filter((data) => !hiddenLegendIndexes?.includes(data.id))
+                datasets = datasets.filter((data) => !hiddenLegendKeys?.[data.id])
             }
         }
 
@@ -743,7 +743,7 @@ export function LineGraph_({
         })
         setMyLineChart(newChart)
         return () => newChart.destroy()
-    }, [datasets, hiddenLegendIndexes, isDarkModeOn, trendsFilter, formula, showValuesOnSeries, showPercentStackView])
+    }, [datasets, hiddenLegendKeys, isDarkModeOn, trendsFilter, formula, showValuesOnSeries, showPercentStackView])
 
     return (
         <div className={clsx('LineGraph w-full grow relative overflow-hidden')} data-attr={dataAttr}>
@@ -754,7 +754,7 @@ export function LineGraph_({
                     dates={datasets[0]?.days || []}
                     chartWidth={chartWidth}
                     chartHeight={chartHeight}
-                    insightNumericId={queryBasedInsight.id || 'new'}
+                    insightNumericId={insight.id || 'new'}
                 />
             ) : null}
         </div>

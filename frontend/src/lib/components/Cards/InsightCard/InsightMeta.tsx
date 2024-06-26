@@ -15,7 +15,6 @@ import { Splotch, SplotchColor } from 'lib/lemon-ui/Splotch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter } from 'lib/utils'
 import React from 'react'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
@@ -68,8 +67,7 @@ export function InsightMeta({
     moreButtons,
 }: InsightMetaProps): JSX.Element {
     const { short_id, name, dashboards } = insight
-    const { insightProps } = useValues(insightLogic)
-    const { exportContext } = useValues(insightDataLogic(insightProps))
+    const { exporterResourceParams, insightProps } = useValues(insightLogic)
     const { samplingFactor } = useValues(insightVizDataLogic(insightProps))
     const { nameSortedDashboards } = useValues(dashboardsModel)
 
@@ -210,7 +208,7 @@ export function InsightMeta({
                     >
                         Duplicate
                     </LemonButton>
-                    {exportContext ? (
+                    {exporterResourceParams ? (
                         <>
                             <LemonDivider />
                             <ExportButton
@@ -223,11 +221,11 @@ export function InsightMeta({
                                     },
                                     {
                                         export_format: ExporterFormat.CSV,
-                                        export_context: exportContext,
+                                        export_context: exporterResourceParams,
                                     },
                                     {
                                         export_format: ExporterFormat.XLSX,
-                                        export_context: exportContext,
+                                        export_context: exporterResourceParams,
                                     },
                                 ]}
                             />

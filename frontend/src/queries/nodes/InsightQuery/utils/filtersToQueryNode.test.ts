@@ -40,9 +40,9 @@ import {
 
 import {
     actionsAndEventsToSeries,
+    cleanHiddenLegendIndexes,
+    cleanHiddenLegendSeries,
     filtersToQueryNode,
-    hiddenLegendKeysToBreakdowns,
-    hiddenLegendKeysToIndexes,
 } from './filtersToQueryNode'
 
 describe('actionsAndEventsToSeries', () => {
@@ -83,7 +83,7 @@ describe('actionsAndEventsToSeries', () => {
     })
 })
 
-describe('hiddenLegendKeysToIndexes', () => {
+describe('cleanHiddenLegendIndexes', () => {
     it('converts legend keys', () => {
         const keys: Record<string, boolean | undefined> = {
             1: true,
@@ -91,7 +91,7 @@ describe('hiddenLegendKeysToIndexes', () => {
             3: undefined,
         }
 
-        const result = hiddenLegendKeysToIndexes(keys)
+        const result = cleanHiddenLegendIndexes(keys)
 
         expect(result).toEqual([1])
     })
@@ -99,7 +99,7 @@ describe('hiddenLegendKeysToIndexes', () => {
     it('handles undefined legend keys', () => {
         const keys = undefined
 
-        const result = hiddenLegendKeysToIndexes(keys)
+        const result = cleanHiddenLegendIndexes(keys)
 
         expect(result).toEqual(undefined)
     })
@@ -111,13 +111,13 @@ describe('hiddenLegendKeysToIndexes', () => {
             1: true,
         }
 
-        const result = hiddenLegendKeysToIndexes(keys)
+        const result = cleanHiddenLegendIndexes(keys)
 
         expect(result).toEqual([1])
     })
 })
 
-describe('hiddenLegendKeysToBreakdowns', () => {
+describe('cleanHiddenLegendSeries', () => {
     it('converts legend keys', () => {
         const keys: Record<string, boolean | undefined> = {
             Chrome: true,
@@ -126,7 +126,7 @@ describe('hiddenLegendKeysToBreakdowns', () => {
             Safari: undefined,
         }
 
-        const result = hiddenLegendKeysToBreakdowns(keys)
+        const result = cleanHiddenLegendSeries(keys)
 
         expect(result).toEqual(['Chrome', 'Chrome iOS'])
     })
@@ -134,7 +134,7 @@ describe('hiddenLegendKeysToBreakdowns', () => {
     it('handles undefined legend keys', () => {
         const keys = undefined
 
-        const result = hiddenLegendKeysToBreakdowns(keys)
+        const result = cleanHiddenLegendSeries(keys)
 
         expect(result).toEqual(undefined)
     })
@@ -146,7 +146,7 @@ describe('hiddenLegendKeysToBreakdowns', () => {
             1: true,
         }
 
-        const result = hiddenLegendKeysToBreakdowns(keys)
+        const result = cleanHiddenLegendSeries(keys)
 
         expect(result).toEqual(['Opera', 'Baseline'])
     })
@@ -157,7 +157,7 @@ describe('hiddenLegendKeysToBreakdowns', () => {
             1: true,
         }
 
-        const result = hiddenLegendKeysToBreakdowns(keys)
+        const result = cleanHiddenLegendSeries(keys)
 
         expect(result).toEqual(['Opera'])
     })
@@ -389,7 +389,7 @@ describe('filtersToQueryNode', () => {
                 trendsFilter: {
                     smoothingIntervals: 1,
                     showLegend: true,
-                    hiddenLegendIndexes: [0, 10],
+                    hidden_legend_indexes: [0, 10],
                     aggregationAxisFormat: 'numeric',
                     aggregationAxisPrefix: '£',
                     aggregationAxisPostfix: '%',
@@ -486,7 +486,7 @@ describe('filtersToQueryNode', () => {
                         },
                     ],
                     layout: FunnelLayout.horizontal,
-                    hiddenLegendBreakdowns: ['Chrome', 'Safari'],
+                    hidden_legend_breakdowns: ['Chrome', 'Safari'],
                 },
                 series: [],
             }
@@ -626,7 +626,7 @@ describe('filtersToQueryNode', () => {
                 kind: NodeKind.StickinessQuery,
                 stickinessFilter: {
                     showLegend: true,
-                    hiddenLegendIndexes: [0, 10],
+                    hidden_legend_indexes: [0, 10],
                     display: ChartDisplayType.ActionsLineGraph,
                 },
                 compareFilter: {

@@ -48,7 +48,7 @@ export interface EditorFiltersProps {
 export function EditorFilters({ query, showing, embedded }: EditorFiltersProps): JSX.Element | null {
     const { hasAvailableFeature } = useValues(userLogic)
 
-    const { insightProps } = useValues(insightLogic)
+    const { insight, insightProps } = useValues(insightLogic)
     const {
         isTrends,
         isFunnels,
@@ -290,6 +290,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                         <EditorFilterGroup
                             key={editorFilterGroup.title}
                             editorFilterGroup={editorFilterGroup}
+                            insight={insight}
                             insightProps={insightProps}
                             query={query}
                         />

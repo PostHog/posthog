@@ -1,6 +1,5 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
 import api, { ApiConfig } from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -109,12 +108,14 @@ export const organizationLogic = kea<organizationLogicType>([
         deleteOrganization: async ({ organization }) => {
             try {
                 await api.delete(`api/organizations/${organization.id}`)
-                router.actions.push(router.values.currentLocation.pathname, 'organizationDeleted=true')
                 location.reload()
                 actions.deleteOrganizationSuccess()
             } catch {
                 actions.deleteOrganizationFailure()
             }
+        },
+        deleteOrganizationSuccess: () => {
+            lemonToast.success('Organization has been deleted')
         },
     })),
     afterMount(({ actions }) => {

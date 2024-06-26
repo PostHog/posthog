@@ -17,6 +17,7 @@ import { ActivityFilters } from '~/layout/navigation-3000/sidepanel/panels/activ
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { examples } from '~/queries/examples'
+import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { ActivityScope, Breadcrumb, FilterType, InsightShortId, InsightType, ItemMode } from '~/types'
 
 import { insightDataLogic } from './insightDataLogic'
@@ -91,31 +92,18 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         ],
     }),
     selectors(() => ({
-        legacyInsightSelector: [
-            (s) => [s.insightLogicRef],
-            (insightLogicRef) => insightLogicRef?.logic.selectors.legacyInsight,
-        ],
-        legacyInsight: [
-            (s) => [(state, props) => s.legacyInsightSelector?.(state, props)?.(state, props)],
-            (insight) => insight,
-        ],
-        queryBasedInsightSelector: [
-            (s) => [s.insightLogicRef],
-            (insightLogicRef) => insightLogicRef?.logic.selectors.queryBasedInsight,
-        ],
-        queryBasedInsight: [
-            (s) => [(state, props) => s.queryBasedInsightSelector?.(state, props)?.(state, props)],
-            (insight) => insight,
-        ],
+        insightSelector: [(s) => [s.insightLogicRef], (insightLogicRef) => insightLogicRef?.logic.selectors.insight],
+        insight: [(s) => [(state, props) => s.insightSelector?.(state, props)?.(state, props)], (insight) => insight],
         breadcrumbs: [
             (s) => [
                 s.insightLogicRef,
-                s.queryBasedInsight,
+                s.insight,
                 groupsModel.selectors.aggregationLabel,
                 cohortsModel.selectors.cohortsById,
                 mathsLogic.selectors.mathDefinitions,
             ],
-            (insightLogicRef, insight, aggregationLabel, cohortsById, mathDefinitions): Breadcrumb[] => {
+            (insightLogicRef, legacyInsight, aggregationLabel, cohortsById, mathDefinitions): Breadcrumb[] => {
+                const insight = legacyInsight ? getQueryBasedInsightModel(legacyInsight) : null
                 return [
                     {
                         key: Scene.SavedInsights,
@@ -139,7 +127,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             },
         ],
         activityFilters: [
-            (s) => [s.queryBasedInsight],
+            (s) => [s.insight],
             (insight): ActivityFilters | null => {
                 return insight
                     ? {
@@ -152,7 +140,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
     })),
     sharedListeners(({ actions, values }) => ({
         reloadInsightLogic: () => {
-            const logicInsightId = values.queryBasedInsight?.short_id ?? null
+            const logicInsightId = values.insight?.short_id ?? null
             const insightId = values.insightId ?? null
 
             if (logicInsightId !== insightId) {
@@ -178,7 +166,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 if (oldRef2) {
                     oldRef2.unmount()
                 }
-            } else if (insightId && !values.queryBasedInsight?.result) {
+            } else if (insightId && !values.insight?.result) {
                 values.insightLogicRef?.logic.actions.loadInsight(insightId as InsightShortId)
             }
         },

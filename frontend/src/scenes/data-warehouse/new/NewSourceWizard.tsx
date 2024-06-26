@@ -124,10 +124,10 @@ function FirstStep(): JSX.Element {
         <ModalPage page={1}>
             <h2 className="mt-4">Managed by PostHog</h2>
 
-            <p>
+            <span>
                 Data will be synced to PostHog and regularly refreshed.{' '}
                 <Link to="https://posthog.com/docs/data-warehouse/setup#stripe">Learn more</Link>
-            </p>
+            </span>
             <LemonTable
                 dataSource={connectors}
                 loading={false}
@@ -165,10 +165,10 @@ function FirstStep(): JSX.Element {
 
             <h2 className="mt-4">Self Managed</h2>
 
-            <p>
+            <span>
                 Data will be queried directly from your data source that you manage.{' '}
                 <Link to="https://posthog.com/docs/data-warehouse/setup#linking-a-custom-source">Learn more</Link>
-            </p>
+            </span>
             <LemonTable
                 dataSource={manualConnectors}
                 loading={false}

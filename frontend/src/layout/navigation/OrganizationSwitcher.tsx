@@ -66,7 +66,6 @@ export function NewOrganizationButton(): JSX.Element {
                 )
             }
             fullWidth
-            data-attr="new-organization-button"
         >
             New organization
         </LemonButton>

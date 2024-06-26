@@ -1,10 +1,11 @@
 import { IconLetter } from '@posthog/icons'
 import { LemonSelectOptions } from '@posthog/lemon-ui'
-import { IconSlack } from 'lib/lemon-ui/icons'
+import { IconSlack, IconSlackExternal } from 'lib/lemon-ui/icons'
+import { LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { range } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { InsightShortId } from '~/types'
+import { InsightShortId, SlackChannelType } from '~/types'
 
 export interface SubscriptionBaseProps {
     dashboardId?: number
@@ -79,3 +80,28 @@ export const timeOptions: LemonSelectOptions<string> = range(0, 24).map((x) => (
     value: String(x),
     label: `${String(x).padStart(2, '0')}:00`,
 }))
+
+export const getSlackChannelOptions = (
+    value: string,
+    slackChannels?: SlackChannelType[] | null
+): LemonInputSelectOption[] => {
+    return slackChannels
+        ? slackChannels.map((x) => ({
+              key: `${x.id}|#${x.name}`,
+              labelComponent: (
+                  <span className="flex items-center">
+                      {x.is_private ? `🔒${x.name}` : `#${x.name}`}
+                      {x.is_ext_shared ? <IconSlackExternal className="ml-2" /> : null}
+                  </span>
+              ),
+              label: `${x.id} #${x.name}`,
+          }))
+        : value
+        ? [
+              {
+                  key: value,
+                  label: value?.split('|')?.pop() || value,
+              },
+          ]
+        : []
+}

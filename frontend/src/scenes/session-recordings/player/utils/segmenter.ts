@@ -44,12 +44,7 @@ export const mapSnapshotsToWindowId = (snapshots: RecordingSnapshot[]): Record<s
     return snapshotsByWindowId
 }
 
-export const createSegments = (
-    snapshots: RecordingSnapshot[],
-    start?: Dayjs,
-    end?: Dayjs,
-    trackedWindow?: string | null
-): RecordingSegment[] => {
+export const createSegments = (snapshots: RecordingSnapshot[], start?: Dayjs, end?: Dayjs): RecordingSegment[] => {
     let segments: RecordingSegment[] = []
     let activeSegment!: Partial<RecordingSegment>
     let lastActiveEventTimestamp = 0
@@ -110,9 +105,7 @@ export const createSegments = (
     }
 
     // We've built the segments, but this might not account for "gaps" in them
-    // To account for this we build up a new segment list filling in gaps with
-    // either the tracked window if the viewing window is fixed
-    // or whatever window is available (preferably the previous one)
+    // To account for this we build up a new segment list filling in gaps with the whatever window is available (preferably the previous one)
     // Or a "null" window if there is nothing (like if they navigated away to a different site)
 
     const findWindowIdForTimestamp = (timestamp: number, preferredWindowId?: string): string | undefined => {
@@ -132,21 +125,6 @@ export const createSegments = (
         }
     }
 
-    if (trackedWindow) {
-        segments = segments.map((segment) => {
-            if (segment.windowId === trackedWindow) {
-                return segment
-            }
-            // every window segment that isn't the tracked window is a gap
-            return {
-                ...segment,
-                windowId: trackedWindow,
-                isActive: false,
-                kind: 'gap',
-            }
-        })
-    }
-
     segments = segments.reduce((acc, segment, index) => {
         const previousSegment = segments[index - 1]
         const list = [...acc]
@@ -156,7 +134,7 @@ export const createSegments = (
             const startTimestamp = previousSegment.endTimestamp
             const endTimestamp = segment.startTimestamp
             // Offset the window ID check so we look for a subsequent segment
-            const windowId = findWindowIdForTimestamp(startTimestamp + 1, trackedWindow || previousSegment.windowId)
+            const windowId = findWindowIdForTimestamp(startTimestamp + 1, previousSegment.windowId)
             const gapSegment: Partial<RecordingSegment> = {
                 kind: 'gap',
                 startTimestamp,

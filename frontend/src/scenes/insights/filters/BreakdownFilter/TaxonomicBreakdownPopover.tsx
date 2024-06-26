@@ -3,7 +3,6 @@ import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 
@@ -16,8 +15,7 @@ type TaxonomicBreakdownPopoverProps = {
 }
 
 export const TaxonomicBreakdownPopover = ({ open, setOpen, children }: TaxonomicBreakdownPopoverProps): JSX.Element => {
-    const { insightProps } = useValues(insightLogic)
-    const { allEventNames } = useValues(insightVizDataLogic(insightProps))
+    const { allEventNames } = useValues(insightLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const { taxonomicBreakdownType, includeSessions } = useValues(taxonomicBreakdownFilterLogic)
 

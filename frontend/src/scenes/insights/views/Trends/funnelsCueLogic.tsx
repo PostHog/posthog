@@ -2,7 +2,7 @@ import { actions, connect, events, kea, key, listeners, path, props, reducers, s
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'posthog-js'
-import { insightUsageLogic } from 'scenes/insights/insightUsageLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
@@ -18,7 +18,7 @@ export const funnelsCueLogic = kea<funnelsCueLogicType>([
     path((key) => ['scenes', 'insights', 'InsightTabs', 'TrendTab', 'FunnelsCue', key]),
     connect((props: InsightLogicProps) => ({
         values: [
-            insightUsageLogic(props),
+            insightLogic(props),
             ['isFirstLoad'],
             insightVizDataLogic(props),
             ['query'],

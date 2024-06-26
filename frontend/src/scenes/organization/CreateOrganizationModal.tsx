@@ -75,7 +75,6 @@ export function CreateOrganizationModal({
                             handleSubmit()
                         }
                     }}
-                    data-attr="organization-name-input"
                 />
             </LemonField.Pure>
         </LemonModal>

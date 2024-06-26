@@ -8,11 +8,13 @@ export const DISPLAY_TYPES_WITHOUT_LEGEND = [
 ]
 
 export function shouldHighlightThisRow(
-    currentIndex: number,
-    highlightedIndex: number | null,
-    hiddenLegendIndexes: number[] | undefined
+    hiddenLegendKeys: Record<string, boolean | undefined>,
+    rowIndex: number,
+    highlightedSeries: number | null
 ): boolean {
-    const numberOfSeriesToSkip = hiddenLegendIndexes?.filter((index) => index < currentIndex).length || 0
-    const isSkipped = hiddenLegendIndexes?.includes[currentIndex]
-    return highlightedIndex !== null && !isSkipped && highlightedIndex + numberOfSeriesToSkip === currentIndex
+    const numberOfSeriesToSkip = Object.entries(hiddenLegendKeys).filter(
+        ([key, isHidden]) => isHidden && Number(key) < rowIndex
+    ).length
+    const isSkipped = hiddenLegendKeys[rowIndex]
+    return highlightedSeries !== null && !isSkipped && highlightedSeries + numberOfSeriesToSkip === rowIndex
 }

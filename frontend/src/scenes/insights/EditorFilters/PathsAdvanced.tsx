@@ -42,7 +42,7 @@ export function PathsAdvanced({ insightProps, ...rest }: EditorFilterProps): JSX
                     type="number"
                     min={0}
                     max={1000}
-                    defaultValue={localEdgeParameters.edgeLimit || 50}
+                    defaultValue={50}
                     onChange={(value): void =>
                         setLocalEdgeParameters((state) => ({
                             ...state,
@@ -64,7 +64,6 @@ export function PathsAdvanced({ insightProps, ...rest }: EditorFilterProps): JSX
                         type="number"
                         min={0}
                         max={100000}
-                        defaultValue={localEdgeParameters.minEdgeWeight}
                         onChange={(value): void => {
                             setLocalEdgeParameters((state) => ({
                                 ...state,
@@ -87,7 +86,6 @@ export function PathsAdvanced({ insightProps, ...rest }: EditorFilterProps): JSX
                         }}
                         min={0}
                         max={100000}
-                        defaultValue={localEdgeParameters.maxEdgeWeight}
                         onBlur={updateEdgeParameters}
                         onPressEnter={updateEdgeParameters}
                     />

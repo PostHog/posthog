@@ -28,6 +28,7 @@ import {
 } from 'scenes/insights/views/LineGraph/LineGraph'
 import { createTooltipData } from 'scenes/insights/views/LineGraph/tooltip-data'
 
+import { areObjectValuesEmpty } from '~/lib/utils'
 import { groupsModel } from '~/models/groupsModel'
 import { BreakdownFilter } from '~/queries/schema'
 import { GraphType } from '~/types'
@@ -60,7 +61,7 @@ export interface PieChartProps extends LineGraphProps {
 
 export function PieChart({
     datasets: _datasets,
-    hiddenLegendIndexes,
+    hiddenLegendKeys,
     labels,
     type,
     onClick,
@@ -101,9 +102,9 @@ export function PieChart({
     // Build chart
     useEffect(() => {
         // Hide intentionally hidden keys
-        if (hiddenLegendIndexes && hiddenLegendIndexes.length > 0) {
+        if (!areObjectValuesEmpty(hiddenLegendKeys)) {
             // If series are nested (for ActionsHorizontalBar and Pie), filter out the series by index
-            datasets = filterNestedDataset(hiddenLegendIndexes, datasets)
+            datasets = filterNestedDataset(hiddenLegendKeys, datasets)
         }
 
         const processedDatasets = datasets.map((dataset) => dataset as ChartDataset<'pie'>)
@@ -273,7 +274,7 @@ export function PieChart({
             } as ChartOptions<'pie'>,
         })
         return () => newChart.destroy()
-    }, [datasets, hiddenLegendIndexes])
+    }, [datasets, hiddenLegendKeys])
 
     return (
         <div className="absolute w-full h-full" data-attr={dataAttr}>

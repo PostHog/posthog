@@ -19,6 +19,7 @@ import {
     TaxonomicFilterGroupType,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
+import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { isOperatorMulti, isOperatorRegex } from 'lib/utils'
 import { useMemo } from 'react'
 
@@ -117,23 +118,31 @@ export function TaxonomicPropertyFilter({
         />
     )
 
+    const { ref: wrapperRef, size } = useResizeBreakpoints({
+        0: 'tiny',
+        350: 'small',
+        550: 'medium',
+    })
+
     return (
         <div
             className={clsx('TaxonomicPropertyFilter', {
                 'TaxonomicPropertyFilter--in-dropdown': !showInitialSearchInline && !disablePopover,
             })}
+            ref={wrapperRef}
         >
             {showInitialSearchInline ? (
                 taxonomicFilter
             ) : (
                 <div
                     className={clsx('TaxonomicPropertyFilter__row', {
+                        [`width-${size}`]: true,
                         'TaxonomicPropertyFilter__row--or-filtering': orFiltering,
                         'TaxonomicPropertyFilter__row--showing-operators': showOperatorValueSelect,
                     })}
                 >
                     {hasRowOperator && (
-                        <div className="TaxonomicPropertyFilter__row-operator">
+                        <div className="TaxonomicPropertyFilter__row__operator">
                             {orFiltering ? (
                                 <>
                                     {propertyGroupType && index !== 0 && filter?.key && (
@@ -146,7 +155,7 @@ export function TaxonomicPropertyFilter({
                                 <div className="flex items-center gap-1">
                                     {index === 0 ? (
                                         <>
-                                            <span className="TaxonomicPropertyFilter__row-arrow">&#8627;</span>
+                                            <span className="arrow">&#8627;</span>
                                             <span>where</span>
                                         </>
                                     ) : (
@@ -156,7 +165,7 @@ export function TaxonomicPropertyFilter({
                             )}
                         </div>
                     )}
-                    <div className="TaxonomicPropertyFilter__row-items">
+                    <div className="TaxonomicPropertyFilter__row__items">
                         <LemonDropdown
                             overlay={taxonomicFilter}
                             placement="bottom-start"

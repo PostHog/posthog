@@ -3,6 +3,7 @@ import { expectLogic, partial, truth } from 'kea-test-utils'
 import api from 'lib/api'
 import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constants'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
@@ -16,13 +17,16 @@ import { DataTableNode, NodeKind } from '~/queries/schema'
 import { initKeaTests } from '~/test/init'
 import {
     AnyPropertyFilter,
+    BreakdownType,
     DashboardTile,
     DashboardType,
+    FilterLogicalOperator,
     FilterType,
     FunnelsFilterType,
     InsightModel,
     InsightShortId,
     InsightType,
+    ItemMode,
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
@@ -237,6 +241,66 @@ describe('insightLogic', () => {
         })
     })
 
+    describe('insight legend', () => {
+        it('initialize insight with hidden keys', async () => {
+            logic = insightLogic({
+                dashboardItemId: undefined,
+                cachedInsight: {
+                    filters: { insight: InsightType.FUNNELS, hidden_legend_keys: { 0: true, 10: true } },
+                },
+            })
+            logic.mount()
+            await expectLogic(logic).toMatchValues({
+                filters: partial({ hidden_legend_keys: { 0: true, 10: true } }),
+            })
+        })
+
+        it('toggleVisibility', async () => {
+            logic = insightLogic({
+                dashboardItemId: undefined,
+            })
+            logic.mount()
+
+            expectLogic(logic, () => {
+                logic.actions.toggleVisibility(1)
+            }).toMatchValues({ hiddenLegendKeys: { 1: true } })
+
+            expectLogic(logic, () => {
+                logic.actions.toggleVisibility(1)
+            }).toMatchValues({ hiddenLegendKeys: { 1: undefined } })
+        })
+    })
+
+    describe('analytics', () => {
+        it('reports insight changes on setFilter', async () => {
+            const insight = {
+                filters: { insight: InsightType.TRENDS },
+            }
+            logic = insightLogic({
+                dashboardItemId: undefined,
+                cachedInsight: insight,
+            })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({ insight: InsightType.FUNNELS })
+            }).toDispatchActions([
+                eventUsageLogic.actionCreators.reportInsightViewed(
+                    insight,
+                    { insight: InsightType.FUNNELS },
+                    ItemMode.View,
+                    true,
+                    false,
+                    0,
+                    {
+                        changed_insight: InsightType.TRENDS,
+                    },
+                    false
+                ),
+            ])
+        })
+    })
+
     describe('as dashboard item', () => {
         describe('props with filters and cached results', () => {
             beforeEach(() => {
@@ -269,15 +333,7 @@ describe('insightLogic', () => {
             it('no query to load results', async () => {
                 await expectLogic(logic)
                     .toMatchValues({
-                        legacyInsight: partial({ short_id: Insight42, results: ['cached result'] }),
-                        queryBasedInsight: {
-                            short_id: Insight42,
-                            results: ['cached result'],
-                            query: {
-                                kind: 'InsightVizNode',
-                                source: partial({ kind: 'TrendsQuery', series: [partial({ event: 2 })] }),
-                            },
-                        },
+                        insight: partial({ short_id: Insight42, results: ['cached result'] }),
                         filters: partial({
                             events: [{ id: 2 }],
                             properties: [partial({ type: PropertyFilterType.Person })],
@@ -308,12 +364,7 @@ describe('insightLogic', () => {
             it('no query to load results', async () => {
                 await expectLogic(logic)
                     .toMatchValues({
-                        legacyInsight: partial({
-                            short_id: Insight42,
-                            results: ['cached result'],
-                            query: { kind: NodeKind.TimeToSeeDataSessionsQuery },
-                        }),
-                        queryBasedInsight: partial({
+                        insight: partial({
                             short_id: Insight42,
                             results: ['cached result'],
                             query: { kind: NodeKind.TimeToSeeDataSessionsQuery },
@@ -340,14 +391,7 @@ describe('insightLogic', () => {
                 await expectLogic(logic)
                     .toDispatchActions([])
                     .toMatchValues({
-                        legacyInsight: partial({
-                            short_id: Insight42,
-                            query: { kind: NodeKind.TimeToSeeDataSessionsQuery },
-                        }),
-                        queryBasedInsight: partial({
-                            short_id: Insight42,
-                            query: { kind: NodeKind.TimeToSeeDataSessionsQuery },
-                        }),
+                        insight: partial({ short_id: Insight42, query: { kind: NodeKind.TimeToSeeDataSessionsQuery } }),
                         filters: {},
                     })
                     .delay(1)
@@ -382,7 +426,7 @@ describe('insightLogic', () => {
 
                 await expectLogic(logic)
                     .toMatchValues({
-                        legacyInsight: insight,
+                        insight: insight,
                         filters: partial({
                             events: [partial({ id: 3 })],
                             properties: [partial({ value: 'a' })],
@@ -399,7 +443,7 @@ describe('insightLogic', () => {
             expectLogic(logicUnderTest)
                 .toDispatchActions(['loadInsight'])
                 .toMatchValues({
-                    queryBasedInsight: partial({
+                    insight: partial({
                         short_id: '42',
                     }),
                 })
@@ -462,7 +506,7 @@ describe('insightLogic', () => {
         }
 
         await expectLogic(logic).toMatchValues({
-            legacyInsight: partial(expectedPartialInsight),
+            insight: partial(expectedPartialInsight),
             savedInsight: {},
             insightChanged: false,
         })
@@ -486,7 +530,7 @@ describe('insightLogic', () => {
             },
         }
         await expectLogic(logic).toMatchValues({
-            legacyInsight: partial(expectedPartialInsight),
+            insight: partial(expectedPartialInsight),
             savedInsight: partial(expectedPartialInsight),
             insightChanged: false,
         })
@@ -494,7 +538,7 @@ describe('insightLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.setInsightMetadata({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] })
         }).toMatchValues({
-            legacyInsight: partial({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] }),
+            insight: partial({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] }),
             savedInsight: partial({ name: '', description: '', tags: [] }),
             insightChanged: true,
         })
@@ -504,7 +548,7 @@ describe('insightLogic', () => {
         }).toFinishAllListeners()
 
         await expectLogic(logic).toMatchValues({
-            legacyInsight: partial({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] }),
+            insight: partial({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] }),
             savedInsight: partial({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] }),
             insightChanged: false,
         })
@@ -584,8 +628,7 @@ describe('insightLogic', () => {
             .toMatchValues({
                 savedInsight: partial({ filters: partial({ insight: InsightType.FUNNELS }) }),
                 filters: partial({ insight: InsightType.FUNNELS }),
-                legacyInsight: partial({ id: 12, short_id: Insight12, name: 'New Insight (copy)' }),
-                queryBasedInsight: partial({ id: 12, short_id: Insight12, name: 'New Insight (copy)' }),
+                insight: partial({ id: 12, short_id: Insight12, name: 'New Insight (copy)' }),
                 insightChanged: false,
             })
 
@@ -594,6 +637,39 @@ describe('insightLogic', () => {
             .toMatchValues({
                 location: partial({ pathname: '/insights/12/edit' }),
             })
+    })
+
+    describe('hiddenLegendKeys selector', () => {
+        it('properly migrates pre-#12113 visibility keys', async () => {
+            logic = insightLogic({
+                dashboardItemId: Insight42,
+                cachedInsight: {
+                    short_id: Insight42,
+                    results: undefined,
+                    filters: {
+                        insight: InsightType.FUNNELS,
+                        hidden_legend_keys: {
+                            // Pre-#12113 funnel visibility key style
+                            'events/$pageview/0/Baseline': true,
+                            'events/$pageview/1/Baseline': undefined,
+                            // Post-#12113 funnel visibility key style
+                            'Chrome OS': undefined,
+                            Windows: true,
+                        },
+                    },
+                },
+            })
+            logic.mount()
+
+            expectLogic(logic).toMatchValues({
+                hiddenLegendKeys: {
+                    // 'events/$pageview/0/Baseline' should be transformed to 'Baseline'
+                    Baseline: true,
+                    'Chrome OS': undefined,
+                    Windows: true,
+                },
+            })
+        })
     })
 
     describe('emptyFilters', () => {
@@ -636,6 +712,138 @@ describe('insightLogic', () => {
         })
     })
 
+    describe('isUsingSessionAnalysis selector', () => {
+        it('is false by default', async () => {
+            const insight = {
+                filters: { insight: InsightType.TRENDS },
+            }
+            logic = insightLogic({
+                dashboardItemId: undefined,
+                cachedInsight: insight,
+            })
+            logic.mount()
+            expectLogic(logic).toMatchValues({ isUsingSessionAnalysis: false })
+        })
+
+        it('setting session breakdown sets it true', async () => {
+            const insight = {
+                filters: { insight: InsightType.TRENDS, breakdown_type: 'session' as BreakdownType },
+            }
+            logic = insightLogic({
+                dashboardItemId: undefined,
+                cachedInsight: insight,
+            })
+            logic.mount()
+            expectLogic(logic).toMatchValues({ isUsingSessionAnalysis: true })
+        })
+
+        it('setting global session property filters sets it true', async () => {
+            const insight: Partial<InsightModel> = {
+                filters: {
+                    insight: InsightType.TRENDS,
+                    properties: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [
+                                    {
+                                        key: '$session_duration',
+                                        value: 1,
+                                        operator: PropertyOperator.GreaterThan,
+                                        type: PropertyFilterType.Session,
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                },
+            }
+            logic = insightLogic({
+                dashboardItemId: undefined,
+                cachedInsight: insight,
+            })
+            logic.mount()
+            expectLogic(logic).toMatchValues({ isUsingSessionAnalysis: true })
+        })
+
+        it('setting entity session property filters sets it true', async () => {
+            const insight = {
+                filters: {
+                    events: [
+                        {
+                            id: '$pageview',
+                            name: '$pageview',
+                            type: 'events',
+                            order: 0,
+                            properties: [
+                                {
+                                    key: '$session_duration',
+                                    value: 1,
+                                    operator: PropertyOperator.GreaterThan,
+                                    type: 'session',
+                                },
+                            ],
+                        },
+                    ],
+                },
+            }
+            logic = insightLogic({
+                dashboardItemId: undefined,
+                cachedInsight: insight,
+            })
+            logic.mount()
+            expectLogic(logic).toMatchValues({ isUsingSessionAnalysis: true })
+        })
+
+        it('setting math to unique_session sets it true', async () => {
+            const insight = {
+                filters: {
+                    events: [
+                        {
+                            id: '$pageview',
+                            name: '$pageview',
+                            type: 'events',
+                            order: 0,
+                            properties: [],
+                            math: 'unique_session',
+                        },
+                    ],
+                },
+            }
+            logic = insightLogic({
+                dashboardItemId: undefined,
+                cachedInsight: insight,
+            })
+            logic.mount()
+            expectLogic(logic).toMatchValues({ isUsingSessionAnalysis: true })
+        })
+
+        it('setting math to use session property sets it true', async () => {
+            const insight = {
+                filters: {
+                    events: [
+                        {
+                            id: '$pageview',
+                            name: '$pageview',
+                            type: 'events',
+                            order: 0,
+                            properties: [],
+                            math: 'median',
+                            math_property: '$session_duration',
+                        },
+                    ],
+                },
+            }
+            logic = insightLogic({
+                dashboardItemId: undefined,
+                cachedInsight: insight,
+            })
+            logic.mount()
+            expectLogic(logic).toMatchValues({ isUsingSessionAnalysis: true })
+        })
+    })
+
     describe('reacts to external changes', () => {
         beforeEach(async () => {
             logic = insightLogic({
@@ -659,10 +867,7 @@ describe('insightLogic', () => {
             })
                 .toFinishAllListeners()
                 .toMatchValues({
-                    legacyInsight: truth(({ name }) => {
-                        return name === 'new name'
-                    }),
-                    queryBasedInsight: truth(({ name }) => {
+                    insight: truth(({ name }) => {
                         return name === 'new name'
                     }),
                 })
@@ -682,10 +887,7 @@ describe('insightLogic', () => {
             })
                 .toFinishAllListeners()
                 .toMatchValues({
-                    legacyInsight: truth(({ name }) => {
-                        return name === 'original name'
-                    }),
-                    queryBasedInsight: truth(({ name }) => {
+                    insight: truth(({ name }) => {
                         return name === 'original name'
                     }),
                 })
@@ -700,8 +902,7 @@ describe('insightLogic', () => {
             })
                 .toFinishAllListeners()
                 .toMatchValues({
-                    legacyInsight: expect.objectContaining({ dashboards: [1, 2] }),
-                    queryBasedInsight: expect.objectContaining({ dashboards: [1, 2] }),
+                    insight: expect.objectContaining({ dashboards: [1, 2] }),
                 })
         })
 
@@ -714,8 +915,7 @@ describe('insightLogic', () => {
             })
                 .toFinishAllListeners()
                 .toMatchValues({
-                    legacyInsight: expect.objectContaining({ dashboards: [1, 2, 3] }),
-                    queryBasedInsight: expect.objectContaining({ dashboards: [1, 2, 3] }),
+                    insight: expect.objectContaining({ dashboards: [1, 2, 3] }),
                 })
         })
 
@@ -725,8 +925,7 @@ describe('insightLogic', () => {
             })
                 .toFinishAllListeners()
                 .toMatchValues({
-                    legacyInsight: expect.objectContaining({ dashboards: [1, 2] }),
-                    queryBasedInsight: expect.objectContaining({ dashboards: [1, 2] }),
+                    insight: expect.objectContaining({ dashboards: [1, 2] }),
                 })
         })
 
@@ -736,8 +935,7 @@ describe('insightLogic', () => {
             })
                 .toFinishAllListeners()
                 .toMatchValues({
-                    legacyInsight: expect.objectContaining({ dashboards: [1, 2, 3] }),
-                    queryBasedInsight: expect.objectContaining({ dashboards: [1, 2, 3] }),
+                    insight: expect.objectContaining({ dashboards: [1, 2, 3] }),
                 })
         })
 
@@ -747,8 +945,7 @@ describe('insightLogic', () => {
             })
                 .toFinishAllListeners()
                 .toMatchValues({
-                    legacyInsight: expect.objectContaining({ dashboards: [1, 2, 3, 1234] }),
-                    queryBasedInsight: expect.objectContaining({ dashboards: [1, 2, 3, 1234] }),
+                    insight: expect.objectContaining({ dashboards: [1, 2, 3, 1234] }),
                 })
         })
 
@@ -758,8 +955,7 @@ describe('insightLogic', () => {
             })
                 .toFinishAllListeners()
                 .toMatchValues({
-                    legacyInsight: expect.objectContaining({ dashboards: [1, 2, 3] }),
-                    queryBasedInsight: expect.objectContaining({ dashboards: [1, 2, 3] }),
+                    insight: expect.objectContaining({ dashboards: [1, 2, 3] }),
                 })
         })
     })

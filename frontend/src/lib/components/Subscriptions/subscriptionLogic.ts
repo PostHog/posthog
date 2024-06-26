@@ -7,6 +7,7 @@ import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { isEmail, isURL } from 'lib/utils'
 import { getInsightId } from 'scenes/insights/utils'
+import { integrationsLogic } from 'scenes/settings/project/integrationsLogic'
 
 import { SubscriptionType } from '~/types'
 
@@ -32,6 +33,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
     key(({ id, insightShortId, dashboardId }) => `${insightShortId || dashboardId}-${id ?? 'new'}`),
     connect(({ insightShortId, dashboardId }: SubscriptionsLogicProps) => ({
         actions: [subscriptionsLogic({ insightShortId, dashboardId }), ['loadSubscriptions']],
+        values: [integrationsLogic, ['isMemberOfSlackChannel']],
     })),
 
     loaders(({ props }) => ({
@@ -46,7 +48,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         },
     })),
 
-    forms(({ props, actions }) => ({
+    forms(({ props, actions, values }) => ({
         subscription: {
             defaults: {} as unknown as SubscriptionType,
             errors: ({ frequency, interval, target_value, target_type, title, start_date }) => ({
@@ -74,6 +76,12 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                         ? 'Must be a valid URL'
                         : undefined
                     : undefined,
+                memberOfSlackChannel:
+                    target_type == 'slack'
+                        ? target_value && !values.isMemberOfSlackChannel(target_value)
+                            ? 'Please add the PostHog Slack App to the selected channel'
+                            : undefined
+                        : undefined,
             }),
             submit: async (subscription, breakpoint) => {
                 const insightId = props.insightShortId ? await getInsightId(props.insightShortId) : undefined

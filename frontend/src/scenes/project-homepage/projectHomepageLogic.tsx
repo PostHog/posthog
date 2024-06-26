@@ -33,7 +33,9 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>([
             [] as InsightModel[],
             {
                 loadRecentInsights: async () => {
-                    return await api.get(`api/projects/${values.currentTeamId}/insights/my_last_viewed`)
+                    return await api.get(
+                        `api/projects/${values.currentTeamId}/insights/my_last_viewed?include_query_insights=true`
+                    )
                 },
             },
         ],

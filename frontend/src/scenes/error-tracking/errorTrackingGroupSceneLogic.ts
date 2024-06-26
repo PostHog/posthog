@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, path, props, reducers, selectors } from 'kea'
+import { afterMount, connect, kea, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { Scene } from 'scenes/sceneTypes'
@@ -16,11 +16,6 @@ export interface ErrorTrackingGroupSceneLogicProps {
 
 export type ExceptionEventType = Pick<EventType, 'id' | 'properties' | 'timestamp' | 'person'>
 
-export enum ErrorGroupTab {
-    Overview = 'overview',
-    Breakdowns = 'breakdowns',
-}
-
 export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType>([
     path((key) => ['scenes', 'error-tracking', 'errorTrackingGroupSceneLogic', key]),
     props({} as ErrorTrackingGroupSceneLogicProps),
@@ -28,19 +23,6 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
     connect({
         values: [errorTrackingLogic, ['dateRange', 'filterTestAccounts', 'filterGroup']],
     }),
-
-    actions({
-        setErrorGroupTab: (tab: ErrorGroupTab) => ({ tab }),
-    }),
-
-    reducers(() => ({
-        errorGroupTab: [
-            ErrorGroupTab.Overview as ErrorGroupTab,
-            {
-                setErrorGroupTab: (_, { tab }) => tab,
-            },
-        ],
-    })),
 
     loaders(({ props, values }) => ({
         events: [

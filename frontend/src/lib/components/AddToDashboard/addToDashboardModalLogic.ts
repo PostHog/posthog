@@ -5,38 +5,58 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { DashboardBasicType, DashboardType, InsightLogicProps } from '~/types'
+import { DashboardBasicType, DashboardType, InsightModel, InsightType } from '~/types'
 
 import type { addToDashboardModalLogicType } from './addToDashboardModalLogicType'
 
+export interface AddToDashboardModalLogicProps {
+    insight: Partial<InsightModel>
+}
+
 // Helping kea-typegen navigate the exported default class for Fuse
+
 export interface Fuse extends FuseClass<any> {}
 
 export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>([
-    props({} as InsightLogicProps),
-    key(keyForInsightLogicProps('new')),
-    path((key) => ['lib', 'components', 'AddToDashboard', 'saveToDashboardModalLogic', key]),
-    connect((props: InsightLogicProps) => ({
-        values: [insightLogic(props), ['queryBasedInsight', 'legacyInsight']],
-        actions: [
-            insightLogic(props),
-            ['updateInsight', 'updateInsightSuccess', 'updateInsightFailure'],
-            eventUsageLogic,
-            ['reportSavedInsightToDashboard', 'reportRemovedInsightFromDashboard', 'reportCreatedDashboardFromModal'],
-            newDashboardLogic,
-            ['showNewDashboardModal'],
-        ],
-    })),
+    props({} as AddToDashboardModalLogicProps),
+    key(({ insight }) => {
+        if (!insight.short_id) {
+            throw Error('must provide an insight with a short id')
+        }
+        return insight.short_id
+    }),
+    path(['lib', 'components', 'AddToDashboard', 'saveToDashboardModalLogic']),
+    connect((props: AddToDashboardModalLogicProps) => {
+        const builtInsightLogic = insightLogic({
+            dashboardItemId: props.insight.short_id,
+            cachedInsight: props.insight,
+        })
+        return {
+            values: [builtInsightLogic, ['insight']],
+            actions: [
+                builtInsightLogic,
+                ['updateInsight', 'updateInsightSuccess', 'updateInsightFailure'],
+                eventUsageLogic,
+                [
+                    'reportSavedInsightToDashboard',
+                    'reportRemovedInsightFromDashboard',
+                    'reportCreatedDashboardFromModal',
+                ],
+                newDashboardLogic,
+                ['showNewDashboardModal'],
+            ],
+        }
+    }),
     actions({
         addNewDashboard: true,
         setSearchQuery: (query: string) => ({ query }),
+        setInsight: (insight: InsightType) => ({ insight }),
         setScrollIndex: (index: number) => ({ index }),
-        addToDashboard: (dashboardId: number) => ({ dashboardId }),
-        removeFromDashboard: (dashboardId: number) => ({ dashboardId }),
+        addToDashboard: (insight: Partial<InsightModel>, dashboardId: number) => ({ insight, dashboardId }),
+        removeFromDashboard: (insight: Partial<InsightModel>, dashboardId: number) => ({ insight, dashboardId }),
     }),
     reducers({
         searchQuery: ['', { setSearchQuery: (_, { query }) => query }],
@@ -69,7 +89,7 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>([
                     : nameSortedDashboards,
         ],
         currentDashboards: [
-            (s) => [s.filteredDashboards, s.queryBasedInsight],
+            (s) => [s.filteredDashboards, s.insight],
             (filteredDashboards, insight): DashboardBasicType[] =>
                 filteredDashboards.filter((d) => insight.dashboard_tiles?.map((dt) => dt.dashboard_id)?.includes(d.id)),
         ],
@@ -86,42 +106,37 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>([
             ],
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         addNewDashboard: async () => {
             actions.showNewDashboardModal()
         },
 
         [dashboardsModel.actionTypes.addDashboardSuccess]: async ({ dashboard }) => {
             actions.reportCreatedDashboardFromModal()
-            actions.addToDashboard(dashboard.id)
+            actions.addToDashboard(props.insight, dashboard.id)
             actions.setScrollIndex(values.orderedDashboards.findIndex((d) => d.id === dashboard.id))
         },
 
-        addToDashboard: async ({ dashboardId }) => {
+        addToDashboard: async ({ insight, dashboardId }) => {
             // TODO be able to update not by patching `dashboards` against insight
             // either patch dashboard_tiles on the insight or add a dashboard_tiles API
-            actions.updateInsight(
-                { ...values.legacyInsight, dashboards: [...(values.legacyInsight.dashboards || []), dashboardId] },
-                () => {
-                    actions.reportSavedInsightToDashboard()
-                    dashboardsModel.actions.tileAddedToDashboard(dashboardId)
-                    lemonToast.success('Insight added to dashboard', {
-                        button: {
-                            label: 'View dashboard',
-                            action: () => router.actions.push(urls.dashboard(dashboardId)),
-                        },
-                    })
-                }
-            )
+            actions.updateInsight({ ...insight, dashboards: [...(insight.dashboards || []), dashboardId] }, () => {
+                actions.reportSavedInsightToDashboard()
+                dashboardsModel.actions.tileAddedToDashboard(dashboardId)
+                lemonToast.success('Insight added to dashboard', {
+                    button: {
+                        label: 'View dashboard',
+                        action: () => router.actions.push(urls.dashboard(dashboardId)),
+                    },
+                })
+            })
         },
-        removeFromDashboard: async ({ dashboardId }): Promise<void> => {
+        removeFromDashboard: async ({ insight, dashboardId }): Promise<void> => {
             actions.updateInsight(
                 {
-                    ...values.legacyInsight,
-                    dashboards: (values.legacyInsight.dashboards || []).filter((d) => d !== dashboardId),
-                    dashboard_tiles: (values.legacyInsight.dashboard_tiles || []).filter(
-                        (dt) => dt.dashboard_id !== dashboardId
-                    ),
+                    ...insight,
+                    dashboards: (insight.dashboards || []).filter((d) => d !== dashboardId),
+                    dashboard_tiles: (insight.dashboard_tiles || []).filter((dt) => dt.dashboard_id !== dashboardId),
                 },
                 () => {
                     actions.reportRemovedInsightFromDashboard()

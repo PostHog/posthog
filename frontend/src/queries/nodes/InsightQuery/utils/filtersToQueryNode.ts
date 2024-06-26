@@ -178,13 +178,7 @@ export const actionsAndEventsToSeries = (
     return series
 }
 
-/**
- * Converts `hidden_legend_keys` in trends and stickiness insights to an array of hidden indexes.
- * Example: `{1: true, 2: false}` will become `[1]`.
- *
- * Note: `hidden_legend_keys` in funnel insights follow a different format.
- */
-export const hiddenLegendKeysToIndexes = (
+export const cleanHiddenLegendIndexes = (
     hidden_legend_keys: Record<string, boolean | undefined> | undefined
 ): number[] | undefined => {
     return hidden_legend_keys
@@ -194,16 +188,7 @@ export const hiddenLegendKeysToIndexes = (
         : undefined
 }
 
-/**
- * Converts `hidden_legend_keys` in funnel insights to an array of hidden breakdowns.
- * Example: `{Chrome: true, Firefox: false}` will become: `["Chrome"]`.
- *
- * Also handles pre-#12123 legacy format.
- * Example: {`events/$pageview/0/Baseline`: true} will become `['Baseline']`.
- *
- * Note: `hidden_legend_keys` in trends and stickiness insights follow a different format.
- */
-export const hiddenLegendKeysToBreakdowns = (
+export const cleanHiddenLegendSeries = (
     hidden_legend_keys: Record<string, boolean | undefined> | undefined
 ): string[] | undefined => {
     return hidden_legend_keys
@@ -212,7 +197,6 @@ export const hiddenLegendKeysToBreakdowns = (
               .map(([k]) => k)
         : undefined
 }
-
 export const sanitizeRetentionEntity = (entity: RetentionEntity | undefined): RetentionEntity | undefined => {
     if (!entity) {
         return undefined
@@ -367,7 +351,7 @@ export const trendsFilterToQuery = (filters: Partial<TrendsFilterType>): TrendsF
     return objectCleanWithEmpty({
         smoothingIntervals: filters.smoothing_intervals,
         showLegend: filters.show_legend,
-        hiddenLegendIndexes: hiddenLegendKeysToIndexes(filters.hidden_legend_keys),
+        hidden_legend_indexes: cleanHiddenLegendIndexes(filters.hidden_legend_keys),
         aggregationAxisFormat: filters.aggregation_axis_format,
         aggregationAxisPrefix: filters.aggregation_axis_prefix,
         aggregationAxisPostfix: filters.aggregation_axis_postfix,
@@ -397,7 +381,7 @@ export const funnelsFilterToQuery = (filters: Partial<FunnelsFilterType>): Funne
                 ? filters.exclusions.map((entity) => exlusionEntityToNode(entity))
                 : undefined,
         layout: filters.layout,
-        hiddenLegendBreakdowns: hiddenLegendKeysToBreakdowns(filters.hidden_legend_keys),
+        hidden_legend_breakdowns: cleanHiddenLegendSeries(filters.hidden_legend_keys),
         funnelAggregateByHogQL: filters.funnel_aggregate_by_hogql,
     })
 }
@@ -448,7 +432,7 @@ export const stickinessFilterToQuery = (filters: Record<string, any>): Stickines
     return objectCleanWithEmpty({
         display: filters.display,
         showLegend: filters.show_legend,
-        hiddenLegendIndexes: hiddenLegendKeysToIndexes(filters.hidden_legend_keys),
+        hidden_legend_indexes: cleanHiddenLegendIndexes(filters.hidden_legend_keys),
         showValuesOnSeries: filters.show_values_on_series,
     })
 }

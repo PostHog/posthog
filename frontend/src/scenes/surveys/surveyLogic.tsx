@@ -680,9 +680,9 @@ export const surveyLogic = kea<surveyLogicType>([
 
                     if (type === SurveyQuestionBranchingType.NextQuestion) {
                         delete question.branching
-                    } else if (type === SurveyQuestionBranchingType.End) {
+                    } else if (type === SurveyQuestionBranchingType.ConfirmationMessage) {
                         question.branching = {
-                            type: SurveyQuestionBranchingType.End,
+                            type: SurveyQuestionBranchingType.ConfirmationMessage,
                         }
                     } else if (type === SurveyQuestionBranchingType.ResponseBased) {
                         if (
@@ -736,8 +736,9 @@ export const surveyLogic = kea<surveyLogicType>([
                     if ('responseValues' in question.branching) {
                         if (nextStep === SurveyQuestionBranchingType.NextQuestion) {
                             delete question.branching.responseValues[responseValue]
-                        } else if (nextStep === SurveyQuestionBranchingType.End) {
-                            question.branching.responseValues[responseValue] = SurveyQuestionBranchingType.End
+                        } else if (nextStep === SurveyQuestionBranchingType.ConfirmationMessage) {
+                            question.branching.responseValues[responseValue] =
+                                SurveyQuestionBranchingType.ConfirmationMessage
                         } else if (nextStep === SurveyQuestionBranchingType.SpecificQuestion) {
                             question.branching.responseValues[responseValue] = specificQuestionIndex
                         }
@@ -1021,7 +1022,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     return SurveyQuestionBranchingType.NextQuestion
                 }
 
-                return SurveyQuestionBranchingType.End
+                return SurveyQuestionBranchingType.ConfirmationMessage
             },
         ],
         getResponseBasedBranchingDropdownValue: [
@@ -1047,7 +1048,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     return SurveyQuestionBranchingType.NextQuestion
                 }
 
-                return SurveyQuestionBranchingType.End
+                return SurveyQuestionBranchingType.ConfirmationMessage
             },
         ],
         hasCycle: [
@@ -1059,7 +1060,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         graph.set(fromIndex, new Set())
                     }
 
-                    if (question.branching?.type === SurveyQuestionBranchingType.End) {
+                    if (question.branching?.type === SurveyQuestionBranchingType.ConfirmationMessage) {
                         return
                     } else if (
                         question.branching?.type === SurveyQuestionBranchingType.SpecificQuestion &&

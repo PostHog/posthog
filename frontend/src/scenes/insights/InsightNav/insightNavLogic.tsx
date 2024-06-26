@@ -3,7 +3,6 @@ import { urlToAction } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { identifierToHuman } from 'lib/utils'
 import { insightDataLogic, queryFromKind } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -11,6 +10,7 @@ import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterT
 
 import { examples, TotalEventsTable } from '~/queries/examples'
 import { insightMap } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { getDisplay, getShowPercentStackView, getShowValuesOnSeries } from '~/queries/nodes/InsightViz/utils'
 import {
     ActionsNode,
     DataWarehouseNode,
@@ -34,9 +34,6 @@ import {
 import {
     containsHogQLQuery,
     filterKeyForQuery,
-    getDisplay,
-    getShowPercentStackView,
-    getShowValuesOnSeries,
     isHogQuery,
     isInsightQueryWithBreakdown,
     isInsightQueryWithSeries,
@@ -168,8 +165,8 @@ export const insightNavLogic = kea<insightNavLogicType>([
             },
         ],
         tabs: [
-            (s) => [s.activeView, s.query, s.featureFlags],
-            (activeView, query, featureFlags) => {
+            (s) => [s.activeView, s.featureFlags],
+            (activeView, featureFlags) => {
                 const tabs: Tab[] = [
                     {
                         label: 'Trends',
@@ -227,14 +224,10 @@ export const insightNavLogic = kea<insightNavLogicType>([
                     // only display this tab when it is selected by the provided insight query
                     // don't display it otherwise... humans shouldn't be able to click to select this tab
                     // it only opens when you click the <OpenEditorButton/>
-                    const humanFriendlyQueryKind: string | null =
-                        typeof query?.kind === 'string'
-                            ? identifierToHuman(query.kind.replace(/(Node|Query)$/g, ''), 'title')
-                            : null
                     tabs.push({
                         label: (
                             <>
-                                {humanFriendlyQueryKind ?? 'Custom'}{' '}
+                                Custom{' '}
                                 <LemonTag type="warning" className="uppercase ml-2">
                                     Beta
                                 </LemonTag>

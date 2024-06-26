@@ -204,7 +204,6 @@ export interface HogQLQueryModifiers {
     s3TableUseInvalidColumns?: boolean
     personsJoinMode?: 'inner' | 'left'
     bounceRatePageViewMode?: 'count_pageviews' | 'uniq_urls'
-    sessionTableVersion?: 'auto' | 'v1' | 'v2'
 }
 
 export interface DataWarehouseEventsModifier {
@@ -273,7 +272,6 @@ export interface HogQLNotice {
 export interface HogQLMetadataResponse {
     inputExpr?: string
     inputSelect?: string
-    inputProgram?: string
     isValid?: boolean
     isValidView?: boolean
     errors: HogQLNotice[]
@@ -347,8 +345,6 @@ export interface HogQLAutocompleteResponse {
 
 export interface HogQLMetadata extends DataNode<HogQLMetadataResponse> {
     kind: NodeKind.HogQLMetadata
-    /** Full Hog program */
-    program?: string
     /** Full select query to validate (use `select` or `expr`, but not both) */
     select?: string
     /** HogQL expression to validate (use `select` or `expr`, but not both) */
@@ -673,8 +669,12 @@ export interface InsightsQueryBase<R extends AnalyticsQueryResponseBase<any>> ex
     modifiers?: HogQLQueryModifiers
 }
 
-/** `TrendsFilterType` minus everything inherited from `FilterType` and `shown_as` */
-export type TrendsFilterLegacy = Omit<TrendsFilterType, keyof FilterType | 'shown_as'>
+/** `TrendsFilterType` minus everything inherited from `FilterType` and
+ * `hidden_legend_keys` replaced by `hidden_legend_indexes` */
+export type TrendsFilterLegacy = Omit<
+    TrendsFilterType & { hidden_legend_indexes?: number[] },
+    keyof FilterType | 'hidden_legend_keys' | 'shown_as'
+>
 
 export type TrendsFilter = {
     /** @default 1 */
@@ -695,10 +695,10 @@ export type TrendsFilter = {
     showLabelsOnSeries?: TrendsFilterLegacy['show_labels_on_series']
     /** @default false */
     showPercentStackView?: TrendsFilterLegacy['show_percent_stack_view']
-    hiddenLegendIndexes?: integer[]
+    hidden_legend_indexes?: TrendsFilterLegacy['hidden_legend_indexes']
 }
 
-export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
+export const TRENDS_FILTER_PROPERTIES = new Set([
     'smoothingIntervals',
     'formula',
     'display',
@@ -711,7 +711,7 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'showValuesOnSeries',
     'showLabelsOnSeries',
     'showPercentStackView',
-    'hiddenLegendIndexes',
+    'hidden_legend_indexes',
 ])
 
 export interface TrendsQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}
@@ -736,10 +736,12 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     compareFilter?: CompareFilter
 }
 
-/** `FunnelsFilterType` minus everything inherited from `FilterType` and persons modal related params */
+/** `FunnelsFilterType` minus everything inherited from `FilterType` and persons modal related params
+ * and `hidden_legend_keys` replaced by `hidden_legend_breakdowns` */
 export type FunnelsFilterLegacy = Omit<
-    FunnelsFilterType,
+    FunnelsFilterType & { hidden_legend_breakdowns?: string[] },
     | keyof FilterType
+    | 'hidden_legend_keys'
     | 'funnel_step_breakdown'
     | 'funnel_correlation_person_entity'
     | 'funnel_correlation_person_converted'
@@ -778,7 +780,7 @@ export type FunnelsFilter = {
     funnelWindowInterval?: integer
     /** @default day */
     funnelWindowIntervalUnit?: FunnelsFilterLegacy['funnel_window_interval_unit']
-    hiddenLegendBreakdowns?: string[]
+    hidden_legend_breakdowns?: FunnelsFilterLegacy['hidden_legend_breakdowns']
     /** @default total */
     funnelStepReference?: FunnelsFilterLegacy['funnel_step_reference']
 }
@@ -895,21 +897,28 @@ export interface PathsQuery extends InsightsQueryBase<PathsQueryResponse> {
     funnelPathsFilter?: FunnelPathsFilter
 }
 
-/** `StickinessFilterType` minus everything inherited from `FilterType` and persons modal related params  */
-export type StickinessFilterLegacy = Omit<StickinessFilterType, keyof FilterType | 'stickiness_days' | 'shown_as'>
+/** `StickinessFilterType` minus everything inherited from `FilterType` and persons modal related params
+ * and `hidden_legend_keys` replaced by `hidden_legend_indexes` */
+export type StickinessFilterLegacy = Omit<
+    StickinessFilterType & { hidden_legend_indexes?: number[] },
+    keyof FilterType | 'hidden_legend_keys' | 'stickiness_days' | 'shown_as'
+>
 
 export type StickinessFilter = {
+    /** @default false */
+    compare?: StickinessFilterLegacy['compare']
     display?: StickinessFilterLegacy['display']
     showLegend?: StickinessFilterLegacy['show_legend']
     showValuesOnSeries?: StickinessFilterLegacy['show_values_on_series']
-    hiddenLegendIndexes?: integer[]
+    hidden_legend_indexes?: StickinessFilterLegacy['hidden_legend_indexes']
 }
 
-export const STICKINESS_FILTER_PROPERTIES = new Set<keyof StickinessFilter>([
+export const STICKINESS_FILTER_PROPERTIES = new Set([
+    'compare',
     'display',
     'showLegend',
     'showValuesOnSeries',
-    'hiddenLegendIndexes',
+    'hidden_legend_indexes',
 ])
 
 export interface StickinessQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}

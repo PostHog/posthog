@@ -48,7 +48,8 @@ export function InsightsTable({
     isMainInsightView = false,
 }: InsightsTableProps): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
-    const { insightProps, isInDashboardContext, queryBasedInsight } = useValues(insightLogic)
+    const { insightProps, isInDashboardContext, insight, hiddenLegendKeys } = useValues(insightLogic)
+    const { toggleVisibility } = useActions(insightLogic)
     const {
         insightDataLoading,
         indexedResults,
@@ -60,9 +61,7 @@ export function InsightsTable({
         breakdownFilter,
         trendsFilter,
         isSingleSeries,
-        hiddenLegendIndexes,
     } = useValues(trendsDataLogic(insightProps))
-    const { toggleHiddenLegendIndex, updateHiddenLegendIndexes } = useActions(trendsDataLogic(insightProps))
     const { aggregation, allowAggregation } = useValues(insightsTableDataLogic(insightProps))
     const { setAggregationType } = useActions(insightsTableDataLogic(insightProps))
 
@@ -91,8 +90,8 @@ export function InsightsTable({
                     <SeriesCheckColumnTitle
                         indexedResults={indexedResults}
                         canCheckUncheckSeries={canCheckUncheckSeries}
-                        hiddenLegendIndexes={hiddenLegendIndexes}
-                        updateHiddenLegendIndexes={updateHiddenLegendIndexes}
+                        hiddenLegendKeys={hiddenLegendKeys}
+                        toggleVisibility={toggleVisibility}
                     />
                 )}
                 <span>Series</span>
@@ -113,8 +112,8 @@ export function InsightsTable({
                 <SeriesCheckColumnItem
                     item={item}
                     canCheckUncheckSeries={canCheckUncheckSeries}
-                    hiddenLegendIndexes={hiddenLegendIndexes}
-                    toggleHiddenLegendIndex={toggleHiddenLegendIndex}
+                    hiddenLegendKeys={hiddenLegendKeys}
+                    toggleVisibility={toggleVisibility}
                     label={<div className="ml-2 font-normal">{label}</div>}
                 />
             ) : (
@@ -140,7 +139,7 @@ export function InsightsTable({
                     item={item}
                     canCheckUncheckSeries={canCheckUncheckSeries}
                     isMainInsightView={isMainInsightView}
-                    toggleHiddenLegendIndex={toggleHiddenLegendIndex}
+                    toggleVisibility={toggleVisibility}
                     formatItemBreakdownLabel={formatItemBreakdownLabel}
                 />
             ),
@@ -217,11 +216,9 @@ export function InsightsTable({
 
     return (
         <LemonTable
-            id={isInDashboardContext ? queryBasedInsight.short_id : undefined}
+            id={isInDashboardContext ? insight.short_id : undefined}
             dataSource={
-                isLegend || isMainInsightView
-                    ? indexedResults
-                    : indexedResults.filter((r) => !hiddenLegendIndexes?.includes(r.id))
+                isLegend || isMainInsightView ? indexedResults : indexedResults.filter((r) => !hiddenLegendKeys?.[r.id])
             }
             embedded={embedded}
             columns={columns}
