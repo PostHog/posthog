@@ -62,8 +62,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         self.limit_context = limit_context
 
     def build_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
-        breakdown = self._breakdown()
-
+        breakdown = self.breakdown
         events_query: ast.SelectQuery | ast.SelectUnionQuery
 
         if self._trends_display.is_total_value():
@@ -744,7 +743,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
         return query
 
-    def _breakdown(self):
+    @cached_property
+    def breakdown(self):
         return Breakdown(
             team=self.team,
             query=self.query,

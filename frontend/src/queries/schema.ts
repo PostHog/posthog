@@ -1346,6 +1346,14 @@ export interface FunnelCorrelationQuery extends Node<FunnelCorrelationResponse> 
 export type DatetimeDay = string
 
 export type BreakdownValueInt = integer
+export interface BreakdownItem {
+    label: string
+    value: string | BreakdownValueInt
+}
+export interface MultipleBreakdownOptions {
+    values: BreakdownItem[]
+}
+
 export interface InsightActorsQueryOptionsResponse {
     // eslint-disable-next-line @typescript-eslint/no-duplicate-type-constituents
     day?: { label: string; value: string | DatetimeDay | Day }[]
@@ -1358,10 +1366,8 @@ export interface InsightActorsQueryOptionsResponse {
          */
         value: integer
     }[]
-    breakdown?: {
-        label: string
-        value: string | BreakdownValueInt
-    }[]
+    breakdown?: BreakdownItem[]
+    breakdowns?: MultipleBreakdownOptions[]
     series?: {
         label: string
         value: integer

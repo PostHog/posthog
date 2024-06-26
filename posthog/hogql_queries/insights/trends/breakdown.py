@@ -1,3 +1,4 @@
+import json
 from typing import Union, cast
 
 from posthog.hogql import ast
@@ -233,6 +234,7 @@ class Breakdown:
                             lookup_value=str(
                                 lookup_value
                             ),  # numeric values are only in cohorts, so it's a safe convertion here
+                            histogram_bin_count=breakdown.histogram_bin_count,
                             group_type_index=breakdown.group_type_index,
                         )
                     )
@@ -249,6 +251,7 @@ class Breakdown:
                         lookup_value=str(
                             lookup_values
                         ),  # numeric values are only in cohorts, so it's a safe convertion here
+                        histogram_bin_count=self._breakdown_filter.breakdown_histogram_bin_count,
                         group_type_index=self._breakdown_filter.breakdown_group_type_index,
                     ),
                 )
@@ -259,6 +262,7 @@ class Breakdown:
         breakdown_value: str,
         breakdown_type: BreakdownType | MultipleBreakdownType | None,
         lookup_value: str,
+        histogram_bin_count: int | None = None,
         group_type_index: int | None = None,
     ):
         if breakdown_type == "hogql":
@@ -279,6 +283,18 @@ class Breakdown:
                     ast.CompareOperation(left=left, op=ast.CompareOperationOp.Eq, right=ast.Constant(value="")),
                 ]
             )
+
+        if isinstance(histogram_bin_count, int):
+            try:
+                gte, lt = json.loads(lookup_value)
+                return ast.And(
+                    exprs=[
+                        ast.CompareOperation(left=left, op=ast.CompareOperationOp.GtEq, right=ast.Constant(value=gte)),
+                        ast.CompareOperation(left=left, op=ast.CompareOperationOp.Lt, right=ast.Constant(value=lt)),
+                    ]
+                )
+            except json.JSONDecodeError:
+                raise ValueError("Breakdown value must be a JSON array if bin count is selected.")
 
         return ast.CompareOperation(left=left, op=ast.CompareOperationOp.Eq, right=ast.Constant(value=lookup_value))
 

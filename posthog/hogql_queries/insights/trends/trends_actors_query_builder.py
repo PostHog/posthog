@@ -387,7 +387,7 @@ class TrendsActorsQueryBuilder:
             limit_context=self.limit_context,
         )
 
-        if breakdown.enabled and not breakdown.is_histogram_breakdown and self.breakdown_value is not None:
+        if self.breakdown_value is not None and breakdown.enabled:
             breakdown_filter = breakdown.get_actors_query_where_filter(lookup_values=self.breakdown_value)
             if breakdown_filter is not None:
                 conditions.append(breakdown_filter)

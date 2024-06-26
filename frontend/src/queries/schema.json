@@ -513,6 +513,26 @@
             },
             "type": "object"
         },
+        "BreakdownItem": {
+            "additionalProperties": false,
+            "properties": {
+                "label": {
+                    "type": "string"
+                },
+                "value": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "$ref": "#/definitions/BreakdownValueInt"
+                        }
+                    ]
+                }
+            },
+            "required": ["label", "value"],
+            "type": "object"
+        },
         "BreakdownKeyType": {
             "anyOf": [
                 {
@@ -977,24 +997,13 @@
             "properties": {
                 "breakdown": {
                     "items": {
-                        "additionalProperties": false,
-                        "properties": {
-                            "label": {
-                                "type": "string"
-                            },
-                            "value": {
-                                "anyOf": [
-                                    {
-                                        "type": "string"
-                                    },
-                                    {
-                                        "$ref": "#/definitions/BreakdownValueInt"
-                                    }
-                                ]
-                            }
-                        },
-                        "required": ["label", "value"],
-                        "type": "object"
+                        "$ref": "#/definitions/BreakdownItem"
+                    },
+                    "type": "array"
+                },
+                "breakdowns": {
+                    "items": {
+                        "$ref": "#/definitions/MultipleBreakdownOptions"
                     },
                     "type": "array"
                 },
@@ -4649,24 +4658,13 @@
             "properties": {
                 "breakdown": {
                     "items": {
-                        "additionalProperties": false,
-                        "properties": {
-                            "label": {
-                                "type": "string"
-                            },
-                            "value": {
-                                "anyOf": [
-                                    {
-                                        "type": "string"
-                                    },
-                                    {
-                                        "$ref": "#/definitions/BreakdownValueInt"
-                                    }
-                                ]
-                            }
-                        },
-                        "required": ["label", "value"],
-                        "type": "object"
+                        "$ref": "#/definitions/BreakdownItem"
+                    },
+                    "type": "array"
+                },
+                "breakdowns": {
+                    "items": {
+                        "$ref": "#/definitions/MultipleBreakdownOptions"
                     },
                     "type": "array"
                 },
@@ -5328,6 +5326,19 @@
                 }
             ]
         },
+        "MultipleBreakdownOptions": {
+            "additionalProperties": false,
+            "properties": {
+                "values": {
+                    "items": {
+                        "$ref": "#/definitions/BreakdownItem"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["values"],
+            "type": "object"
+        },
         "MultipleBreakdownType": {
             "enum": ["person", "event", "group", "session", "hogql"],
             "type": "string"
@@ -5949,24 +5960,13 @@
                     "properties": {
                         "breakdown": {
                             "items": {
-                                "additionalProperties": false,
-                                "properties": {
-                                    "label": {
-                                        "type": "string"
-                                    },
-                                    "value": {
-                                        "anyOf": [
-                                            {
-                                                "type": "string"
-                                            },
-                                            {
-                                                "$ref": "#/definitions/BreakdownValueInt"
-                                            }
-                                        ]
-                                    }
-                                },
-                                "required": ["label", "value"],
-                                "type": "object"
+                                "$ref": "#/definitions/BreakdownItem"
+                            },
+                            "type": "array"
+                        },
+                        "breakdowns": {
+                            "items": {
+                                "$ref": "#/definitions/MultipleBreakdownOptions"
                             },
                             "type": "array"
                         },

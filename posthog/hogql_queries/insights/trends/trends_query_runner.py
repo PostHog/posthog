@@ -1,11 +1,10 @@
 from natsort import natsorted, ns
-from typing import Union
 from copy import deepcopy
 from datetime import timedelta
 from math import ceil
 from operator import itemgetter
 import threading
-from typing import Optional, Any
+from typing import Optional, Any, Union
 from django.conf import settings
 
 from django.utils.timezone import datetime
@@ -59,6 +58,8 @@ from posthog.schema import (
     HogQLQueryResponse,
     InCohortVia,
     InsightActorsQueryOptionsResponse,
+    MultipleBreakdownOptions,
+    MultipleBreakdownType,
     QueryTiming,
     Series,
     TrendsQuery,
@@ -187,6 +188,8 @@ class TrendsQueryRunner(QueryRunner):
 
     def to_actors_query_options(self) -> InsightActorsQueryOptionsResponse:
         res_breakdown: list[BreakdownItem] | None = None
+        res_breakdowns: list[MultipleBreakdownOptions] | None = None
+
         res_series: list[Series] = []
         res_compare: list[CompareItem] | None = None
 
@@ -218,12 +221,12 @@ class TrendsQueryRunner(QueryRunner):
         # Breakdowns
         if self.query.breakdownFilter is not None and (
             self.query.breakdownFilter.breakdown is not None
-            or self.query.breakdownFilter.breakdowns is not None
-            and len(self.query.breakdownFilter.breakdowns) > 0
+            or (self.query.breakdownFilter.breakdowns is not None and len(self.query.breakdownFilter.breakdowns) > 0)
         ):
-            res_breakdown = []
             if self.query.breakdownFilter.breakdown_type == "cohort":
                 assert isinstance(self.query.breakdownFilter.breakdown, list)
+
+                res_breakdown = []
                 for value in self.query.breakdownFilter.breakdown:
                     if value != "all" and str(value) != "0":
                         res_breakdown.append(
@@ -247,8 +250,7 @@ class TrendsQueryRunner(QueryRunner):
                 )
 
                 query = query_builder.build_query()
-
-                breakdown = query_builder._breakdown()
+                breakdown = query_builder.breakdown
 
                 results = execute_hogql_query(
                     query_type="TrendsActorsQueryOptions",
@@ -257,31 +259,47 @@ class TrendsQueryRunner(QueryRunner):
                     # timings=timings,
                     # modifiers=modifiers,
                 )
+
                 breakdown_values = [
                     row[results.columns.index("breakdown_value") if results.columns else 2] for row in results.results
                 ]
 
-                if breakdown.is_histogram_breakdown:
-                    breakdown_values.append('["",""]')
-                is_boolean_breakdown = self._is_breakdown_field_boolean()
+                if breakdown.is_multiple_breakdown:
+                    assert self.query.breakdownFilter.breakdowns is not None  # type checking
 
-                for value in breakdown_values:
-                    if value == BREAKDOWN_OTHER_STRING_LABEL:
-                        label = BREAKDOWN_OTHER_DISPLAY
-                    elif value == BREAKDOWN_NULL_STRING_LABEL:
-                        label = BREAKDOWN_NULL_DISPLAY
-                    elif is_boolean_breakdown:
-                        label = self._convert_boolean(value)
-                    else:
-                        label = str(value)
+                    res_breakdowns = []
 
-                    item = BreakdownItem(label=label, value=value)
-
-                    if item not in res_breakdown:
-                        res_breakdown.append(item)
+                    for breakdown_filter, zipped_values in zip(
+                        self.query.breakdownFilter.breakdowns, zip(*breakdown_values)
+                    ):
+                        values: list[str] = list(zipped_values)
+                        res_breakdowns.append(
+                            MultipleBreakdownOptions(
+                                values=self._get_breakdown_items(
+                                    values,
+                                    breakdown_filter.property,
+                                    breakdown_filter.type,
+                                    isinstance(breakdown_filter.histogram_bin_count, int),
+                                    breakdown_filter.group_type_index,
+                                )
+                            )
+                        )
+                elif self.query.breakdownFilter.breakdown is not None:
+                    res_breakdown = self._get_breakdown_items(
+                        breakdown_values,
+                        self.query.breakdownFilter.breakdown,
+                        self.query.breakdownFilter.breakdown_type,
+                        isinstance(self.query.breakdownFilter.breakdown_histogram_bin_count, int),
+                        self.query.breakdownFilter.breakdown_group_type_index,
+                        is_boolean_field=self._is_breakdown_filter_field_boolean(),
+                    )
 
         return InsightActorsQueryOptionsResponse(
-            series=res_series, breakdown=res_breakdown, day=res_days, compare=res_compare
+            series=res_series,
+            breakdown=res_breakdown,
+            breakdowns=res_breakdowns,
+            day=res_days,
+            compare=res_compare,
         )
 
     def calculate(self):
@@ -522,7 +540,7 @@ class TrendsQueryRunner(QueryRunner):
 
                 remapped_label = None
 
-                if self._is_breakdown_field_boolean():
+                if self._is_breakdown_filter_field_boolean():
                     remapped_label = self._convert_boolean(get_value("breakdown_value", val))
 
                     if remapped_label == "" or remapped_label is None:
@@ -833,14 +851,11 @@ class TrendsQueryRunner(QueryRunner):
 
         return base_result
 
-    def _is_breakdown_field_boolean(self):
-        if not self.query.breakdownFilter or not self.query.breakdownFilter.breakdown_type:
-            return False
-
+    def _is_breakdown_filter_field_boolean(self):
         if (
-            self.query.breakdownFilter.breakdown_type == "hogql"
-            or self.query.breakdownFilter.breakdown_type == "cohort"
-            or self.query.breakdownFilter.breakdown_type == "session"
+            not self.query.breakdownFilter
+            or not self.query.breakdownFilter.breakdown_type
+            or not self.query.breakdownFilter.breakdown
         ):
             return False
 
@@ -864,19 +879,34 @@ class TrendsQueryRunner(QueryRunner):
             if field_type == "Bool":
                 return True
 
-        else:
-            if self.query.breakdownFilter.breakdown_type == "person":
-                property_type = PropertyDefinition.Type.PERSON
-            elif self.query.breakdownFilter.breakdown_type == "group":
-                property_type = PropertyDefinition.Type.GROUP
-            else:
-                property_type = PropertyDefinition.Type.EVENT
+        return self._is_breakdown_field_boolean(
+            self.query.breakdownFilter.breakdown,
+            self.query.breakdownFilter.breakdown_type,
+            self.query.breakdownFilter.breakdown_group_type_index,
+        )
 
-            field_type = self._event_property(
-                self.query.breakdownFilter.breakdown,
-                property_type,
-                self.query.breakdownFilter.breakdown_group_type_index,
-            )
+    def _is_breakdown_field_boolean(
+        self,
+        breakdown_value: str | int | list[str | int],
+        breakdown_type: BreakdownType | MultipleBreakdownType | None,
+        breakdown_group_type_index: int | None = None,
+    ):
+        if breakdown_type == "hogql" or breakdown_type == "cohort" or breakdown_type == "session":
+            return False
+
+        if breakdown_type == "person":
+            property_type = PropertyDefinition.Type.PERSON
+        elif breakdown_type == "group":
+            property_type = PropertyDefinition.Type.GROUP
+        else:
+            property_type = PropertyDefinition.Type.EVENT
+
+        field_type = self._event_property(
+            str(breakdown_value),
+            property_type,
+            breakdown_group_type_index,
+        )
+
         return field_type == "Boolean"
 
     def _convert_boolean(self, value: Any):
@@ -964,3 +994,39 @@ class TrendsQueryRunner(QueryRunner):
             self.query.breakdownFilter.breakdown is not None
             or (self.query.breakdownFilter.breakdowns is not None and len(self.query.breakdownFilter.breakdowns) > 0)
         )
+
+    def _get_breakdown_items(
+        self,
+        breakdown_values: list[str],
+        breakdown_value: str | int | list[int | str],
+        breakdown_type: MultipleBreakdownType | BreakdownType | None,
+        histogram_breakdown: bool | None = None,
+        group_type_index: int | None = None,
+        # Overwrite for data warehouse queries
+        is_boolean_field: bool | None = None,
+    ):
+        if histogram_breakdown:
+            breakdown_values.append('["",""]')
+
+        res_breakdown: list[BreakdownItem] = []
+        for value in breakdown_values:
+            if value == BREAKDOWN_OTHER_STRING_LABEL:
+                label = BREAKDOWN_OTHER_DISPLAY
+            elif value == BREAKDOWN_NULL_STRING_LABEL:
+                label = BREAKDOWN_NULL_DISPLAY
+            elif (
+                self._is_breakdown_field_boolean(
+                    breakdown_value, breakdown_type, breakdown_group_type_index=group_type_index
+                )
+                or is_boolean_field
+            ):
+                label = self._convert_boolean(value)
+            else:
+                label = str(value)
+
+            item = BreakdownItem(label=label, value=value)
+
+            if item not in res_breakdown:
+                res_breakdown.append(item)
+
+        return res_breakdown
