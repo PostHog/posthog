@@ -211,7 +211,7 @@ export const defaultSurveyTemplates = [
                 buttonText: 'Schedule',
             },
         ],
-        description: <>Send users straight to your calendar.</>,
+        description: 'Send users straight to your calendar.',
     },
     {
         type: SurveyType.Popover,
