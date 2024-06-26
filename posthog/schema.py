@@ -553,7 +553,7 @@ class PersonsOnEventsMode(StrEnum):
     PERSON_ID_OVERRIDE_PROPERTIES_JOINED = "person_id_override_properties_joined"
 
 
-class SessionTableVersion(str, Enum):
+class SessionTableVersion(StrEnum):
     AUTO = "auto"
     V1 = "v1"
     V2 = "v2"
