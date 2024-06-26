@@ -51,7 +51,7 @@ export function PipelineHogFunctionConfiguration({
     } = useValues(logic)
     const {
         submitConfiguration,
-        clearChanges,
+        resetForm,
         setShowSource,
         duplicate,
         resetToTemplate,
@@ -96,7 +96,7 @@ export function PipelineHogFunctionConfiguration({
             <LemonButton
                 type="secondary"
                 htmlType="reset"
-                onClick={() => clearChanges()}
+                onClick={() => resetForm()}
                 disabledReason={
                     !configurationChanged ? 'No changes' : isConfigurationSubmitting ? 'Saving in progress…' : undefined
                 }
