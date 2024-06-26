@@ -51,7 +51,6 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 from posthog.temporal.common.utils import (
     BatchExportHeartbeatDetails,
-    set_status_to_running_task,
     should_resume_from_activity_heartbeat,
 )
 
