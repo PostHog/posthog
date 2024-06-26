@@ -168,7 +168,7 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
             },
         ],
     })),
-    forms(({ values, props, actions, asyncActions }) => ({
+    forms(({ values, props, asyncActions }) => ({
         configuration: {
             defaults: {} as HogFunctionConfigurationType,
             alwaysShowErrors: true,

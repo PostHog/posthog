@@ -16,7 +16,7 @@ class HogFunctionAdminForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         instance: HogFunction = kwargs["instance"]
         self.fields["state"].choices = [(ex.value, ex.name) for ex in HogFunctionState]  # type: ignore
-        self.fields["state"].initial = instance.get_function_status()["state"]
+        self.fields["state"].initial = instance.status["state"]
 
 
 class HogFunctionAdmin(admin.ModelAdmin):
@@ -68,5 +68,5 @@ class HogFunctionAdmin(admin.ModelAdmin):
         super().save_model(request, obj, form, change)
         # Make an API request if 'state' is set
         if "state" in form.changed_data:
-            state = form.cleaned_data["state"]
+            state = int(form.cleaned_data["state"])
             obj.set_function_status(state)
