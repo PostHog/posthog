@@ -91,13 +91,17 @@ class SearchViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         query = params["q"]
 
         # empty queryset to union things onto it
-        qs = Dashboard.objects.annotate(type=Value("empty", output_field=CharField())).filter(team=self.team).none()
+        qs = (
+            Dashboard.objects.annotate(type=Value("empty", output_field=CharField()))
+            .filter(team__project_id=self.project_id)
+            .none()
+        )
 
         # add entities
         for entity_meta in [ENTITY_MAP[entity] for entity in entities]:
             klass_qs, entity_name = class_queryset(
                 klass=entity_meta.get("klass"),
-                team=self.team,
+                team__project_id=self.project_id,
                 query=query,
                 search_fields=entity_meta.get("search_fields"),
                 extra_fields=entity_meta.get("extra_fields"),

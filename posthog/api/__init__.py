@@ -114,35 +114,35 @@ projects_router.register(
     ["team_id"],
 )
 
-projects_router.register(r"annotations", annotation.AnnotationsViewSet, "project_annotations", ["team_id"])
+projects_router.register(r"annotations", annotation.AnnotationsViewSet, "project_annotations", ["project_id"])
 projects_router.register(
     r"activity_log",
     activity_log.ActivityLogViewSet,
     "project_activity_log",
-    ["team_id"],
+    ["project_id"],
 )
 project_feature_flags_router = projects_router.register(
     r"feature_flags",
     feature_flag.FeatureFlagViewSet,
     "project_feature_flags",
-    ["team_id"],
+    ["project_id"],
 )
 project_features_router = projects_router.register(
     r"early_access_feature",
     early_access_feature.EarlyAccessFeatureViewSet,
     "project_early_access_feature",
-    ["team_id"],
+    ["project_id"],
 )
-projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["team_id"])
+projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["project_id"])
 
 projects_router.register(
     r"dashboard_templates",
     dashboard_templates.DashboardTemplateViewSet,
     "project_dashboard_templates",
-    ["team_id"],
+    ["project_id"],
 )
 project_dashboards_router = projects_router.register(
-    r"dashboards", dashboard.DashboardsViewSet, "project_dashboards", ["team_id"]
+    r"dashboards", dashboard.DashboardsViewSet, "project_dashboards", ["project_id"]
 )
 
 projects_router.register(r"exports", exports.ExportedAssetViewSet, "environment_exports", ["team_id"])
@@ -158,14 +158,14 @@ projects_router.register(
     r"data_management",
     DataManagementViewSet,
     "project_data_management",
-    ["team_id"],
+    ["project_id"],
 )
 
 projects_router.register(
     r"scheduled_changes",
     scheduled_change.ScheduledChangeViewSet,
     "project_scheduled_changes",
-    ["team_id"],
+    ["project_id"],
 )
 
 app_metrics_router = projects_router.register(
@@ -198,7 +198,7 @@ projects_router.register(
     "environment_warehouse_view_links",
     ["team_id"],
 )
-projects_router.register(  # TODO: Do we need this considering /warehouse_view_links is defined above
+projects_router.register(
     r"warehouse_view_link", view_link.ViewLinkViewSet, "environment_warehouse_view_link", ["team_id"]
 )
 
@@ -206,18 +206,18 @@ projects_router.register(
     r"event_definitions",
     event_definition.EventDefinitionViewSet,
     "project_event_definitions",
-    ["team_id"],
+    ["project_id"],
 )
 projects_router.register(
     r"property_definitions",
     property_definition.PropertyDefinitionViewSet,
     "project_property_definitions",
-    ["team_id"],
+    ["project_id"],
 )
 
-projects_router.register(r"uploaded_media", uploaded_media.MediaViewSet, "project_media", ["team_id"])
+projects_router.register(r"uploaded_media", uploaded_media.MediaViewSet, "project_media", ["project_id"])
 
-projects_router.register(r"tags", tagged_item.TaggedItemViewSet, "project_tags", ["team_id"])
+projects_router.register(r"tags", tagged_item.TaggedItemViewSet, "project_tags", ["project_id"])
 projects_router.register(r"query", query.QueryViewSet, "environment_query", ["team_id"])
 
 # External data resources
@@ -330,8 +330,8 @@ router.register(r"event", LegacyEventViewSet, basename="event")
 
 # Nested endpoints CH
 projects_router.register(r"events", EventViewSet, "environment_events", ["team_id"])
-projects_router.register(r"actions", ActionViewSet, "project_actions", ["team_id"])
-projects_router.register(r"cohorts", CohortViewSet, "project_cohorts", ["team_id"])
+projects_router.register(r"actions", ActionViewSet, "project_actions", ["project_id"])
+projects_router.register(r"cohorts", CohortViewSet, "project_cohorts", ["project_id"])
 projects_router.register(r"persons", PersonViewSet, "environment_persons", ["team_id"])
 projects_router.register(r"elements", ElementViewSet, "environment_elements", ["team_id"])  # TODO: Can be removed?
 project_session_recordings_router = projects_router.register(
@@ -355,16 +355,16 @@ if EE_AVAILABLE:
         LegacyEnterprisePersonViewSet,
     )
 
-    projects_router.register(r"experiments", ClickhouseExperimentsViewSet, "project_experiments", ["team_id"])
+    projects_router.register(r"experiments", ClickhouseExperimentsViewSet, "project_experiments", ["project_id"])
     projects_router.register(r"groups", ClickhouseGroupsView, "environment_groups", ["team_id"])
-    projects_router.register(r"groups_types", ClickhouseGroupsTypesView, "project_groups_types", ["team_id"])
+    projects_router.register(r"groups_types", ClickhouseGroupsTypesView, "project_groups_types", ["project_id"])
     project_insights_router = projects_router.register(
-        r"insights", ClickhouseInsightsViewSet, "project_insights", ["team_id"]
+        r"insights", ClickhouseInsightsViewSet, "project_insights", ["project_id"]
     )
     projects_router.register(r"persons", EnterprisePersonViewSet, "environment_persons", ["team_id"])
     router.register(r"person", LegacyEnterprisePersonViewSet, basename="person")
 else:
-    project_insights_router = projects_router.register(r"insights", InsightViewSet, "project_insights", ["team_id"])
+    project_insights_router = projects_router.register(r"insights", InsightViewSet, "project_insights", ["project_id"])
     projects_router.register(r"persons", PersonViewSet, "environment_persons", ["team_id"])
     router.register(r"person", LegacyPersonViewSet, basename="person")
 
@@ -394,7 +394,7 @@ projects_router.register(
     r"notebooks",
     notebook.NotebookViewSet,
     "project_notebooks",
-    ["team_id"],
+    ["project_id"],
 )
 
 projects_router.register(
@@ -408,7 +408,7 @@ projects_router.register(
     r"comments",
     comments.CommentViewSet,
     "project_comments",
-    ["team_id"],
+    ["project_id"],
 )
 
 projects_router.register(
@@ -422,7 +422,7 @@ projects_router.register(
     r"hog_function_templates",
     hog_function_template.HogFunctionTemplateViewSet,
     "project_hog_function_templates",
-    ["team_id"],
+    ["project_id"],
 )
 
 projects_router.register(
@@ -432,4 +432,4 @@ projects_router.register(
     ["team_id"],
 )
 
-projects_router.register(r"search", search.SearchViewSet, "project_search", ["team_id"])
+projects_router.register(r"search", search.SearchViewSet, "project_search", ["project_id"])
