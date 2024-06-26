@@ -169,6 +169,10 @@ async function expectStoryToMatchSnapshot(
     await check(page, context, browser, 'light', storyContext.parameters?.testOptions?.snapshotTargetSelector)
 
     // snapshot dark theme
+    await page.reload()
+    await waitForPageReady(page)
+    await page.waitForLoadState('networkidle')
+    await page.waitForTimeout(2000)
     await page.evaluate(() => {
         document.body.setAttribute('theme', 'dark')
     })
