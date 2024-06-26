@@ -1,4 +1,4 @@
-import { test as setup, expect } from '@playwright/test'
+import { test as setup } from '@playwright/test'
 import { urls } from 'scenes/urls'
 
 const authFile = 'playwright/.auth/user.json'
@@ -10,8 +10,8 @@ setup('authenticate', async ({ page }) => {
     await page.getByPlaceholder('••••••••••').fill('12345678')
     await page.getByRole('button', { name: 'Log in' }).click()
 
-    // wait for cookies
-    await page.waitForURL('https://github.com/')
+    // wait for login to succeed / cookies
+    await page.waitForURL(urls.projectHomepage())
 
     // store auth state
     await page.context().storageState({ path: authFile })
