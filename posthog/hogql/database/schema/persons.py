@@ -2,7 +2,7 @@ from typing import cast, Optional
 from typing_extensions import Self
 import posthoganalytics
 
-from posthog.hogql.ast import SelectQuery, And, CompareOperation, CompareOperationOp, Field, JoinExpr
+from posthog.hogql.ast import SelectQuery, And, CompareOperation, CompareOperationOp, Field, JoinExpr, Alias
 from posthog.hogql.base import Expr
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
@@ -190,8 +190,9 @@ class PersonsTable(LazyTable):
         return (
             isinstance(expr, CompareOperation)
             and expr.op == CompareOperationOp.In
-            and isinstance(expr.left, Field)
-            and expr.left.chain == [alias or "persons", "id"]
+            and isinstance(expr.left, Alias)
+            and isinstance(expr.left.expr, Field)
+            and expr.left.expr.chain == [alias or "persons", "id"]
         )
 
     @staticmethod
@@ -201,7 +202,7 @@ class PersonsTable(LazyTable):
         for expr in exprs:
             if PersonsTable._is_promotable_expr(expr, alias):
                 # Erase "persons" from the chain before bringing inside
-                expr.left = Field(chain=["id"])
+                # expr.left = Field(chain=["id"])
                 promotable.append(expr)
             else:
                 not_promotable.append(expr)

@@ -113,9 +113,7 @@ services:
         links:
             - objectstorage:objectstorage
 
-    # Optional capture
     capture:
-        profiles: ['capture-rs']
         extends:
             file: docker-compose.base.yml
             service: capture

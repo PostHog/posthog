@@ -4,6 +4,7 @@ from typing import Optional, cast, Literal
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import LazyTableToAdd, LazyJoinToAdd
+from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.resolver_utils import get_long_table_name
@@ -311,10 +312,15 @@ class LazyTableResolver(TraversingVisitor):
 
         # For all the collected tables, create the subqueries, and add them to the table.
         for table_name, table_to_add in tables_to_add.items():
+            if isinstance(table_to_add.lazy_table, PersonsTable):
+                # make this better
+                table_to_add.lazy_table = table_to_add.lazy_table.create_new_table_with_filter(
+                    node.select_from.next_join
+                )
             subquery = table_to_add.lazy_table.lazy_select(table_to_add, self.context, node=node)
             subquery = cast(ast.SelectQuery, clone_expr(subquery, clear_locations=True))
             subquery = cast(ast.SelectQuery, resolve_types(subquery, self.context, self.dialect, [node.type]))
-            subquery = self.property_swapper.visit(subquery)
+            # subquery = self.property_swapper.visit(subquery)
             old_table_type = select_type.tables[table_name]
             select_type.tables[table_name] = ast.SelectQueryAliasType(alias=table_name, select_query_type=subquery.type)
 
@@ -415,4 +421,3 @@ class LazyTableResolver(TraversingVisitor):
             if lazy_finder.found_lazy:
                 self.lazy_finder_counter = self.lazy_finder_counter + 1
                 self.visit_select_query(node)
-        self.property_swapper.visit(node)

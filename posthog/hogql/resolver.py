@@ -320,9 +320,9 @@ class Resolver(CloningVisitor):
                 return node
 
             if isinstance(database_table, LazyTable):
-                if isinstance(database_table, PersonsTable):
-                    # Check for inlineable exprs in the join on the persons table
-                    database_table = database_table.create_new_table_with_filter(node)
+                #if isinstance(database_table, PersonsTable):
+                #    # Check for inlineable exprs in the join on the persons table
+                #    database_table = database_table.create_new_table_with_filter(node)
                 node_table_type = ast.LazyTableType(table=database_table)
 
             else:
@@ -588,6 +588,7 @@ class Resolver(CloningVisitor):
 
         if not type:
             if self.dialect == "clickhouse":
+                a = 1
                 raise QueryError(f"Unable to resolve field: {name}")
             else:
                 type = ast.UnresolvedFieldType(name=name)
