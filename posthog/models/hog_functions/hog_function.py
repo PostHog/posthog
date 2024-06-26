@@ -1,3 +1,4 @@
+import enum
 from typing import Optional
 
 from django.db import models
@@ -8,7 +9,14 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 from posthog.models.action.action import Action
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDModel
-from posthog.plugins.plugin_server_api import reload_hog_functions_on_workers
+from posthog.plugins.plugin_server_api import get_hog_function_status, reload_hog_functions_on_workers
+
+
+class HogFunctionStatus(enum.Enum):
+    HEALTHY = 1
+    OVERFLOWED = 2
+    DISABLED_TEMPORARILY = 3
+    DISABLED_PERMANENTLY = 4
 
 
 class HogFunction(UUIDModel):
@@ -28,6 +36,7 @@ class HogFunction(UUIDModel):
     inputs: models.JSONField = models.JSONField(null=True)
     filters: models.JSONField = models.JSONField(null=True, blank=True)
     template_id: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    status: Optional[dict] = None
 
     @property
     def template(self) -> Optional[HogFunctionTemplate]:
@@ -43,6 +52,14 @@ class HogFunction(UUIDModel):
             return [int(action["id"]) for action in self.filters.get("actions", [])]
         except KeyError:
             return []
+
+    def get_status(self, force: bool = False):
+        if not self.status or force:
+            res = get_hog_function_status(self.team_id, self.id)
+            if res.status_code == 200:
+                self.status = res.json()
+
+        return self.status
 
     def save(self, *args, **kwargs):
         from posthog.cdp.filters import compile_filters_bytecode
