@@ -19,11 +19,7 @@ from posthog.cdp.services.icons import CDPIconsService
 from posthog.cdp.validation import compile_hog, validate_inputs, validate_inputs_schema
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.permissions import PostHogFeatureFlagPermission
-from posthog.plugins.plugin_server_api import (
-    create_hog_invocation_test,
-    get_hog_function_status,
-    patch_hog_function_status,
-)
+from posthog.plugins.plugin_server_api import create_hog_invocation_test, patch_hog_function_status
 
 
 logger = structlog.get_logger(__name__)
@@ -206,7 +202,7 @@ class HogFunctionViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, ForbidDestroyMod
             return Response(res.json())
 
         else:
-            res = get_hog_function_status(hog_function.team_id, hog_function.id)
-            if res.status_code != 200:
-                return Response({"message": "Error getting status"}, status=res.status_code)
-            return Response(res.json())
+            status = hog_function.get_status()
+            if not status:
+                return Response({"message": "Error getting status"}, status=500)
+            return Response(status)
