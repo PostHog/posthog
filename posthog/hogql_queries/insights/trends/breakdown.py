@@ -33,6 +33,8 @@ BREAKDOWN_NULL_STRING_LABEL = "$$_posthog_breakdown_null_$$"
 BREAKDOWN_OTHER_DISPLAY = "Other (i.e. all remaining values)"
 BREAKDOWN_NULL_DISPLAY = "None (i.e. no value)"
 
+BREAKDOWN_NUMERIC_ALL_VALUES_PLACEHOLDER = '["", ""]'
+
 
 def hogql_to_string(expr: ast.Expr) -> ast.Call:
     return ast.Call(name="toString", args=[expr])
@@ -266,6 +268,8 @@ class Breakdown:
         histogram_bin_count: int | None = None,
         group_type_index: int | None = None,
     ):
+        is_numeric_breakdown = isinstance(histogram_bin_count, int)
+
         if breakdown_type == "hogql":
             left = parse_expr(breakdown_value)
         else:
@@ -278,16 +282,32 @@ class Breakdown:
             )
 
         if lookup_value == BREAKDOWN_NULL_STRING_LABEL:
+            none_expr = ast.CompareOperation(left=left, op=ast.CompareOperationOp.Eq, right=ast.Constant(value=None))
+
+            if is_numeric_breakdown:
+                return none_expr
+
             return ast.Or(
                 exprs=[
-                    ast.CompareOperation(left=left, op=ast.CompareOperationOp.Eq, right=ast.Constant(value=None)),
+                    none_expr,
                     ast.CompareOperation(left=left, op=ast.CompareOperationOp.Eq, right=ast.Constant(value="")),
                 ]
             )
 
-        if isinstance(histogram_bin_count, int):
+        if is_numeric_breakdown:
+            if lookup_value == BREAKDOWN_NUMERIC_ALL_VALUES_PLACEHOLDER:
+                return None
+
             try:
                 gte, lt = json.loads(lookup_value)
+
+                if not (
+                    (isinstance(gte, int) or isinstance(gte, float)) and (isinstance(lt, int) or isinstance(lt, float))
+                ):
+                    raise ValueError(
+                        "Breakdown value must contain valid float or int values if the the bin count is selected."
+                    )
+
                 return ast.And(
                     exprs=[
                         ast.CompareOperation(left=left, op=ast.CompareOperationOp.GtEq, right=ast.Constant(value=gte)),
@@ -295,7 +315,7 @@ class Breakdown:
                     ]
                 )
             except json.JSONDecodeError:
-                raise ValueError("Breakdown value must be a JSON array if bin count is selected.")
+                raise ValueError("Breakdown value must be a valid JSON array if the the bin count is selected.")
 
         return ast.CompareOperation(left=left, op=ast.CompareOperationOp.Eq, right=ast.Constant(value=lookup_value))
 

@@ -25,6 +25,7 @@ from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.breakdown import (
     BREAKDOWN_NULL_DISPLAY,
     BREAKDOWN_NULL_STRING_LABEL,
+    BREAKDOWN_NUMERIC_ALL_VALUES_PLACEHOLDER,
     BREAKDOWN_OTHER_DISPLAY,
     BREAKDOWN_OTHER_STRING_LABEL,
 )
@@ -1012,7 +1013,7 @@ class TrendsQueryRunner(QueryRunner):
         is_boolean_field: bool | None = None,
     ):
         if histogram_breakdown:
-            breakdown_values.append('["",""]')
+            breakdown_values.append(BREAKDOWN_NUMERIC_ALL_VALUES_PLACEHOLDER)
 
         res_breakdown: list[BreakdownItem] = []
         for value in breakdown_values:
