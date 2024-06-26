@@ -115,7 +115,7 @@ class QueryStatusManager:
                     query_progress["active_cpu_time"] += single_query_progress["active_cpu_time"]
                 query_status.query_progress = ClickhouseQueryProgress(**query_progress)
             except Exception as e:
-                logger.error("Clickhouse Status Check Failed", error=e)
+                logger.exception("Clickhouse Status Check Failed", error=e)
                 pass
 
         return query_status
@@ -179,12 +179,12 @@ def execute_process_query(
     except (ExposedHogQLError, ExposedCHQueryError) as err:  # We can expose the error to the user
         query_status.results = None  # Clear results in case they are faulty
         query_status.error_message = str(err)
-        logger.error("Error processing query for team %s query %s: %s", team_id, query_id, err)
-        raise err
+        logger.exception("Error processing query for team %s query %s: %s", team_id, query_id, err)
+        raise
     except Exception as err:  # We cannot reveal anything about the error
         query_status.results = None  # Clear results in case they are faulty
-        logger.error("Error processing query for team %s query %s: %s", team_id, query_id, err)
-        raise err
+        logger.exception("Error processing query for team %s query %s: %s", team_id, query_id, err)
+        raise
     finally:
         manager.store_query_status(query_status)
 

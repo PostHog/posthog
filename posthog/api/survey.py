@@ -521,7 +521,7 @@ def create_flag_with_survey_errors():
                 detail=original_detail.replace("feature flags", "surveys"),
                 code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
             )
-        raise e
+        raise
 
 
 def nh3_clean_with_allow_list(to_clean: str):

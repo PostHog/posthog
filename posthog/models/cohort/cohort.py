@@ -297,7 +297,7 @@ class Cohort(models.Model):
             self.save()
         except Exception as err:
             if settings.DEBUG:
-                raise err
+                raise
             self.is_calculating = False
             self.errors_calculating = F("errors_calculating") + 1
             self.save()
@@ -339,7 +339,7 @@ class Cohort(models.Model):
             self.save()
         except Exception as err:
             if settings.DEBUG:
-                raise err
+                raise
             self.is_calculating = False
             self.errors_calculating = F("errors_calculating") + 1
             self.save()
