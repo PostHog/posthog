@@ -16,7 +16,7 @@ export enum DashboardsTab {
     Templates = 'templates',
 }
 
-const DEFAULT_SORTING = { columnKey: 'name', order: 1 }
+const DEFAULT_SORTING: Sorting = { columnKey: 'name', order: 1 }
 
 export interface DashboardsFilters {
     search: string
@@ -48,7 +48,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
     }),
     reducers({
         tableSorting: [
-            DEFAULT_SORTING as Sorting,
+            DEFAULT_SORTING,
             { persist: true },
             {
                 tableSortingChanged: (_, { sorting }) => sorting || DEFAULT_SORTING,
