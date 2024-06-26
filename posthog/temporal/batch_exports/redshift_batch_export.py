@@ -35,7 +35,7 @@ from posthog.temporal.batch_exports.postgres_batch_export import (
     create_table_in_postgres,
     postgres_connection,
 )
-from posthog.temporal.batch_exports.utils import apeek_first_and_rewind, try_set_batch_export_run_to_running
+from posthog.temporal.batch_exports.utils import apeek_first_and_rewind, set_batch_export_run_to_running
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import bind_temporal_worker_logger
@@ -307,15 +307,17 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
 
     async with (
         Heartbeater(),
+        set_batch_export_run_to_running(inputs=inputs.run_id, logger=logger),
         get_client(team_id=inputs.team_id) as client,
-        set_status_to_running_task(run_id=inputs.run_id, logger=logger),
     ):
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
 
-        if inputs.batch_export_schema is None:
-            fields = redshift_default_fields()
-            query_parameters = None
+        model: BatchExportModel | BatchExportSchema | None = None
+        if inputs.batch_export_schema is None and "batch_export_model" in {
+            field.name for field in dataclasses.fields(inputs)
+        }:
+            model = inputs.batch_export_model
 
             model: BatchExportModel | BatchExportSchema | None = None
             if inputs.batch_export_schema is None and "batch_export_model" in {
@@ -337,9 +339,6 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
                 destination_default_fields=redshift_default_fields(),
                 is_backfill=inputs.is_backfill,
             )
-            first_record_batch, record_iterator = await apeek_first_and_rewind(record_iterator)
-            if first_record_batch is None:
-                return 0
 
         async with redshift_connection(inputs) as connection:
             await create_table_in_postgres(
@@ -364,37 +363,20 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
 
             return record
 
+        async def record_generator() -> collections.abc.AsyncGenerator[dict[str, typing.Any], None]:
+            async for record_batch in record_iterator:
+                for record in record_batch.to_pylist():
+                    yield map_to_record(record)
+
         async with postgres_connection(inputs) as connection:
             records_completed = await insert_records_to_redshift(
-                (map_to_record(record) for record_batch in record_iterator for record in record_batch.to_pylist()),
+                record_generator(),
                 connection,
                 inputs.schema,
                 inputs.table_name,
             )
 
-                for column in known_super_columns:
-                    if record.get(column, None) is not None:
-                        # TODO: We should be able to save a json.loads here.
-                        record[column] = json.dumps(
-                            remove_escaped_whitespace_recursive(json.loads(record[column])), ensure_ascii=False
-                        )
-
-                return record
-
-            async def record_generator() -> collections.abc.AsyncGenerator[dict[str, typing.Any], None]:
-                async for record_batch in record_iterator:
-                    for record in record_batch.to_pylist():
-                        yield map_to_record(record)
-
-            async with postgres_connection(inputs) as connection:
-                records_completed = await insert_records_to_redshift(
-                    record_generator(),
-                    connection,
-                    inputs.schema,
-                    inputs.table_name,
-                )
-
-            return records_completed
+        return records_completed
 
 
 @workflow.defn(name="redshift-export")

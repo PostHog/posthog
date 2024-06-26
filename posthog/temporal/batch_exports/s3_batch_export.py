@@ -442,8 +442,8 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
 
     async with (
         Heartbeater() as heartbeater,
-        get_client(team_id=inputs.team_id) as client,
         set_status_to_running_task(run_id=inputs.run_id, logger=logger),
+        get_client(team_id=inputs.team_id) as client,
     ):
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
@@ -490,10 +490,10 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
 
                     await writer.write_record_batch(record_batch)
 
-                records_completed = writer.records_total
-                await s3_upload.complete()
+            records_completed = writer.records_total
+            await s3_upload.complete()
 
-            return records_completed
+        return records_completed
 
 
 def get_batch_export_writer(

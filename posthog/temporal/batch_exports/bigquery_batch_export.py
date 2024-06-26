@@ -51,7 +51,6 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 from posthog.temporal.common.utils import (
     BatchExportHeartbeatDetails,
-    set_status_to_running_task,
     should_resume_from_activity_heartbeat,
 )
 
@@ -324,9 +323,12 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
 
     async with (
         Heartbeater() as heartbeater,
-        get_client(team_id=inputs.team_id) as client,
         set_status_to_running_task(run_id=inputs.run_id, logger=logger),
+        get_client(team_id=inputs.team_id) as client,
     ):
+        if not await client.is_alive():
+            raise ConnectionError("Cannot establish connection to ClickHouse")
+
         should_resume, details = await should_resume_from_activity_heartbeat(activity, BigQueryHeartbeatDetails, logger)
 
         if should_resume is True and details is not None:
@@ -341,50 +343,69 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
             fields = bigquery_default_fields()
             query_parameters = None
 
+        model: BatchExportModel | BatchExportSchema | None = None
+        if inputs.batch_export_schema is None and "batch_export_model" in {
+            field.name for field in dataclasses.fields(inputs)
+        }:
+            model = inputs.batch_export_model
         else:
-            fields = inputs.batch_export_schema["fields"]
-            query_parameters = inputs.batch_export_schema["values"]
+            model = inputs.batch_export_schema
 
         records_iterator = iter_model_records(
             client=client,
+            model=model,
             team_id=inputs.team_id,
             interval_start=data_interval_start,
             interval_end=inputs.data_interval_end,
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
-            fields=fields,
-            extra_query_parameters=query_parameters,
+            destination_default_fields=bigquery_default_fields(),
             is_backfill=inputs.is_backfill,
         )
 
-        first_record_batch, records_iterator = apeek_first_and_rewind(records_iterator)
+        first_record_batch, records_iterator = await apeek_first_and_rewind(records_iterator)
         if first_record_batch is None:
             return 0
 
-        bigquery_table = None
-        inserted_at = None
+        if inputs.use_json_type is True:
+            json_type = "JSON"
+            json_columns = ["properties", "set", "set_once", "person_properties"]
+        else:
+            json_type = "STRING"
+            json_columns = []
 
-        with bigquery_client(inputs) as bq_client, BatchExportTemporaryFile() as jsonl_file:
-            rows_exported = get_rows_exported_metric()
-            bytes_exported = get_bytes_exported_metric()
+        first_record_batch = cast_record_batch_json_columns(first_record_batch, json_columns=json_columns)
 
-            async def flush_to_bigquery(bigquery_table, table_schema):
-                logger.debug(
-                    "Loading %s records of size %s bytes",
-                    jsonl_file.records_since_last_reset,
-                    jsonl_file.bytes_since_last_reset,
-                )
-                await load_jsonl_file_to_bigquery_table(jsonl_file, bigquery_table, table_schema, bq_client)
+        if model is None or (isinstance(model, BatchExportModel) and model.name == "events"):
+            schema = [
+                bigquery.SchemaField("uuid", "STRING"),
+                bigquery.SchemaField("event", "STRING"),
+                bigquery.SchemaField("properties", json_type),
+                bigquery.SchemaField("elements", "STRING"),
+                bigquery.SchemaField("set", json_type),
+                bigquery.SchemaField("set_once", json_type),
+                bigquery.SchemaField("distinct_id", "STRING"),
+                bigquery.SchemaField("team_id", "INT64"),
+                bigquery.SchemaField("ip", "STRING"),
+                bigquery.SchemaField("site_url", "STRING"),
+                bigquery.SchemaField("timestamp", "TIMESTAMP"),
+                bigquery.SchemaField("bq_ingested_timestamp", "TIMESTAMP"),
+            ]
+        else:
+            column_names = [column for column in first_record_batch.schema.names if column != "_inserted_at"]
+            record_schema = first_record_batch.select(column_names).schema
+            schema = get_bigquery_fields_from_record_schema(record_schema, known_json_columns=json_columns)
 
-                rows_exported.add(jsonl_file.records_since_last_reset)
-                bytes_exported.add(jsonl_file.bytes_since_last_reset)
+        rows_exported = get_rows_exported_metric()
+        bytes_exported = get_bytes_exported_metric()
 
-            if inputs.use_json_type is True:
-                json_type = "JSON"
-                json_columns = ["properties", "set", "set_once", "person_properties"]
-            else:
-                json_type = "STRING"
-                json_columns = []
+        # TODO: Expose this as a configuration parameter
+        # Currently, only allow merging persons model, as it's required.
+        # Although all exports could potentially benefit from merging, merging can have an impact on cost,
+        # so users should decide whether to opt-in or not.
+        requires_merge = (
+            isinstance(inputs.batch_export_model, BatchExportModel) and inputs.batch_export_model.name == "persons"
+        )
 
             model: BatchExportModel | BatchExportSchema | None = None
             if inputs.batch_export_schema is None and "batch_export_model" in {

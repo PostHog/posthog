@@ -75,8 +75,11 @@ async def apeek_first_and_rewind(
     return (first, rewind_gen())
 
 
-async def try_set_batch_export_run_to_running(run_id: str | None, logger, timeout: float = 10.0) -> None:
-    """Try to set a batch export run to 'RUNNING' status, but do nothing if we fail or if 'run_id' is 'None'.
+@contextlib.asynccontextmanager
+async def set_status_to_running_task(
+    run_id: str | None, logger
+) -> collections.abc.AsyncGenerator[asyncio.Task | None, None]:
+    """Manage a background task to set a batch export run status to 'RUNNING'.
 
     This is intended to be used within a batch export's 'insert_*' activity. These activities cannot afford
     to fail if our database is experiencing issues, as we should strive to not let issues in our infrastructure

@@ -38,7 +38,7 @@ from posthog.temporal.batch_exports.metrics import (
 from posthog.temporal.batch_exports.temporary_file import (
     BatchExportTemporaryFile,
 )
-from posthog.temporal.batch_exports.utils import apeek_first_and_rewind, try_set_batch_export_run_to_running
+from posthog.temporal.batch_exports.utils import apeek_first_and_rewind, set_status_to_running_task
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import bind_temporal_worker_logger
@@ -259,8 +259,8 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
 
     async with (
         Heartbeater(),
-        get_client(team_id=inputs.team_id) as client,
         set_status_to_running_task(run_id=inputs.run_id, logger=logger),
+        get_client(team_id=inputs.team_id) as client,
     ):
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
@@ -288,9 +288,6 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
                 destination_default_fields=postgres_default_fields(),
                 is_backfill=inputs.is_backfill,
             )
-            first_record_batch, record_iterator = await apeek_first_and_rewind(record_iterator)
-            if first_record_batch is None:
-                return 0
 
         async with postgres_connection(inputs) as connection:
             await create_table_in_postgres(
@@ -324,7 +321,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
                     rows_exported.add(pg_file.records_since_last_reset)
                     bytes_exported.add(pg_file.bytes_since_last_reset)
 
-                for record_batch in record_iterator:
+                async for record_batch in record_iterator:
                     for result in record_batch.select(schema_columns).to_pylist():
                         row = result
 
@@ -335,9 +332,9 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
                             [row], fieldnames=schema_columns, quoting=csv.QUOTE_MINIMAL, escapechar=None
                         )
 
-                    async for record_batch in record_iterator:
-                        for result in record_batch.select(schema_columns).to_pylist():
-                            row = result
+                        if pg_file.tell() > settings.BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES:
+                            await flush_to_postgres()
+                            pg_file.reset()
 
                 if pg_file.tell() > 0:
                     await flush_to_postgres()
