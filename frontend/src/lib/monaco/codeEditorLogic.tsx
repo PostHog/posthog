@@ -43,14 +43,22 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
             {
                 reloadMetadata: async (_, breakpoint) => {
                     const model = props.editor?.getModel()
-                    if (!model || !props.monaco || (props.language !== 'hogql' && props.language !== 'hog')) {
+                    if (
+                        !model ||
+                        !props.monaco ||
+                        !['hog', 'hogQL', 'hogExpr', 'hogTemplate'].includes(props.language ?? '')
+                    ) {
                         return null
                     }
                     await breakpoint(300)
                     const query = props.query
                     const response = await performQuery<HogQLMetadata>(
-                        props.language === 'hogql'
+                        props.language === 'hogQL'
                             ? { kind: NodeKind.HogQLMetadata, select: query, filters: props.metadataFilters }
+                            : props.language === 'hogTemplate'
+                            ? { kind: NodeKind.HogQLMetadata, template: query, filters: props.metadataFilters }
+                            : props.language === 'hogExpr'
+                            ? { kind: NodeKind.HogQLMetadata, expr: query, filters: props.metadataFilters }
                             : { kind: NodeKind.HogQLMetadata, program: query, filters: props.metadataFilters }
                     )
                     breakpoint()

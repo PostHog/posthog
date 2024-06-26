@@ -2207,4 +2207,9 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             )
             self.assertEqual(program, expected)
 
+        def test_pop_empty_stack(self):
+            with self.assertRaises(SyntaxError) as e:
+                self._select("select } from events")
+            self.assertEqual(str(e.exception), "Unmatched curly bracket")
+
     return TestParser
