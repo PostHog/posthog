@@ -11,7 +11,7 @@ from prometheus_client import Histogram
 from rest_framework.exceptions import NotFound
 
 from posthog import celery, redis
-from posthog.clickhouse.client.async_task_chain import add_task_to_chain
+from posthog.clickhouse.client.async_task_chain import add_task_to_on_commit
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql.constants import LimitContext
@@ -27,7 +27,9 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-QUERY_WAIT_TIME = Histogram("query_wait_time_seconds", "Time from query creation to pick-up", labelnames=["team"])
+QUERY_WAIT_TIME = Histogram(
+    "query_wait_time_seconds", "Time from query creation to pick-up", labelnames=["team", "priority"]
+)
 QUERY_PROCESS_TIME = Histogram("query_process_time_seconds", "Time from query pick-up to result", labelnames=["team"])
 
 
@@ -156,7 +158,7 @@ def execute_process_query(
     pickup_time = datetime.datetime.now(datetime.timezone.utc)
     if query_status.start_time:
         wait_duration = (pickup_time - query_status.start_time) / datetime.timedelta(seconds=1)
-        QUERY_WAIT_TIME.labels(team=team_id).observe(wait_duration)
+        QUERY_WAIT_TIME.labels(team=team_id, priority=query_status.priority).observe(wait_duration)
 
     try:
         tag_queries(client_query_id=query_id, team_id=team_id, user_id=user_id)
@@ -179,11 +181,12 @@ def execute_process_query(
     except (ExposedHogQLError, ExposedCHQueryError) as err:  # We can expose the error to the user
         query_status.results = None  # Clear results in case they are faulty
         query_status.error_message = str(err)
-        logger.error("Error processing query for team %s query %s: %s", team_id, query_id, err)
-        raise err
+        logger.exception("Error processing query for team %s query %s", team_id, query_id)
+        sentry_sdk.capture_exception(err)
+        # Do not raise here, the task itself did its job and we cannot recover
     except Exception as err:  # We cannot reveal anything about the error
         query_status.results = None  # Clear results in case they are faulty
-        logger.error("Error processing query for team %s query %s: %s", team_id, query_id, err)
+        logger.exception("Error processing query for team %s query %s", team_id, query_id)
         raise err
     finally:
         manager.store_query_status(query_status)
@@ -222,7 +225,7 @@ def enqueue_process_query_task(
     if _test_only_bypass_celery:
         task_signature()
     else:
-        add_task_to_chain(task_signature=task_signature, manager=manager, query_status=query_status)
+        add_task_to_on_commit(task_signature=task_signature, manager=manager, query_status=query_status)
 
     return query_status
 

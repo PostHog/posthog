@@ -1070,6 +1070,8 @@ export type QueryStatus = {
     expiration_time?: string
     task_id?: string
     query_progress?: ClickhouseQueryProgress
+    /** @default immediate */
+    priority?: 'normal' | 'immediate'
 }
 
 export interface LifecycleQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}

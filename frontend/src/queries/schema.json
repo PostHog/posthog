@@ -7069,6 +7069,11 @@
                 "id": {
                     "type": "string"
                 },
+                "priority": {
+                    "default": "immediate",
+                    "enum": ["normal", "immediate"],
+                    "type": "string"
+                },
                 "query_async": {
                     "const": true,
                     "default": true,
