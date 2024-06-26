@@ -228,8 +228,11 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         # NOTE: We check the property first as it avoids any potential DB lookups via the parents_query_dict
         return self.param_derived_from_user_current_team == "project_id" or "project_id" in self.parents_query_dict
 
-    @property
+    @cached_property
     def team_id(self) -> int:
+        if self._is_project_view:
+            return self.project_id  # KLUDGE: This is just for the period of transition to project environments
+
         team_from_token = self._get_team_from_request()
         if team_from_token:
             return team_from_token.id
@@ -244,6 +247,11 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
 
     @cached_property
     def team(self) -> Team:
+        if self._is_project_view:
+            return Team.objects.get(
+                id=self.project_id  # KLUDGE: This is just for the period of transition to project environments
+            )
+
         team_from_token = self._get_team_from_request()
         if team_from_token:
             return team_from_token
@@ -260,7 +268,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
                 detail="Project not found."  # TODO: "Environment" instead of "Project" when project environments are rolled out
             )
 
-    @property
+    @cached_property
     def project_id(self) -> int:
         if self.param_derived_from_user_current_team == "project_id":
             user = cast(User, self.request.user)
@@ -282,7 +290,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         except Project.DoesNotExist:
             raise NotFound(detail="Project not found.")
 
-    @property
+    @cached_property
     def organization_id(self) -> str:
         try:
             return self.parents_query_dict["organization_id"]
@@ -314,6 +322,12 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         for source, destination in self.filter_rewrite_rules.items():
             parents_query_dict[destination] = parents_query_dict[source]
             del parents_query_dict[source]
+
+        if "project_id" in parents_query_dict:
+            # KLUDGE: This rewrite can be removed once the relevant models get that field directly
+            parents_query_dict["team__project_id"] = parents_query_dict["project_id"]
+            del parents_query_dict["project_id"]
+
         if parents_query_dict:
             try:
                 return queryset.filter(**parents_query_dict)
@@ -334,8 +348,9 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             if current_team is None:
                 raise ValidationError("This endpoint requires the current project to be set on your account.")
             if self.param_derived_from_user_current_team == "project_id":
-                return {"team__project_id": current_team.project_id}
-            return {"team_id": current_team.id}
+                return {"project_id": current_team.project_id}
+            else:
+                return {"team_id": current_team.id}
 
         result = {}
         # process URL parameters (here called kwargs), such as organization_id in /api/organizations/:organization_id/
@@ -347,9 +362,6 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
                     "",
                     1,
                 )
-                if query_lookup == "project_id":
-                    # KLUDGE: This will be just "project_id" once the relevant models get that field directly
-                    query_lookup = "team__project_id"
 
                 query_value = kwarg_value
                 if query_value == "@current":
@@ -392,7 +404,11 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         serializer_context.update(self.parents_query_dict)
         # The below are lambdas for lazy evaluation (i.e. we only query Postgres for team/org if actually needed)
         serializer_context["get_team"] = lambda: self.team
+        serializer_context["get_project"] = lambda: self.project
         serializer_context["get_organization"] = lambda: self.organization
+        if "project_id" in serializer_context:
+            # KLUDGE: This alias can be removed once the relevant models get that field directly
+            serializer_context["team_id"] = serializer_context["project_id"]
         return serializer_context
 
     @lru_cache(maxsize=1)
