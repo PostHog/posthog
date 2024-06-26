@@ -671,6 +671,15 @@
                   "table": null,
                   "type": "integer"
               },
+              "snapshot_source": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "snapshot_source",
+                  "name": "snapshot_source",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
               "events": {
                   "chain": null,
                   "fields": [
@@ -1978,6 +1987,15 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "integer"
+              },
+              "snapshot_source": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "snapshot_source",
+                  "name": "snapshot_source",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
               },
               "events": {
                   "chain": null,

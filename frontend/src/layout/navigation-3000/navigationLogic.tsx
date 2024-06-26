@@ -436,15 +436,13 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                 identifier: Scene.Insight,
                             },
                         },
-                        featureFlags[FEATURE_FLAGS.WEB_ANALYTICS]
-                            ? {
-                                  identifier: Scene.WebAnalytics,
-                                  label: 'Web analytics',
-                                  icon: <IconPieChart />,
-                                  to: isUsingSidebar ? undefined : urls.webAnalytics(),
-                                  tag: 'beta' as const,
-                              }
-                            : null,
+                        {
+                            identifier: Scene.WebAnalytics,
+                            label: 'Web analytics',
+                            icon: <IconPieChart />,
+                            to: isUsingSidebar ? undefined : urls.webAnalytics(),
+                            tag: 'beta' as const,
+                        },
                         {
                             identifier: Scene.Replay,
                             label: 'Session replay',

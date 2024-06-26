@@ -122,7 +122,7 @@ export function extractObjectDiffKeys(
 }
 
 export async function getInsightId(shortId: InsightShortId): Promise<number | undefined> {
-    const insightId = insightLogic.findMounted({ dashboardItemId: shortId })?.values?.insight?.id
+    const insightId = insightLogic.findMounted({ dashboardItemId: shortId })?.values?.queryBasedInsight?.id
 
     return insightId
         ? insightId

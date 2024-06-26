@@ -6,6 +6,7 @@ from enum import Enum, auto
 from ipaddress import ip_address
 from requests.adapters import HTTPAdapter
 from typing import Literal, Optional, Union
+
 from urllib3 import HTTPSConnectionPool, HTTPConnectionPool, PoolManager
 from uuid import UUID
 

@@ -11,7 +11,7 @@ import {
     isOtherBreakdown,
 } from 'scenes/insights/utils'
 
-import { LifecycleQuery, MathType } from '~/queries/schema'
+import { LifecycleQuery, MathType, TrendsFilter } from '~/queries/schema'
 import {
     ChartDisplayType,
     CountPerActorMathType,
@@ -55,8 +55,10 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'showLabelOnSeries',
                 'showPercentStackView',
                 'supportsPercentStackView',
+                'insightFilter',
                 'trendsFilter',
                 'lifecycleFilter',
+                'stickinessFilter',
                 'isTrends',
                 'isDataWarehouseSeries',
                 'isLifecycle',
@@ -68,12 +70,16 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'vizSpecificOptions',
             ],
         ],
-        actions: [insightVizDataLogic(props), ['setInsightData', 'updateInsightFilter', 'updateBreakdownFilter']],
+        actions: [
+            insightVizDataLogic(props),
+            ['setInsightData', 'updateInsightFilter', 'updateBreakdownFilter', 'updateHiddenLegendIndexes'],
+        ],
     })),
 
     actions({
         loadMoreBreakdownValues: true,
         setBreakdownValuesLoading: (loading: boolean) => ({ loading }),
+        toggleHiddenLegendIndex: (index: number) => ({ index }),
     }),
 
     reducers({
@@ -213,9 +219,28 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 return false
             },
         ],
+
+        hiddenLegendIndexes: [
+            (s) => [s.trendsFilter, s.stickinessFilter],
+            (trendsFilter, stickinessFilter): number[] => {
+                return trendsFilter?.hiddenLegendIndexes || stickinessFilter?.hiddenLegendIndexes || []
+            },
+        ],
     })),
 
     listeners(({ actions, values }) => ({
+        toggleHiddenLegendIndex: ({ index }) => {
+            if ((values.insightFilter as TrendsFilter)?.hiddenLegendIndexes?.includes(index)) {
+                actions.updateHiddenLegendIndexes(
+                    (values.insightFilter as TrendsFilter).hiddenLegendIndexes?.filter((idx) => idx !== index)
+                )
+            } else {
+                actions.updateHiddenLegendIndexes([
+                    ...((values.insightFilter as TrendsFilter)?.hiddenLegendIndexes || []),
+                    index,
+                ])
+            }
+        },
         loadMoreBreakdownValues: async () => {
             if (!values.loadMoreBreakdownUrl) {
                 return

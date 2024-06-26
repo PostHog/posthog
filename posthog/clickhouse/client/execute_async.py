@@ -1,7 +1,6 @@
 import datetime
 
 import orjson as json
-from functools import partial
 from typing import TYPE_CHECKING, Optional
 import uuid
 
@@ -10,9 +9,9 @@ import sentry_sdk
 import structlog
 from prometheus_client import Histogram
 from rest_framework.exceptions import NotFound
-from django.db import transaction
 
 from posthog import celery, redis
+from posthog.clickhouse.client.async_task_chain import add_task_to_chain
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql.constants import LimitContext
@@ -28,8 +27,8 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-QUERY_WAIT_TIME = Histogram("query_wait_time_seconds", "Time from query creation to pick-up")
-QUERY_PROCESS_TIME = Histogram("query_process_time_seconds", "Time from query pick-up to result")
+QUERY_WAIT_TIME = Histogram("query_wait_time_seconds", "Time from query creation to pick-up", labelnames=["team"])
+QUERY_PROCESS_TIME = Histogram("query_process_time_seconds", "Time from query pick-up to result", labelnames=["team"])
 
 
 class QueryNotFoundError(NotFound):
@@ -157,7 +156,7 @@ def execute_process_query(
     pickup_time = datetime.datetime.now(datetime.timezone.utc)
     if query_status.start_time:
         wait_duration = (pickup_time - query_status.start_time) / datetime.timedelta(seconds=1)
-        QUERY_WAIT_TIME.observe(wait_duration)
+        QUERY_WAIT_TIME.labels(team=team_id).observe(wait_duration)
 
     try:
         tag_queries(client_query_id=query_id, team_id=team_id, user_id=user_id)
@@ -176,7 +175,7 @@ def execute_process_query(
         query_status.end_time = datetime.datetime.now(datetime.timezone.utc)
         query_status.expiration_time = query_status.end_time + datetime.timedelta(seconds=manager.STATUS_TTL_SECONDS)
         process_duration = (query_status.end_time - pickup_time) / datetime.timedelta(seconds=1)
-        QUERY_PROCESS_TIME.observe(process_duration)
+        QUERY_PROCESS_TIME.labels(team=team_id).observe(process_duration)
     except (ExposedHogQLError, ExposedCHQueryError) as err:  # We can expose the error to the user
         query_status.results = None  # Clear results in case they are faulty
         query_status.error_message = str(err)
@@ -188,25 +187,6 @@ def execute_process_query(
         raise err
     finally:
         manager.store_query_status(query_status)
-
-
-def kick_off_task(
-    manager: QueryStatusManager,
-    query_id: str,
-    query_json: dict,
-    query_status: QueryStatus,
-    team_id: int,
-    user_id: Optional[int],
-):
-    task = process_query_task.delay(
-        team_id,
-        user_id,
-        query_id,
-        query_json,
-        limit_context=LimitContext.QUERY_ASYNC,
-    )
-    query_status.task_id = task.id
-    manager.store_query_status(query_status)
 
 
 def enqueue_process_query_task(
@@ -235,26 +215,14 @@ def enqueue_process_query_task(
     query_status = QueryStatus(id=query_id, team_id=team.id, start_time=datetime.datetime.now(datetime.timezone.utc))
     manager.store_query_status(query_status)
 
+    task_signature = process_query_task.si(
+        team.id, user.id if user else None, query_id, query_json, LimitContext.QUERY_ASYNC
+    )
+
     if _test_only_bypass_celery:
-        process_query_task(
-            team.id,
-            user.id if user else None,
-            query_id,
-            query_json,
-            limit_context=LimitContext.QUERY_ASYNC,
-        )
+        task_signature()
     else:
-        transaction.on_commit(
-            partial(
-                kick_off_task,
-                manager,
-                query_id,
-                query_json,
-                query_status,
-                team.id,
-                user.id if user else None,
-            )
-        )
+        add_task_to_chain(task_signature=task_signature, manager=manager, query_status=query_status)
 
     return query_status
 

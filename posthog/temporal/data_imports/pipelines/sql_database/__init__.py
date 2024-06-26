@@ -1,7 +1,9 @@
 """Source that loads tables form any SQLAlchemy supported database, supports batching requests and incremental loads."""
 
-from typing import Optional, Union, List  # noqa: UP035
+from datetime import datetime, date
+from typing import Any, Optional, Union, List  # noqa: UP035
 from collections.abc import Iterable
+from zoneinfo import ZoneInfo
 from sqlalchemy import MetaData, Table
 from sqlalchemy.engine import Engine
 
@@ -12,6 +14,8 @@ from dlt.sources import DltResource, DltSource
 from dlt.sources.credentials import ConnectionStringCredentials
 from urllib.parse import quote
 
+from posthog.warehouse.types import IncrementalFieldType
+
 from .helpers import (
     table_rows,
     engine_from_credentials,
@@ -20,8 +24,26 @@ from .helpers import (
 )
 
 
+def incremental_type_to_initial_value(field_type: IncrementalFieldType) -> Any:
+    if field_type == IncrementalFieldType.Integer or field_type == IncrementalFieldType.Numeric:
+        return 0
+    if field_type == IncrementalFieldType.DateTime or field_type == IncrementalFieldType.Timestamp:
+        return datetime(1970, 1, 1, 0, 0, 0, 0, tzinfo=ZoneInfo("UTC"))
+    if field_type == IncrementalFieldType.Date:
+        return date(1970, 1, 1)
+
+
 def postgres_source(
-    host: str, port: int, user: str, password: str, database: str, sslmode: str, schema: str, table_names: list[str]
+    host: str,
+    port: int,
+    user: str,
+    password: str,
+    database: str,
+    sslmode: str,
+    schema: str,
+    table_names: list[str],
+    incremental_field: Optional[str] = None,
+    incremental_field_type: Optional[IncrementalFieldType] = None,
 ) -> DltSource:
     host = quote(host)
     user = quote(user)
@@ -32,7 +54,15 @@ def postgres_source(
     credentials = ConnectionStringCredentials(
         f"postgresql://{user}:{password}@{host}:{port}/{database}?sslmode={sslmode}"
     )
-    db_source = sql_database(credentials, schema=schema, table_names=table_names)
+
+    if incremental_field is not None and incremental_field_type is not None:
+        incremental: dlt.sources.incremental | None = dlt.sources.incremental(
+            cursor_path=incremental_field, initial_value=incremental_type_to_initial_value(incremental_field_type)
+        )
+    else:
+        incremental = None
+
+    db_source = sql_database(credentials, schema=schema, table_names=table_names, incremental=incremental)
 
     return db_source
 
@@ -46,6 +76,8 @@ def snowflake_source(
     schema: str,
     table_names: list[str],
     role: Optional[str] = None,
+    incremental_field: Optional[str] = None,
+    incremental_field_type: Optional[str] = None,
 ) -> DltSource:
     account_id = quote(account_id)
     user = quote(user)
@@ -68,6 +100,7 @@ def sql_database(
     schema: Optional[str] = dlt.config.value,
     metadata: Optional[MetaData] = None,
     table_names: Optional[List[str]] = dlt.config.value,  # noqa: UP006
+    incremental: Optional[dlt.sources.incremental] = None,
 ) -> Iterable[DltResource]:
     """
     A DLT source which loads data from an SQL database using SQLAlchemy.
@@ -96,9 +129,17 @@ def sql_database(
         tables = list(metadata.tables.values())
 
     for table in tables:
+        # TODO(@Gilbert09): Read column types, convert them to DLT types
+        # and pass them in here to get empty table materialization
         yield dlt.resource(
             table_rows,
             name=table.name,
             primary_key=get_primary_key(table),
+            merge_key=get_primary_key(table),
+            write_disposition="merge" if incremental else "replace",
             spec=SqlDatabaseTableConfiguration,
-        )(engine, table)
+        )(
+            engine=engine,
+            table=table,
+            incremental=incremental,
+        )

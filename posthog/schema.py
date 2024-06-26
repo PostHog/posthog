@@ -259,6 +259,7 @@ class Type(str, Enum):
     POSTHOG = "posthog"
     DATA_WAREHOUSE = "data_warehouse"
     VIEW = "view"
+    BATCH_EXPORT = "batch_export"
 
 
 class DatabaseSerializedFieldType(str, Enum):
@@ -552,6 +553,12 @@ class PersonsOnEventsMode(str, Enum):
     PERSON_ID_OVERRIDE_PROPERTIES_JOINED = "person_id_override_properties_joined"
 
 
+class SessionTableVersion(str, Enum):
+    AUTO = "auto"
+    V1 = "v1"
+    V2 = "v2"
+
+
 class HogQLQueryModifiers(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -566,6 +573,7 @@ class HogQLQueryModifiers(BaseModel):
     personsJoinMode: Optional[PersonsJoinMode] = None
     personsOnEventsMode: Optional[PersonsOnEventsMode] = None
     s3TableUseInvalidColumns: Optional[bool] = None
+    sessionTableVersion: Optional[SessionTableVersion] = None
 
 
 class HogQueryResponse(BaseModel):
@@ -840,7 +848,9 @@ class QueryResponseAlternative8(BaseModel):
     )
     errors: list[HogQLNotice]
     inputExpr: Optional[str] = None
+    inputProgram: Optional[str] = None
     inputSelect: Optional[str] = None
+    inputTemplate: Optional[str] = None
     isValid: Optional[bool] = None
     isValidView: Optional[bool] = None
     notices: list[HogQLNotice]
@@ -969,9 +979,8 @@ class StickinessFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    compare: Optional[bool] = False
     display: Optional[ChartDisplayType] = None
-    hidden_legend_indexes: Optional[list[float]] = None
+    hiddenLegendIndexes: Optional[list[int]] = None
     showLegend: Optional[bool] = None
     showValuesOnSeries: Optional[bool] = None
 
@@ -983,7 +992,7 @@ class StickinessFilterLegacy(BaseModel):
     compare: Optional[bool] = None
     compare_to: Optional[str] = None
     display: Optional[ChartDisplayType] = None
-    hidden_legend_indexes: Optional[list[float]] = None
+    hidden_legend_keys: Optional[dict[str, Union[bool, Any]]] = None
     show_legend: Optional[bool] = None
     show_values_on_series: Optional[bool] = None
 
@@ -1102,7 +1111,7 @@ class TrendsFilter(BaseModel):
     decimalPlaces: Optional[float] = None
     display: Optional[ChartDisplayType] = ChartDisplayType.ACTIONS_LINE_GRAPH
     formula: Optional[str] = None
-    hidden_legend_indexes: Optional[list[float]] = None
+    hiddenLegendIndexes: Optional[list[int]] = None
     showLabelsOnSeries: Optional[bool] = None
     showLegend: Optional[bool] = False
     showPercentStackView: Optional[bool] = False
@@ -1123,7 +1132,7 @@ class TrendsFilterLegacy(BaseModel):
     decimal_places: Optional[float] = None
     display: Optional[ChartDisplayType] = None
     formula: Optional[str] = None
-    hidden_legend_indexes: Optional[list[float]] = None
+    hidden_legend_keys: Optional[dict[str, Union[bool, Any]]] = None
     show_labels_on_series: Optional[bool] = None
     show_legend: Optional[bool] = None
     show_percent_stack_view: Optional[bool] = None
@@ -1973,7 +1982,7 @@ class FunnelsFilterLegacy(BaseModel):
     funnel_viz_type: Optional[FunnelVizType] = None
     funnel_window_interval: Optional[float] = None
     funnel_window_interval_unit: Optional[FunnelConversionWindowTimeUnit] = None
-    hidden_legend_breakdowns: Optional[list[str]] = None
+    hidden_legend_keys: Optional[dict[str, Union[bool, Any]]] = None
     layout: Optional[FunnelLayout] = None
 
 
@@ -2035,7 +2044,9 @@ class HogQLMetadataResponse(BaseModel):
     )
     errors: list[HogQLNotice]
     inputExpr: Optional[str] = None
+    inputProgram: Optional[str] = None
     inputSelect: Optional[str] = None
+    inputTemplate: Optional[str] = None
     isValid: Optional[bool] = None
     isValidView: Optional[bool] = None
     notices: list[HogQLNotice]
@@ -2936,6 +2947,16 @@ class DataWarehouseNode(BaseModel):
     timestamp_field: str
 
 
+class DatabaseSchemaBatchExportTable(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    fields: dict[str, DatabaseSchemaField]
+    id: str
+    name: str
+    type: Literal["batch_export"] = "batch_export"
+
+
 class DatabaseSchemaDataWarehouseTable(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3513,7 +3534,7 @@ class FunnelsFilter(BaseModel):
     funnelVizType: Optional[FunnelVizType] = FunnelVizType.STEPS
     funnelWindowInterval: Optional[int] = 14
     funnelWindowIntervalUnit: Optional[FunnelConversionWindowTimeUnit] = FunnelConversionWindowTimeUnit.DAY
-    hidden_legend_breakdowns: Optional[list[str]] = None
+    hiddenLegendBreakdowns: Optional[list[str]] = None
     layout: Optional[FunnelLayout] = FunnelLayout.VERTICAL
 
 
@@ -3526,14 +3547,20 @@ class HogQLAutocomplete(BaseModel):
         extra="forbid",
     )
     endPosition: int = Field(..., description="End position of the editor word")
+    expr: Optional[str] = Field(default=None, description="HogQL expression to validate")
+    exprSource: Optional[str] = Field(
+        default=None,
+        description='Query within which "expr" and "template" are validated. Defaults to "select * from events"',
+    )
     filters: Optional[HogQLFilters] = Field(default=None, description="Table to validate the expression against")
     kind: Literal["HogQLAutocomplete"] = "HogQLAutocomplete"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[HogQLAutocompleteResponse] = None
-    select: str = Field(..., description="Full select query to validate")
+    select: Optional[str] = Field(default=None, description="Select query to validate")
     startPosition: int = Field(..., description="Start position of the editor word")
+    template: Optional[str] = Field(default=None, description="HogQL string template to validate")
 
 
 class InsightFilter(
@@ -4038,7 +4065,15 @@ class QueryResponseAlternative27(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    tables: dict[str, Union[DatabaseSchemaPostHogTable, DatabaseSchemaDataWarehouseTable, DatabaseSchemaViewTable]]
+    tables: dict[
+        str,
+        Union[
+            DatabaseSchemaPostHogTable,
+            DatabaseSchemaDataWarehouseTable,
+            DatabaseSchemaViewTable,
+            DatabaseSchemaBatchExportTable,
+        ],
+    ]
 
 
 class QueryResponseAlternative(
@@ -4109,7 +4144,15 @@ class DatabaseSchemaQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    tables: dict[str, Union[DatabaseSchemaPostHogTable, DatabaseSchemaDataWarehouseTable, DatabaseSchemaViewTable]]
+    tables: dict[
+        str,
+        Union[
+            DatabaseSchemaPostHogTable,
+            DatabaseSchemaDataWarehouseTable,
+            DatabaseSchemaViewTable,
+            DatabaseSchemaBatchExportTable,
+        ],
+    ]
 
 
 class FunnelPathsFilter(BaseModel):
@@ -4418,9 +4461,7 @@ class HogQLMetadata(BaseModel):
     debug: Optional[bool] = Field(
         default=None, description="Enable more verbose output, usually run from the /debug page"
     )
-    expr: Optional[str] = Field(
-        default=None, description="HogQL expression to validate (use `select` or `expr`, but not both)"
-    )
+    expr: Optional[str] = Field(default=None, description="HogQL expression to validate")
     exprSource: Optional[
         Union[
             EventsNode,
@@ -4440,17 +4481,20 @@ class HogQLMetadata(BaseModel):
             WebStatsTableQuery,
             WebTopClicksQuery,
         ]
-    ] = Field(default=None, description='Query within which "expr" is validated. Defaults to "select * from events"')
+    ] = Field(
+        default=None,
+        description='Query within which "expr" and "template" are validated. Defaults to "select * from events"',
+    )
     filters: Optional[HogQLFilters] = Field(default=None, description="Extra filters applied to query via {filters}")
     kind: Literal["HogQLMetadata"] = "HogQLMetadata"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    program: Optional[str] = Field(default=None, description="Hog program to validate")
     response: Optional[HogQLMetadataResponse] = None
-    select: Optional[str] = Field(
-        default=None, description="Full select query to validate (use `select` or `expr`, but not both)"
-    )
+    select: Optional[str] = Field(default=None, description="Select query to validate")
     table: Optional[str] = Field(default=None, description="Table to validate the expression against")
+    template: Optional[str] = Field(default=None, description="Template string to validate")
 
 
 class QueryRequest(BaseModel):

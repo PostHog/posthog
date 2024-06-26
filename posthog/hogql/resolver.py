@@ -4,6 +4,7 @@ from uuid import UUID
 
 from posthog.hogql import ast
 from posthog.hogql.ast import FieldTraverserType, ConstantType
+from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.functions import find_hogql_posthog_function
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
@@ -319,7 +320,11 @@ class Resolver(CloningVisitor):
                 return node
 
             if isinstance(database_table, LazyTable):
+                if isinstance(database_table, PersonsTable):
+                    # Check for inlineable exprs in the join on the persons table
+                    database_table = database_table.create_new_table_with_filter(node)
                 node_table_type = ast.LazyTableType(table=database_table)
+
             else:
                 node_table_type = ast.TableType(table=database_table)
 

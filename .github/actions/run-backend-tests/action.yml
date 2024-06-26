@@ -148,7 +148,6 @@ runs:
           if: ${{ inputs.segment == 'Core' }}
           env:
               PERSON_ON_EVENTS_V2_ENABLED: ${{ inputs.person-on-events }}
-              GROUPS_ON_EVENTS_ENABLED: ${{ inputs.person-on-events }}
           shell: bash
           run: | # async_migrations covered in ci-async-migrations.yml
               pytest ${{

@@ -5,7 +5,6 @@ import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { objectClean, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
-import { LogEntry } from 'scenes/pipeline/pipelineNodeLogsLogic'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
@@ -50,6 +49,7 @@ import {
     InsightModel,
     IntegrationType,
     ListOrganizationMembersParams,
+    LogEntry,
     MediaUploadResponse,
     NewEarlyAccessFeatureType,
     NotebookListItemType,
@@ -73,6 +73,7 @@ import {
     RolesListParams,
     RoleType,
     ScheduledChangeType,
+    SchemaIncrementalFieldsResponse,
     SearchListParams,
     SearchResponse,
     SessionRecordingPlaylistType,
@@ -889,7 +890,6 @@ const api = {
                 .withQueryString(
                     toParams({
                         short_id: encodeURIComponent(shortId),
-                        include_query_insights: true,
                         basic: basic,
                     })
                 )
@@ -1685,6 +1685,17 @@ const api = {
         async listIcons(params: { query?: string } = {}): Promise<HogFunctionIconResponse[]> {
             return await new ApiRequest().hogFunctions().withAction('icons').withQueryString(params).get()
         },
+
+        async createTestInvocation(
+            id: HogFunctionType['id'],
+            data: {
+                configuration: Partial<HogFunctionType>
+                mock_async_functions: boolean
+                event: any
+            }
+        ): Promise<any> {
+            return await new ApiRequest().hogFunction(id).withAction('invocations').create({ data })
+        },
     },
 
     annotations: {
@@ -2069,6 +2080,9 @@ const api = {
         },
         async resync(schemaId: ExternalDataSourceSchema['id']): Promise<void> {
             await new ApiRequest().externalDataSourceSchema(schemaId).withAction('resync').create()
+        },
+        async incremental_fields(schemaId: ExternalDataSourceSchema['id']): Promise<SchemaIncrementalFieldsResponse> {
+            return await new ApiRequest().externalDataSourceSchema(schemaId).withAction('incremental_fields').create()
         },
     },
 
