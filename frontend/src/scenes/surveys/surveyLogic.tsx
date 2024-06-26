@@ -1152,7 +1152,7 @@ export const surveyLogic = kea<surveyLogicType>([
         },
     })),
     urlToAction(({ actions, props }) => ({
-        [urls.survey(props.id ?? 'new')]: (_, __, ___, { method }) => {
+        [urls.survey(props.id ?? 'new')]: (_, { edit }, __, { method }) => {
             // We always set the editingSurvey to true when we create a new survey
             if (props.id === 'new') {
                 actions.editingSurvey(true)
@@ -1167,7 +1167,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 }
             }
 
-            if (router.values.searchParams['edit']) {
+            if (edit) {
                 actions.editingSurvey(true)
             }
         },
@@ -1179,15 +1179,15 @@ export const surveyLogic = kea<surveyLogicType>([
 
             return [urls.survey(values.survey.id), router.values.searchParams, hashParams]
         },
-        editingSurvey: () => {
+        editingSurvey: ({ editing }) => {
             const searchParams = router.values.searchParams
-            if (values.isEditingSurvey) {
+            if (editing) {
                 searchParams['edit'] = true
             } else {
                 delete searchParams['edit']
             }
 
-            return [urls.survey(values.survey.id), router.values.searchParams, router.values.hashParams]
+            return [router.values.location.pathname, router.values.searchParams, router.values.hashParams]
         },
     })),
     afterMount(({ props, actions }) => {
