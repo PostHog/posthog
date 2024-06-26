@@ -7070,8 +7070,8 @@
                     "type": "string"
                 },
                 "priority": {
-                    "default": "immediate",
-                    "enum": ["normal", "immediate"],
+                    "default": "high",
+                    "enum": ["normal", "high"],
                     "type": "string"
                 },
                 "query_async": {

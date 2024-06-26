@@ -866,7 +866,7 @@ class QueryResponseAlternative16(BaseModel):
 
 class Priority(str, Enum):
     NORMAL = "normal"
-    IMMEDIATE = "immediate"
+    HIGH = "high"
 
 
 class QueryStatus(BaseModel):
@@ -879,7 +879,7 @@ class QueryStatus(BaseModel):
     error_message: Optional[str] = None
     expiration_time: Optional[AwareDatetime] = None
     id: str
-    priority: Optional[Priority] = Priority.IMMEDIATE
+    priority: Optional[Priority] = Priority.HIGH
     query_async: Literal[True] = Field(default=True, description="ONLY async queries use QueryStatus.")
     query_progress: Optional[ClickhouseQueryProgress] = None
     results: Optional[Any] = None
