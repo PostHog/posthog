@@ -279,8 +279,11 @@ class TrendsQueryRunner(QueryRunner):
                                     values,
                                     breakdown_filter.property,
                                     breakdown_filter.type,
-                                    isinstance(breakdown_filter.histogram_bin_count, int),
-                                    breakdown_filter.group_type_index,
+                                    histogram_breakdown=(
+                                        not breakdown.ignore_histogram_bin_count
+                                        and isinstance(breakdown_filter.histogram_bin_count, int)
+                                    ),
+                                    group_type_index=breakdown_filter.group_type_index,
                                 )
                             )
                         )
@@ -289,8 +292,11 @@ class TrendsQueryRunner(QueryRunner):
                         breakdown_values,
                         self.query.breakdownFilter.breakdown,
                         self.query.breakdownFilter.breakdown_type,
-                        isinstance(self.query.breakdownFilter.breakdown_histogram_bin_count, int),
-                        self.query.breakdownFilter.breakdown_group_type_index,
+                        histogram_breakdown=(
+                            not breakdown.ignore_histogram_bin_count
+                            and isinstance(self.query.breakdownFilter.breakdown_histogram_bin_count, int)
+                        ),
+                        group_type_index=self.query.breakdownFilter.breakdown_group_type_index,
                         is_boolean_field=self._is_breakdown_filter_field_boolean(),
                     )
 

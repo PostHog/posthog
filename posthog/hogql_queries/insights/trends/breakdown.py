@@ -5,6 +5,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
+from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.utils import get_properties_chain
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
@@ -348,7 +349,7 @@ class Breakdown:
             group_type_index=group_type_index,
         )
 
-        if histogram_bin_count is not None:
+        if histogram_bin_count is not None and not self.ignore_histogram_bin_count:
             return ast.Alias(
                 alias=alias,
                 expr=ast.Field(chain=properties_chain),
@@ -372,3 +373,19 @@ class Breakdown:
         breakdown_filter = self._breakdown_filter
         assert breakdown_filter.breakdowns is not None  # type checking
         return [self._get_multiple_breakdown_alias_name(idx + 1) for idx in range(len(breakdown_filter.breakdowns))]
+
+    @cached_property
+    def _trends_display(self) -> TrendsDisplay:
+        display = (
+            self.query.trendsFilter.display
+            if self.query.trendsFilter is not None and self.query.trendsFilter.display is not None
+            else None
+        )
+        return TrendsDisplay(display)
+
+    @property
+    def ignore_histogram_bin_count(self):
+        """
+        For "Total Value" display options `histogram_bin_count` doesn't apply.
+        """
+        return self._trends_display.is_total_value()

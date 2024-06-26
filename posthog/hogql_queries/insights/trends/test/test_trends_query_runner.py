@@ -2606,11 +2606,10 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             BreakdownItem(label="Safari", value="Safari"),
         ]
         assert response.breakdowns[1].values == [
-            BreakdownItem(label="[10,17.5]", value="[10,17.5]"),
-            BreakdownItem(label="[17.5,25]", value="[17.5,25]"),
-            BreakdownItem(label="[25,32.5]", value="[25,32.5]"),
-            BreakdownItem(label="[32.5,40.01]", value="[32.5,40.01]"),
-            BreakdownItem(label='["",""]', value='["",""]'),
+            BreakdownItem(label="10", value="10"),
+            BreakdownItem(label="20", value="20"),
+            BreakdownItem(label="30", value="30"),
+            BreakdownItem(label="40", value="40"),
         ]
         assert response.breakdowns[2].values == [
             BreakdownItem(label="true", value="true"),
@@ -3847,14 +3846,10 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         breakdown_labels = [result["breakdown_value"] for result in response.results]
 
-        assert len(response.results) == 8
+        assert len(response.results) == 4
         assert breakdown_labels == [
-            ["Chrome"],
-            ["Firefox"],
-            ["Edge"],
-            ["Safari"],
-            ["Chrome"],
-            ["Edge"],
-            ["Firefox"],
-            ["Safari"],
+            ["Chrome", "10", "true"],
+            ["Firefox", "20", "false"],
+            ["Edge", "30", "true"],
+            ["Safari", "40", "false"],
         ]
