@@ -529,7 +529,7 @@ s3fs==2023.10.0
     # via -r requirements.in
 s3transfer==0.6.0
     # via boto3
-scikit-learn==1.4.0
+scikit-learn==1.5.0
     # via -r requirements.in
 scipy==1.12.0
     # via scikit-learn
