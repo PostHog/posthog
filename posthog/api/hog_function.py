@@ -1,4 +1,3 @@
-from typing import Any
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import QuerySet

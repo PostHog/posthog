@@ -95,7 +95,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "filters": {"bytecode": ["_h", 29]},
             "icon_url": None,
             "template": None,
-            "status": None,
+            "status": {"ratings": [], "state": 0, "states": []},
         }
 
     @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
