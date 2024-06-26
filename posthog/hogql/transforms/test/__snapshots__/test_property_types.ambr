@@ -16,6 +16,19 @@
   LIMIT 50000
   '''
 # ---
+# name: TestPropertyTypes.test_group_boolean_property_types
+  '''
+  
+  SELECT ifNull(equals(transform(events__group_0.properties___group_boolean, %(hogql_val_1)s, %(hogql_val_2)s, NULL), true), 0), ifNull(equals(transform(events__group_0.properties___group_boolean, %(hogql_val_3)s, %(hogql_val_4)s, NULL), false), 0), isNull(transform(events__group_0.properties___group_boolean, %(hogql_val_5)s, %(hogql_val_6)s, NULL)) 
+  FROM events LEFT JOIN (
+  SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___group_boolean, groups.group_type_index AS index, groups.group_key AS key 
+  FROM groups 
+  WHERE and(equals(groups.team_id, 420), ifNull(equals(index, 0), 0)) 
+  GROUP BY groups.group_type_index, groups.group_key) AS events__group_0 ON equals(events.`$group_0`, events__group_0.key) 
+  WHERE equals(events.team_id, 420) 
+  LIMIT 50000
+  '''
+# ---
 # name: TestPropertyTypes.test_group_property_types
   '''
   

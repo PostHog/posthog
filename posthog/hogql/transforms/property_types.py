@@ -68,7 +68,7 @@ def resolve_property_types(node: ast.Expr, context: HogQLContext) -> ast.Expr:
         group_properties=group_properties,
         context=context,
     )
-    return property_swapper.visit(node)
+    return property_swapper.visit(node), property_swapper
 
 
 class PropertyFinder(TraversingVisitor):

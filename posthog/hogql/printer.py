@@ -107,11 +107,11 @@ def prepare_ast_for_printing(
         node = resolve_types(node, context, dialect=dialect, scopes=[node.type for node in stack] if stack else None)
 
     if dialect == "clickhouse":
-        with context.timings.measure("resolve_lazy_tables"):
-            resolve_lazy_tables(node, dialect, stack, context)
-        # resolve_property_types has to come after lazy tables otherwise expressions on lazy tables don't get handled properly
         with context.timings.measure("resolve_property_types"):
-            node = resolve_property_types(node, context)
+            node, property_swapper = resolve_property_types(node, context)
+
+        with context.timings.measure("resolve_lazy_tables"):
+            resolve_lazy_tables(node, dialect, stack, context, property_swapper)
 
         # We support global query settings, and local subquery settings.
         # If the global query is a select query with settings, merge the two.

@@ -7,6 +7,7 @@ from posthog.hogql.database.models import LazyTableToAdd, LazyJoinToAdd
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.resolver_utils import get_long_table_name
+from posthog.hogql.transforms.property_types import PropertySwapper
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 
@@ -14,10 +15,11 @@ from posthog.hogql.visitor import TraversingVisitor, clone_expr
 def resolve_lazy_tables(
     node: ast.Expr,
     dialect: Literal["hogql", "clickhouse"],
-    stack: Optional[list[ast.SelectQuery]] = None,
-    context: HogQLContext = None,
+    stack: Optional[list[ast.SelectQuery]],
+    context: HogQLContext,
+    property_swapper: PropertySwapper,
 ):
-    LazyTableResolver(stack=stack, context=context, dialect=dialect).visit(node)
+    LazyTableResolver(stack=stack, context=context, dialect=dialect, property_swapper=property_swapper).visit(node)
 
 
 @dataclasses.dataclass
@@ -67,13 +69,15 @@ class LazyTableResolver(TraversingVisitor):
     def __init__(
         self,
         dialect: Literal["hogql", "clickhouse"],
-        stack: Optional[list[ast.SelectQuery]] = None,
-        context: HogQLContext = None,
+        stack: Optional[list[ast.SelectQuery]],
+        context: HogQLContext,
+        property_swapper: PropertySwapper,
     ):
         super().__init__()
         self.field_collectors: list[list[ast.FieldType | ast.PropertyType]] = [[]] if stack else []
         self.context = context
         self.dialect: Literal["hogql", "clickhouse"] = dialect
+        self.property_swapper = property_swapper
 
     def visit_property_type(self, node: ast.PropertyType):
         if node.joined_subquery is not None:
@@ -310,6 +314,7 @@ class LazyTableResolver(TraversingVisitor):
             subquery = table_to_add.lazy_table.lazy_select(table_to_add, self.context, node=node)
             subquery = cast(ast.SelectQuery, clone_expr(subquery, clear_locations=True))
             subquery = cast(ast.SelectQuery, resolve_types(subquery, self.context, self.dialect, [node.type]))
+            subquery = self.property_swapper.visit(subquery)
             old_table_type = select_type.tables[table_name]
             select_type.tables[table_name] = ast.SelectQueryAliasType(alias=table_name, select_query_type=subquery.type)
 
@@ -410,3 +415,4 @@ class LazyTableResolver(TraversingVisitor):
             if lazy_finder.found_lazy:
                 self.lazy_finder_counter = self.lazy_finder_counter + 1
                 self.visit_select_query(node)
+        self.property_swapper.visit(node)
