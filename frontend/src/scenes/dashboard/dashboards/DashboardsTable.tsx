@@ -50,7 +50,8 @@ export function DashboardsTable({
     hideActions,
 }: DashboardsTableProps): JSX.Element {
     const { unpinDashboard, pinDashboard } = useActions(dashboardsModel)
-    const { setFilters } = useActions(dashboardsLogic)
+    const { setFilters, tableSortingChanged } = useActions(dashboardsLogic)
+    const { tableSorting } = useValues(dashboardsLogic)
     const { hasAvailableFeature } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
@@ -249,7 +250,10 @@ export function DashboardsTable({
                 rowClassName={(record) => (record._highlight ? 'highlighted' : null)}
                 columns={columns}
                 loading={dashboardsLoading}
-                defaultSorting={{ columnKey: 'created_at', order: -1 }}
+                defaultSorting={tableSorting}
+                onSort={(newSorting) => {
+                    tableSortingChanged(newSorting)
+                }}
                 emptyState="No dashboards matching your filters!"
                 nouns={['dashboard', 'dashboards']}
             />
