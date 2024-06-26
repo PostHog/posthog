@@ -2200,6 +2200,52 @@ class TestDecide(BaseTest, QueryMatchingTest):
             self.assertEqual(response.json()["featureFlags"], {"cohort-flag": False})
             self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
 
+    def test_flag_with_invalid_operator(self, *args):
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        self.client.logout()
+
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["example_id_1"],
+            properties={"$some_prop_1": 5},
+        )
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "$some_prop_1",
+                            "value": 4,
+                            "type": "person",
+                        }
+                    ]
+                }
+            ],
+            name="cohort1",
+        )
+        # no calculation for cohort
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}]}]},
+            name="This is a cohort-based flag",
+            key="cohort-flag",
+            created_by=self.user,
+        )
+
+        with self.assertNumQueries(5):
+            response = self._post_decide(api_version=3, distinct_id="example_id_1")
+            self.assertEqual(response.json()["featureFlags"], {"cohort-flag": True})
+            self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
+
+        # with self.assertNumQueries(5):
+        #     # get cohort, get person filter
+        #     response = self._post_decide(api_version=3, distinct_id="another_id")
+        #     self.assertEqual(response.json()["featureFlags"], {"cohort-flag": False})
+        #     self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
+
     def test_flag_with_unknown_cohort(self, *args):
         self.team.app_urls = ["https://example.com"]
         self.team.save()

@@ -600,6 +600,7 @@ class FeatureFlagMatcher:
             self.failed_to_fetch_conditions = True
             raise e
         except Exception as e:
+            logger.error(f"Generic exception occurred: {str(e)}")
             # Usually when a user somehow manages to create an invalid filter, usually via API.
             # In this case, don't put db down, just skip the flag.
             # Covers all cases like invalid JSON, invalid operator, invalid property name, invalid group input format, etc.

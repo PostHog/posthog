@@ -1,6 +1,8 @@
 import datetime
 import json
 from typing import Any, Optional, cast
+import structlog
+
 from collections.abc import Callable
 
 from django.db.models import Q, Func, F, CharField
@@ -18,6 +20,8 @@ from posthog.test.base import (
     snapshot_postgres_queries,
     snapshot_postgres_queries_context,
 )
+
+logger = structlog.get_logger(__name__)
 
 
 class TestFilter(BaseTest):
@@ -497,6 +501,35 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
             results = filter_persons(filter, self.team)
             self.assertEqual(results, [p2_uuid])
 
+        # def test_is_greater_than_persons(self):
+        #     p1_uuid = str(
+        #         person_factory(
+        #             team_id=self.team.pk,
+        #             distinct_ids=["p1"],
+        #             properties={"some_number": "5"},
+        #         ).uuid
+        #     )
+        #     person_factory(
+        #         team_id=self.team.pk,
+        #         distinct_ids=["p2"],
+        #         properties={"some_number": "4"},
+        #     )
+
+        #     filter = Filter(
+        #         data={
+        #             "properties": [
+        #                 {
+        #                     "type": "person",
+        #                     "key": "some_number",
+        #                     "value": "4",
+        #                     "operator": "gt",
+        #                 }
+        #             ]
+        #         }
+        #     )
+        #     results = filter_persons(filter, self.team)
+        #     self.assertEqual(results, [p1_uuid])
+
         def test_is_date_before_persons(self):
             p1_uuid = str(
                 person_factory(
@@ -786,6 +819,76 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
         )
 
         with self.assertNumQueries(1), freeze_time("2021-04-06T10:00:00"):
+            matched_person = (
+                Person.objects.filter(
+                    team_id=self.team.pk,
+                    persondistinctid__distinct_id=person1_distinct_id,
+                )
+                .filter(properties_to_Q(self.team.pk, filter.property_groups.flat))
+                .exists()
+            )
+        self.assertTrue(matched_person)
+
+    def test_person_matching_greater_than_filter(self):
+        person1_distinct_id = "example_id"
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=[person1_distinct_id],
+            properties={"$some_prop": 5},
+        )
+        filter = Filter(
+            data={"properties": [{"key": "$some_prop", "value": ["4"], "type": "person", "operator": "gt"}]}
+        )
+
+        # logger.debug(filter.property_groups.flat)
+
+        with self.assertNumQueries(1):
+            matched_person = (
+                Person.objects.filter(
+                    team_id=self.team.pk,
+                    persondistinctid__distinct_id=person1_distinct_id,
+                )
+                .filter(properties_to_Q(self.team.pk, filter.property_groups.flat))
+                .exists()
+            )
+        self.assertTrue(matched_person)
+
+    def test_person_matching_real_filter(self):
+        person1_distinct_id = "example_id"
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=[person1_distinct_id],
+            properties={"registration_ts": 1716447600},
+        )
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "registration_ts",
+                                    "type": "person",
+                                    "value": "1716274800",
+                                    "negation": False,
+                                    "operator": "gt",
+                                },
+                                {
+                                    "key": "registration_ts",
+                                    "type": "person",
+                                    "value": ["1716447600"],
+                                    "negation": False,
+                                    "operator": "exact",
+                                },
+                            ],
+                        }
+                    ],
+                }
+            }
+        )
+        with self.assertNumQueries(1):
             matched_person = (
                 Person.objects.filter(
                     team_id=self.team.pk,
