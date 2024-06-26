@@ -402,5 +402,27 @@ describe('HogWatcher', () => {
                     ]
                 `)
         })
+
+        it('should react to incoming manual state changes', async () => {
+            await watcher1.forceStateChange('id1', 2)
+            await delay(100)
+
+            const stateExpectation = {
+                observations: {},
+                ratings: {},
+                states: {
+                    id1: [
+                        {
+                            state: 2,
+                            timestamp: 1720000000000,
+                        },
+                    ],
+                },
+            }
+            expect(watcher1.isLeader).toEqual(true)
+            expect(watcher1.globalState).toEqual(stateExpectation)
+            expect(watcher2.isLeader).toEqual(false)
+            expect(watcher2.globalState).toEqual(undefined)
+        })
     })
 })

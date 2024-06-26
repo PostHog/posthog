@@ -79,6 +79,7 @@ export class HogWatcherActiveObservations {
 export class HogWatcher {
     public readonly currentObservations = new HogWatcherActiveObservations()
     public states: Record<HogFunctionType['id'], HogWatcherState> = {}
+    private queuedManualStates: Record<HogFunctionType['id'], HogWatcherState> = {}
 
     // Only set if we are the leader
     public globalState?: HogWatcherGlobalState
@@ -86,17 +87,28 @@ export class HogWatcher {
     public isLeader: boolean = false
     private pubSub: PubSub
     private instanceId: string
-    private interval?: NodeJS.Timeout
+    private syncTimer?: NodeJS.Timeout
 
     constructor(private hub: Hub) {
         this.instanceId = randomUUID()
         this.pubSub = new PubSub(hub, {
-            'hog-watcher-observations': (message) => {
-                const { instanceId, observations }: EmittedHogWatcherObservations = JSON.parse(message)
+            'hog-watcher-states': (message) => {
+                // NOTE: This is only emitted by the leader so we can immediately add it to the list of states
+                const { states }: EmittedHogWatcherStates = JSON.parse(message)
 
+                this.states = {
+                    ...this.states,
+                    ...states,
+                }
+            },
+
+            'hog-watcher-observations': (message) => {
+                // We only care about observations from other instances if we have a global state already loaded
                 if (!this.globalState) {
                     return
                 }
+
+                const { instanceId, observations }: EmittedHogWatcherObservations = JSON.parse(message)
 
                 observations.forEach(({ id, observation }) => {
                     const items = (this.globalState!.observations[id] = this.globalState!.observations[id] ?? [])
@@ -107,14 +119,18 @@ export class HogWatcher {
                 })
             },
 
-            'hog-watcher-states': (message) => {
-                // NOTE: This is only emitted by the leader so we can immediately add it to the list of states
+            'hog-watcher-user-state-change': (message) => {
+                if (!this.isLeader) {
+                    return
+                }
+
                 const { states }: EmittedHogWatcherStates = JSON.parse(message)
 
-                this.states = {
-                    ...this.states,
-                    ...states,
-                }
+                Object.entries(states).forEach(([id, state]) => {
+                    this.queuedManualStates[id] = state
+                })
+
+                void this.syncLoop()
             },
         })
     }
@@ -130,23 +146,14 @@ export class HogWatcher {
             return
         }
 
-        const loop = async () => {
-            try {
-                // Maybe add a slow function warning here
-                await this.sync()
-            } finally {
-                this.interval = setTimeout(loop, OBSERVATION_PERIOD)
-            }
-        }
-
-        await loop()
+        await this.syncLoop()
     }
 
     async stop() {
         await this.pubSub.stop()
 
-        if (this.interval) {
-            clearTimeout(this.interval)
+        if (this.syncTimer) {
+            clearTimeout(this.syncTimer)
         }
         if (!this.isLeader) {
             return
@@ -183,6 +190,16 @@ export class HogWatcher {
 
         if (this.isLeader) {
             status.info('👀', '[HogWatcher] I am the leader')
+        }
+    }
+
+    public syncLoop = async () => {
+        clearTimeout(this.syncTimer)
+        try {
+            // Maybe add a slow function warning here
+            await this.sync()
+        } finally {
+            this.syncTimer = setTimeout(() => this.syncLoop(), OBSERVATION_PERIOD)
         }
     }
 
@@ -344,11 +361,16 @@ export class HogWatcher {
                 // Also check the state change here
                 const newState = deriveCurrentStateFromRatings(globalState.ratings[id] ?? [], states)
 
-                console.log('STATE CHANGE', id, currentState, newState)
                 if (newState !== currentState) {
                     transitionToState(id, newState)
                 }
             }
+        })
+
+        // Finally we make sure any manual changes that came in are applied
+        Object.entries(this.queuedManualStates).forEach(([id, state]) => {
+            transitionToState(id, state)
+            delete this.queuedManualStates[id]
         })
 
         if (!changedHogFunctionRatings.size && !Object.keys(stateChanges.states).length) {
@@ -424,9 +446,16 @@ export class HogWatcher {
     }
 
     async forceStateChange(id: HogFunctionType['id'], state: HogWatcherState): Promise<void> {
-        status.info('👀', '[HogWatcher] Forcing state change', { id, state })
-        await Promise.resolve()
-        throw new Error('Not implemented')
+        // Ensure someone is the leader
+        await this.checkIsLeader()
+        const changes: EmittedHogWatcherStates = {
+            instanceId: this.instanceId,
+            states: {
+                [id]: state,
+            },
+        }
+
+        await this.pubSub.publish('hog-watcher-user-state-change', JSON.stringify(changes))
     }
 
     /**
