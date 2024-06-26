@@ -1,6 +1,6 @@
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.models import PropertyDefinition, Cohort
-from posthog.schema import HogQLMetadata, HogQLMetadataResponse, HogQLQuery
+from posthog.schema import HogQLMetadata, HogQLMetadataResponse
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from django.test import override_settings
 
@@ -13,7 +13,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             query=HogQLMetadata(
                 kind="HogQLMetadata",
                 expr=query,
-                exprSource=HogQLQuery(kind="HogQLQuery", query=f"select * from {table}"),
+                exprSource=f"select * from {table}",
                 response=None,
                 debug=debug,
             ),
