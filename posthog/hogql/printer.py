@@ -105,14 +105,13 @@ def prepare_ast_for_printing(
             resolve_in_cohorts_conjoined(node, dialect, context, stack)
     with context.timings.measure("resolve_types"):
         node = resolve_types(node, context, dialect=dialect, scopes=[node.type for node in stack] if stack else None)
-    if context.modifiers.inCohortVia == InCohortVia.LEFTJOIN:
-        with context.timings.measure("resolve_in_cohorts"):
-            resolve_in_cohorts(node, dialect, stack, context)
+
     if dialect == "clickhouse":
-        with context.timings.measure("resolve_property_types"):
-            node = resolve_property_types(node, context)
         with context.timings.measure("resolve_lazy_tables"):
             resolve_lazy_tables(node, dialect, stack, context)
+        # resolve_property_types has to come after lazy tables otherwise expressions on lazy tables don't get handled properly
+        with context.timings.measure("resolve_property_types"):
+            node = resolve_property_types(node, context)
 
         # We support global query settings, and local subquery settings.
         # If the global query is a select query with settings, merge the two.
@@ -121,6 +120,10 @@ def prepare_ast_for_printing(
                 if value is not None:
                     settings.__setattr__(key, value)
             node.settings = None
+
+    if context.modifiers.inCohortVia == InCohortVia.LEFTJOIN:
+        with context.timings.measure("resolve_in_cohorts"):
+            resolve_in_cohorts(node, dialect, stack, context)
 
     # We add a team_id guard right before printing. It's not a separate step here.
     return node

@@ -69,6 +69,15 @@ from posthog.models.sessions.sql import (
     SESSIONS_TABLE_SQL,
     SESSIONS_VIEW_SQL,
 )
+from posthog.models.raw_sessions.sql import (
+    DISTRIBUTED_RAW_SESSIONS_TABLE_SQL,
+    DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL,
+    DROP_RAW_SESSION_TABLE_SQL,
+    DROP_RAW_SESSION_VIEW_SQL,
+    RAW_SESSIONS_TABLE_MV_SQL,
+    RAW_SESSIONS_VIEW_SQL,
+    RAW_SESSIONS_TABLE_SQL,
+)
 from posthog.session_recordings.sql.session_recording_event_sql import (
     DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL,
     DROP_SESSION_RECORDING_EVENTS_TABLE_SQL,
@@ -885,10 +894,13 @@ class ClickhouseTestMixin(QueryMatchingTest):
     snapshot: Any
 
     def capture_select_queries(self):
-        return self.capture_queries(("SELECT", "WITH", "select", "with"))
+        return self.capture_queries_startswith(("SELECT", "WITH", "select", "with"))
+
+    def capture_queries_startswith(self, query_prefixes: Union[str, tuple[str, ...]]):
+        return self.capture_queries(lambda x: x.startswith(query_prefixes))
 
     @contextmanager
-    def capture_queries(self, query_prefixes: Union[str, tuple[str, ...]]):
+    def capture_queries(self, query_filter: Callable[[str], bool]):
         queries = []
         original_get_client = ch_pool.get_client
 
@@ -901,7 +913,7 @@ class ClickhouseTestMixin(QueryMatchingTest):
                 original_client_execute = client.execute
 
                 def execute_wrapper(query, *args, **kwargs):
-                    if sqlparse.format(query, strip_comments=True).strip().startswith(query_prefixes):
+                    if query_filter(sqlparse.format(query, strip_comments=True).strip()):
                         queries.append(query)
                     return original_client_execute(query, *args, **kwargs)
 
@@ -971,8 +983,11 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DROP_CHANNEL_DEFINITION_TABLE_SQL,
                 DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
                 DROP_SESSION_TABLE_SQL(),
+                DROP_RAW_SESSION_TABLE_SQL(),
                 DROP_SESSION_MATERIALIZED_VIEW_SQL(),
+                DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL(),
                 DROP_SESSION_VIEW_SQL(),
+                DROP_RAW_SESSION_VIEW_SQL(),
             ]
         )
         run_clickhouse_statement_in_parallel(
@@ -984,6 +999,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 CHANNEL_DEFINITION_TABLE_SQL(),
                 CHANNEL_DEFINITION_DICTIONARY_SQL,
                 SESSIONS_TABLE_SQL(),
+                RAW_SESSIONS_TABLE_SQL(),
             ]
         )
         run_clickhouse_statement_in_parallel(
@@ -993,8 +1009,11 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
                 CHANNEL_DEFINITION_DATA_SQL,
                 SESSIONS_TABLE_MV_SQL(),
+                RAW_SESSIONS_TABLE_MV_SQL(),
                 SESSIONS_VIEW_SQL(),
+                RAW_SESSIONS_VIEW_SQL(),
                 DISTRIBUTED_SESSIONS_TABLE_SQL(),
+                DISTRIBUTED_RAW_SESSIONS_TABLE_SQL(),
             ]
         )
 
@@ -1012,8 +1031,11 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DROP_CHANNEL_DEFINITION_TABLE_SQL,
                 DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
                 DROP_SESSION_TABLE_SQL(),
+                DROP_RAW_SESSION_TABLE_SQL(),
                 DROP_SESSION_MATERIALIZED_VIEW_SQL(),
+                DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL(),
                 DROP_SESSION_VIEW_SQL(),
+                DROP_RAW_SESSION_VIEW_SQL(),
             ]
         )
 
@@ -1026,6 +1048,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 CHANNEL_DEFINITION_TABLE_SQL(),
                 CHANNEL_DEFINITION_DICTIONARY_SQL,
                 SESSIONS_TABLE_SQL(),
+                RAW_SESSIONS_TABLE_SQL(),
             ]
         )
         run_clickhouse_statement_in_parallel(
@@ -1034,7 +1057,9 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSIONS_TABLE_SQL(),
+                DISTRIBUTED_RAW_SESSIONS_TABLE_SQL(),
                 SESSIONS_VIEW_SQL(),
+                RAW_SESSIONS_VIEW_SQL(),
                 CHANNEL_DEFINITION_DATA_SQL,
             ]
         )
@@ -1069,7 +1094,7 @@ def snapshot_clickhouse_alter_queries(fn):
 
     @wraps(fn)
     def wrapped(self, *args, **kwargs):
-        with self.capture_queries("ALTER") as queries:
+        with self.capture_queries_startswith("ALTER") as queries:
             fn(self, *args, **kwargs)
 
         for query in queries:
@@ -1086,7 +1111,7 @@ def snapshot_clickhouse_insert_cohortpeople_queries(fn):
 
     @wraps(fn)
     def wrapped(self, *args, **kwargs):
-        with self.capture_queries("INSERT INTO cohortpeople") as queries:
+        with self.capture_queries_startswith("INSERT INTO cohortpeople") as queries:
             fn(self, *args, **kwargs)
 
         for query in queries:
