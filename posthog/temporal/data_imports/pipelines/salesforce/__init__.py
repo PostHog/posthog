@@ -1,203 +1,26 @@
+"""Source for Salesforce depending on the simple_salesforce python package.
+
+Imported resources are: account, campaign, contact, lead, opportunity, pricebook_2, pricebook_entry, product_2, user and user_role
+
+Salesforce api docs: https://developer.salesforce.com/docs/apis
+
+To get the security token: https://onlinehelp.coveo.com/en/ces/7.0/administrator/getting_the_security_token_for_your_salesforce_account.htm
+"""
+
+from dlt.sources import DltResource
+from dlt.sources import incremental
+
+from typing import Iterable
+
 import dlt
-from dlt.sources.helpers.rest_client.paginators import BasePaginator
-from dlt.sources.helpers.requests import Response, Request
-from posthog.temporal.data_imports.pipelines.rest_source import RESTAPIConfig, rest_api_resources
-from posthog.temporal.data_imports.pipelines.rest_source.typing import EndpointResource
-from posthog.warehouse.models.external_table_definitions import get_dlt_mapping_for_external_table
+from simple_salesforce import Salesforce
+from dlt.common.typing import TDataItem
 
 
-def get_resource(name: str, is_incremental: bool, subdomain: str) -> EndpointResource:
-    resources: dict[str, EndpointResource] = {
-        "User": {
-            "name": "User",
-            "table_name": "user",
-            "primary_key": "id",
-            "write_disposition": "replace",
-            "endpoint": {
-                "data_selector": "records",
-                "path": "/services/data/v61.0/query",
-                "params": {
-                    "q": "SELECT FIELDS(STANDARD) FROM User",
-                },
-            },
-        },
-        "UserRole": {
-            "name": "UserRole",
-            "table_name": "user_role",
-            "primary_key": "id",
-            "write_disposition": "replace",
-            "endpoint": {
-                "data_selector": "records",
-                "path": "/services/data/v61.0/query",
-                "params": {
-                    "q": "SELECT FIELDS(STANDARD) FROM UserRole",
-                },
-            },
-        },
-        "Lead": {
-            "name": "Lead",
-            "table_name": "lead",
-            "primary_key": "id",
-            "write_disposition": "replace",
-            "endpoint": {
-                "data_selector": "records",
-                "path": "/services/data/v61.0/query",
-                "params": {
-                    "q": "SELECT FIELDS(STANDARD) FROM Lead",
-                },
-            },
-        },
-        "Contact": {
-            "name": "Contact",
-            "table_name": "contact",
-            "primary_key": "id",
-            "write_disposition": "replace",
-            "endpoint": {
-                "data_selector": "records",
-                "path": "/services/data/v61.0/query",
-                "params": {
-                    "q": "SELECT FIELDS(STANDARD) FROM Contact",
-                },
-            },
-        },
-        "Campaign": {
-            "name": "Campaign",
-            "table_name": "campaign",
-            "primary_key": "id",
-            "write_disposition": "replace",
-            "endpoint": {
-                "data_selector": "records",
-                "path": "/services/data/v61.0/query",
-                "params": {
-                    "q": "SELECT FIELDS(STANDARD) FROM Campaign",
-                },
-            },
-        },
-        "Product2": {
-            "name": "Product2",
-            "table_name": "product2",
-            "primary_key": "id",
-            "write_disposition": "replace",
-            "endpoint": {
-                "data_selector": "records",
-                "path": "/services/data/v61.0/query",
-                "params": {
-                    "q": "SELECT FIELDS(STANDARD) FROM Product2",
-                },
-            },
-        },
-        "Pricebook2": {
-            "name": "Pricebook2",
-            "table_name": "pricebook2",
-            "primary_key": "id",
-            "write_disposition": "replace",
-            "endpoint": {
-                "data_selector": "records",
-                "path": "/services/data/v61.0/query",
-                "params": {
-                    "q": "SELECT FIELDS(STANDARD) FROM Pricebook2",
-                },
-            },
-        },
-        "PricebookEntry": {
-            "name": "PricebookEntry",
-            "table_name": "pricebook_entry",
-            "primary_key": "id",
-            "write_disposition": "replace",
-            "endpoint": {
-                "data_selector": "records",
-                "path": "/services/data/v61.0/query",
-                "params": {
-                    "q": "SELECT FIELDS(STANDARD) FROM PricebookEntry",
-                },
-            },
-        },
-        "Account": {
-            "name": "Account",
-            "table_name": "account",
-            "primary_key": "id",
-            "write_disposition": "merge" if is_incremental else "replace",
-            "endpoint": {
-                "data_selector": "records",
-                "path": "/services/data/v61.0/query",
-                "paginator": SalesforceIncrementalPaginator(schema="Account", subdomain=subdomain),
-                "params": {
-                    "q": {
-                        "type": "incremental",
-                        "cursor_path": "SystemModstamp",
-                        "initial_value": "SELECT FIELDS(STANDARD) FROM Account WHERE SystemModstamp > 2000-01-01T00:00:00.000+0000",
-                    }
-                    if is_incremental
-                    else "SELECT FIELDS(STANDARD) FROM Account",
-                },
-            },
-        },
-    }
-
-    return resources[name]
+from .helpers import get_records
 
 
-class SalesforceIncrementalPaginator(BasePaginator):
-    def __init__(self, subdomain, schema):
-        super().__init__()
-        self.subdomain = subdomain
-        self.schema = schema
-
-    def update_state(self, response: Response) -> None:
-        res = response.json()
-
-        self._next_start_time = None
-        self._next_page = None
-
-        if not res:
-            self._has_next_page = False
-            return
-
-        if not res["done"]:
-            self._has_next_page = True
-            self._next_page = res["nextRecordsUrl"]
-
-            last_value_in_response = res["records"][-1]["SystemModstamp"]
-            self._next_start_time = last_value_in_response
-        else:
-            self._has_next_page = False
-
-    def update_request(self, request: Request) -> None:
-        if request.params is None:
-            request.params = {}
-
-        request.params["q"] = (
-            f"SELECT FIELDS(STANDARD) FROM {self.schema} WHERE SystemModstamp > {self._next_start_time}"
-        )
-
-        request.url = f"https://{self.subdomain}.my.salesforce.com{self._next_page}"
-
-
-class SalesforceEndpointPaginator(BasePaginator):
-    def __init__(self, subdomain):
-        super().__init__()
-        self.subdomain = subdomain
-
-    def update_state(self, response: Response) -> None:
-        res = response.json()
-
-        self._next_page = None
-
-        if not res:
-            self._has_next_page = False
-            return
-
-        if not res["done"]:
-            self._has_next_page = True
-            self._next_page = res["nextRecordsUrl"]
-        else:
-            self._has_next_page = False
-
-    def update_request(self, request: Request) -> None:
-        request.url = f"https://{self.subdomain}.my.salesforce.com{self._next_page}"
-
-
-@dlt.source(max_table_nesting=0)
+@dlt.source(name="salesforce", max_table_nesting=0)
 def salesforce_source(
     subdomain: str,
     access_token: str,
@@ -206,20 +29,138 @@ def salesforce_source(
     team_id: int,
     job_id: str,
     is_incremental: bool = False,
-):
-    config: RESTAPIConfig = {
-        "client": {
-            "base_url": f"https://{subdomain}.my.salesforce.com",
-            "auth": {
-                "type": "bearer",
-                "token": access_token,
-            },
-            "paginator": SalesforceEndpointPaginator(subdomain=subdomain),
-        },
-        "resource_defaults": {
-            "primary_key": "id",
-        },
-        "resources": [get_resource(endpoint, is_incremental, subdomain)],
-    }
+) -> Iterable[DltResource]:
+    """
+    Retrieves data from Salesforce using the Salesforce API.
 
-    yield from rest_api_resources(config, team_id, job_id)
+    Args:
+        user_name (str): The username for authentication. Defaults to the value in the `dlt.secrets` object.
+        password (str): The password for authentication. Defaults to the value in the `dlt.secrets` object.
+        security_token (str): The security token for authentication. Defaults to the value in the `dlt.secrets` object.
+
+    Yields:
+        DltResource: Data resources from Salesforce.
+    """
+
+    client = Salesforce(instance=f'{subdomain}.my.salesforce.com', session_id=access_token)
+
+
+    # define resources
+    @dlt.resource(write_disposition="replace")
+    def sf_user() -> Iterable[TDataItem]:
+        yield get_records(client, "User")
+
+    @dlt.resource(write_disposition="replace")
+    def user_role() -> Iterable[TDataItem]:
+        yield get_records(client, "UserRole")
+
+    @dlt.resource(write_disposition="merge")
+    def opportunity(
+        last_timestamp: incremental[str] = dlt.sources.incremental(
+            "SystemModstamp", initial_value=None
+        )
+    ) -> Iterable[TDataItem]:
+        yield get_records(
+            client, "Opportunity", last_timestamp.last_value, "SystemModstamp"
+        )
+
+    @dlt.resource(write_disposition="merge")
+    def opportunity_line_item(
+        last_timestamp: incremental[str] = dlt.sources.incremental(
+            "SystemModstamp", initial_value=None
+        )
+    ) -> Iterable[TDataItem]:
+        yield get_records(
+            client, "OpportunityLineItem", last_timestamp.last_value, "SystemModstamp"
+        )
+
+    @dlt.resource(write_disposition="merge")
+    def opportunity_contact_role(
+        last_timestamp: incremental[str] = dlt.sources.incremental(
+            "SystemModstamp", initial_value=None
+        )
+    ) -> Iterable[TDataItem]:
+        yield get_records(
+            client,
+            "OpportunityContactRole",
+            last_timestamp.last_value,
+            "SystemModstamp",
+        )
+
+    @dlt.resource(write_disposition="merge")
+    def account(
+        last_timestamp: incremental[str] = dlt.sources.incremental(
+            "LastModifiedDate", initial_value=None
+        )
+    ) -> Iterable[TDataItem]:
+        yield get_records(
+            client, "Account", last_timestamp.last_value, "LastModifiedDate"
+        )
+
+    @dlt.resource(write_disposition="replace")
+    def contact() -> Iterable[TDataItem]:
+        yield get_records(client, "Contact")
+
+    @dlt.resource(write_disposition="replace")
+    def lead() -> Iterable[TDataItem]:
+        yield get_records(client, "Lead")
+
+    @dlt.resource(write_disposition="replace")
+    def campaign() -> Iterable[TDataItem]:
+        yield get_records(client, "Campaign")
+
+    @dlt.resource(write_disposition="merge")
+    def campaign_member(
+        last_timestamp: incremental[str] = dlt.sources.incremental(
+            "SystemModstamp", initial_value=None
+        )
+    ) -> Iterable[TDataItem]:
+        yield get_records(
+            client, "CampaignMember", last_timestamp.last_value, "SystemModstamp"
+        )
+
+    @dlt.resource(write_disposition="replace")
+    def product_2() -> Iterable[TDataItem]:
+        yield get_records(client, "Product2")
+
+    @dlt.resource(write_disposition="replace")
+    def pricebook_2() -> Iterable[TDataItem]:
+        yield get_records(client, "Pricebook2")
+
+    @dlt.resource(write_disposition="replace")
+    def pricebook_entry() -> Iterable[TDataItem]:
+        yield get_records(client, "PricebookEntry")
+
+    @dlt.resource(write_disposition="merge")
+    def task(
+        last_timestamp: incremental[str] = dlt.sources.incremental(
+            "SystemModstamp", initial_value=None
+        )
+    ) -> Iterable[TDataItem]:
+        yield get_records(client, "Task", last_timestamp.last_value, "SystemModstamp")
+
+    @dlt.resource(write_disposition="merge")
+    def event(
+        last_timestamp: incremental[str] = dlt.sources.incremental(
+            "SystemModstamp", initial_value=None
+        )
+    ) -> Iterable[TDataItem]:
+        yield get_records(client, "Event", last_timestamp.last_value, "SystemModstamp")
+
+    return (
+        sf_user,
+        user_role,
+        opportunity,
+        opportunity_line_item,
+        opportunity_contact_role,
+        account,
+        contact,
+        lead,
+        campaign,
+        campaign_member,
+        product_2,
+        pricebook_2,
+        pricebook_entry,
+        task,
+        event,
+    )
