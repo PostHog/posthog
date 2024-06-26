@@ -87,7 +87,7 @@ export async function pollForResults(
 
     while (performance.now() - pollStart < QUERY_ASYNC_TOTAL_POLL_SECONDS * 1000) {
         await delay(currentDelay, methodOptions?.signal)
-        currentDelay = Math.min(currentDelay * 2, QUERY_ASYNC_MAX_INTERVAL_SECONDS * 1000)
+        currentDelay = Math.min(currentDelay * 1.25, QUERY_ASYNC_MAX_INTERVAL_SECONDS * 1000)
 
         try {
             const statusResponse = (await api.queryStatus.get(queryId, showProgress)).query_status
