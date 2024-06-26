@@ -202,7 +202,7 @@ class PersonsTable(LazyTable):
         for expr in exprs:
             if PersonsTable._is_promotable_expr(expr, alias):
                 # Erase "persons" from the chain before bringing inside
-                # expr.left = Field(chain=["id"])
+                expr.left = Field(chain=["id"])
                 promotable.append(expr)
             else:
                 not_promotable.append(expr)

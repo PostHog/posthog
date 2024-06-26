@@ -373,7 +373,7 @@ class Resolver(CloningVisitor):
             node = cast(ast.JoinExpr, clone_expr(node))
             if node.constraint and node.constraint.constraint_type == "USING":
                 # visit USING constraint before adding the table to avoid ambiguous names
-                node.constraint = self.visit_join_constraint(node.constraint)
+                node.constraint = self.visit_join_constraint(node.conqstraint)
 
             node.table = super().visit(node.table)
             if isinstance(node.table, ast.SelectQuery) and node.table.view_name is not None and node.alias is not None:

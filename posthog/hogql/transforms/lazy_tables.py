@@ -2,6 +2,7 @@ import dataclasses
 from typing import Optional, cast, Literal
 
 from posthog.hogql import ast
+from posthog.hogql.ast import LazyTableType
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import LazyTableToAdd, LazyJoinToAdd
 from posthog.hogql.database.schema.persons import PersonsTable
@@ -120,7 +121,7 @@ class LazyTableResolver(TraversingVisitor):
         assert node.type is not None
         assert select_type is not None
 
-        # Collect each `ast.Field` with `ast.LazyJoinType`
+        # Collect each `ast.Field` with `ast.LazyJoinType`#$#
         field_collector: list[ast.FieldType | ast.PropertyType] = []
         self.field_collectors.append(field_collector)
 
@@ -313,10 +314,16 @@ class LazyTableResolver(TraversingVisitor):
         # For all the collected tables, create the subqueries, and add them to the table.
         for table_name, table_to_add in tables_to_add.items():
             if isinstance(table_to_add.lazy_table, PersonsTable):
-                # make this better
-                table_to_add.lazy_table = table_to_add.lazy_table.create_new_table_with_filter(
-                    node.select_from.next_join
-                )
+                # find join
+                join = node.select_from
+                while True:
+                    if join is None or (
+                        isinstance(join.table.type, LazyTableType) and isinstance(join.table.type.table, PersonsTable)
+                    ):
+                        break
+                    join = join.next_join
+                if join is not None:
+                    table_to_add.lazy_table = table_to_add.lazy_table.create_new_table_with_filter(join)
             subquery = table_to_add.lazy_table.lazy_select(table_to_add, self.context, node=node)
             subquery = cast(ast.SelectQuery, clone_expr(subquery, clear_locations=True))
             subquery = cast(ast.SelectQuery, resolve_types(subquery, self.context, self.dialect, [node.type]))
