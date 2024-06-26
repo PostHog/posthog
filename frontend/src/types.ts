@@ -2597,12 +2597,9 @@ export interface Survey {
         selector: string
         seenSurveyWaitPeriodInDays?: number
         urlMatchType?: SurveyUrlMatchType
-        actionNames: string[]
         actions: {
             values: {
-                id: string
                 name: string
-                selector: string
             }[]
         } | null
         events: {

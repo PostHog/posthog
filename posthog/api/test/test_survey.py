@@ -337,7 +337,7 @@ class TestSurvey(APIBaseTest):
             format="json",
         ).json()
 
-        with self.assertNumQueries(14):
+        with self.assertNumQueries(16):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()
@@ -1791,7 +1791,9 @@ class TestSurveyQuestionValidationWithEnterpriseFeatures(APIBaseTest):
                 "name": "Notebooks beta release survey",
                 "description": "Get feedback on the new notebooks feature",
                 "type": "popover",
-                "conditions": {"actionNames": ["user subscribed", "user unsubscribed"]},
+                "conditions": {
+                    "actions": {"values": [{"name": "user subscribed"}, {"name": "user unsubscribed"}]},
+                },
                 "questions": [
                     {
                         "type": "open",
@@ -2022,7 +2024,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
 
     @snapshot_postgres_queries
     def test_list_surveys_with_actions(self):
-        Action.objects.create(
+        action = Action.objects.create(
             team=self.team,
             name="user subscribed",
             steps_json=[{"event": "$pageview", "url": "docs", "url_matching": "contains"}],
@@ -2052,44 +2054,47 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                         "description": "",
                         "type": "popover",
                         "questions": [{"type": "open", "question": "Why's a hedgehog?"}],
-                        "conditions": None,
+                        "conditions": {
+                            "actions": {
+                                "values": [
+                                    {
+                                        "id": action.id,
+                                        "name": "user subscribed",
+                                        "description": "",
+                                        "post_to_slack": False,
+                                        "slack_message_format": "",
+                                        "steps": [
+                                            {
+                                                "event": "$pageview",
+                                                "properties": None,
+                                                "selector": None,
+                                                "tag_name": None,
+                                                "text": None,
+                                                "text_matching": None,
+                                                "href": None,
+                                                "href_matching": None,
+                                                "url": "docs",
+                                                "url_matching": "contains",
+                                            }
+                                        ],
+                                        "created_at": ANY,
+                                        "created_by": None,
+                                        "deleted": False,
+                                        "is_calculating": False,
+                                        "last_calculated_at": ANY,
+                                        "team_id": self.team.id,
+                                        "is_action": True,
+                                        "bytecode_error": None,
+                                        "tags": [],
+                                    }
+                                ]
+                            }
+                        },
                         "appearance": None,
                         "start_date": None,
                         "end_date": None,
                         "current_iteration": None,
                         "current_iteration_start_date": None,
-                        "actions": [
-                            {
-                                "id": ANY,
-                                "name": "user subscribed",
-                                "description": "",
-                                "post_to_slack": False,
-                                "slack_message_format": "",
-                                "steps": [
-                                    {
-                                        "event": "$pageview",
-                                        "properties": None,
-                                        "selector": None,
-                                        "tag_name": None,
-                                        "text": None,
-                                        "text_matching": None,
-                                        "href": None,
-                                        "href_matching": None,
-                                        "url": "docs",
-                                        "url_matching": "contains",
-                                    }
-                                ],
-                                "created_at": ANY,
-                                "created_by": None,
-                                "deleted": False,
-                                "is_calculating": False,
-                                "last_calculated_at": ANY,
-                                "team_id": self.team.id,
-                                "is_action": True,
-                                "bytecode_error": None,
-                                "tags": [],
-                            }
-                        ],
                     }
                 ],
             )
@@ -2122,7 +2127,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
 
         self.client.logout()
 
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(3):
             response = self._get_surveys()
             assert response.status_code == status.HTTP_200_OK
             assert response.get("access-control-allow-origin") == "http://127.0.0.1:8000"

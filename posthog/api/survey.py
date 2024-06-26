@@ -42,7 +42,7 @@ class SurveySerializer(serializers.ModelSerializer):
     targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
     internal_targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
     created_by = UserBasicSerializer(read_only=True)
-    conditions = serializers.SerializerMethodField(method_name="get_conditions")
+    conditions = serializers.SerializerMethodField(method_name="get_conditions", read_only=True)
 
     class Meta:
         model = Survey
@@ -72,21 +72,25 @@ class SurveySerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "created_at", "created_by"]
 
-    def get_conditions(self, obj):
-        if obj.conditions is not None:
-            if obj.conditions.get("actionNames") is not None:
-                # actionNames can change between when the survey is created and when its retrieved.
-                # update the actionNames in the response from the real names of the actions as defined
-                # in data management.
-                obj.conditions["actionNames"] = obj.actions.all().values_list("name", flat=True)
-        return obj.conditions
+    def get_conditions(self, survey: Survey):
+        actions = survey.actions.all()
+        if len(actions) > 0:
+            # actionNames can change between when the survey is created and when its retrieved.
+            # update the actionNames in the response from the real names of the actions as defined
+            # in data management.
+            survey.conditions["actions"] = {"values": ActionSerializer(actions, many=True).data}
+        return survey.conditions
 
 
-class SurveySerializerCreateUpdateOnly(SurveySerializer):
+class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
+    linked_flag = MinimalFeatureFlagSerializer(read_only=True)
     linked_flag_id = serializers.IntegerField(required=False, write_only=True, allow_null=True)
     targeting_flag_id = serializers.IntegerField(required=False, write_only=True)
     targeting_flag_filters = serializers.JSONField(required=False, write_only=True, allow_null=True)
     remove_targeting_flag = serializers.BooleanField(required=False, write_only=True, allow_null=True)
+    targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
+    internal_targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
+    created_by = UserBasicSerializer(read_only=True)
 
     class Meta:
         model = Survey
@@ -99,6 +103,7 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
             "linked_flag_id",
             "targeting_flag_id",
             "targeting_flag",
+            "internal_targeting_flag",
             "targeting_flag_filters",
             "remove_targeting_flag",
             "questions",
@@ -317,11 +322,20 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
 
     def _associate_actions(self, instance: Survey, conditions: None):
         if conditions is None:
+            instance.actions.clear()
             return
 
-        action_names = conditions.get("actionNames")
-        if len(action_names) == 0:
+        actions = conditions.get("actions")
+        if actions is None:
+            instance.actions.clear()
             return
+
+        values = actions.get("values")
+        if values is None or len(values) == 0:
+            instance.actions.clear()
+            return
+
+        action_names = (value.get("name") for value in values)
 
         instance.actions.set(Action.objects.filter(name__in=action_names))
         instance.save()
@@ -463,7 +477,7 @@ class SurveyAPISerializer(serializers.ModelSerializer):
     linked_flag_key = serializers.CharField(source="linked_flag.key", read_only=True)
     targeting_flag_key = serializers.CharField(source="targeting_flag.key", read_only=True)
     internal_targeting_flag_key = serializers.CharField(source="internal_targeting_flag.key", read_only=True)
-    actions = serializers.SerializerMethodField(method_name="get_actions")
+    conditions = serializers.SerializerMethodField(method_name="get_conditions")
 
     class Meta:
         model = Survey
@@ -482,13 +496,21 @@ class SurveyAPISerializer(serializers.ModelSerializer):
             "end_date",
             "current_iteration",
             "current_iteration_start_date",
-            "actions",
         ]
         read_only_fields = fields
 
-    def get_actions(self, obj: Survey):
-        serializer = ActionSerializer(obj.actions.all(), many=True)
-        return serializer.data
+    def get_conditions(self, survey: Survey):
+        actions = survey.actions.all()
+        if len(actions) > 0:
+            # action names can change between when the survey is created and when its retrieved.
+            # update the actionNames in the response from the real names of the actions as defined
+            # in data management.
+            if survey.conditions is None:
+                survey.conditions = {}
+
+            survey.conditions["actions"] = {"values": ActionSerializer(actions, many=True).data}
+            # survey.conditions["actions"] =
+        return survey.conditions
 
 
 @csrf_exempt
