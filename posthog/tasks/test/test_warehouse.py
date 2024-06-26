@@ -10,9 +10,15 @@ class TestWarehouse(APIBaseTest):
     @patch("posthog.tasks.warehouse.MONTHLY_LIMIT", 100)
     @patch("posthog.tasks.warehouse.cancel_external_data_workflow")
     @patch("posthog.tasks.warehouse.pause_external_data_schedule")
+    @patch("ee.billing.quota_limiting.list_limited_team_attributes")
     def test_check_synced_row_limits_of_team(
-        self, pause_schedule_mock: MagicMock, cancel_workflow_mock: MagicMock
+        self,
+        list_limited_team_attributes_mock: MagicMock,
+        pause_schedule_mock: MagicMock,
+        cancel_workflow_mock: MagicMock,
     ) -> None:
+        list_limited_team_attributes_mock.return_value = [self.team.pk]
+
         source = ExternalDataSource.objects.create(
             source_id="test_id",
             connection_id="fake connectino_id",
