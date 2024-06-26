@@ -97,6 +97,11 @@ OVERFLOWING_KEYS_LOADED_GAUGE = Gauge(
     labelnames=[LABEL_RESOURCE_TYPE],
 )
 
+REPLAY_MESSAGE_SIZE_TOO_LARGE_COUNTER = Counter(
+    "capture_replay_message_size_too_large",
+    "Events dropped due to a replay message being too large",
+)
+
 # This is a heuristic of ids we have seen used as anonymous. As they frequently
 # have significantly more traffic than non-anonymous distinct_ids, and likely
 # don't refer to the same underlying person we prefer to partition them randomly
@@ -525,7 +530,7 @@ def get_event(request):
                 processed_events = list(preprocess_events(alternative_replay_events))
                 for event, event_uuid, distinct_id in processed_events:
                     futures.append(
-                        capture_internal(
+                        capture_internal_with_message_replacement(
                             event,
                             distinct_id,
                             ip,
@@ -534,7 +539,7 @@ def get_event(request):
                             sent_at,
                             event_uuid,
                             token,
-                            extra_headers=[("lib_version", lib_version)],
+                            lib_version,
                         )
                     )
 
@@ -549,6 +554,84 @@ def get_event(request):
 
     statsd.incr("posthog_cloud_raw_endpoint_success", tags={"endpoint": "capture"})
     return cors_response(request, JsonResponse({"status": 1}))
+
+
+def replace_with_warning(event: dict[str, Any]) -> dict[str, Any] | None:
+    """
+    Replace the event with a warning message if the event is too large to be sent to Kafka.
+    The event passed in should be safe to discard (because we know kafka won't accept it).
+    We do this so that when we're playing back the recording we can insert useful info in the UI.
+    """
+    try:
+        properties = event.pop("properties", {})
+        snapshot_items = properties.pop("$snapshot_items", [])
+        # since we had message too large there really should be an item in the list
+        # but just in case, since we would have dropped this anyway
+        if not snapshot_items:
+            return None
+
+        first_item = snapshot_items[0]
+        if not isinstance(first_item, dict) or ("$window_id" not in first_item and "timestamp" not in first_item):
+            return None
+
+        return {
+            **event,
+            "properties": {
+                **properties,
+                "$snapshot_bytes": 0,
+                "$snapshot_items": [
+                    {
+                        "type": 5,
+                        "data": {
+                            "tag": "Message too large",
+                        },
+                        "$window_id": first_item.get("$window_id"),
+                        "timestamp": first_item.get("timestamp"),
+                    }
+                ],
+            },
+        }
+    except Exception as ex:
+        capture_exception(ex)
+        return None
+
+
+def capture_internal_with_message_replacement(
+    event: dict[str, Any],
+    distinct_id: str,
+    ip: str,
+    site_url: str,
+    now: datetime,
+    sent_at: datetime | None,
+    event_uuid: UUIDT,
+    token: str | None,
+    lib_version: str,
+) -> FutureRecordMetadata:
+    try:
+        return capture_internal(
+            event,
+            distinct_id,
+            ip,
+            site_url,
+            now,
+            sent_at,
+            event_uuid,
+            token,
+            extra_headers=[("lib_version", lib_version)],
+        )
+    except MessageSizeTooLargeError:
+        REPLAY_MESSAGE_SIZE_TOO_LARGE_COUNTER.inc()
+        return capture_internal(
+            replace_with_warning(event),
+            distinct_id,
+            ip,
+            site_url,
+            now,
+            sent_at,
+            event_uuid,
+            token,
+            extra_headers=[("lib_version", lib_version)],
+        )
 
 
 def preprocess_events(events: list[dict[str, Any]]) -> Iterator[tuple[dict[str, Any], UUIDT, str]]:
