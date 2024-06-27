@@ -219,6 +219,18 @@ def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:
     return datetime.fromtimestamp(timestamp_number, timezone.utc)
 
 
+def _get_retry_count(request) -> int | None:
+    """
+    The web sdk advertises a retry count once it is retrying (other SDKs do not)
+    so it isn't guaranteed to be present
+    but can be used when present to try to check if a web client is retrying
+    """
+    try:
+        return int(request.GET.get("retry_count", 0))
+    except ValueError:
+        return None
+
+
 def _get_sent_at(data, request) -> tuple[Optional[datetime], Any]:
     try:
         if request.GET.get("_"):  # posthog-js
@@ -352,6 +364,8 @@ def get_event(request):
 
     if error_response:
         return error_response
+
+    retry_count = _get_retry_count(request)
 
     with start_span(op="request.authenticate"):
         token = get_token(data, request)
@@ -564,13 +578,19 @@ def get_event(request):
         with sentry_sdk.push_scope() as scope:
             scope.set_tag("capture-pathway", "replay")
             scope.set_tag("ph-team-token", token)
+            scope.set_tag("retry_count", retry_count)
             capture_exception(kte)
         # this means we're getting an event we can't process, we shouldn't swallow this
         # in production this is mostly seen as events with a missing distinct_id
+        status_code = 400 if retry_count is None or retry_count > 2 else 504
         return cors_response(
             request,
             generate_exception_response(
-                "capture", "timed out writing to kafka", type="timeout_error", code="kafka_timeout", status_code=504
+                "capture",
+                "timed out writing to kafka",
+                type="timeout_error",
+                code="kafka_timeout",
+                status_code=status_code,
             ),
         )
     except Exception as exc:

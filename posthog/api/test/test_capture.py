@@ -504,6 +504,21 @@ class TestCapture(BaseTest):
         assert response.status_code == 504
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_replay_capture_kafka_timeout_error_on_several_retries(self, kafka_produce: MagicMock) -> None:
+        kafka_produce.side_effect = KafkaTimeoutError()
+
+        response = self._send_august_2023_version_session_recording_event(
+            event_data=[
+                {"type": 2, "data": {"lots": "of data"}, "$window_id": "the window id", "timestamp": 1234567890}
+            ],
+            # the JS SDK advertises its retry count in the URL
+            query_params="retry_count=3",
+        )
+
+        # signal that the client should not retry, we don't want endless retries for unprocessable entries
+        assert response.status_code == 400
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_capture_snapshot_event_from_android(self, _kafka_produce: MagicMock) -> None:
         response = self._send_august_2023_version_session_recording_event(
             event_data=android_json,
