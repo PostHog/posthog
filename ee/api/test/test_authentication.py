@@ -699,7 +699,7 @@ YotAcSbU3p5bzd11wpyebYHB"""
             "Authentication failed: Your organization does not have the required license to use SAML.",
         )
 
-    def text_xmlsec_and_lxml(self):
+    def test_xmlsec_and_lxml(self):
         import xmlsec
         import lxml
 
