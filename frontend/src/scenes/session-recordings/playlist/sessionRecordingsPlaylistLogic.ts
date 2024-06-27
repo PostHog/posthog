@@ -173,7 +173,7 @@ function convertUniversalFiltersToLegacyFilters(universalFilters: RecordingUnive
     }
 }
 
-function convertLegacyFiltersToUniversalFilters(
+export function convertLegacyFiltersToUniversalFilters(
     simpleFilters?: RecordingFilters,
     advancedFilters?: RecordingFilters
 ): RecordingUniversalFilters {
@@ -204,10 +204,14 @@ function convertLegacyFiltersToUniversalFilters(
         : []
 
     return {
-        live_mode: filters.live_mode,
-        filter_test_accounts: filters.filter_test_accounts,
         date_from: filters.date_from || DEFAULT_RECORDING_UNIVERSAL_FILTERS['date_from'],
         date_to: filters.date_to || DEFAULT_RECORDING_UNIVERSAL_FILTERS['date_to'],
+        live_mode:
+            filters.live_mode == undefined ? DEFAULT_RECORDING_UNIVERSAL_FILTERS['live_mode'] : filters.live_mode,
+        filter_test_accounts:
+            filters.filter_test_accounts == undefined
+                ? DEFAULT_RECORDING_UNIVERSAL_FILTERS['filter_test_accounts']
+                : filters.filter_test_accounts,
         duration: filters.session_recording_duration
             ? [{ ...filters.session_recording_duration, key: filters.duration_type_filter || 'duration' }]
             : DEFAULT_RECORDING_UNIVERSAL_FILTERS['duration'],

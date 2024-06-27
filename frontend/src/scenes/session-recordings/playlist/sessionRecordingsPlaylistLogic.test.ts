@@ -7,6 +7,7 @@ import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, RecordingF
 
 import { sessionRecordingDataLogic } from '../player/sessionRecordingDataLogic'
 import {
+    convertLegacyFiltersToUniversalFilters,
     DEFAULT_RECORDING_FILTERS,
     DEFAULT_SIMPLE_RECORDING_FILTERS,
     defaultRecordingDurationFilter,
@@ -375,7 +376,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
 
         it('reads filters from the URL', async () => {
             router.actions.push('/replay', {
-                filters: {
+                advancedFilters: {
                     actions: [{ id: '1', type: 'actions', order: 0, name: 'View Recording' }],
                     events: [{ id: '$autocapture', type: 'events', order: 0, name: '$autocapture' }],
                     date_from: '2021-10-01',
@@ -586,6 +587,94 @@ describe('sessionRecordingsPlaylistLogic', () => {
             logic.mount()
 
             expectLogic(logic).toMatchValues({ showOtherRecordings: true })
+        })
+    })
+
+    describe('convertLegacyFiltersToUniversalFilters', () => {
+        it('should return the defaults if values are missing', () => {
+            const result = convertLegacyFiltersToUniversalFilters(undefined, {})
+            expect(result).toEqual({
+                date_from: '-3d',
+                date_to: undefined,
+                duration: [
+                    {
+                        key: 'duration',
+                        operator: 'gt',
+                        type: 'recording',
+                        value: 1,
+                    },
+                ],
+                filter_group: {
+                    type: 'AND',
+                    values: [
+                        {
+                            type: 'AND',
+                            values: [],
+                        },
+                    ],
+                },
+                filter_test_accounts: false,
+                live_mode: false,
+            })
+        })
+        it('should parse even the most complex queries', () => {
+            const result = convertLegacyFiltersToUniversalFilters(
+                {
+                    events: [{ key: 'email', value: ['email@posthog.com'], operator: 'exact', type: 'person' }],
+                },
+                {
+                    date_from: '-7d',
+                    events: [{ key: 'email', value: ['test@posthog.com'], operator: 'exact', type: 'person' }],
+                    console_logs: ['info', 'warn'],
+                    console_search_query: 'this is a query log',
+                    filter_test_accounts: true,
+                    duration_type_filter: 'active_seconds',
+                    session_recording_duration: {
+                        type: PropertyFilterType.Recording,
+                        key: 'duration',
+                        value: 3600,
+                        operator: PropertyOperator.GreaterThan,
+                    },
+                }
+            )
+            expect(result).toEqual({
+                date_from: '-7d',
+                date_to: undefined,
+                duration: [
+                    {
+                        key: 'active_seconds',
+                        operator: 'gt',
+                        type: 'recording',
+                        value: 3600,
+                    },
+                ],
+                filter_group: {
+                    type: 'AND',
+                    values: [
+                        {
+                            type: 'AND',
+                            values: [
+                                { key: 'email', value: ['email@posthog.com'], operator: 'exact', type: 'person' },
+                                { key: 'email', value: ['test@posthog.com'], operator: 'exact', type: 'person' },
+                                {
+                                    key: 'console_log_level',
+                                    operator: 'exact',
+                                    type: 'recording',
+                                    value: ['info', 'warn'],
+                                },
+                                {
+                                    key: 'console_log_query',
+                                    operator: 'exact',
+                                    type: 'recording',
+                                    value: ['this is a query log'],
+                                },
+                            ],
+                        },
+                    ],
+                },
+                filter_test_accounts: true,
+                live_mode: false,
+            })
         })
     })
 })
