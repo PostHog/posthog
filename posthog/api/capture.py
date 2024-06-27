@@ -104,6 +104,12 @@ REPLAY_MESSAGE_SIZE_TOO_LARGE_COUNTER = Counter(
     "Events dropped due to a replay message being too large",
 )
 
+KAFKA_TIMEOUT_ERROR_COUNTER = Counter(
+    "capture_replay_kafka_timeout_error",
+    "kafka timeout error while writing to replay kafka topic",
+    labelnames=["retry_count", "status_code"],
+)
+
 # This is a heuristic of ids we have seen used as anonymous. As they frequently
 # have significantly more traffic than non-anonymous distinct_ids, and likely
 # don't refer to the same underlying person we prefer to partition them randomly
@@ -575,14 +581,17 @@ def get_event(request):
             generate_exception_response("capture", f"Invalid recording payload", code="invalid_payload"),
         )
     except KafkaTimeoutError as kte:
-        with sentry_sdk.push_scope() as scope:
-            scope.set_tag("capture-pathway", "replay")
-            scope.set_tag("ph-team-token", token)
-            scope.set_tag("retry_count", retry_count)
-            capture_exception(kte)
-        # this means we're getting an event we can't process, we shouldn't swallow this
-        # in production this is mostly seen as events with a missing distinct_id
         status_code = 400 if (retry_count or 0) > 2 else 504
+
+        KAFKA_TIMEOUT_ERROR_COUNTER.labels(retry_count=retry_count, status_code=status_code).inc()
+
+        if status_code == 504:
+            with sentry_sdk.push_scope() as scope:
+                scope.set_tag("capture-pathway", "replay")
+                scope.set_tag("ph-team-token", token)
+                scope.set_tag("retry_count", retry_count)
+                capture_exception(kte)
+
         return cors_response(
             request,
             generate_exception_response(
