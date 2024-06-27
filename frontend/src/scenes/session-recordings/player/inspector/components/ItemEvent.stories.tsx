@@ -56,7 +56,7 @@ const BasicTemplate: StoryFn<typeof ItemEvent> = (props: Partial<ItemEventProps>
     const propsToUse = props as ItemEventProps
 
     return (
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2 min-w-96">
             <h3>Collapsed</h3>
             <ItemEvent {...propsToUse} expanded={false} />
             <LemonDivider />
