@@ -698,3 +698,10 @@ YotAcSbU3p5bzd11wpyebYHB"""
             str(e.exception),
             "Authentication failed: Your organization does not have the required license to use SAML.",
         )
+
+    def text_xmlsec_and_lxml(self):
+        import xmlsec
+        import lxml
+
+        assert "1.3.13" == xmlsec.__version__
+        assert "4.9.4" == lxml.__version__
