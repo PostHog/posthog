@@ -522,7 +522,7 @@ def get_event(request):
                 replay_events, settings.SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES
             )
 
-            futures = []
+            futures: list[FutureRecordMetadata | None] = []
 
             # We want to be super careful with our new ingestion flow for now so the whole thing is separated
             # This is mostly a copy of above except we only log, we don't error out
@@ -545,7 +545,8 @@ def get_event(request):
 
                 start_time = time.monotonic()
                 for future in futures:
-                    future.get(timeout=settings.KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS - (time.monotonic() - start_time))
+                    if future is not None:
+                        future.get(timeout=settings.KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS - (time.monotonic() - start_time))
 
     except Exception as exc:
         capture_exception(exc, {"data": data})
@@ -563,6 +564,7 @@ def replace_with_warning(event: dict[str, Any]) -> dict[str, Any] | None:
     We do this so that when we're playing back the recording we can insert useful info in the UI.
     """
     try:
+        #
         properties = event.pop("properties", {})
         snapshot_items = properties.pop("$snapshot_items", [])
         # since we had message too large there really should be an item in the list
@@ -606,7 +608,7 @@ def capture_internal_with_message_replacement(
     event_uuid: UUIDT,
     token: str | None,
     lib_version: str,
-) -> FutureRecordMetadata:
+) -> FutureRecordMetadata | None:
     try:
         return capture_internal(
             event,
@@ -621,8 +623,12 @@ def capture_internal_with_message_replacement(
         )
     except MessageSizeTooLargeError:
         REPLAY_MESSAGE_SIZE_TOO_LARGE_COUNTER.inc()
+        warning_event = replace_with_warning(event)
+        if not warning_event:
+            return None
+
         return capture_internal(
-            replace_with_warning(event),
+            warning_event,
             distinct_id,
             ip,
             site_url,
