@@ -121,6 +121,7 @@ REPLAY_CAPTURE_PRODUCTION_HISTOGRAM = Histogram(
 REPLAY_CAPTURE_PRODUCTION_COUNT_HISTOGRAM = Histogram(
     "capture_replay_production_count",
     "Number of kafka messages produced per each replay API call",
+    buckets=[1, 2, 4, 8, 16, 32, 64, 128, 256, 512],
 )
 
 # This is a heuristic of ids we have seen used as anonymous. As they frequently
