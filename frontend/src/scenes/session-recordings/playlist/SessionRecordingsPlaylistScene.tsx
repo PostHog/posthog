@@ -10,6 +10,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 
 import { SessionRecordingsPlaylist } from './SessionRecordingsPlaylist'
+import { convertLegacyFiltersToUniversalFilters } from './sessionRecordingsPlaylistLogic'
 import { sessionRecordingsPlaylistSceneLogic } from './sessionRecordingsPlaylistSceneLogic'
 
 export const scene: SceneExport = {
@@ -133,6 +134,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                 <div className="SessionRecordingPlaylistHeightWrapper">
                     <SessionRecordingsPlaylist
                         advancedFilters={playlist.filters}
+                        universalFilters={convertLegacyFiltersToUniversalFilters({}, playlist.filters)}
                         hideSimpleFilters={true}
                         onFiltersChange={setFilters}
                         onPinnedChange={onPinnedChange}
