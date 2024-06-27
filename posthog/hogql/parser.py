@@ -208,7 +208,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             if start is not None and end is not None and e.start is None or e.end is None:
                 e.start = start
                 e.end = end
-            raise e
+            raise
 
     def visitProgram(self, ctx: HogQLParser.ProgramContext):
         declarations: list[ast.Declaration] = []

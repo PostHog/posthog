@@ -49,6 +49,29 @@ export function renderColumn(
                 </span>
             </Tooltip>
         )
+    } else if (
+        typeof value === 'object' &&
+        Array.isArray(value) &&
+        value[0] === '__hogql_chart_type' &&
+        value[1] === 'sparkline'
+    ) {
+        const object: Record<string, any> = {}
+        for (let i = 0; i < value.length; i += 2) {
+            object[value[i]] = value[i + 1]
+        }
+        if ('results' in object && Array.isArray(object.results)) {
+            // TODO: If results aren't an array of numbers, show a helpful message on using sparkline()
+            return (
+                <Sparkline
+                    data={[
+                        {
+                            name: key.includes('__hogql_chart_type') ? 'Data' : key,
+                            values: object.results.map((v: any) => Number(v)),
+                        },
+                    ]}
+                />
+            )
+        }
     } else if (isHogQLQuery(query.source)) {
         if (typeof value === 'string') {
             try {
@@ -79,26 +102,6 @@ export function renderColumn(
         }
         if (typeof value === 'object') {
             if (Array.isArray(value)) {
-                if (value[0] === '__hogql_chart_type' && value[1] === 'sparkline') {
-                    const object: Record<string, any> = {}
-                    for (let i = 0; i < value.length; i += 2) {
-                        object[value[i]] = value[i + 1]
-                    }
-                    if ('results' in object && Array.isArray(object.results)) {
-                        // TODO: If results aren't an array of numbers, show a helpful message on using sparkline()
-                        return (
-                            <Sparkline
-                                data={[
-                                    {
-                                        name: key.includes('__hogql_chart_type') ? 'Data' : key,
-                                        values: object.results.map((v: any) => Number(v)),
-                                    },
-                                ]}
-                            />
-                        )
-                    }
-                }
-
                 return <JSONViewer src={value} name={key} collapsed={value.length > 10 ? 0 : 1} />
             }
             return <JSONViewer src={value} name={key} collapsed={Object.keys(value).length > 10 ? 0 : 1} />

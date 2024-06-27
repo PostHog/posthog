@@ -132,7 +132,7 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             if safe_expose_ch_error:
                 self._safe_expose_ch_error(err)
             else:
-                raise err
+                raise
 
         if result is None or isinstance(result, int):
             raise Exception("No columns types provided by clickhouse in get_columns")
@@ -165,7 +165,7 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             if safe_expose_ch_error:
                 self._safe_expose_ch_error(err)
             else:
-                raise err
+                raise
 
         return result[0][0]
 

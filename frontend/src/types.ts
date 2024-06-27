@@ -2163,6 +2163,7 @@ export interface TrendsFilterType extends FilterType {
     show_values_on_series?: boolean
     show_labels_on_series?: boolean
     show_percent_stack_view?: boolean
+    y_axis_scale_type?: 'log10' | 'linear'
 }
 
 export interface StickinessFilterType extends FilterType {
@@ -4230,9 +4231,10 @@ export type HogFunctionType = {
     >
     filters?: PluginConfigFilters | null
     template?: HogFunctionTemplateType
+    status?: HogFunctionStatus
 }
 
-export type HogFunctionConfigurationType = Omit<HogFunctionType, 'created_at' | 'created_by' | 'updated_at'>
+export type HogFunctionConfigurationType = Omit<HogFunctionType, 'created_at' | 'created_by' | 'updated_at' | 'status'>
 
 export type HogFunctionTemplateType = Pick<
     HogFunctionType,
@@ -4245,6 +4247,25 @@ export type HogFunctionIconResponse = {
     id: string
     name: string
     url: string
+}
+
+export enum HogWatcherState {
+    healthy = 1,
+    overflowed = 2,
+    disabledForPeriod = 3,
+    disabledIndefinitely = 4,
+}
+
+export type HogFunctionStatus = {
+    state: HogWatcherState
+    states: {
+        timestamp: number
+        state: HogWatcherState
+    }[]
+    ratings: {
+        timestamp: number
+        rating: number
+    }[]
 }
 
 export interface AnomalyCondition {

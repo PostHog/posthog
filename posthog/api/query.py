@@ -93,7 +93,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         except Exception as e:
             self.handle_column_ch_error(e)
             capture_exception(e)
-            raise e
+            raise
 
     @extend_schema(
         description="(Experimental)",
