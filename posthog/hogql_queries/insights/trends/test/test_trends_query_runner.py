@@ -10,7 +10,7 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql_queries.insights.trends.breakdown import BREAKDOWN_NULL_STRING_LABEL
+from posthog.hogql_queries.insights.trends.breakdown import BREAKDOWN_NULL_DISPLAY, BREAKDOWN_NULL_STRING_LABEL
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner, BREAKDOWN_OTHER_DISPLAY
 from posthog.models.cohort.cohort import Cohort
 from posthog.models import GroupTypeMapping
@@ -3851,4 +3851,83 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ["Firefox", "20", "false"],
             ["Edge", "30", "true"],
             ["Safari", "40", "false"],
+        ]
+
+    def test_to_actors_query_options_orders_options_with_histogram_breakdowns(self):
+        self._create_test_events()
+        self._create_events(
+            [
+                SeriesTestData(
+                    distinct_id="p99",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=["2020-01-09T12:00:00Z", "2020-01-12T12:00:00Z"],
+                        ),
+                        Series(
+                            event="$pageleave",
+                            timestamps=[
+                                "2020-01-13T12:00:00Z",
+                            ],
+                        ),
+                    ],
+                    properties={},
+                ),
+            ]
+        )
+        flush_persons_and_events()
+
+        runner = self._create_query_runner(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(
+                breakdown_type=BreakdownType.EVENT,
+                breakdown="prop",
+                breakdown_histogram_bin_count=4,
+            ),
+        )
+
+        response = runner.to_actors_query_options()
+
+        assert response.series == [InsightActorsQuerySeries(label="$pageview", value=0)]
+        assert response.breakdown == [
+            BreakdownItem(label="[10,17.5]", value="[10,17.5]"),
+            BreakdownItem(label="[17.5,25]", value="[17.5,25]"),
+            BreakdownItem(label="[25,32.5]", value="[25,32.5]"),
+            BreakdownItem(label="[32.5,40.01]", value="[32.5,40.01]"),
+            BreakdownItem(label='["",""]', value='["",""]'),
+            BreakdownItem(label=BREAKDOWN_NULL_DISPLAY, value=BREAKDOWN_NULL_STRING_LABEL),
+        ]
+
+        runner = self._create_query_runner(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(
+                breakdowns=[
+                    Breakdown(
+                        type=BreakdownType.EVENT,
+                        property="prop",
+                        histogram_bin_count=4,
+                    )
+                ]
+            ),
+        )
+        response = runner.to_actors_query_options()
+
+        assert response.series == [InsightActorsQuerySeries(label="$pageview", value=0)]
+        assert response.breakdowns is not None
+        assert response.series == [InsightActorsQuerySeries(label="$pageview", value=0)]
+        assert response.breakdowns[0].values == [
+            BreakdownItem(label="[10,17.5]", value="[10,17.5]"),
+            BreakdownItem(label="[17.5,25]", value="[17.5,25]"),
+            BreakdownItem(label="[25,32.5]", value="[25,32.5]"),
+            BreakdownItem(label="[32.5,40.01]", value="[32.5,40.01]"),
+            BreakdownItem(label='["",""]', value='["",""]'),
+            BreakdownItem(label=BREAKDOWN_NULL_DISPLAY, value=BREAKDOWN_NULL_STRING_LABEL),
         ]

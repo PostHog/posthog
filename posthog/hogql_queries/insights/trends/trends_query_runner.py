@@ -1020,6 +1020,14 @@ class TrendsQueryRunner(QueryRunner):
         if histogram_breakdown:
             breakdown_values.append(BREAKDOWN_NUMERIC_ALL_VALUES_PLACEHOLDER)
 
+            if BREAKDOWN_OTHER_STRING_LABEL in breakdown_values:
+                breakdown_values.remove(BREAKDOWN_OTHER_STRING_LABEL)
+                breakdown_values.append(BREAKDOWN_OTHER_STRING_LABEL)
+
+            if BREAKDOWN_NULL_STRING_LABEL in breakdown_values:
+                breakdown_values.remove(BREAKDOWN_NULL_STRING_LABEL)
+                breakdown_values.append(BREAKDOWN_NULL_STRING_LABEL)
+
         res_breakdown: list[BreakdownItem] = []
         for value in breakdown_values:
             if value == BREAKDOWN_OTHER_STRING_LABEL:
