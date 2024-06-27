@@ -21,7 +21,7 @@ const MAX_LOG_LENGTH = 10000
 const DEFAULT_TIMEOUT_MS = 100
 
 const hogExecutionDuration = new Histogram({
-    name: 'hog_function_execution_duration_ms',
+    name: 'cdp_hog_function_execution_duration_ms',
     help: 'Processing time and success status of internal functions',
     // We have a timeout so we don't need to worry about much more than that
     buckets: [0, 10, 20, 50, 100, 200],
