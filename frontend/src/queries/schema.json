@@ -8410,6 +8410,7 @@
                 "InitialUTMMedium",
                 "InitialUTMTerm",
                 "InitialUTMContent",
+                "InitialUTMSourceMediumCampaign",
                 "Browser",
                 "OS",
                 "DeviceType",

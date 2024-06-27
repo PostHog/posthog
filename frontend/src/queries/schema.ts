@@ -1204,6 +1204,7 @@ export enum WebStatsBreakdown {
     InitialUTMMedium = 'InitialUTMMedium',
     InitialUTMTerm = 'InitialUTMTerm',
     InitialUTMContent = 'InitialUTMContent',
+    InitialUTMSourceMediumCampaign = 'InitialUTMSourceMediumCampaign',
     Browser = 'Browser',
     OS = 'OS',
     DeviceType = 'DeviceType',

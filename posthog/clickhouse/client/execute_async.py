@@ -83,9 +83,10 @@ class QueryStatusManager:
 
         return json.loads(byte_results) if byte_results is not None else {}
 
-    def update_clickhouse_query_progress(self, initial_query_id, clickhouse_query_progress):
+    def update_clickhouse_query_progresses(self, clickhouse_query_progresses):
         clickhouse_query_progress_dict = self._get_clickhouse_query_progress_dict()
-        clickhouse_query_progress_dict[initial_query_id] = clickhouse_query_progress
+        for clickhouse_query_progress in clickhouse_query_progresses:
+            clickhouse_query_progress_dict[clickhouse_query_progress["query_id"]] = clickhouse_query_progress
         self._store_clickhouse_query_progress_dict(clickhouse_query_progress_dict)
 
     def has_results(self):
@@ -117,7 +118,7 @@ class QueryStatusManager:
                     query_progress["active_cpu_time"] += single_query_progress["active_cpu_time"]
                 query_status.query_progress = ClickhouseQueryProgress(**query_progress)
             except Exception as e:
-                logger.error("Clickhouse Status Check Failed", error=e)
+                logger.exception("Clickhouse Status Check Failed", error=e)
                 pass
 
         return query_status
@@ -186,10 +187,10 @@ def execute_process_query(
         logger.exception("Error processing query for team %s query %s", team_id, query_id)
         sentry_sdk.capture_exception(err)
         # Do not raise here, the task itself did its job and we cannot recover
-    except Exception as err:  # We cannot reveal anything about the error
+    except Exception:  # We cannot reveal anything about the error
         query_status.results = None  # Clear results in case they are faulty
         logger.exception("Error processing query for team %s query %s", team_id, query_id)
-        raise err
+        raise
     finally:
         manager.store_query_status(query_status)
 
