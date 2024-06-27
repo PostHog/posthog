@@ -554,6 +554,6 @@ class TestResolver(BaseTest):
         node: ast.SelectQuery = self._select("select <Sparkline data={[1,2,3]} />")
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
 
-        node2 = self._select("select sparkline([1,2,3])")
+        node2 = self._select("select sparkline((1,2,3))")
         node2 = cast(ast.SelectQuery, resolve_types(node2, self.context, dialect="clickhouse"))
         assert node == node2
