@@ -2018,8 +2018,8 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
     def test_options_unauthenticated(self):
         unauthenticated_client = Client(enforce_csrf_checks=True)
         unauthenticated_client.logout()
-        request_headers = {"HTTP_ACCESS_CONTROL_REQUEST_METHOD": "GET", "HTTP_ORIGIN": "*", "USER_AGENT": "Agent 008"}
-        response = unauthenticated_client.options("/api/surveys", {}, **request_headers)
+        headers = {"HTTP_ACCESS_CONTROL_REQUEST_METHOD": "GET", "HTTP_ORIGIN": "*", "USER_AGENT": "Agent 008"}
+        response = unauthenticated_client.options("/api/surveys", data={}, follow=False, secure=False, headers=headers)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.headers["Access-Control-Allow-Origin"], "*")
 
