@@ -25,7 +25,6 @@ from posthog.schema import (
 )
 
 BREAKDOWN_NULL_DISPLAY = "(none)"
-BREAKDOWN_NULL_VALUE = "$$_posthog_breakdown_null_$$"
 
 
 class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
@@ -542,10 +541,6 @@ ORDER BY "context.columns.visitors" DESC,
             )
 
         return path_expr
-
-
-def coalesce_with_null_value(*exprs: ast.Expr) -> ast.Expr:
-    return ast.Call(name="coalesce", args=[*exprs, ast.Constant(value=BREAKDOWN_NULL_VALUE)])
 
 
 def coalesce_with_null_display(*exprs: ast.Expr) -> ast.Expr:
