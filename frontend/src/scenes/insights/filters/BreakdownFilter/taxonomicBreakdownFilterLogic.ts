@@ -218,6 +218,10 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                     : ([breakdown] as (string | number)[])
 
             if (values.isMultipleBreakdownsEnabled && isMultipleBreakdownType(breakdownType)) {
+                if (checkBreakdownExists(values.breakdownFilter.breakdowns, breakdown, breakdownType)) {
+                    return
+                }
+
                 const newBreakdown = {
                     property: breakdown as string,
                     type: breakdownType,
@@ -302,14 +306,20 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             }
         },
         replaceBreakdown: ({ previousBreakdown, newBreakdown }) => {
-            const breakdownType = taxonomicFilterTypeToPropertyFilterType(newBreakdown.group.type) as BreakdownType
+            const breakdownType = taxonomicFilterTypeToPropertyFilterType(newBreakdown.group.type) as
+                | BreakdownType
+                | undefined
             const breakdownValue = newBreakdown.value
 
             const propertyDefinitionType = propertyFilterTypeToPropertyDefinitionType(breakdownType)
             const isHistogramable =
                 !!values.getPropertyDefinition(breakdownValue, propertyDefinitionType)?.is_numerical && props.isTrends
 
-            if (!props.updateBreakdownFilter || !breakdownType) {
+            if (
+                !props.updateBreakdownFilter ||
+                !breakdownType ||
+                (breakdownType === previousBreakdown.type && breakdownValue === previousBreakdown.value)
+            ) {
                 return
             }
 
@@ -437,5 +447,15 @@ function updateNestedBreakdown(
                   ...breakdownUpdate,
               }
             : savedBreakdown
+    )
+}
+
+function checkBreakdownExists(
+    breakdowns: Breakdown[] | undefined,
+    lookupValue: string | number | null,
+    lookupType: string
+): boolean {
+    return !!breakdowns?.find(
+        (savedBreakdown) => savedBreakdown.property === lookupValue && savedBreakdown.type === lookupType
     )
 }
