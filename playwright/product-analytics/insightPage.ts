@@ -20,6 +20,14 @@ export class InsightPage {
     readonly detailsLabels: Locator
     readonly detailsLoader: Locator
 
+    // menu
+    readonly moreButton: Locator
+    readonly toggleEditorButton: Locator
+
+    // source editor
+    readonly editor: Locator
+    readonly updateSourceButton: Locator
+
     constructor(page: Page) {
         this.page = page
 
@@ -33,6 +41,12 @@ export class InsightPage {
 
         this.detailsLabels = page.getByTestId('insights-table-graph').locator('.insights-label')
         this.detailsLoader = page.locator('.LemonTableLoader')
+
+        this.moreButton = page.getByTestId('more-button')
+        this.toggleEditorButton = page.getByTestId('show-insight-source')
+
+        this.editor = this.page.locator('.monaco-editor')
+        this.updateSourceButton = page.getByRole('button', { name: 'Update and run' })
     }
 
     async goToNew(insightType?: InsightType): Promise<InsightPage> {
@@ -90,5 +104,26 @@ export class InsightPage {
         await this.topBarName.getByRole('button').click()
         await this.topBarName.getByRole('textbox').fill(insightName)
         await this.topBarName.getByRole('button').getByText('Save').click()
+    }
+
+    /*
+     * Query editor
+     */
+    async openSourceEditor(): Promise<void> {
+        await this.moreButton.click()
+        await this.toggleEditorButton.click()
+    }
+
+    async changeQuerySource(code: string): Promise<void> {
+        await this.editor.click()
+
+        // clear text
+        await this.page.keyboard.press('Control+KeyA')
+        await this.page.keyboard.press('Backspace')
+
+        // insert text
+        await this.page.keyboard.insertText(code)
+
+        await this.updateSourceButton.click()
     }
 }

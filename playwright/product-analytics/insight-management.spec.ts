@@ -80,3 +80,23 @@ test('can undo insight metadata edit', async ({ page }) => {
         }
     )
 })
+
+test('can edit insight query by source', async ({ page }) => {
+    const insight = await new InsightPage(page).createNew()
+
+    const queryText =
+        '{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","filterTestAccounts":false,"series":[{"kind":"EventsNode","event":"$pageview","name":"$pageview","math":"total"},{"kind":"EventsNode","event":"$autocapture","name":"$autocapture","math":"total"}],"interval":"day","trendsFilter":{"display":"ActionsLineGraph"}},"full":true}'
+    await insight.openSourceEditor()
+    await insight.changeQuerySource(queryText)
+
+    await insight.save()
+
+    // labels in details table match
+    await insight.withReload(async () => {
+        await insight.waitForDetailsTable()
+
+        // test series labels
+        const labels = await insight.detailsLabels.allInnerTexts()
+        expect(labels).toEqual(['Pageview', 'Autocapture'])
+    })
+})
