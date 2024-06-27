@@ -29,7 +29,7 @@ class Visitor(Generic[T]):
             if e.start is None or e.end is None:
                 e.start = node.start
                 e.end = node.end
-            raise e
+            raise
 
 
 class TraversingVisitor(Visitor[None]):

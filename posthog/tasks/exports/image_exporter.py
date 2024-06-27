@@ -111,14 +111,14 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
 
         os.remove(image_path)
 
-    except Exception as err:
+    except Exception:
         # Ensure we clean up the tmp file in case anything went wrong
         if image_path and os.path.exists(image_path):
             os.remove(image_path)
 
         log_error_if_site_url_not_reachable()
 
-        raise err
+        raise
 
 
 def _screenshot_asset(
@@ -137,7 +137,7 @@ def _screenshot_asset(
         try:
             WebDriverWait(driver, 20).until_not(lambda x: x.find_element_by_class_name("Spinner"))
         except TimeoutException:
-            logger.error(
+            logger.exception(
                 "image_exporter.timeout",
                 url_to_render=url_to_render,
                 wait_for_css_selector=wait_for_css_selector,
@@ -172,7 +172,7 @@ def _screenshot_asset(
                     pass
         capture_exception(e)
 
-        raise e
+        raise
     finally:
         if driver:
             driver.quit()
@@ -217,4 +217,4 @@ def export_image(exported_asset: ExportedAsset) -> None:
 
             logger.error("image_exporter.failed", exception=e, exc_info=True)
             EXPORT_FAILED_COUNTER.labels(type="image").inc()
-            raise e
+            raise
