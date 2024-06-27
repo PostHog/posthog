@@ -318,16 +318,13 @@ class FunnelBase(ABC):
     @property
     def _absolute_actors_step(self) -> Optional[int]:
         """The actor query's 1-indexed target step converted to our 0-indexed SQL form. Never a negative integer."""
-        if self.context.actorsQuery is None:
+        if self.context.actorsQuery is None or self.context.actorsQuery.funnelStep is None:
             return None
+
         target_step = self.context.actorsQuery.funnelStep
-        if target_step is None:
-            return None
         if target_step < 0:
-            # the first valid dropoff argument for funnel_step is -2
-            # -2 refers to persons who performed the first step but never made it to the second
             if target_step == -1:
-                raise ValueError("To request dropoff of initial step use -2")
+                raise ValueError("The first valid drop-off argument for funnelStep is -2. -2 refers to persons who performed the first step but never made it to the second.")
             return abs(target_step) - 2
         elif target_step == 0:
             raise ValueError("Funnel steps are 1-indexed, so step 0 doesn't exist")
