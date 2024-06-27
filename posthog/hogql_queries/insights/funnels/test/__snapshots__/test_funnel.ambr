@@ -100,7 +100,7 @@
   '''
   SELECT persons.id,
          persons.id AS id,
-         toTimeZone(persons.created_at, 'UTC') AS created_at,
+         persons.created_at AS created_at,
          1
   FROM
     (SELECT aggregation_target AS actor_id
@@ -225,7 +225,7 @@
                                                    ORDER BY aggregation_target ASC) AS source)))
      GROUP BY person.id
      HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
-  ORDER BY toTimeZone(persons.created_at, 'UTC') DESC
+  ORDER BY persons.created_at DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -543,7 +543,7 @@
   '''
   SELECT persons.id,
          persons.id AS id,
-         toTimeZone(persons.created_at, 'UTC') AS created_at,
+         persons.created_at AS created_at,
          1
   FROM
     (SELECT aggregation_target AS actor_id
@@ -689,7 +689,7 @@
                                                    ORDER BY aggregation_target ASC) AS source)))
      GROUP BY person.id
      HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
-  ORDER BY toTimeZone(persons.created_at, 'UTC') DESC
+  ORDER BY persons.created_at DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -705,7 +705,7 @@
   '''
   SELECT persons.id,
          persons.id AS id,
-         toTimeZone(persons.created_at, 'UTC') AS created_at,
+         persons.created_at AS created_at,
          1
   FROM
     (SELECT aggregation_target AS actor_id
@@ -851,7 +851,7 @@
                                                    ORDER BY aggregation_target ASC) AS source)))
      GROUP BY person.id
      HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
-  ORDER BY toTimeZone(persons.created_at, 'UTC') DESC
+  ORDER BY persons.created_at DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -867,7 +867,7 @@
   '''
   SELECT persons.id,
          persons.id AS id,
-         toTimeZone(persons.created_at, 'UTC') AS created_at,
+         persons.created_at AS created_at,
          1
   FROM
     (SELECT aggregation_target AS actor_id
@@ -1013,7 +1013,7 @@
                                                    ORDER BY aggregation_target ASC) AS source)))
      GROUP BY person.id
      HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
-  ORDER BY toTimeZone(persons.created_at, 'UTC') DESC
+  ORDER BY persons.created_at DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
