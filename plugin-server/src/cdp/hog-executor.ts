@@ -1,7 +1,7 @@
 import { convertHogToJS, convertJSToHog, exec, ExecResult, VMState } from '@posthog/hogvm'
 import { DateTime } from 'luxon'
+import { Histogram } from 'prom-client'
 
-import { PluginsServerConfig } from '../types'
 import { status } from '../utils/status'
 import { UUIDT } from '../utils/utils'
 import { HogFunctionManager } from './hog-function-manager'
@@ -16,6 +16,16 @@ import {
 import { convertToHogFunctionFilterGlobal } from './utils'
 
 const MAX_ASYNC_STEPS = 2
+const MAX_HOG_LOGS = 10
+const MAX_LOG_LENGTH = 10000
+const DEFAULT_TIMEOUT_MS = 100
+
+const hogExecutionDuration = new Histogram({
+    name: 'cdp_hog_function_execution_duration_ms',
+    help: 'Processing time and success status of internal functions',
+    // We have a timeout so we don't need to worry about much more than that
+    buckets: [0, 10, 20, 50, 100, 200],
+})
 
 export const formatInput = (bytecode: any, globals: HogFunctionInvocation['globals']): any => {
     // Similar to how we generate the bytecode by iterating over the values,
@@ -25,7 +35,7 @@ export const formatInput = (bytecode: any, globals: HogFunctionInvocation['globa
     if (Array.isArray(bytecode) && bytecode[0] === '_h') {
         const res = exec(bytecode, {
             globals,
-            timeout: 100,
+            timeout: DEFAULT_TIMEOUT_MS,
             maxAsyncSteps: 0,
         })
 
@@ -67,66 +77,81 @@ export const addLog = (result: HogFunctionInvocationResult, level: HogFunctionLo
 }
 
 export class HogExecutor {
-    constructor(private serverConfig: PluginsServerConfig, private hogFunctionManager: HogFunctionManager) {}
+    constructor(private hogFunctionManager: HogFunctionManager) {}
 
-    /**
-     * Intended to be invoked as a starting point from an event
-     */
-    executeMatchingFunctions(event: HogFunctionInvocationGlobals): HogFunctionInvocationResult[] {
+    findMatchingFunctions(event: HogFunctionInvocationGlobals): {
+        total: number
+        matching: number
+        functions: HogFunctionType[]
+    } {
         const allFunctionsForTeam = this.hogFunctionManager.getTeamHogFunctions(event.project.id)
-
         const filtersGlobals = convertToHogFunctionFilterGlobal(event)
 
         // Filter all functions based on the invocation
-        const functions = Object.fromEntries(
-            Object.entries(allFunctionsForTeam).filter(([_key, value]) => {
-                try {
-                    const filters = value.filters
+        const functions = allFunctionsForTeam.filter((hogFunction) => {
+            try {
+                const filters = hogFunction.filters
 
-                    if (!filters?.bytecode) {
-                        // NOTE: If we don't have bytecode this indicates something went wrong.
-                        // The model will always save a bytecode if it was compiled correctly
-                        return false
-                    }
-
-                    const filterResult = exec(filters.bytecode, {
-                        globals: filtersGlobals,
-                        timeout: 100,
-                        maxAsyncSteps: 0,
-                    })
-
-                    if (typeof filterResult.result !== 'boolean') {
-                        // NOTE: If the result is not a boolean we should not execute the function
-                        return false
-                    }
-
-                    return filterResult.result
-                } catch (error) {
-                    status.error('🦔', `[HogExecutor] Error filtering function`, {
-                        hogFunctionId: value.id,
-                        hogFunctionName: value.name,
-                        error: error.message,
-                    })
+                if (!filters?.bytecode) {
+                    // NOTE: If we don't have bytecode this indicates something went wrong.
+                    // The model will always save a bytecode if it was compiled correctly
+                    return false
                 }
 
-                return false
-            })
-        )
+                const filterResult = exec(filters.bytecode, {
+                    globals: filtersGlobals,
+                    timeout: DEFAULT_TIMEOUT_MS,
+                    maxAsyncSteps: 0,
+                })
 
-        if (!Object.keys(functions).length) {
-            return []
-        }
+                if (typeof filterResult.result !== 'boolean') {
+                    // NOTE: If the result is not a boolean we should not execute the function
+                    return false
+                }
 
-        status.info(
+                return filterResult.result
+            } catch (error) {
+                status.error('🦔', `[HogExecutor] Error filtering function`, {
+                    hogFunctionId: hogFunction.id,
+                    hogFunctionName: hogFunction.name,
+                    error: error.message,
+                })
+            }
+
+            return false
+        })
+
+        status.debug(
             '🦔',
             `[HogExecutor] Found ${Object.keys(functions).length} matching functions out of ${
                 Object.keys(allFunctionsForTeam).length
             } for team`
         )
 
-        const results: HogFunctionInvocationResult[] = []
+        return {
+            total: allFunctionsForTeam.length,
+            matching: functions.length,
+            functions,
+        }
+    }
 
-        for (const hogFunction of Object.values(functions)) {
+    /**
+     * Intended to be invoked as a starting point from an event
+     */
+    executeFunctions(
+        event: HogFunctionInvocationGlobals,
+        functionsOrIds: HogFunctionType[] | HogFunctionType['id'][]
+    ): HogFunctionInvocationResult[] {
+        const functions = functionsOrIds
+            .map((x) => {
+                if (typeof x === 'string') {
+                    return this.hogFunctionManager.getTeamHogFunction(event.project.id, x) as HogFunctionType
+                }
+                return x as HogFunctionType
+            })
+            .filter((x) => x) // Filter out any undefined values
+
+        const results = functions.map((hogFunction) => {
             // Add the source of the trigger to the globals
             const modifiedGlobals: HogFunctionInvocationGlobals = {
                 ...event,
@@ -136,7 +161,7 @@ export class HogExecutor {
                 },
             }
 
-            const result = this.execute(hogFunction, {
+            return this.execute(hogFunction, {
                 id: new UUIDT().toString(),
                 globals: modifiedGlobals,
                 teamId: hogFunction.team_id,
@@ -144,9 +169,7 @@ export class HogExecutor {
                 logs: [],
                 timings: [],
             })
-
-            results.push(result)
-        }
+        })
 
         return results
     }
@@ -158,13 +181,6 @@ export class HogExecutor {
         if (!invocation.hogFunctionId) {
             throw new Error('No hog function id provided')
         }
-
-        // TODO: The VM takes care of ensuring we don't get stuck in a loop but we should add some extra protection
-        // to be super sure
-
-        const hogFunction = this.hogFunctionManager.getTeamHogFunctions(invocation.globals.project.id)[
-            invocation.hogFunctionId
-        ]
 
         const baseInvocation: HogFunctionInvocation = {
             id: invocation.id,
@@ -181,6 +197,11 @@ export class HogExecutor {
             finished: false,
             error,
         })
+
+        const hogFunction = this.hogFunctionManager.getTeamHogFunction(
+            invocation.globals.project.id,
+            invocation.hogFunctionId
+        )
 
         if (!hogFunction) {
             return errorRes(`Hog Function with ID ${invocation.hogFunctionId} not found`)
@@ -243,9 +264,10 @@ export class HogExecutor {
             }
 
             try {
+                let hogLogs = 0
                 execRes = exec(state ?? hogFunction.bytecode, {
                     globals,
-                    timeout: 100, // NOTE: This will likely be configurable in the future
+                    timeout: DEFAULT_TIMEOUT_MS, // TODO: Swap this to milliseconds when the package is updated
                     maxAsyncSteps: MAX_ASYNC_STEPS, // NOTE: This will likely be configurable in the future
                     asyncFunctions: {
                         // We need to pass these in but they don't actually do anything as it is a sync exec
@@ -253,9 +275,26 @@ export class HogExecutor {
                     },
                     functions: {
                         print: (...args) => {
-                            const message = args
+                            hogLogs++
+                            if (hogLogs == MAX_HOG_LOGS) {
+                                addLog(
+                                    result,
+                                    'warn',
+                                    `Function exceeded maximum log entries. No more logs will be collected.`
+                                )
+                            }
+
+                            if (hogLogs >= MAX_HOG_LOGS) {
+                                return
+                            }
+
+                            let message = args
                                 .map((arg) => (typeof arg !== 'string' ? JSON.stringify(arg) : arg))
                                 .join(', ')
+
+                            if (message.length > MAX_LOG_LENGTH) {
+                                message = message.slice(0, MAX_LOG_LENGTH) + '... (truncated)'
+                            }
                             addLog(result, 'info', message)
                         },
                     },
@@ -266,6 +305,7 @@ export class HogExecutor {
             }
 
             const duration = performance.now() - start
+            hogExecutionDuration.observe(duration)
 
             result.finished = execRes.finished
             result.timings.push({
