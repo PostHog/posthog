@@ -35,7 +35,7 @@ from posthog.hogql.resolver import resolve_types
 from posthog.hogql.resolver_utils import lookup_field_by_name
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
-from posthog.hogql.transforms.property_types import build_property_swapper, PropertySwapper, NoContextException
+from posthog.hogql.transforms.property_types import build_property_swapper, PropertySwapper
 from posthog.hogql.visitor import Visitor, clone_expr
 from posthog.models.property import PropertyName, TableColumn
 from posthog.models.team.team import WeekStartDay
@@ -110,10 +110,10 @@ def prepare_ast_for_printing(
 
     if dialect == "clickhouse":
         with context.timings.measure("resolve_property_types"):
-            try:
-                build_property_swapper(node, context)
-            except NoContextException:
+            build_property_swapper(node, context)
+            if context.property_swapper is None:
                 return None
+
             # It would be nice to be able to run property swapping after we resolve lazy tables, so that logic added onto the lazy tables
             # could pass through the swapper. However, in the PropertySwapper, the group_properties and the S3 Table join
             # rely on the existence of lazy tables in the AST. They must be run before we resolve lazy tables. Because groups are

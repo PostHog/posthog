@@ -13,15 +13,11 @@ from posthog.schema import PersonsOnEventsMode
 from posthog.hogql.database.s3_table import S3Table
 
 
-class NoContextException(Exception):
-    pass
-
-
 def build_property_swapper(node: ast.Expr, context: HogQLContext) -> None:
     from posthog.models import PropertyDefinition
 
     if not context or not context.team_id:
-        raise NoContextException("Cannot run query without context")
+        return
 
     # find all properties
     property_finder = PropertyFinder(context)
