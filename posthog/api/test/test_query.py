@@ -18,7 +18,6 @@ from posthog.schema import (
     PersonPropertyFilter,
     PropertyOperator,
     CachedHogQLQueryResponse,
-    Priority,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -852,7 +851,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                         "task_id": mock.ANY,
                         "team_id": mock.ANY,
                         "query_progress": None,
-                        "priority": Priority.HIGH.value,
+                        "labels": None,
                     }
                 },
             )
