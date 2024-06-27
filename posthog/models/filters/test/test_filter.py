@@ -1,7 +1,6 @@
 import datetime
 import json
 from typing import Any, Optional, cast
-import structlog
 
 from collections.abc import Callable
 
@@ -20,8 +19,6 @@ from posthog.test.base import (
     snapshot_postgres_queries,
     snapshot_postgres_queries_context,
 )
-
-logger = structlog.get_logger(__name__)
 
 
 class TestFilter(BaseTest):
