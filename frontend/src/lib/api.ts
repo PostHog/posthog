@@ -44,6 +44,7 @@ import {
     Group,
     GroupListParams,
     HogFunctionIconResponse,
+    HogFunctionStatus,
     HogFunctionTemplateType,
     HogFunctionType,
     InsightModel,
@@ -1695,6 +1696,10 @@ const api = {
             }
         ): Promise<any> {
             return await new ApiRequest().hogFunction(id).withAction('invocations').create({ data })
+        },
+
+        async getStatus(id: HogFunctionType['id']): Promise<HogFunctionStatus> {
+            return await new ApiRequest().hogFunction(id).withAction('status').get()
         },
     },
 
