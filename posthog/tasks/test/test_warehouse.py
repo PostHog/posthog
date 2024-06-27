@@ -73,6 +73,7 @@ class TestWarehouse(APIBaseTest):
 
         assert mock_ph_client.capture.call_count == 1
         mock_ph_client.capture.assert_called_with(
+            self.team.pk,
             "external data sync job",
             {
                 "team_id": self.team.pk,
@@ -127,6 +128,7 @@ class TestWarehouse(APIBaseTest):
 
         assert mock_ph_client.capture.call_count == 1
         mock_ph_client.capture.assert_called_with(
+            self.team.pk,
             "external data sync job",
             {
                 "team_id": self.team.pk,
