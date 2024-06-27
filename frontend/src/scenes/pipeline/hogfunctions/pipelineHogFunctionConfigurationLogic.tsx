@@ -191,6 +191,31 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
         },
     })),
     selectors(() => ({
+        defaultFormState: [
+            (s) => [s.template, s.hogFunction],
+            (template, hogFunction): HogFunctionConfigurationType => {
+                if (template) {
+                    // Fill defaults from template
+                    const inputs = {}
+
+                    template.inputs_schema?.forEach((schema) => {
+                        if (schema.default) {
+                            inputs[schema.key] = { value: schema.default }
+                        }
+                    })
+
+                    return {
+                        ...template,
+                        inputs,
+                        enabled: false,
+                    }
+                } else if (hogFunction) {
+                    return hogFunction
+                }
+                return {} as HogFunctionConfigurationType
+            },
+        ],
+
         loading: [
             (s) => [s.hogFunctionLoading, s.templateLoading],
             (hogFunctionLoading, templateLoading) => hogFunctionLoading || templateLoading,
@@ -236,24 +261,9 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
     })),
 
     listeners(({ actions, values, cache, props }) => ({
-        loadTemplateSuccess: ({ template }) => {
-            // Fill defaults from template
-            const inputs = {}
-
-            template!.inputs_schema?.forEach((schema) => {
-                if (schema.default) {
-                    inputs[schema.key] = { value: schema.default }
-                }
-            })
-
-            actions.resetForm({
-                ...template!,
-                inputs,
-                enabled: false,
-            })
-        },
-        loadHogFunctionSuccess: ({ hogFunction }) => actions.resetForm(hogFunction!),
-        upsertHogFunctionSuccess: ({ hogFunction }) => actions.resetForm(hogFunction),
+        loadTemplateSuccess: () => actions.resetForm(),
+        loadHogFunctionSuccess: () => actions.resetForm(),
+        upsertHogFunctionSuccess: () => actions.resetForm(),
 
         upsertHogFunctionFailure: ({ errorObject }) => {
             const maybeValidationError = errorObject.data
@@ -279,11 +289,9 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
             }
         },
 
-        resetForm: ({ configuration }) => {
-            const savedValue = configuration
+        resetForm: () => {
             actions.resetConfiguration({
-                ...savedValue,
-                inputs: savedValue?.inputs ?? {},
+                ...values.defaultFormState,
                 ...(cache.configFromUrl || {}),
             })
         },
@@ -331,8 +339,23 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
         },
         resetToTemplate: async () => {
             if (values.hogFunction?.template) {
-                actions.resetForm({
+                const template = values.hogFunction.template
+                // Fill defaults from template
+                const inputs = {}
+
+                template.inputs_schema?.forEach((schema) => {
+                    if (schema.default) {
+                        inputs[schema.key] = { value: schema.default }
+                    }
+                })
+
+                actions.setConfigurationValues({
                     ...values.hogFunction.template,
+                    filters: values.configuration.filters ?? template.filters,
+                    // Keep some existing things
+                    name: values.configuration.name,
+                    description: values.configuration.description,
+                    inputs,
                     enabled: false,
                 })
             }

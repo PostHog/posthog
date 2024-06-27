@@ -165,7 +165,10 @@ abstract class CdpConsumerBase {
             func: async () => {
                 this.hogWatcher.currentObservations.observeAsyncFunctionResponses(asyncResponses)
                 // Filter for blocked functions
-                asyncResponses = asyncResponses.filter((item) => {
+
+                const asyncResponsesToRun: HogFunctionInvocationAsyncResponse[] = []
+
+                for (const item of asyncResponses) {
                     const functionState = this.hogWatcher.getFunctionState(item.hogFunctionId)
 
                     if (functionState === HogWatcherState.overflowed) {
@@ -178,16 +181,17 @@ abstract class CdpConsumerBase {
                             },
                             key: item.id,
                         })
-                        return false
-                    }
-                    if (functionState > HogWatcherState.disabledForPeriod) {
+                    } else if (functionState > HogWatcherState.disabledForPeriod) {
                         // TODO: Report to AppMetrics 2 when it is ready
-                        return false
+                        continue
+                    } else {
+                        asyncResponsesToRun.push(item)
                     }
-                    return true
-                })
+                }
 
-                const results = await Promise.all(asyncResponses.map((e) => this.hogExecutor.executeAsyncResponse(e)))
+                const results = await Promise.all(
+                    asyncResponsesToRun.map((e) => this.hogExecutor.executeAsyncResponse(e))
+                )
                 this.hogWatcher.currentObservations.observeResults(results)
                 return results
             },
