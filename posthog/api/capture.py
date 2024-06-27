@@ -1,5 +1,7 @@
 import json
 import re
+
+import sentry_sdk
 import structlog
 import time
 from collections.abc import Iterator
@@ -547,7 +549,16 @@ def get_event(request):
                 for future in futures:
                     if future is not None:
                         future.get(timeout=settings.KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS - (time.monotonic() - start_time))
-
+    except ValueError as e:
+        with sentry_sdk.push_scope() as scope:
+            scope.set_tag("capture-pathway", "replay")
+            capture_exception(e)
+        # this means we're getting an event we can't process, we shouldn't swallow this
+        # in production this is mostly seen as events with a missing distinct_id
+        return cors_response(
+            request,
+            generate_exception_response("capture", f"Invalid recording payload", code="invalid_payload"),
+        )
     except Exception as exc:
         capture_exception(exc, {"data": data})
         logger.error("kafka_session_recording_produce_failure", exc_info=exc)
