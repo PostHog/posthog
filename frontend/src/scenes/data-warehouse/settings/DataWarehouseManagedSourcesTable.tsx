@@ -21,6 +21,7 @@ import googleStorageLogo from 'public/google-cloud-storage-logo.png'
 import hubspotLogo from 'public/hubspot-logo.svg'
 import postgresLogo from 'public/postgres-logo.svg'
 import s3Logo from 'public/s3-logo.png'
+import salesforceLogo from 'public/salesforce-logo.svg'
 import snowflakeLogo from 'public/snowflake-logo.svg'
 import stripeLogo from 'public/stripe-logo.svg'
 import zendeskLogo from 'public/zendesk-logo.svg'
@@ -247,6 +248,7 @@ export function RenderDataWarehouseSourceIcon({
         aws: s3Logo,
         'google-cloud': googleStorageLogo,
         'cloudflare-r2': cloudflareLogo,
+        Salesforce: salesforceLogo,
     }[type]
 
     return (

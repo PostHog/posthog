@@ -212,11 +212,31 @@ function FirstStep(): JSX.Element {
 }
 
 function SecondStep(): JSX.Element {
-    const { selectedConnector } = useValues(sourceWizardLogic)
+    const { selectedConnector, source } = useValues(sourceWizardLogic)
+
+    let showPrefix = true
+    let showSourceFields = true
+    if (selectedConnector?.name === 'Salesforce') {
+        if (source.payload.code && source.payload.subdomain) {
+            showPrefix = true
+            showSourceFields = false
+        } else {
+            showPrefix = false
+            showSourceFields = true
+        }
+    }
 
     return (
         <ModalPage page={2}>
-            {selectedConnector ? <SourceForm sourceConfig={selectedConnector} /> : <DatawarehouseTableForm />}
+            {selectedConnector ? (
+                <SourceForm
+                    sourceConfig={selectedConnector}
+                    showPrefix={showPrefix}
+                    showSourceFields={showSourceFields}
+                />
+            ) : (
+                <DatawarehouseTableForm />
+            )}
         </ModalPage>
     )
 }

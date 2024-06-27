@@ -2942,6 +2942,9 @@ export interface PreflightStatus {
         hubspot: {
             client_id?: string
         }
+        salesforce: {
+            client_id?: string
+        }
     }
     /** Whether PostHog is running in DEBUG mode. */
     is_debug?: boolean
@@ -3811,7 +3814,7 @@ export enum DataWarehouseSettingsTab {
     SelfManaged = 'self_managed',
 }
 
-export const externalDataSources = ['Stripe', 'Hubspot', 'Postgres', 'Zendesk', 'Snowflake'] as const
+export const externalDataSources = ['Stripe', 'Hubspot', 'Postgres', 'Zendesk', 'Snowflake', 'Salesforce'] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
 
