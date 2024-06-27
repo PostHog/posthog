@@ -426,6 +426,53 @@ class TestResolver(BaseTest):
 
         assert hogql == expected
 
+    def test_visit_hogqlx_sparkline(self):
+        node = self._select("select <Sparkline data={[1,2,3]} />")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        expected = ast.SelectQuery(
+            select=[
+                ast.Tuple(
+                    exprs=[
+                        ast.Constant(value="__hx_tag"),
+                        ast.Constant(value="Sparkline"),
+                        ast.Constant(value="data"),
+                        ast.Tuple(
+                            exprs=[
+                                ast.Constant(value=1),
+                                ast.Constant(value=2),
+                                ast.Constant(value=3),
+                            ]
+                        ),
+                    ]
+                )
+            ],
+        )
+        assert clone_expr(node, clear_types=True) == expected
+
+    def test_visit_hogqlx_object(self):
+        node = self._select("select {'key': {'key': 'value'}}")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        expected = ast.SelectQuery(
+            select=[
+                ast.Tuple(
+                    exprs=[
+                        ast.Constant(value="__hx_tag"),
+                        ast.Constant(value="__hx_obj"),
+                        ast.Constant(value="key"),
+                        ast.Tuple(
+                            exprs=[
+                                ast.Constant(value="__hx_tag"),
+                                ast.Constant(value="__hx_obj"),
+                                ast.Constant(value="key"),
+                                ast.Constant(value="value"),
+                            ]
+                        ),
+                    ]
+                )
+            ],
+        )
+        assert clone_expr(node, clear_types=True) == expected
+
     def _assert_first_columm_is_type(self, node: ast.SelectQuery, type: ast.ConstantType):
         column_type = node.select[0].type
         assert column_type is not None

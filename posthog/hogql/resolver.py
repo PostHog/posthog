@@ -706,6 +706,9 @@ class Resolver(CloningVisitor):
 
         return node
 
+    def visit_dict(self, node: ast.Dict):
+        return self.visit(convert_to_hx(node))
+
     def visit_constant(self, node: ast.Constant):
         node = super().visit_constant(node)
         node.type = resolve_constant_data_type(node.value)
