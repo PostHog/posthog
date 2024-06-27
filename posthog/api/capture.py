@@ -552,7 +552,7 @@ def get_event(request):
     except ValueError as e:
         with sentry_sdk.push_scope() as scope:
             scope.set_tag("capture-pathway", "replay")
-            scope.set_tag("ph-token", token)
+            scope.set_tag("ph-team-token", token)
             capture_exception(e)
         # this means we're getting an event we can't process, we shouldn't swallow this
         # in production this is mostly seen as events with a missing distinct_id
