@@ -1101,7 +1101,7 @@ class TimelineEntry(BaseModel):
     sessionId: Optional[str] = Field(default=None, description="Session ID. None means out-of-session events")
 
 
-class YAxisScaleType(str, Enum):
+class YAxisScaleType(StrEnum):
     LOG10 = "log10"
     LINEAR = "linear"
 
