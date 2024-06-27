@@ -26,7 +26,8 @@ export function renderColumnMeta(key: string, query: DataTableNode, context?: Qu
             title = title.substring(1, title.length - 1)
         }
         if (title.startsWith("tuple('__hx_tag', '")) {
-            title = '<' + title.substring(19, title.indexOf("'", 19)) + ' />'
+            const tagName = title.substring(19, title.indexOf("'", 19))
+            title = tagName === '__hx_obj' ? 'Object' : '<' + tagName + ' />'
         }
     } else if (key === 'timestamp') {
         title = 'Time'

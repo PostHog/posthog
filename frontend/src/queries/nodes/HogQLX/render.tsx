@@ -26,7 +26,7 @@ export function renderHogQLX(value: any): JSX.Element {
         const tag = object.__hx_tag ?? null
 
         if (tag === null) {
-            return <JSONViewer src={object} collapsed={Object.keys(object).length > 10 ? 0 : 1} />
+            return <JSONViewer src={object} name={null} collapsed={Object.keys(object).length > 10 ? 0 : 1} />
         } else if (tag === 'Sparkline') {
             const { data, type } = object
             return (
