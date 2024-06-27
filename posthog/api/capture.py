@@ -12,7 +12,7 @@ from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from enum import Enum
-from kafka.errors import KafkaError, MessageSizeTooLargeError
+from kafka.errors import KafkaError, MessageSizeTooLargeError, KafkaTimeoutError
 from kafka.producer.future import FutureRecordMetadata
 from prometheus_client import Counter, Gauge
 from rest_framework import status
@@ -559,6 +559,19 @@ def get_event(request):
         return cors_response(
             request,
             generate_exception_response("capture", f"Invalid recording payload", code="invalid_payload"),
+        )
+    except KafkaTimeoutError as kte:
+        with sentry_sdk.push_scope() as scope:
+            scope.set_tag("capture-pathway", "replay")
+            scope.set_tag("ph-team-token", token)
+            capture_exception(kte)
+        # this means we're getting an event we can't process, we shouldn't swallow this
+        # in production this is mostly seen as events with a missing distinct_id
+        return cors_response(
+            request,
+            generate_exception_response(
+                "capture", "timed out writing to kafka", type="timeout_error", code="kafka_timeout", status_code=504
+            ),
         )
     except Exception as exc:
         with sentry_sdk.push_scope() as scope:

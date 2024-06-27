@@ -18,7 +18,7 @@ from django.http import HttpResponse
 from django.test.client import MULTIPART_CONTENT, Client
 from django.utils import timezone
 from freezegun import freeze_time
-from kafka.errors import KafkaError, MessageSizeTooLargeError
+from kafka.errors import KafkaError, MessageSizeTooLargeError, KafkaTimeoutError
 from kafka.producer.future import FutureProduceResult, FutureRecordMetadata
 from kafka.structs import TopicPartition
 from parameterized import parameterized
@@ -478,7 +478,7 @@ class TestCapture(BaseTest):
         } == self._to_arguments(kafka_produce)
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
-    def test_capture_snapshot_no_distinct_id(self, kafka_produce: MagicMock) -> None:
+    def test_capture_snapshot_no_distinct_id(self, _kafka_produce: MagicMock) -> None:
         response = self._send_august_2023_version_session_recording_event(
             event_data=[
                 {"type": 2, "data": {"lots": "of data"}, "$window_id": "the window id", "timestamp": 1234567890}
@@ -486,6 +486,22 @@ class TestCapture(BaseTest):
             distinct_id=None,
         )
         assert response.status_code == 400
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_replay_capture_kafka_timeout_error(self, kafka_produce: MagicMock) -> None:
+        kafka_produce.side_effect = [
+            KafkaTimeoutError(),
+            None,  # Return None for successful calls
+        ]
+
+        response = self._send_august_2023_version_session_recording_event(
+            event_data=[
+                {"type": 2, "data": {"lots": "of data"}, "$window_id": "the window id", "timestamp": 1234567890}
+            ],
+        )
+
+        # signal the timeout so that the client retries
+        assert response.status_code == 504
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_capture_snapshot_event_from_android(self, _kafka_produce: MagicMock) -> None:
