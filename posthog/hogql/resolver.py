@@ -441,7 +441,7 @@ class Resolver(CloningVisitor):
 
     def visit_hogqlx_tag(self, node: ast.HogQLXTag):
         if node.kind == "Sparkline":
-            return convert_to_hx(node)
+            return self.visit(convert_to_hx(node))
         return self.visit(convert_hogqlx_tag(node, self.context.team_id))
 
     def visit_alias(self, node: ast.Alias):

@@ -53,6 +53,20 @@ export function parseHogQLX(value: any): any {
     }
     return value.map((v) => parseHogQLX(v))
 }
+export function renderHogQLX(value: any): JSX.Element {
+    const object: Record<string, any> = parseHogQLX(value)
+    const tag = object.__hx_tag ?? null
+
+    if (tag === 'Sparkline') {
+        const { data, type } = object
+        return (
+            <ErrorBoundary>
+                <Sparkline data={data ?? []} type={type ?? []} {...object} />
+            </ErrorBoundary>
+        )
+    }
+    return <div>Unknown tag: {String(tag)}</div>
+}
 
 export function renderColumn(
     key: string,
@@ -105,13 +119,7 @@ export function renderColumn(
         if (typeof value === 'object') {
             if (Array.isArray(value)) {
                 if (value[0] === '__hx_tag' && (value[1] === 'sparkline' || value[1] === 'Sparkline')) {
-                    const object: Record<string, any> = parseHogQLX(value)
-                    const { data, type } = object
-                    return (
-                        <ErrorBoundary>
-                            <Sparkline data={data ?? []} type={type ?? []} {...object} />
-                        </ErrorBoundary>
-                    )
+                    return renderHogQLX(value)
                 }
 
                 return <JSONViewer src={value} name={key} collapsed={value.length > 10 ? 0 : 1} />
