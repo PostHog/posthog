@@ -13,7 +13,7 @@ from posthog.schema import PersonsOnEventsMode
 from posthog.hogql.database.s3_table import S3Table
 
 
-def resolve_property_types(node: ast.Expr, context: HogQLContext) -> ast.Expr:
+def create_property_swapper(node: ast.Expr, context: HogQLContext) -> ast.Expr:
     from posthog.models import PropertyDefinition
 
     if not context or not context.team_id:
@@ -67,10 +67,10 @@ def resolve_property_types(node: ast.Expr, context: HogQLContext) -> ast.Expr:
         person_properties=person_properties,
         group_properties=group_properties,
         context=context,
+        setDateTimeTimeZone=True,
     )
 
-    context.property_swapper = property_swapper
-    return property_swapper.visit(node)
+    return property_swapper
 
 
 class PropertyFinder(TraversingVisitor):
@@ -124,6 +124,7 @@ class PropertySwapper(CloningVisitor):
         person_properties: dict[str, str],
         group_properties: dict[str, str],
         context: HogQLContext,
+        setDateTimeTimeZone: bool,
     ):
         super().__init__(clear_types=False)
         self.timezone = timezone
@@ -131,10 +132,13 @@ class PropertySwapper(CloningVisitor):
         self.person_properties = person_properties
         self.group_properties = group_properties
         self.context = context
+        self.setDateTimeTimeZone = setDateTimeTimeZone
 
     def visit_field(self, node: ast.Field):
         if isinstance(node.type, ast.FieldType):
-            if isinstance(node.type.resolve_database_field(self.context), DateTimeDatabaseField):
+            if self.setDateTimeTimeZone and isinstance(
+                node.type.resolve_database_field(self.context), DateTimeDatabaseField
+            ):
                 return ast.Call(
                     name="toTimeZone",
                     args=[node, ast.Constant(value=self.timezone)],

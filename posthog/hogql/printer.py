@@ -35,7 +35,7 @@ from posthog.hogql.resolver import resolve_types
 from posthog.hogql.resolver_utils import lookup_field_by_name
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
-from posthog.hogql.transforms.property_types import resolve_property_types
+from posthog.hogql.transforms.property_types import create_property_swapper, PropertySwapper
 from posthog.hogql.visitor import Visitor, clone_expr
 from posthog.models.property import PropertyName, TableColumn
 from posthog.models.team.team import WeekStartDay
@@ -108,10 +108,28 @@ def prepare_ast_for_printing(
 
     if dialect == "clickhouse":
         with context.timings.measure("resolve_property_types"):
-            node = resolve_property_types(node, context)
+            property_swapper = create_property_swapper(node, context)
+            node = PropertySwapper(
+                timezone=property_swapper.timezone,
+                group_properties=property_swapper.group_properties,
+                event_properties={},
+                person_properties={},
+                context=context,
+                setDateTimeTimeZone=False,
+            ).visit(node)
 
         with context.timings.measure("resolve_lazy_tables"):
             resolve_lazy_tables(node, dialect, stack, context)
+
+        with context.timings.measure("swap_properties"):
+            node = PropertySwapper(
+                timezone=property_swapper.timezone,
+                group_properties={},
+                person_properties=property_swapper.person_properties,
+                event_properties=property_swapper.event_properties,
+                context=context,
+                setDateTimeTimeZone=True,
+            ).visit(node)
 
         # We support global query settings, and local subquery settings.
         # If the global query is a select query with settings, merge the two.
