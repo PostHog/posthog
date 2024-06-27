@@ -15,6 +15,7 @@ import { GroupActorDisplay } from 'scenes/persons/GroupActorDisplay'
 import { PersonDisplay, PersonDisplayProps } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
+import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { errorColumn, loadingColumn } from '~/queries/nodes/DataTable/dataTableLogic'
 import { DeletePersonButton } from '~/queries/nodes/PersonsNode/DeletePersonButton'
 import { DataTableNode, EventsQueryPersonColumn, HasPropertiesNode } from '~/queries/schema'
@@ -106,7 +107,11 @@ export function renderColumn(
                 if (value[0] === '__hx_tag' && (value[1] === 'sparkline' || value[1] === 'Sparkline')) {
                     const object: Record<string, any> = parseHogQLX(value)
                     const { data, type } = object
-                    return <Sparkline data={data ?? []} type={type ?? []} {...object} />
+                    return (
+                        <ErrorBoundary>
+                            <Sparkline data={data ?? []} type={type ?? []} {...object} />
+                        </ErrorBoundary>
+                    )
                 }
 
                 return <JSONViewer src={value} name={key} collapsed={value.length > 10 ? 0 : 1} />
