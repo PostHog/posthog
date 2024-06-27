@@ -17,7 +17,7 @@ class NoContextException(Exception):
     pass
 
 
-def create_property_swapper(node: ast.Expr, context: HogQLContext) -> "PropertySwapper":
+def build_property_swapper(node: ast.Expr, context: HogQLContext) -> None:
     from posthog.models import PropertyDefinition
 
     if not context or not context.team_id:
@@ -65,7 +65,7 @@ def create_property_swapper(node: ast.Expr, context: HogQLContext) -> "PropertyS
         )
 
     timezone = context.database.get_timezone() if context and context.database else "UTC"
-    property_swapper = PropertySwapper(
+    context.property_swapper = PropertySwapper(
         timezone=timezone,
         event_properties=event_properties,
         person_properties=person_properties,
@@ -73,8 +73,6 @@ def create_property_swapper(node: ast.Expr, context: HogQLContext) -> "PropertyS
         context=context,
         setTimeZones=True,
     )
-
-    return property_swapper
 
 
 class PropertyFinder(TraversingVisitor):

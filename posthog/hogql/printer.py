@@ -35,7 +35,7 @@ from posthog.hogql.resolver import resolve_types
 from posthog.hogql.resolver_utils import lookup_field_by_name
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
-from posthog.hogql.transforms.property_types import create_property_swapper, PropertySwapper, NoContextException
+from posthog.hogql.transforms.property_types import build_property_swapper, PropertySwapper, NoContextException
 from posthog.hogql.visitor import Visitor, clone_expr
 from posthog.models.property import PropertyName, TableColumn
 from posthog.models.team.team import WeekStartDay
@@ -111,16 +111,17 @@ def prepare_ast_for_printing(
     if dialect == "clickhouse":
         with context.timings.measure("resolve_property_types"):
             try:
-                property_swapper = create_property_swapper(node, context)
+                build_property_swapper(node, context)
             except NoContextException:
                 return None
             # It would be nice to be able to run property swapping after we resolve lazy tables, so that logic added onto the lazy tables
             # could pass through the swapper. However, in the PropertySwapper, the group_properties and the S3 Table join
             # rely on the existence of lazy tables in the AST. They must be run before we resolve lazy tables. Because groups are
             # not currently used in any sort of where clause optimization (WhereClauseExtractor or PersonsTable), this is okay.
+            # We also have to call the group property swapper manually in `lazy_tables.py` after we do a join
             node = PropertySwapper(
-                timezone=property_swapper.timezone,
-                group_properties=property_swapper.group_properties,
+                timezone=context.property_swapper.timezone,
+                group_properties=context.property_swapper.group_properties,
                 event_properties={},
                 person_properties={},
                 context=context,
@@ -132,10 +133,10 @@ def prepare_ast_for_printing(
 
         with context.timings.measure("swap_properties"):
             node = PropertySwapper(
-                timezone=property_swapper.timezone,
+                timezone=context.property_swapper.timezone,
                 group_properties={},
-                person_properties=property_swapper.person_properties,
-                event_properties=property_swapper.event_properties,
+                person_properties=context.property_swapper.person_properties,
+                event_properties=context.property_swapper.event_properties,
                 context=context,
                 setTimeZones=True,
             ).visit(node)

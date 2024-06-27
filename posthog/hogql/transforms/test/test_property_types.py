@@ -140,6 +140,36 @@ class TestPropertyTypes(BaseTest):
 
     @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    def test_group_types_are_the_same_in_persons_inlined_subselect(self):
+        expr = parse_select(
+            """select table_a.id from
+                    (select
+                        events.timestamp as id,
+                        organization.properties.group_boolean = true,
+                        organization.properties.group_boolean = false,
+                        organization.properties.group_boolean is null
+                    from events) as table_a
+            join persons on table_a.id = persons.id and persons.id in (select
+                        events.timestamp as id,
+                        organization.properties.group_boolean = true,
+                        organization.properties.group_boolean = false,
+                        organization.properties.group_boolean is null
+                    from events)"""
+        )
+        query = print_ast(
+            expr,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            "clickhouse",
+        )
+        query = re.sub(r"hogql_val_\d+", "hogql_val", query)
+        # We're searching for the two subselects and making sure they are exactly the same
+        results = re.findall(
+            rf"SELECT toTimeZone\(events\.timestamp.*?WHERE equals\(events\.team_id, {self.team.id}\)\)", query
+        )
+        assert results[0] == results[1]
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_data_warehouse_person_property_types(self):
         credential = DataWarehouseCredential.objects.create(
             team=self.team, access_key="_accesskey", access_secret="_secret"
