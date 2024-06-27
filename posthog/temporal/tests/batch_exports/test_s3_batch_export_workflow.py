@@ -43,10 +43,6 @@ from posthog.temporal.tests.utils.models import (
     adelete_batch_export,
     afetch_batch_export_runs,
 )
-from posthog.temporal.tests.utils.persons import (
-    generate_test_person_distinct_id2_in_clickhouse,
-    generate_test_persons_in_clickhouse,
-)
 from posthog.temporal.tests.utils.s3 import read_parquet_from_s3, read_s3_data_as_json
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
@@ -293,95 +289,6 @@ TEST_S3_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
 ]
 
 
-@pytest.fixture
-def data_interval_start(data_interval_end, interval):
-    if interval == "hour":
-        interval_time_delta = dt.timedelta(hours=1)
-    elif interval == "day":
-        interval_time_delta = dt.timedelta(days=1)
-    elif interval == "week":
-        interval_time_delta = dt.timedelta(weeks=1)
-    elif interval.startswith("every"):
-        _, value, unit = interval.split(" ")
-        kwargs = {unit: int(value)}
-        interval_time_delta = dt.timedelta(**kwargs)
-    else:
-        raise ValueError(f"Invalid interval: '{interval}'")
-
-    return data_interval_end - interval_time_delta
-
-
-@pytest.fixture
-def data_interval_end(interval):
-    return dt.datetime(2023, 4, 25, 15, 0, 0, tzinfo=dt.timezone.utc)
-
-
-@pytest_asyncio.fixture
-async def generate_test_data(ateam, clickhouse_client, exclude_events, data_interval_start, data_interval_end):
-    """Generate test data in ClickHouse."""
-    await generate_test_events_in_clickhouse(
-        client=clickhouse_client,
-        team_id=ateam.pk,
-        start_time=data_interval_start,
-        end_time=data_interval_end,
-        count=1000,
-        count_outside_range=10,
-        count_other_team=10,
-        duplicate=True,
-        properties={"$browser": "Chrome", "$os": "Mac OS X"},
-        person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
-    )
-
-    await generate_test_events_in_clickhouse(
-        client=clickhouse_client,
-        team_id=ateam.pk,
-        start_time=data_interval_start,
-        end_time=data_interval_end,
-        count=5,
-        count_outside_range=0,
-        count_other_team=0,
-        properties=None,
-        person_properties=None,
-    )
-    events_to_export_created = 1005
-
-    if exclude_events:
-        for event_name in exclude_events:
-            await generate_test_events_in_clickhouse(
-                client=clickhouse_client,
-                team_id=ateam.pk,
-                start_time=data_interval_start,
-                end_time=data_interval_end,
-                count=5,
-                count_outside_range=0,
-                count_other_team=0,
-                event_name=event_name,
-            )
-
-    persons, _ = await generate_test_persons_in_clickhouse(
-        client=clickhouse_client,
-        team_id=ateam.pk,
-        start_time=data_interval_start,
-        end_time=data_interval_end,
-        count=100,
-        count_other_team=10,
-        properties={"utm_medium": "referral", "$initial_os": "Linux"},
-    )
-
-    for person in persons:
-        await generate_test_person_distinct_id2_in_clickhouse(
-            client=clickhouse_client,
-            team_id=ateam.pk,
-            person_id=uuid.UUID(person["id"]),
-            distinct_id=f"distinct-id-{uuid.UUID(person['id'])}",
-            timestamp=dt.datetime.fromisoformat(person["_timestamp"]),
-        )
-
-    persons_to_export_created = 100
-
-    return (events_to_export_created, persons_to_export_created)
-
-
 @pytest.mark.parametrize("compression", [None, "gzip", "brotli"], indirect=True)
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
 @pytest.mark.parametrize("model", TEST_S3_MODELS)
@@ -413,8 +320,8 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
     Once we have these events, we pass them to the assert_clickhouse_records_in_s3 function to check
     that they appear in the expected S3 bucket and key.
     """
-    data_interval_start = dt.datetime(2023, 4, 20, 14, 0, 0, tzinfo=dt.timezone.utc)
-    data_interval_end = dt.datetime(2023, 4, 25, 15, 0, 0, tzinfo=dt.timezone.utc)
+    if isinstance(model, BatchExportModel) and model.name == "person" and exclude_events is not None:
+        pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
 
     prefix = str(uuid.uuid4())
 
@@ -447,8 +354,8 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
     ):  # 5MB, the minimum for Multipart uploads
         records_exported = await activity_environment.run(insert_into_s3_activity, insert_inputs)
 
-    (events_to_export_created, persons_to_export_created) = generate_test_data
-    assert records_exported == events_to_export_created or records_exported == persons_to_export_created
+    events_to_export_created, persons_to_export_created = generate_test_data
+    assert records_exported == len(events_to_export_created) or records_exported == len(persons_to_export_created)
 
     await assert_clickhouse_records_in_s3(
         s3_compatible_client=minio_client,
@@ -883,7 +790,9 @@ async def test_s3_export_workflow_with_minio_bucket_and_custom_key_prefix(
     run = runs[0]
     (events_to_export_created, persons_to_export_created) = generate_test_data
     assert run.status == "Completed"
-    assert run.records_completed == events_to_export_created or run.records_completed == persons_to_export_created
+    assert run.records_completed == len(events_to_export_created) or run.records_completed == len(
+        persons_to_export_created
+    )
 
     expected_key_prefix = s3_key_prefix.format(
         table=batch_export_model.name if batch_export_model is not None else "events",

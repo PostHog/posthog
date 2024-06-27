@@ -49,6 +49,8 @@ export function renderColumn(
                 </span>
             </Tooltip>
         )
+    } else if (typeof value === 'object' && Array.isArray(value) && value[0] === '__hx_tag') {
+        return renderHogQLX(value)
     } else if (isHogQLQuery(query.source)) {
         if (typeof value === 'string') {
             try {
@@ -79,10 +81,6 @@ export function renderColumn(
         }
         if (typeof value === 'object') {
             if (Array.isArray(value)) {
-                if (value[0] === '__hx_tag' && (value[1] === 'sparkline' || value[1] === 'Sparkline')) {
-                    return renderHogQLX(value)
-                }
-
                 return <JSONViewer src={value} name={key} collapsed={value.length > 10 ? 0 : 1} />
             }
             return <JSONViewer src={value} name={key} collapsed={Object.keys(value).length > 10 ? 0 : 1} />

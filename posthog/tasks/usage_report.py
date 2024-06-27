@@ -309,7 +309,7 @@ def send_report_to_billing_service(org_id: str, report: dict[str, Any]) -> None:
         BillingManager(license).update_org_details(organization, response_data)
 
     except Exception as err:
-        logger.error(f"UsageReport failed sending to Billing for organization: {organization.id}: {err}")
+        logger.exception(f"UsageReport failed sending to Billing for organization: {organization.id}: {err}")
         capture_exception(err)
         pha_client = Client("sTMFPsFhdP1Ssg")
         capture_event(
@@ -318,7 +318,7 @@ def send_report_to_billing_service(org_id: str, report: dict[str, Any]) -> None:
             org_id,
             {"err": str(err)},
         )
-        raise err
+        raise
 
 
 def capture_event(
@@ -604,7 +604,7 @@ def capture_report(
         capture_event(pha_client, capture_event_name, org_id, full_report_dict, timestamp=at_date)
         logger.info(f"UsageReport sent to PostHog for organization {org_id}")
     except Exception as err:
-        logger.error(
+        logger.exception(
             f"UsageReport sent to PostHog for organization {org_id} failed: {str(err)}",
         )
         capture_event(pha_client, f"{capture_event_name} failure", org_id, {"error": str(err)})
@@ -960,4 +960,4 @@ def send_all_org_usage_reports(
         logger.debug(f"Sending usage reports to PostHog and Billing took {time_since.total_seconds()} seconds.")  # noqa T201
     except Exception as err:
         capture_exception(err)
-        raise err
+        raise

@@ -79,4 +79,4 @@ def poll_query_performance() -> None:
             manager.update_clickhouse_query_progresses(list(results_group))
 
     except Exception as e:
-        logger.error("Clickhouse Status Check Failed", error=e)
+        logger.exception("Clickhouse Status Check Failed", error=e)
