@@ -249,7 +249,7 @@ def empty_or_null_with_value_q(
             # At this point, we know that the value is not a list, so we can safely parse it
             # There might still be exceptions, but we're catching them below
             try:
-                parsed_value = float(value)  # type: ignore
+                parsed_value = float(value)
             except Exception:
                 pass
 

@@ -1,7 +1,6 @@
 import datetime
 import json
 from typing import Any, Optional, cast
-from django.db import connection
 
 
 from collections.abc import Callable
@@ -856,7 +855,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
                                 {
                                     "key": "registration_ts",
                                     "type": "person",
-                                    "value": "1716447600",
+                                    "value": ["1716447600"],
                                     "negation": False,
                                     "operator": "lte",
                                 },
@@ -867,10 +866,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
             }
         )
 
-        with self.assertNumQueries(3):
-            with connection.cursor() as cursor:
-                cursor.execute("SET log_statement = 'all'")
-
+        with self.assertNumQueries(1):
             matched_person = (
                 Person.objects.annotate(
                     **{
@@ -888,14 +884,6 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
                 .filter(properties_to_Q(self.team.pk, filter.property_groups.flat))
                 .exists()
             )
-
-            with connection.cursor() as cursor:
-                cursor.execute("SET log_statement = 'none'")
-
-            print("SQL Queries:")
-            for query in connection.queries:
-                print(query["sql"])
-
         # This shouldn't pass because it's an invalid filter that should never match
         # (we should never have a lte operator comparing against a list of values)
         self.assertFalse(matched_person)
@@ -907,9 +895,11 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
             distinct_ids=[person1_distinct_id],
             properties={"registration_ts": 1716447600},
         )
-        # This filter came from this issue: https://github.com/PostHog/posthog/issues/23213
-        filter = Filter(
-            data={
+        # Create a cohort with an OR filter
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test OR Cohort",
+            filters={
                 "properties": {
                     "type": "OR",
                     "values": [
@@ -926,7 +916,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
                                 {
                                     "key": "registration_ts",
                                     "type": "person",
-                                    "value": "1716447600",
+                                    "value": ["1716447600"],
                                     "negation": False,
                                     "operator": "lte",
                                 },
@@ -934,13 +924,10 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
                         }
                     ],
                 }
-            }
+            },
         )
-
-        with self.assertNumQueries(3):
-            with connection.cursor() as cursor:
-                cursor.execute("SET log_statement = 'all'")
-
+        filter = Filter(data={"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}]})
+        with self.assertNumQueries(2):
             matched_person = (
                 Person.objects.annotate(
                     **{
@@ -958,16 +945,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
                 .filter(properties_to_Q(self.team.pk, filter.property_groups.flat))
                 .exists()
             )
-
-            with connection.cursor() as cursor:
-                cursor.execute("SET log_statement = 'none'")
-
-            print("SQL Queries:")
-            for query in connection.queries:
-                print(query["sql"])
-
-        # This shouldn't pass because it's an invalid filter that should never match
-        # (we should never have a lte operator comparing against a list of values)
+        # This should now pass because the cohort filter is valid
         self.assertTrue(matched_person)
 
     def test_person_matching_real_filter(self):

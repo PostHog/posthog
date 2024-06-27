@@ -2200,7 +2200,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             self.assertEqual(response.json()["featureFlags"], {"cohort-flag": False})
             self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
 
-    def test_flag_with_cohort_that_contains_invalid_filter(self, *args):
+    def test_flag_with_invalid_cohort_filter_condition(self, *args):
         self.team.app_urls = ["https://example.com"]
         self.team.save()
         self.client.logout()
@@ -2212,7 +2212,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             properties={"registration_ts": 1716447600},
         )
 
-        # Create a cohort with the broken filter
+        # Create a cohort with the complex filter
         cohort = Cohort.objects.create(
             team=self.team,
             filters={
@@ -2228,8 +2228,6 @@ class TestDecide(BaseTest, QueryMatchingTest):
                                     "value": "1716274800",
                                     "operator": "gte",
                                 },
-                                # invalid condition (lte can't compare with a list)
-                                # this shouldn't error, but it should cause the FF to evaluate to False
                                 {
                                     "key": "registration_ts",
                                     "type": "person",
@@ -2268,6 +2266,74 @@ class TestDecide(BaseTest, QueryMatchingTest):
         with self.assertNumQueries(5):
             response = self._post_decide(api_version=3, distinct_id=person1_distinct_id)
             self.assertEqual(response.json()["featureFlags"], {"cohort-flag": False})
+            self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
+
+    def test_flag_with_invalid_but_safe_cohort_filter_condition(self, *args):
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        self.client.logout()
+
+        person1_distinct_id = "example_id"
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=[person1_distinct_id],
+            properties={"registration_ts": 1716447600},
+        )
+
+        # Create a cohort with the complex filter
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "key": "registration_ts",
+                                    "type": "person",
+                                    "value": "1716274800",
+                                    "operator": "gte",
+                                },
+                                {
+                                    "key": "registration_ts",
+                                    "type": "person",
+                                    "value": ["1716447600"],
+                                    "operator": "lte",
+                                },
+                            ],
+                        }
+                    ],
+                }
+            },
+            name="Test cohort",
+        )
+
+        # Create a feature flag that uses the cohort
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "id",
+                                "type": "cohort",
+                                "value": cohort.pk,
+                            }
+                        ],
+                    }
+                ]
+            },
+            name="This is a cohort-based flag",
+            key="cohort-flag",
+            created_by=self.user,
+        )
+
+        with self.assertNumQueries(5):
+            response = self._post_decide(api_version=3, distinct_id=person1_distinct_id)
+            self.assertEqual(response.json()["featureFlags"], {"cohort-flag": True})
             self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
 
     def test_flag_with_unknown_cohort(self, *args):
