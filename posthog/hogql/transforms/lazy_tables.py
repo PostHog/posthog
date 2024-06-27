@@ -304,7 +304,6 @@ class LazyTableResolver(TraversingVisitor):
                 new_join.to_table in joins_to_add or new_join.to_table in tables_to_add
             ):
                 create_override(new_join.to_table, new_join.lazy_join.to_field)
-
         # For all the collected tables, create the subqueries, and add them to the table.
         for table_name, table_to_add in tables_to_add.items():
             subquery = table_to_add.lazy_table.lazy_select(table_to_add, self.context, node=node)
@@ -337,10 +336,6 @@ class LazyTableResolver(TraversingVisitor):
                 self.context,
                 node,
             )
-            join_to_add.table = resolve_types(join_to_add.table, self.context, self.dialect, [node.type])
-            if self.context.property_swapper is not None:
-                join_to_add.table = self.context.property_swapper.visit(join_to_add.table)
-
             overrides = [
                 *join_constraint_overrides.get(join_scope.to_table, []),
                 *join_constraint_overrides.get(join_scope.from_table, []),
@@ -350,6 +345,8 @@ class LazyTableResolver(TraversingVisitor):
 
             join_to_add = cast(ast.JoinExpr, clone_expr(join_to_add, clear_locations=True, clear_types=True))
             join_to_add = cast(ast.JoinExpr, resolve_types(join_to_add, self.context, self.dialect, [node.type]))
+            if self.context.property_swapper is not None:
+                join_to_add = self.context.property_swapper.visit(join_to_add)
 
             if join_to_add.type is not None:
                 select_type.tables[to_table] = join_to_add.type
