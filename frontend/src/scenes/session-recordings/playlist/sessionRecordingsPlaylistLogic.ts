@@ -24,6 +24,7 @@ import {
     PropertyOperator,
     RecordingDurationFilter,
     RecordingFilters,
+    RecordingPropertyFilter,
     RecordingUniversalFilters,
     SessionRecordingId,
     SessionRecordingsResponse,
@@ -38,7 +39,6 @@ export type PersonUUID = string
 export type SessionOrderingType = DurationType | 'start_time' | 'console_error_count'
 
 interface Params {
-    filters?: RecordingFilters
     simpleFilters?: RecordingFilters
     advancedFilters?: RecordingFilters
     sessionRecordingId?: SessionRecordingId
@@ -170,6 +170,64 @@ function convertUniversalFiltersToLegacyFilters(universalFilters: RecordingUnive
         console_logs,
         snapshot_source,
         operand: nestedFilters.type,
+    }
+}
+
+function convertLegacyFiltersToUniversalFilters(
+    simpleFilters?: RecordingFilters,
+    advancedFilters?: RecordingFilters
+): RecordingUniversalFilters {
+    const filters = combineRecordingFilters(simpleFilters || {}, advancedFilters || {})
+
+    const events = filters.events ?? []
+    const actions = filters.actions ?? []
+    const properties = filters.properties ?? []
+    const logLevelFilters: RecordingPropertyFilter[] = filters.console_logs
+        ? [
+              {
+                  key: 'console_log_level',
+                  value: filters.console_logs,
+                  operator: PropertyOperator.Exact,
+                  type: PropertyFilterType.Recording,
+              },
+          ]
+        : []
+    const logQueryFilters: RecordingPropertyFilter[] = filters.console_search_query
+        ? [
+              {
+                  key: 'console_log_query',
+                  value: [filters.console_search_query],
+                  operator: PropertyOperator.Exact,
+                  type: PropertyFilterType.Recording,
+              },
+          ]
+        : []
+
+    return {
+        live_mode: filters.live_mode,
+        filter_test_accounts: filters.filter_test_accounts,
+        date_from: filters.date_from || DEFAULT_RECORDING_UNIVERSAL_FILTERS['date_from'],
+        date_to: filters.date_to || DEFAULT_RECORDING_UNIVERSAL_FILTERS['date_to'],
+        duration: filters.session_recording_duration
+            ? [{ ...filters.session_recording_duration, key: filters.duration_type_filter || 'duration' }]
+            : DEFAULT_RECORDING_UNIVERSAL_FILTERS['duration'],
+        filter_group: {
+            type: FilterLogicalOperator.And,
+            values: [
+                {
+                    type: FilterLogicalOperator.And,
+                    values: [...events, ...actions, ...properties, ...logLevelFilters, ...logQueryFilters],
+                },
+            ],
+        },
+    }
+}
+
+function combineRecordingFilters(simpleFilters: RecordingFilters, advancedFilters: RecordingFilters): RecordingFilters {
+    return {
+        ...advancedFilters,
+        events: [...(simpleFilters?.events || []), ...(advancedFilters?.events || [])],
+        properties: [...(simpleFilters?.properties || []), ...(advancedFilters?.properties || [])],
     }
 }
 
@@ -588,11 +646,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     return convertUniversalFiltersToLegacyFilters(universalFilters)
                 }
 
-                return {
-                    ...advancedFilters,
-                    events: [...(simpleFilters?.events || []), ...(advancedFilters?.events || [])],
-                    properties: [...(simpleFilters?.properties || []), ...(advancedFilters?.properties || [])],
-                }
+                return combineRecordingFilters(simpleFilters, advancedFilters)
             },
         ],
 
@@ -770,11 +824,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 if (params.advancedFilters && !equal(params.advancedFilters, values.advancedFilters)) {
                     actions.setAdvancedFilters(params.advancedFilters)
                 }
-                // support links that might still contain the old `filters` key
-            } else if (params.filters) {
-                if (!equal(params.filters, values.filters)) {
-                    actions.setAdvancedFilters(params.filters)
-                    actions.setSimpleFilters(DEFAULT_SIMPLE_RECORDING_FILTERS)
+
+                if (values.useUniversalFiltering) {
+                    actions.setUniversalFilters(
+                        convertLegacyFiltersToUniversalFilters(params.simpleFilters, params.advancedFilters)
+                    )
                 }
             }
         }
