@@ -333,7 +333,11 @@ WHERE and(
     bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7, -- has a session id and is valid uuidv7
     {INGEST_FROM_DATE}
 )
-GROUP BY session_id_v7, team_id
+GROUP BY
+    team_id,
+    toStartOfHour(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000))),
+    cityHash64(session_id_v7),
+    session_id_v7
 """.format(
         database=settings.CLICKHOUSE_DATABASE,
         current_url=source_url_column("$current_url"),
@@ -488,7 +492,11 @@ SELECT
 
     max(maybe_has_session_replay) as maybe_has_session_replay
 FROM {TABLE_BASE_NAME}
-GROUP BY session_id_v7, team_id
+GROUP BY
+    team_id,
+    toStartOfHour(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000))),
+    cityHash64(session_id_v7),
+    session_id_v7
 """
 )
 
