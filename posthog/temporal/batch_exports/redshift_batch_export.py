@@ -35,7 +35,7 @@ from posthog.temporal.batch_exports.postgres_batch_export import (
     create_table_in_postgres,
     postgres_connection,
 )
-from posthog.temporal.batch_exports.utils import apeek_first_and_rewind, set_batch_export_run_to_running
+from posthog.temporal.batch_exports.utils import apeek_first_and_rewind, set_status_to_running_task
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import bind_temporal_worker_logger
@@ -307,7 +307,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
 
     async with (
         Heartbeater(),
-        set_batch_export_run_to_running(inputs=inputs.run_id, logger=logger),
+        set_status_to_running_task(run_id=inputs.run_id, logger=logger),
         get_client(team_id=inputs.team_id) as client,
     ):
         if not await client.is_alive():
@@ -319,25 +319,50 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
         }:
             model = inputs.batch_export_model
 
-            model: BatchExportModel | BatchExportSchema | None = None
-            if inputs.batch_export_schema is None and "batch_export_model" in {
-                field.name for field in dataclasses.fields(inputs)
-            }:
-                model = inputs.batch_export_model
+        else:
+            model = inputs.batch_export_schema
 
-            else:
-                model = inputs.batch_export_schema
+        record_iterator = iter_model_records(
+            client=client,
+            model=model,
+            team_id=inputs.team_id,
+            interval_start=inputs.data_interval_start,
+            interval_end=inputs.data_interval_end,
+            exclude_events=inputs.exclude_events,
+            include_events=inputs.include_events,
+            destination_default_fields=redshift_default_fields(),
+            is_backfill=inputs.is_backfill,
+        )
+        first_record_batch, record_iterator = await apeek_first_and_rewind(record_iterator)
+        if first_record_batch is None:
+            return 0
 
-            record_iterator = iter_model_records(
-                client=client,
-                model=model,
-                team_id=inputs.team_id,
-                interval_start=inputs.data_interval_start,
-                interval_end=inputs.data_interval_end,
-                exclude_events=inputs.exclude_events,
-                include_events=inputs.include_events,
-                destination_default_fields=redshift_default_fields(),
-                is_backfill=inputs.is_backfill,
+        known_super_columns = ["properties", "set", "set_once", "person_properties"]
+
+        if inputs.properties_data_type != "varchar":
+            properties_type = "SUPER"
+        else:
+            properties_type = "VARCHAR(65535)"
+
+        if inputs.batch_export_schema is None:
+            table_fields = [
+                ("uuid", "VARCHAR(200)"),
+                ("event", "VARCHAR(200)"),
+                ("properties", properties_type),
+                ("elements", "VARCHAR(65535)"),
+                ("set", properties_type),
+                ("set_once", properties_type),
+                ("distinct_id", "VARCHAR(200)"),
+                ("team_id", "INTEGER"),
+                ("ip", "VARCHAR(200)"),
+                ("site_url", "VARCHAR(200)"),
+                ("timestamp", "TIMESTAMP WITH TIME ZONE"),
+            ]
+        else:
+            column_names = [column for column in first_record_batch.schema.names if column != "_inserted_at"]
+            record_schema = first_record_batch.select(column_names).schema
+            table_fields = get_redshift_fields_from_record_schema(
+                record_schema, known_super_columns=known_super_columns
             )
 
         async with redshift_connection(inputs) as connection:

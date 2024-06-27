@@ -265,28 +265,49 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
 
+        model: BatchExportModel | BatchExportSchema | None = None
+        if inputs.batch_export_schema is None and "batch_export_model" in {
+            field.name for field in dataclasses.fields(inputs)
+        }:
+            model = inputs.batch_export_model
+        else:
+            model = inputs.batch_export_schema
+
+        record_iterator = iter_model_records(
+            client=client,
+            model=model,
+            team_id=inputs.team_id,
+            interval_start=inputs.data_interval_start,
+            interval_end=inputs.data_interval_end,
+            exclude_events=inputs.exclude_events,
+            include_events=inputs.include_events,
+            destination_default_fields=postgres_default_fields(),
+            is_backfill=inputs.is_backfill,
+        )
+        first_record_batch, record_iterator = await apeek_first_and_rewind(record_iterator)
+        if first_record_batch is None:
+            return 0
+
         if inputs.batch_export_schema is None:
-            fields = postgres_default_fields()
-            query_parameters = None
+            table_fields = [
+                ("uuid", "VARCHAR(200)"),
+                ("event", "VARCHAR(200)"),
+                ("properties", "JSONB"),
+                ("elements", "JSONB"),
+                ("set", "JSONB"),
+                ("set_once", "JSONB"),
+                ("distinct_id", "VARCHAR(200)"),
+                ("team_id", "INTEGER"),
+                ("ip", "VARCHAR(200)"),
+                ("site_url", "VARCHAR(200)"),
+                ("timestamp", "TIMESTAMP WITH TIME ZONE"),
+            ]
 
-            model: BatchExportModel | BatchExportSchema | None = None
-            if inputs.batch_export_schema is None and "batch_export_model" in {
-                field.name for field in dataclasses.fields(inputs)
-            }:
-                model = inputs.batch_export_model
-            else:
-                model = inputs.batch_export_schema
-
-            record_iterator = iter_model_records(
-                client=client,
-                model=model,
-                team_id=inputs.team_id,
-                interval_start=inputs.data_interval_start,
-                interval_end=inputs.data_interval_end,
-                exclude_events=inputs.exclude_events,
-                include_events=inputs.include_events,
-                destination_default_fields=postgres_default_fields(),
-                is_backfill=inputs.is_backfill,
+        else:
+            column_names = [column for column in first_record_batch.schema.names if column != "_inserted_at"]
+            record_schema = first_record_batch.select(column_names).schema
+            table_fields = get_postgres_fields_from_record_schema(
+                record_schema, known_json_columns=["properties", "set", "set_once", "person_properties"]
             )
 
         async with postgres_connection(inputs) as connection:

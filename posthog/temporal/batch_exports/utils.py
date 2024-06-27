@@ -1,5 +1,6 @@
 import asyncio
 import collections.abc
+import contextlib
 import json
 import typing
 import uuid
@@ -108,19 +109,11 @@ async def set_status_to_running_task(
     background_task.add_done_callback(done_callback)
 
     try:
-        await asyncio.wait_for(
-            asyncio.to_thread(
-                update_batch_export_run,
-                uuid.UUID(run_id),
-                status=BatchExportRun.Status.RUNNING,
-            ),
-            timeout=timeout,
-        )
-    except Exception as e:
-        logger.warn(
-            "Unexpected error trying to set batch export to 'RUNNING' status. Run will continue but displayed status may not be accurate until run finishes",
-            exc_info=e,
-        )
+        yield background_task
+    finally:
+        if not background_task.done():
+            background_task.cancel()
+            await asyncio.wait([background_task])
 
 
 class JsonScalar(pa.ExtensionScalar):
