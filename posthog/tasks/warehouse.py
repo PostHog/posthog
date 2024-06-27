@@ -99,7 +99,7 @@ def capture_workspace_rows_synced_by_team(team_id: int) -> None:
     for job in ExternalDataJob.objects.filter(team_id=team_id, created_at__gte=begin).order_by("created_at").all():
         ph_client.capture(
             team_id,
-            "external data sync job",
+            "$data_sync_job_completed",
             {
                 "team_id": team_id,
                 "workspace_id": team.external_data_workspace_id,
