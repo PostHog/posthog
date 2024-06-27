@@ -1,5 +1,10 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
+import {
+    breakdownFilterToTaxonomicFilterType,
+    filterToTaxonomicFilterType,
+    propertyFilterTypeToPropertyDefinitionType,
+} from 'lib/components/PropertyFilters/utils'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -60,7 +65,7 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
     })),
     reducers({
         localHistogramBinCount: [
-            10 as number | undefined,
+            undefined as number | undefined,
             {
                 setHistogramBinCount: (_, { count }) => count,
             },
@@ -133,6 +138,24 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
                 }
 
                 return globalNormalizeBreakdownUrl
+            },
+        ],
+        taxonomicBreakdownType: [
+            (s) => [s.isMultipleBreakdownsEnabled, s.breakdownFilter, s.multipleBreakdown],
+            (isMultipleBreakdownsEnabled, breakdownFilter, multipleBreakdown): TaxonomicFilterGroupType | undefined => {
+                let breakdownType = isMultipleBreakdownsEnabled
+                    ? filterToTaxonomicFilterType(
+                          multipleBreakdown?.type,
+                          multipleBreakdown?.group_type_index,
+                          multipleBreakdown?.property
+                      )
+                    : breakdownFilterToTaxonomicFilterType(breakdownFilter)
+
+                if (breakdownType === TaxonomicFilterGroupType.Cohorts) {
+                    breakdownType = TaxonomicFilterGroupType.CohortsWithAllUsers
+                }
+
+                return breakdownType
             },
         ],
     }),

@@ -52,6 +52,19 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             breakdown,
             taxonomicGroup,
         }),
+        replaceBreakdown: (
+            previousBreakdown: {
+                value: string | number
+                type: string
+            },
+            newBreakdown: {
+                value: TaxonomicFilterValue
+                group: TaxonomicFilterGroup
+            }
+        ) => ({
+            previousBreakdown,
+            newBreakdown,
+        }),
         removeBreakdown: (breakdown: string | number, breakdownType: string) => ({ breakdown, breakdownType }),
         setBreakdownLimit: (value: number | undefined) => ({ value }),
         setHistogramBinsUsed: (
@@ -119,7 +132,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
         ],
     }),
     selectors({
-        isMultipleBreakdownsEnabled: [(s) => [s.featureFlags], () => true],
+        isMultipleBreakdownsEnabled: [(s, p) => [s.featureFlags, p.isTrends], (flags, isTrends) => isTrends],
         breakdownFilter: [(_, p) => [p.breakdownFilter], (breakdownFilter) => breakdownFilter],
         includeSessions: [(_, p) => [p.isTrends], (isTrends) => isTrends],
         maxBreakdownsSelected: [
@@ -180,7 +193,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                 localBreakdownHideOtherAggregation ?? breakdownFilter.breakdown_hide_other_aggregation,
         ],
     }),
-    listeners(({ props, values }) => ({
+    listeners(({ props, values, actions }) => ({
         addBreakdown: ({ breakdown, taxonomicGroup }) => {
             const breakdownType = taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type) as BreakdownType
             const propertyDefinitionType = propertyFilterTypeToPropertyDefinitionType(breakdownType)
@@ -286,6 +299,54 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                 if (props.isTrends && props.display === ChartDisplayType.WorldMap) {
                     props.updateDisplay?.(undefined)
                 }
+            }
+        },
+        replaceBreakdown: ({ previousBreakdown, newBreakdown }) => {
+            const breakdownType = taxonomicFilterTypeToPropertyFilterType(newBreakdown.group.type) as BreakdownType
+            const breakdownValue = newBreakdown.value
+
+            const propertyDefinitionType = propertyFilterTypeToPropertyDefinitionType(breakdownType)
+            const isHistogramable =
+                !!values.getPropertyDefinition(breakdownValue, propertyDefinitionType)?.is_numerical && props.isTrends
+
+            if (!props.updateBreakdownFilter || !breakdownType) {
+                return
+            }
+
+            // If property definitions are not loaded when this runs then a normalizeable URL will not be normalized.
+            // For now, it is safe to fall back to `breakdown` instead of the property definition.
+            const isNormalizeable = isURLNormalizeable(
+                values.getPropertyDefinition(breakdownValue, propertyDefinitionType)?.name || (breakdownValue as string)
+            )
+
+            if (
+                values.isMultipleBreakdownsEnabled &&
+                isMultipleBreakdownType(breakdownType) &&
+                typeof breakdownValue === 'string'
+            ) {
+                props.updateBreakdownFilter?.({
+                    breakdowns: values.breakdownFilter.breakdowns?.map((savedBreakdown) => {
+                        if (
+                            savedBreakdown.property === previousBreakdown.value &&
+                            savedBreakdown.type === previousBreakdown.type
+                        ) {
+                            return {
+                                ...savedBreakdown,
+                                property: breakdownValue,
+                                type: breakdownType,
+                                group_type_index: newBreakdown.group.groupTypeIndex,
+                                histogram_bin_count: isHistogramable
+                                    ? savedBreakdown.histogram_bin_count || 10
+                                    : undefined,
+                                normalize_url: isNormalizeable ? savedBreakdown.normalize_url ?? true : undefined,
+                            }
+                        }
+
+                        return savedBreakdown
+                    }),
+                })
+            } else {
+                actions.addBreakdown(newBreakdown.value, newBreakdown.group)
             }
         },
         setBreakdownLimit: async ({ value }, breakpoint) => {
