@@ -502,9 +502,9 @@ class DashboardsViewSet(
                     "dashboard_id": dashboard.pk,
                 },
             )
-        except Exception as e:
+        except Exception:
             dashboard.delete()
-            raise e
+            raise
 
         return Response(DashboardSerializer(dashboard, context={"view": self, "request": request}).data)
 
