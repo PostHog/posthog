@@ -14,7 +14,7 @@ from django.views.decorators.csrf import csrf_exempt
 from enum import Enum
 from kafka.errors import KafkaError, MessageSizeTooLargeError, KafkaTimeoutError
 from kafka.producer.future import FutureRecordMetadata
-from prometheus_client import Counter, Gauge
+from prometheus_client import Counter, Gauge, Histogram
 from rest_framework import status
 from sentry_sdk import configure_scope
 from sentry_sdk.api import capture_exception, start_span
@@ -111,6 +111,11 @@ KAFKA_TIMEOUT_ERROR_COUNTER = Counter(
     # retry_count should only have 0, 1, or 2
     # and status_code only has 400 or 502
     labelnames=["retry_count", "status_code"],
+)
+
+REPLAY_CAPTURE_PRODUCTION_HISTOGRAM = Histogram(
+    "capture_replay_production_duration",
+    "Duration of replay kafka capture production",
 )
 
 # This is a heuristic of ids we have seen used as anonymous. As they frequently
@@ -549,29 +554,32 @@ def get_event(request):
 
             replay_futures: list[FutureRecordMetadata | None] = []
 
-            # We want to be super careful with our new ingestion flow for now so the whole thing is separated
-            # This is mostly a copy of above except we only log, we don't error out
-            if alternative_replay_events:
-                processed_events = list(preprocess_events(alternative_replay_events))
-                for event, event_uuid, distinct_id in processed_events:
-                    replay_futures.append(
-                        capture_internal_with_message_replacement(
-                            event,
-                            distinct_id,
-                            ip,
-                            site_url,
-                            now,
-                            sent_at,
-                            event_uuid,
-                            token,
-                            lib_version,
+            with REPLAY_CAPTURE_PRODUCTION_HISTOGRAM.time():
+                # We want to be super careful with our new ingestion flow for now so the whole thing is separated
+                # This is mostly a copy of above except we only log, we don't error out
+                if alternative_replay_events:
+                    processed_events = list(preprocess_events(alternative_replay_events))
+                    for event, event_uuid, distinct_id in processed_events:
+                        replay_futures.append(
+                            capture_internal_with_message_replacement(
+                                event,
+                                distinct_id,
+                                ip,
+                                site_url,
+                                now,
+                                sent_at,
+                                event_uuid,
+                                token,
+                                lib_version,
+                            )
                         )
-                    )
 
-                start_time = time.monotonic()
-                for future in replay_futures:
-                    if future is not None:
-                        future.get(timeout=settings.KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS - (time.monotonic() - start_time))
+                    start_time = time.monotonic()
+                    for future in replay_futures:
+                        if future is not None:
+                            future.get(
+                                timeout=settings.KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS - (time.monotonic() - start_time)
+                            )
     except ValueError as e:
         with sentry_sdk.push_scope() as scope:
             scope.set_tag("capture-pathway", "replay")
