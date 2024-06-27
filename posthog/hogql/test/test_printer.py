@@ -1,4 +1,4 @@
-from typing import Literal, Optional, cast
+from typing import Literal, Optional
 
 import pytest
 from django.test import override_settings
@@ -9,8 +9,9 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DateDatabaseField, StringDatabaseField
 from posthog.hogql.errors import ExposedHogQLError, QueryError
-from posthog.hogql.parser import parse_select, parse_expr
-from posthog.hogql.printer import print_ast, to_printed_hogql, prepare_ast_for_printing, print_prepared_ast
+from posthog.hogql.hogql import translate_hogql
+from posthog.hogql.parser import parse_select
+from posthog.hogql.printer import print_ast, to_printed_hogql
 from posthog.models import PropertyDefinition
 from posthog.models.team.team import WeekStartDay
 from posthog.schema import HogQLQueryModifiers, PersonsArgMaxVersion, PersonsOnEventsMode
@@ -27,19 +28,7 @@ class TestPrinter(BaseTest):
         context: Optional[HogQLContext] = None,
         dialect: Literal["hogql", "clickhouse"] = "clickhouse",
     ) -> str:
-        node = parse_expr(query)
-        context = context or HogQLContext(team_id=self.team.pk, enable_select_queries=True)
-        select_query = ast.SelectQuery(select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])))
-        prepared_select_query: ast.SelectQuery = cast(
-            ast.SelectQuery,
-            prepare_ast_for_printing(select_query, context=context, dialect=dialect, stack=[select_query]),
-        )
-        return print_prepared_ast(
-            prepared_select_query.select[0],
-            context=context,
-            dialect=dialect,
-            stack=[prepared_select_query],
-        )
+        return translate_hogql(query, context or HogQLContext(team_id=self.team.pk), dialect)
 
     # Helper to always translate HogQL with a blank context,
     def _select(
@@ -1030,14 +1019,14 @@ class TestPrinter(BaseTest):
             f"SELECT "
             # start_time = toStartOfMonth(now())
             # (the return of toStartOfMonth() is treated as "potentially nullable" since we yet have full typing support)
-            f"ifNull(equals(session_replay_events.start_time, toStartOfMonth(now64(6, %(hogql_val_1)s))), "
-            f"isNull(session_replay_events.start_time) and isNull(toStartOfMonth(now64(6, %(hogql_val_1)s)))), "
+            f"ifNull(equals(toTimeZone(session_replay_events.start_time, %(hogql_val_1)s), toStartOfMonth(now64(6, %(hogql_val_2)s))), "
+            f"isNull(toTimeZone(session_replay_events.start_time, %(hogql_val_1)s)) and isNull(toStartOfMonth(now64(6, %(hogql_val_2)s)))), "
             # now() = now() (also two nullable fields)
-            f"ifNull(equals(now64(6, %(hogql_val_2)s), now64(6, %(hogql_val_3)s)), isNull(now64(6, %(hogql_val_2)s)) and isNull(now64(6, %(hogql_val_3)s))), "
+            f"ifNull(equals(now64(6, %(hogql_val_3)s), now64(6, %(hogql_val_4)s)), isNull(now64(6, %(hogql_val_3)s)) and isNull(now64(6, %(hogql_val_4)s))), "
             # 1 = now()
-            f"ifNull(equals(1, now64(6, %(hogql_val_4)s)), 0), "
+            f"ifNull(equals(1, now64(6, %(hogql_val_5)s)), 0), "
             # now() = 1
-            f"ifNull(equals(now64(6, %(hogql_val_5)s), 1), 0), "
+            f"ifNull(equals(now64(6, %(hogql_val_6)s), 1), 0), "
             # 1 = 1
             f"1, "
             # click_count = 1
@@ -1070,14 +1059,14 @@ class TestPrinter(BaseTest):
             f"SELECT "
             # start_time = toStartOfMonth(now())
             # (the return of toStartOfMonth() is treated as "potentially nullable" since we yet have full typing support)
-            f"ifNull(notEquals(session_replay_events.start_time, toStartOfMonth(now64(6, %(hogql_val_1)s))), "
-            f"isNotNull(session_replay_events.start_time) or isNotNull(toStartOfMonth(now64(6, %(hogql_val_1)s)))), "
+            f"ifNull(notEquals(toTimeZone(session_replay_events.start_time, %(hogql_val_1)s), toStartOfMonth(now64(6, %(hogql_val_2)s))), "
+            f"isNotNull(toTimeZone(session_replay_events.start_time, %(hogql_val_1)s)) or isNotNull(toStartOfMonth(now64(6, %(hogql_val_2)s)))), "
             # now() = now() (also two nullable fields)
-            f"ifNull(notEquals(now64(6, %(hogql_val_2)s), now64(6, %(hogql_val_3)s)), isNotNull(now64(6, %(hogql_val_2)s)) or isNotNull(now64(6, %(hogql_val_3)s))), "
+            f"ifNull(notEquals(now64(6, %(hogql_val_3)s), now64(6, %(hogql_val_4)s)), isNotNull(now64(6, %(hogql_val_3)s)) or isNotNull(now64(6, %(hogql_val_4)s))), "
             # 1 = now()
-            f"ifNull(notEquals(1, now64(6, %(hogql_val_4)s)), 1), "
+            f"ifNull(notEquals(1, now64(6, %(hogql_val_5)s)), 1), "
             # now() = 1
-            f"ifNull(notEquals(now64(6, %(hogql_val_5)s), 1), 1), "
+            f"ifNull(notEquals(now64(6, %(hogql_val_6)s), 1), 1), "
             # 1 = 1
             f"0, "
             # click_count = 1
@@ -1619,95 +1608,4 @@ class TestPrinter(BaseTest):
         self.assertEqual(
             self._expr("SuM(1)", context),
             "sum(1)",
-        )
-
-    def test_inline_persons(self):
-        query = parse_select(
-            "select persons.id as person_id from events join persons on persons.id = events.person_id and persons.id in (1,2,3)"
-        )
-        printed = print_ast(
-            query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
-            dialect="clickhouse",
-            settings=HogQLGlobalSettings(max_execution_time=10),
-        )
-        assert (
-            f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), ifNull(in(id, tuple(1, 2, 3)), 0))"
-            in printed
-        )
-
-    def test_dont_inline_persons(self):
-        query = parse_select(
-            "select persons.id as person_id from events join persons on persons.id = events.person_id and persons.id = 1"
-        )
-        printed = print_ast(
-            query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
-            dialect="clickhouse",
-            settings=HogQLGlobalSettings(max_execution_time=10),
-        )
-        assert f"AS id FROM person WHERE equals(person.team_id, {self.team.pk})" in printed
-
-    def test_inline_persons_alias(self):
-        query = parse_select(
-            """
-            select p1.id as p1_id from events
-            join persons as p1 on p1.id = events.person_id and p1.id in (1,2,3)
-            """
-        )
-        printed = print_ast(
-            query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
-            dialect="clickhouse",
-            settings=HogQLGlobalSettings(max_execution_time=10),
-        )
-        assert (
-            f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), ifNull(in(id, tuple(1, 2, 3)), 0))"
-            in printed
-        )
-
-    def test_two_joins(self):
-        query = parse_select(
-            """
-            select p1.id as p1_id, p2.id as p2_id from events
-            join persons as p1 on p1.id = events.person_id and p1.id in (1,2,3)
-            join persons as p2 on p2.id = events.person_id and p2.id in (4,5,6)
-            """
-        )
-        printed = print_ast(
-            query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
-            dialect="clickhouse",
-            settings=HogQLGlobalSettings(max_execution_time=10),
-        )
-        assert (
-            f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), ifNull(in(id, tuple(1, 2, 3)), 0))"
-            in printed
-        )
-        assert (
-            f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), ifNull(in(id, tuple(4, 5, 6)), 0))"
-            in printed
-        )
-
-    def test_two_clauses(self):
-        query = parse_select(
-            """
-            select p1.id as p1_id, p2.id as p2_id from events
-            join persons as p1 on p1.id in (7,8,9) and p1.id = events.person_id and p1.id in (1,2,3)
-            join persons as p2 on p2.id = events.person_id and p2.id in (4,5,6)
-            """
-        )
-        printed = print_ast(
-            query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
-            dialect="clickhouse",
-            settings=HogQLGlobalSettings(max_execution_time=10),
-        )
-        assert (
-            f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), ifNull(in(id, tuple(7, 8, 9)), 0), ifNull(in(id, tuple(1, 2, 3)), 0))"
-            in printed
-        )
-        assert (
-            f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), ifNull(in(id, tuple(4, 5, 6)), 0))"
-            in printed
         )
