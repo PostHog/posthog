@@ -57,7 +57,7 @@ def check_synced_row_limits_of_team(team_id: int) -> None:
     ]
     total_rows_synced = sum(rows_synced_list)
 
-    if team_id in limited_teams_rows_synced or total_rows_synced < MONTHLY_LIMIT:
+    if team_id in limited_teams_rows_synced or total_rows_synced > MONTHLY_LIMIT:
         running_jobs = ExternalDataJob.objects.filter(team_id=team_id, status=ExternalDataJob.Status.RUNNING)
         for job in running_jobs:
             try:
