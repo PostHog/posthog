@@ -9,6 +9,7 @@ import { defaultConfig } from '../../../../src/config/config'
 import { SessionRecordingIngester } from '../../../../src/main/ingestion-queues/session-recording/session-recordings-consumer'
 import { Hub, PluginsServerConfig, Team } from '../../../../src/types'
 import { createHub } from '../../../../src/utils/db/hub'
+import { deleteKeysWithPrefix } from '../../../helpers/redis'
 import { getFirstTeam, resetTestDatabase } from '../../../helpers/sql'
 import { createIncomingRecordingMessage, createKafkaMessage, createTP } from './fixtures'
 
@@ -27,15 +28,8 @@ const config: PluginsServerConfig = {
 
 const noop = () => undefined
 
-async function deleteKeysWithPrefix(hub: Hub) {
-    const redisClient = await hub.redisPool.acquire()
-    const keys = await redisClient.keys(`${SESSION_RECORDING_REDIS_PREFIX}*`)
-    const pipeline = redisClient.pipeline()
-    keys.forEach(function (key) {
-        pipeline.del(key)
-    })
-    await pipeline.exec()
-    await hub.redisPool.release(redisClient)
+async function deleteKeys(hub: Hub) {
+    await deleteKeysWithPrefix(hub.redisPool, SESSION_RECORDING_REDIS_PREFIX)
 }
 
 const mockConsumer = {
@@ -115,8 +109,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
         teamToken = team.api_token
         redisConn = await hub.redisPool.acquire(0)
         await redisConn.del(CAPTURE_OVERFLOW_REDIS_KEY)
-
-        await deleteKeysWithPrefix(hub)
+        await deleteKeys(hub)
 
         ingester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage, consumeOverflow, redisConn)
         await ingester.start()
@@ -128,7 +121,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
         jest.setTimeout(10000)
         await redisConn.del(CAPTURE_OVERFLOW_REDIS_KEY)
         await hub.redisPool.release(redisConn)
-        await deleteKeysWithPrefix(hub)
+        await deleteKeys(hub)
         await closeHub()
     })
 
