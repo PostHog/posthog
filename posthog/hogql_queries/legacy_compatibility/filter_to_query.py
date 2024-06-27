@@ -376,6 +376,7 @@ def _insight_filter(filter: dict):
                 showValuesOnSeries=filter.get("show_values_on_series"),
                 showPercentStackView=filter.get("show_percent_stack_view"),
                 showLabelsOnSeries=filter.get("show_label_on_series"),
+                yAxisScaleType=filter.get("y_axis_scale_type"),
             )
         }
     elif _insight_type(filter) == "FUNNELS":
