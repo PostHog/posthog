@@ -2,6 +2,7 @@ from time import time_ns
 
 import pytest
 
+from posthog.clickhouse.client import sync_execute
 from posthog.hogql import ast
 from posthog.hogql.database.schema.sessions_v2 import (
     get_lazy_session_table_properties_v2,
@@ -34,16 +35,16 @@ class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
             properties={"$current_url": "https://example.com", "$session_id": session_id},
         )
 
-        response = self.__execute(
-            parse_select(
-                "select * from raw_sessions_v where session_id = {session_id}",
-                placeholders={"session_id": ast.Constant(value=session_id)},
-            ),
-        )
+        # must be clickhouse, not hogql, as the view is not wired up to hogql
+        response = sync_execute(f"SELECT team_id, * FROM raw_sessions_v WHERE team_id = {self.team.id}") or []
 
         self.assertEqual(
-            len(response.results or []),
+            len(response),
             1,
+        )
+        self.assertEqual(
+            response[0][0],
+            self.team.id,
         )
 
     def test_select_star(self):
