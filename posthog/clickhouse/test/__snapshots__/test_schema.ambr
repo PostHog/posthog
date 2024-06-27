@@ -1662,11 +1662,11 @@
       -- slower and more expensive to store, but will be correct even if events are double-counted, so can be used to
       -- verify correctness and as a backup. Ideally we will be able to delete the uniq columns in the future when we're
       -- satisfied that counts are accurate.
-      pageview_count SimpleAggregateFunction(sum, Int64),
+      pageview_count_2 AggregateFunction(countIf, Int64, bool),
       pageview_uniq AggregateFunction(uniq, Nullable(UUID)),
-      autocapture_count SimpleAggregateFunction(sum, Int64),
+      autocapture_count_2 AggregateFunction(countIf, Int64, bool),
       autocapture_uniq AggregateFunction(uniq, Nullable(UUID)),
-      screen_count SimpleAggregateFunction(sum, Int64),
+      screen_count_2 AggregateFunction(countIf, Int64, bool),
       screen_uniq AggregateFunction(uniq, Nullable(UUID)),
   
       -- replay
@@ -1735,11 +1735,11 @@
       argMinState(JSONExtractString(properties, 'ttclid'), timestamp) as initial_ttclid,
   
       -- count
-      sumIf(1, event='$pageview') as pageview_count,
+      countIfState(event='$pageview') as pageview_count_2,
       uniqState(if(event='$pageview', uuid, NULL)) as pageview_uniq,
-      sumIf(1, event='$autocapture') as autocapture_count,
+      countIfState(event='$autocapture') as autocapture_count_2,
       uniqState(if(event='$autocapture', uuid, NULL)) as autocapture_uniq,
-      sumIf(1, event='$screen') as screen_count,
+      countIfState(event='$screen') as screen_count_2,
       uniqState(if(event='$screen', uuid, NULL)) as screen_uniq,
   
       -- replay
@@ -2272,11 +2272,11 @@
       -- slower and more expensive to store, but will be correct even if events are double-counted, so can be used to
       -- verify correctness and as a backup. Ideally we will be able to delete the uniq columns in the future when we're
       -- satisfied that counts are accurate.
-      pageview_count SimpleAggregateFunction(sum, Int64),
+      pageview_count_2 AggregateFunction(countIf, Int64, bool),
       pageview_uniq AggregateFunction(uniq, Nullable(UUID)),
-      autocapture_count SimpleAggregateFunction(sum, Int64),
+      autocapture_count_2 AggregateFunction(countIf, Int64, bool),
       autocapture_uniq AggregateFunction(uniq, Nullable(UUID)),
-      screen_count SimpleAggregateFunction(sum, Int64),
+      screen_count_2 AggregateFunction(countIf, Int64, bool),
       screen_uniq AggregateFunction(uniq, Nullable(UUID)),
   
       -- replay
@@ -2571,11 +2571,11 @@
       -- slower and more expensive to store, but will be correct even if events are double-counted, so can be used to
       -- verify correctness and as a backup. Ideally we will be able to delete the uniq columns in the future when we're
       -- satisfied that counts are accurate.
-      pageview_count SimpleAggregateFunction(sum, Int64),
+      pageview_count_2 AggregateFunction(countIf, Int64, bool),
       pageview_uniq AggregateFunction(uniq, Nullable(UUID)),
-      autocapture_count SimpleAggregateFunction(sum, Int64),
+      autocapture_count_2 AggregateFunction(countIf, Int64, bool),
       autocapture_uniq AggregateFunction(uniq, Nullable(UUID)),
-      screen_count SimpleAggregateFunction(sum, Int64),
+      screen_count_2 AggregateFunction(countIf, Int64, bool),
       screen_uniq AggregateFunction(uniq, Nullable(UUID)),
   
       -- replay
@@ -3329,11 +3329,11 @@
       -- slower and more expensive to store, but will be correct even if events are double-counted, so can be used to
       -- verify correctness and as a backup. Ideally we will be able to delete the uniq columns in the future when we're
       -- satisfied that counts are accurate.
-      pageview_count SimpleAggregateFunction(sum, Int64),
+      pageview_count_2 AggregateFunction(countIf, Int64, bool),
       pageview_uniq AggregateFunction(uniq, Nullable(UUID)),
-      autocapture_count SimpleAggregateFunction(sum, Int64),
+      autocapture_count_2 AggregateFunction(countIf, Int64, bool),
       autocapture_uniq AggregateFunction(uniq, Nullable(UUID)),
-      screen_count SimpleAggregateFunction(sum, Int64),
+      screen_count_2 AggregateFunction(countIf, Int64, bool),
       screen_uniq AggregateFunction(uniq, Nullable(UUID)),
   
       -- replay
