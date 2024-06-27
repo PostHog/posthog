@@ -5,8 +5,9 @@ jest.mock('../../../src/utils/now', () => {
 })
 
 import { HogWatcher, HogWatcherActiveObservations } from '../../../src/cdp/hog-watcher/hog-watcher'
-import { BASE_REDIS_KEY, DISABLED_PERIOD, OBSERVATION_PERIOD, runRedis } from '../../../src/cdp/hog-watcher/utils'
+import { BASE_REDIS_KEY, runRedis } from '../../../src/cdp/hog-watcher/utils'
 import { HogFunctionInvocationAsyncResponse, HogFunctionInvocationResult } from '../../../src/cdp/types'
+import { defaultConfig } from '../../../src/config/config'
 import { Hub } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
 import { delay } from '../../../src/utils/utils'
@@ -29,12 +30,14 @@ const createAsyncResponse = (id: string, success = true): HogFunctionInvocationA
     } as HogFunctionInvocationAsyncResponse
 }
 
+const config = defaultConfig
+
 describe('HogWatcher', () => {
     describe('HogWatcherActiveObservations', () => {
         let observer: HogWatcherActiveObservations
 
         beforeEach(() => {
-            observer = new HogWatcherActiveObservations()
+            observer = new HogWatcherActiveObservations(config)
             jest.useFakeTimers()
             jest.setSystemTime(1719229670000)
         })
@@ -170,7 +173,7 @@ describe('HogWatcher', () => {
 
         it('should persist the in flight observations to redis', async () => {
             watcher1.currentObservations.observeResults([createResult('id2'), createResult('id1')])
-            advanceTime(OBSERVATION_PERIOD)
+            advanceTime(config.CDP_WATCHER_OBSERVATION_PERIOD)
             await watcher1.sync()
             expect(watcher1.currentObservations.observations).toEqual({})
             const persistedState = await watcher2.fetchState()
@@ -211,7 +214,7 @@ describe('HogWatcher', () => {
             }
 
             // Move forward one period - this passes themasking period, ensuring that the observations are persisted
-            advanceTime(OBSERVATION_PERIOD)
+            advanceTime(config.CDP_WATCHER_OBSERVATION_PERIOD)
             await watcher1.sync()
             await watcher2.sync()
             await delay(100) // Allow pubsub to happen
@@ -222,7 +225,7 @@ describe('HogWatcher', () => {
             expect(await watcher2.fetchState()).toEqual(expectation)
 
             // Move forward one final period and the initial observations should now be ratings
-            advanceTime(OBSERVATION_PERIOD)
+            advanceTime(config.CDP_WATCHER_OBSERVATION_PERIOD)
             await watcher1.sync()
             await watcher2.sync()
             await delay(100) // Allow pubsub to happen
@@ -247,7 +250,7 @@ describe('HogWatcher', () => {
             // 2 for the persistance of the ratings, 3 more for the evaluation, 3 more for the subsequent evaluation
             for (let i = 0; i < 2 + 3 + 3; i++) {
                 watcher1.currentObservations.observeResults([createResult('id1', false, 'error')])
-                advanceTime(OBSERVATION_PERIOD)
+                advanceTime(config.CDP_WATCHER_OBSERVATION_PERIOD)
                 await watcher1.sync()
             }
             await delay(100)
@@ -259,7 +262,7 @@ describe('HogWatcher', () => {
                         .fill(0)
                         .map((_, i) => ({
                             rating: 0,
-                            timestamp: 1720000000000 + i * OBSERVATION_PERIOD,
+                            timestamp: 1720000000000 + i * config.CDP_WATCHER_OBSERVATION_PERIOD,
                         })),
                 },
                 states: {
@@ -278,7 +281,7 @@ describe('HogWatcher', () => {
 
             expect(watcher2.states['id1']).toEqual(3)
 
-            advanceTime(DISABLED_PERIOD + 1)
+            advanceTime(config.CDP_WATCHER_DISABLED_PERIOD + 1)
             await watcher1.sync()
             await delay(100)
             expect(watcher2.states['id1']).toEqual(2)
@@ -287,7 +290,7 @@ describe('HogWatcher', () => {
         it('should save the states to redis so another watcher can grab it', async () => {
             for (let i = 0; i < 5; i++) {
                 watcher1.currentObservations.observeResults([createResult('id1', false, 'error')])
-                advanceTime(OBSERVATION_PERIOD)
+                advanceTime(config.CDP_WATCHER_OBSERVATION_PERIOD)
                 await watcher1.sync()
             }
             await delay(100)
@@ -306,7 +309,7 @@ describe('HogWatcher', () => {
         it('should load existing states from redis', async () => {
             for (let i = 0; i < 5; i++) {
                 watcher1.currentObservations.observeResults([createResult('id1', false, 'error')])
-                advanceTime(OBSERVATION_PERIOD)
+                advanceTime(config.CDP_WATCHER_OBSERVATION_PERIOD)
                 await watcher1.sync()
             }
 
@@ -319,7 +322,7 @@ describe('HogWatcher', () => {
 
         it('should react to becoming or losing leader status', async () => {
             watcher1.currentObservations.observeResults([createResult('id1', false, 'error')])
-            advanceTime(OBSERVATION_PERIOD)
+            advanceTime(config.CDP_WATCHER_OBSERVATION_PERIOD)
             await watcher1.sync()
             const stateExpectation = {
                 observations: { id1: [expect.any(Object)] },
@@ -351,10 +354,10 @@ describe('HogWatcher', () => {
                 if (watcher1.getFunctionState('id1') < 3) {
                     // If we are anything other than disables, simulate a bad invocations
                     watcher1.currentObservations.observeResults([createResult('id1', false, 'error')])
-                    advanceTime(OBSERVATION_PERIOD)
+                    advanceTime(config.CDP_WATCHER_OBSERVATION_PERIOD)
                 } else {
                     // Skip ahead if the function is disabled
-                    advanceTime(DISABLED_PERIOD)
+                    advanceTime(config.CDP_WATCHER_DISABLED_PERIOD)
                 }
                 await watcher1.sync()
                 await delay(5)

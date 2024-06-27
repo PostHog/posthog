@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { Counter } from 'prom-client'
 
-import { Hub } from '../../types'
+import { CdpConfig, Hub } from '../../types'
 import { PubSub } from '../../utils/pubsub'
 import { status } from '../../utils/status'
 import { HogFunctionInvocationAsyncResponse, HogFunctionInvocationResult, HogFunctionType } from '../types'
@@ -21,11 +21,7 @@ import {
     calculateRating,
     deriveCurrentStateFromRatings,
     last,
-    MAX_RECORDED_RATINGS,
-    MAX_RECORDED_STATES,
-    OBSERVATION_PERIOD,
     periodTimestamp,
-    RATINGS_PERIOD_MASK,
     runRedis,
     stripFalsey,
 } from './utils'
@@ -41,7 +37,7 @@ const hogStateChangeCounter = new Counter({
 export class HogWatcherActiveObservations {
     observations: Record<HogFunctionType['id'], HogWatcherObservationPeriod> = {}
 
-    constructor() {}
+    constructor(private config: CdpConfig) {}
 
     private addObservations(
         id: HogFunctionType['id'],
@@ -52,7 +48,7 @@ export class HogWatcherActiveObservations {
     ): void {
         if (!this.observations[id]) {
             this.observations[id] = {
-                timestamp: periodTimestamp(),
+                timestamp: periodTimestamp(this.config),
                 successes: 0,
                 failures: 0,
                 asyncFunctionFailures: 0,
@@ -87,7 +83,7 @@ export class HogWatcherActiveObservations {
 }
 
 export class HogWatcher {
-    public readonly currentObservations = new HogWatcherActiveObservations()
+    public readonly currentObservations: HogWatcherActiveObservations
     public states: Record<HogFunctionType['id'], HogWatcherState> = {}
     private queuedManualStates: Record<HogFunctionType['id'], HogWatcherState> = {}
 
@@ -100,6 +96,8 @@ export class HogWatcher {
     private syncTimer?: NodeJS.Timeout
 
     constructor(private hub: Hub) {
+        this.currentObservations = new HogWatcherActiveObservations(hub)
+
         this.instanceId = randomUUID()
         this.pubSub = new PubSub(hub, {
             'hog-watcher-states': (message) => {
@@ -186,8 +184,14 @@ export class HogWatcher {
 
             // TODO: This can definitely be done in a single command - just need to make sure the ttl is always extended if the ID is the same
 
-            // @ts-expect-error - IORedis types don't allow for NX and EX in the same command
-            pipeline.set(`${BASE_REDIS_KEY}/leader`, this.instanceId, 'NX', 'EX', (OBSERVATION_PERIOD * 3) / 1000)
+            pipeline.set(
+                `${BASE_REDIS_KEY}/leader`,
+                this.instanceId,
+                'NX',
+                // @ts-expect-error - IORedis types don't allow for NX and EX in the same command
+                'EX',
+                (this.hub.CDP_WATCHER_OBSERVATION_PERIOD * 3) / 1000
+            )
             pipeline.get(`${BASE_REDIS_KEY}/leader`)
             const [_, res] = await pipeline.exec()
 
@@ -207,7 +211,7 @@ export class HogWatcher {
         try {
             await this.sync()
         } finally {
-            this.syncTimer = setTimeout(() => this.syncLoop(), OBSERVATION_PERIOD)
+            this.syncTimer = setTimeout(() => this.syncLoop(), this.hub.CDP_WATCHER_OBSERVATION_PERIOD)
         }
     }
 
@@ -230,7 +234,7 @@ export class HogWatcher {
             observations: [],
         }
 
-        const period = periodTimestamp()
+        const period = periodTimestamp(this.hub)
 
         Object.entries(this.currentObservations.observations).forEach(([id, observation]) => {
             if (observation.timestamp !== period) {
@@ -282,9 +286,10 @@ export class HogWatcher {
         // We want to gather all observations that are at least 1 period older than the current period
         // That gives enough time for each worker to have pushed out their observations
 
-        const period = periodTimestamp()
+        const period = periodTimestamp(this.hub)
         const keysToRemove: string[] = []
         const changedHogFunctionRatings = new Set<HogFunctionType['id']>()
+        const RATINGS_PERIOD_MASK = this.hub.CDP_WATCHER_OBSERVATION_PERIOD * 2
 
         // Group the observations by functionId and timestamp and generate their rating
         Object.entries(globalState.observations).forEach(([id, observations]) => {
@@ -330,7 +335,7 @@ export class HogWatcher {
                 const rating = calculateRating(observation)
                 globalState.ratings[id] = globalState.ratings[id] ?? []
                 globalState.ratings[id].push({ timestamp: observation.timestamp, rating: rating })
-                globalState.ratings[id] = globalState.ratings[id].slice(-MAX_RECORDED_RATINGS)
+                globalState.ratings[id] = globalState.ratings[id].slice(-this.hub.CDP_WATCHER_MAX_RECORDED_RATINGS)
 
                 changedHogFunctionRatings.add(id)
             })
@@ -338,13 +343,13 @@ export class HogWatcher {
 
         const transitionToState = (id: HogFunctionType['id'], newState: HogWatcherState) => {
             const state: HogWatcherStatePeriod = {
-                timestamp: periodTimestamp(),
+                timestamp: periodTimestamp(this.hub),
                 state: newState,
             }
 
             globalState.states[id] = globalState.states[id] ?? []
             globalState.states[id].push(state)
-            globalState.states[id] = globalState.states[id].slice(-MAX_RECORDED_STATES)
+            globalState.states[id] = globalState.states[id].slice(-this.hub.CDP_WATCHER_MAX_RECORDED_STATES)
             stateChanges.states[id] = newState
             hogStateChangeCounter.inc({ state: newState })
         }
@@ -354,7 +359,7 @@ export class HogWatcher {
             // Check if the state has changed and if so add it to the list of changes
             const newRatings = globalState.ratings[id]
             const currentState = last(globalState.states[id])?.state ?? HogWatcherState.healthy
-            const newState = deriveCurrentStateFromRatings(newRatings, globalState.states[id] ?? [])
+            const newState = deriveCurrentStateFromRatings(this.hub, newRatings, globalState.states[id] ?? [])
 
             if (currentState !== newState) {
                 transitionToState(id, newState)
@@ -366,7 +371,7 @@ export class HogWatcher {
             const currentState = last(states)?.state
             if (currentState === HogWatcherState.disabledForPeriod) {
                 // Also check the state change here
-                const newState = deriveCurrentStateFromRatings(globalState.ratings[id] ?? [], states)
+                const newState = deriveCurrentStateFromRatings(this.hub, globalState.ratings[id] ?? [], states)
 
                 if (newState !== currentState) {
                     transitionToState(id, newState)

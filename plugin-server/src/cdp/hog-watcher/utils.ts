@@ -1,23 +1,11 @@
 import { Redis } from 'ioredis'
 
-import { RedisPool } from '../../types'
+import { CdpConfig, RedisPool } from '../../types'
 import { timeoutGuard } from '../../utils/db/utils'
 import { now } from '../../utils/now'
 import { HogWatcherObservationPeriod, HogWatcherRatingPeriod, HogWatcherState, HogWatcherStatePeriod } from './types'
 
 const REDIS_TIMEOUT_SECONDS = 5
-
-export const OBSERVATION_PERIOD = 10000 // Adjust this for more or less granular checking
-export const RATINGS_PERIOD_MASK = OBSERVATION_PERIOD * 2 // What number of periods to wait for before writing a rating
-export const DISABLED_PERIOD = 1000 * 60 * 10 // 10 minutes
-export const MAX_RECORDED_STATES = 10
-export const MAX_RECORDED_RATINGS = 10
-export const MAX_ALLOWED_TEMPORARY_DISABLES = 3
-export const MIN_OBSERVATIONS = 3
-
-export const OVERFLOW_THRESHOLD = 0.8
-export const DISABLE_THRESHOLD = 0.5
-
 export const BASE_REDIS_KEY = process.env.NODE_ENV == 'test' ? '@posthog-test/hog-watcher' : '@posthog/hog-watcher'
 
 export const calculateRating = (observation: HogWatcherObservationPeriod): number => {
@@ -36,21 +24,32 @@ export const calculateRating = (observation: HogWatcherObservationPeriod): numbe
     return Math.min(1, successRate, asyncSuccessRate)
 }
 
-export const periodTimestamp = (timestamp?: number): number => {
+export const periodTimestamp = (config: CdpConfig, timestamp?: number): number => {
     // Returns the timestamp but rounded to the nearest period (e.g. 1 minute)
-    return Math.floor((timestamp ?? now()) / OBSERVATION_PERIOD) * OBSERVATION_PERIOD
+    const period = config.CDP_WATCHER_OBSERVATION_PERIOD
+    return Math.floor((timestamp ?? now()) / period) * period
 }
 
 /**
  * Calculate what the state should be based on the previous rating and states
  */
 export const deriveCurrentStateFromRatings = (
+    config: CdpConfig,
     ratings: HogWatcherRatingPeriod[],
     states: HogWatcherStatePeriod[]
 ): HogWatcherState => {
+    const {
+        CDP_WATCHER_OBSERVATION_PERIOD,
+        CDP_WATCHER_MAX_RECORDED_RATINGS,
+        CDP_WATCHER_DISABLED_PERIOD,
+        CDP_WATCHER_MIN_OBSERVATIONS,
+        CDP_WATCHER_OVERFLOW_RATING_THRESHOLD,
+        CDP_WATCHER_DISABLED_RATING_THRESHOLD,
+        CDP_WATCHER_MAX_ALLOWED_TEMPORARY_DISABLED,
+    } = config
     const currentState = states[states.length - 1] ?? {
         // Set the timestamp back far enough that all ratings are included
-        timestamp: now() - OBSERVATION_PERIOD * MAX_RECORDED_RATINGS,
+        timestamp: now() - CDP_WATCHER_OBSERVATION_PERIOD * CDP_WATCHER_MAX_RECORDED_RATINGS,
         state: HogWatcherState.healthy,
     }
 
@@ -60,14 +59,14 @@ export const deriveCurrentStateFromRatings = (
 
     // If we are disabled for a period then we only check if it should no longer be disabled
     if (currentState.state === HogWatcherState.disabledForPeriod) {
-        if (now() - currentState.timestamp > DISABLED_PERIOD) {
+        if (now() - currentState.timestamp > CDP_WATCHER_DISABLED_PERIOD) {
             return HogWatcherState.overflowed
         }
     }
 
     const ratingsSinceLastState = ratings.filter((x) => x.timestamp >= currentState.timestamp)
 
-    if (ratingsSinceLastState.length < MIN_OBSERVATIONS) {
+    if (ratingsSinceLastState.length < CDP_WATCHER_MIN_OBSERVATIONS) {
         // We need to give the function a chance to run before we can evaluate it
         return currentState.state
     }
@@ -75,16 +74,16 @@ export const deriveCurrentStateFromRatings = (
     const averageRating = ratingsSinceLastState.reduce((acc, x) => acc + x.rating, 0) / ratingsSinceLastState.length
 
     if (currentState.state === HogWatcherState.overflowed) {
-        if (averageRating > OVERFLOW_THRESHOLD) {
+        if (averageRating > CDP_WATCHER_OVERFLOW_RATING_THRESHOLD) {
             // The function is behaving well again - move it to healthy
             return HogWatcherState.healthy
         }
 
-        if (averageRating < DISABLE_THRESHOLD) {
+        if (averageRating < CDP_WATCHER_DISABLED_RATING_THRESHOLD) {
             // The function is behaving worse than overflow can accept - disable it
             const disabledStates = states.filter((x) => x.state === HogWatcherState.disabledForPeriod)
 
-            if (disabledStates.length >= MAX_ALLOWED_TEMPORARY_DISABLES) {
+            if (disabledStates.length >= CDP_WATCHER_MAX_ALLOWED_TEMPORARY_DISABLED) {
                 // this function has spent half of the time in temporary disabled so we disable it indefinitely
                 return HogWatcherState.disabledIndefinitely
             }
@@ -94,7 +93,7 @@ export const deriveCurrentStateFromRatings = (
     }
 
     if (currentState.state === HogWatcherState.healthy) {
-        if (averageRating < OVERFLOW_THRESHOLD) {
+        if (averageRating < CDP_WATCHER_OVERFLOW_RATING_THRESHOLD) {
             return HogWatcherState.overflowed
         }
     }

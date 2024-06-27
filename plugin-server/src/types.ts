@@ -94,7 +94,18 @@ export const stringToPluginServerMode = Object.fromEntries(
     ])
 ) as Record<string, PluginServerMode>
 
-export interface PluginsServerConfig {
+export type CdpConfig = {
+    CDP_WATCHER_OBSERVATION_PERIOD: number
+    CDP_WATCHER_DISABLED_PERIOD: number
+    CDP_WATCHER_MAX_RECORDED_STATES: number
+    CDP_WATCHER_MAX_RECORDED_RATINGS: number
+    CDP_WATCHER_MAX_ALLOWED_TEMPORARY_DISABLED: number
+    CDP_WATCHER_MIN_OBSERVATIONS: number
+    CDP_WATCHER_OVERFLOW_RATING_THRESHOLD: number
+    CDP_WATCHER_DISABLED_RATING_THRESHOLD: number
+}
+
+export interface PluginsServerConfig extends CdpConfig {
     WORKER_CONCURRENCY: number // number of concurrent worker threads
     TASKS_PER_WORKER: number // number of parallel tasks per worker thread
     INGESTION_CONCURRENCY: number // number of parallel event ingestion queues per batch

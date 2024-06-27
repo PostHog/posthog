@@ -10,15 +10,10 @@ import {
     HogWatcherState,
     HogWatcherStatePeriod,
 } from '../../../src/cdp/hog-watcher/types'
-import {
-    calculateRating,
-    deriveCurrentStateFromRatings,
-    DISABLE_THRESHOLD,
-    DISABLED_PERIOD,
-    OBSERVATION_PERIOD,
-    OVERFLOW_THRESHOLD,
-    periodTimestamp,
-} from '../../../src/cdp/hog-watcher/utils'
+import { calculateRating, deriveCurrentStateFromRatings, periodTimestamp } from '../../../src/cdp/hog-watcher/utils'
+import { defaultConfig } from '../../../src/config/config'
+
+const config = defaultConfig
 
 describe('HogWatcher.utils', () => {
     describe('calculateRating', () => {
@@ -59,7 +54,7 @@ describe('HogWatcher.utils', () => {
         let states: HogWatcherStatePeriod[]
 
         beforeEach(() => {
-            now = periodTimestamp()
+            now = periodTimestamp(config)
             ratings = []
             states = []
 
@@ -77,11 +72,11 @@ describe('HogWatcher.utils', () => {
 
         const updateState = (newRatings: number[], newStates: HogWatcherState[]) => {
             for (let i = 0; i < Math.max(newRatings.length, newStates.length); i++) {
-                advanceTime(OBSERVATION_PERIOD)
+                advanceTime(config.CDP_WATCHER_OBSERVATION_PERIOD)
 
                 if (newStates[i]) {
                     states.push({
-                        timestamp: periodTimestamp(),
+                        timestamp: periodTimestamp(config),
                         state: newStates[i],
                     })
                 }
@@ -95,7 +90,7 @@ describe('HogWatcher.utils', () => {
             }
         }
 
-        const currentState = () => deriveCurrentStateFromRatings(ratings, states)
+        const currentState = () => deriveCurrentStateFromRatings(config, ratings, states)
         const getAverageRating = () =>
             ratings.length ? ratings.reduce((acc, x) => acc + x.rating, 0) / ratings.length : 0
 
@@ -121,7 +116,7 @@ describe('HogWatcher.utils', () => {
             it('should move to overflow if enough ratings are unhealthy', () => {
                 updateState([1, 1, 0.8, 0.6, 0.6, 0.6, 0.6], [])
                 expect(states).toMatchObject([])
-                expect(getAverageRating()).toBeLessThan(OVERFLOW_THRESHOLD)
+                expect(getAverageRating()).toBeLessThan(config.CDP_WATCHER_OVERFLOW_RATING_THRESHOLD)
                 expect(currentState()).toBe(HogWatcherState.overflowed)
             })
         })
@@ -130,12 +125,12 @@ describe('HogWatcher.utils', () => {
             it('should stay in overflow if the rating does not change ', () => {
                 updateState([1, 1, 0.8, 0.6, 0.6, 0.6, 0.6], [])
                 expect(currentState()).toBe(HogWatcherState.overflowed)
-                expect(getAverageRating()).toBeLessThan(OVERFLOW_THRESHOLD)
-                expect(getAverageRating()).toBeGreaterThan(DISABLE_THRESHOLD)
+                expect(getAverageRating()).toBeLessThan(config.CDP_WATCHER_OVERFLOW_RATING_THRESHOLD)
+                expect(getAverageRating()).toBeGreaterThan(config.CDP_WATCHER_DISABLED_RATING_THRESHOLD)
 
                 updateState([0.5, 0.5, 0.6, 0.7, 0.8, 1, 0.8], [])
-                expect(getAverageRating()).toBeLessThan(OVERFLOW_THRESHOLD)
-                expect(getAverageRating()).toBeGreaterThan(DISABLE_THRESHOLD)
+                expect(getAverageRating()).toBeLessThan(config.CDP_WATCHER_OVERFLOW_RATING_THRESHOLD)
+                expect(getAverageRating()).toBeGreaterThan(config.CDP_WATCHER_DISABLED_RATING_THRESHOLD)
                 expect(currentState()).toBe(HogWatcherState.overflowed)
             })
 
@@ -143,14 +138,14 @@ describe('HogWatcher.utils', () => {
                 updateState([], [HogWatcherState.overflowed])
                 expect(currentState()).toBe(HogWatcherState.overflowed)
                 updateState([0.5, 0.8, 0.9, 0.9, 1, 0.9, 1], [])
-                expect(getAverageRating()).toBeGreaterThan(OVERFLOW_THRESHOLD)
+                expect(getAverageRating()).toBeGreaterThan(config.CDP_WATCHER_OVERFLOW_RATING_THRESHOLD)
                 expect(currentState()).toBe(HogWatcherState.healthy)
             })
 
             it('should move to overflow if enough observations are unhealthy', () => {
                 updateState([1, 1, 0.8, 0.6, 0.6, 0.6, 0.6], [])
                 expect(states).toMatchObject([])
-                expect(getAverageRating()).toBeLessThan(OVERFLOW_THRESHOLD)
+                expect(getAverageRating()).toBeLessThan(config.CDP_WATCHER_OVERFLOW_RATING_THRESHOLD)
                 expect(currentState()).toBe(HogWatcherState.overflowed)
             })
 
@@ -162,7 +157,7 @@ describe('HogWatcher.utils', () => {
                 updateState([0.5, 0.4], []) // Add nearly enough ratings for next evaluation
                 expect(currentState()).toBe(HogWatcherState.overflowed) // Should still be the same
                 updateState([0.4], []) // One more rating and it can be evaluated
-                expect(getAverageRating()).toBeLessThan(DISABLE_THRESHOLD)
+                expect(getAverageRating()).toBeLessThan(config.CDP_WATCHER_DISABLED_RATING_THRESHOLD)
                 expect(currentState()).toBe(HogWatcherState.disabledForPeriod)
             })
 
@@ -192,8 +187,10 @@ describe('HogWatcher.utils', () => {
             it('should stay disabled for period until the period has passed ', () => {
                 updateState([], [HogWatcherState.disabledForPeriod])
                 expect(currentState()).toBe(HogWatcherState.disabledForPeriod)
-                expect(states).toEqual([{ state: HogWatcherState.disabledForPeriod, timestamp: periodTimestamp() }])
-                advanceTime(DISABLED_PERIOD - 1)
+                expect(states).toEqual([
+                    { state: HogWatcherState.disabledForPeriod, timestamp: periodTimestamp(config) },
+                ])
+                advanceTime(config.CDP_WATCHER_DISABLED_PERIOD - 1)
                 expect(currentState()).toBe(HogWatcherState.disabledForPeriod)
                 advanceTime(2)
                 expect(currentState()).toBe(HogWatcherState.overflowed)
