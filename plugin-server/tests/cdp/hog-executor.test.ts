@@ -193,7 +193,7 @@ describe('Hog Executor', () => {
             mockFunctionManager.getTeamHogFunctions.mockReturnValue([fn])
 
             const resultsShouldntMatch = executor.findMatchingFunctions(createHogExecutionGlobals())
-            expect(resultsShouldntMatch).toHaveLength(0)
+            expect(resultsShouldntMatch.functions).toHaveLength(0)
 
             const resultsShouldMatch = executor.findMatchingFunctions(
                 createHogExecutionGlobals({
@@ -205,7 +205,7 @@ describe('Hog Executor', () => {
                     } as any,
                 })
             )
-            expect(resultsShouldMatch).toHaveLength(1)
+            expect(resultsShouldMatch.functions).toHaveLength(1)
         })
     })
 
