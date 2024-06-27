@@ -107,6 +107,8 @@ def convert_to_hx(node: Any) -> ast.Expr:
         return convert_tag_to_hx(node)
     if isinstance(node, ast.Dict):
         return convert_dict_to_hx(node)
+    if isinstance(node, ast.Array) or isinstance(node, ast.Tuple):
+        return ast.Tuple(exprs=[convert_to_hx(x) for x in node.exprs])
     if isinstance(node, ast.Expr):
         return node
     if isinstance(node, list) or isinstance(node, tuple):

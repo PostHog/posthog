@@ -50,7 +50,7 @@ export function parseHogQLX(value: any): any {
         }
         return object
     }
-    return value
+    return value.map((v) => parseHogQLX(v))
 }
 
 export function renderColumn(
@@ -105,24 +105,8 @@ export function renderColumn(
             if (Array.isArray(value)) {
                 if (value[0] === '__hx_tag' && (value[1] === 'sparkline' || value[1] === 'Sparkline')) {
                     const object: Record<string, any> = parseHogQLX(value)
-                    const data =
-                        'data' in object && Array.isArray(object.data)
-                            ? object.data
-                            : 'results' in object && Array.isArray(object.results) // legacy key
-                            ? object.results
-                            : []
-                    // TODO: If results aren't an array of numbers, show a helpful message on using sparkline()
-                    return (
-                        <Sparkline
-                            data={[
-                                {
-                                    name: key.includes('__hx_tag') ? 'Data' : key,
-                                    values: data.map((v: any) => Number(v)),
-                                },
-                            ]}
-                            type={object.type || 'bar'}
-                        />
-                    )
+                    const { data, type } = object
+                    return <Sparkline data={data ?? []} type={type ?? []} {...object} />
                 }
 
                 return <JSONViewer src={value} name={key} collapsed={value.length > 10 ? 0 : 1} />
