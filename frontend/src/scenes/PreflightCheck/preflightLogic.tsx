@@ -273,6 +273,12 @@ export const preflightLogic = kea<preflightLogicType>([
                 return preflight?.is_debug
             },
         ],
+        isE2E: [
+            (s) => [s.preflight],
+            (preflight): boolean | undefined => {
+                return preflight?.is_e2e
+            },
+        ],
     }),
     listeners(({ values, actions }) => ({
         handlePreflightFinished: () => {

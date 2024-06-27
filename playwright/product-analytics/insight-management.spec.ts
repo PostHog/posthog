@@ -100,3 +100,41 @@ test('can edit insight query by source', async ({ page }) => {
         expect(labels).toEqual(['Pageview', 'Autocapture'])
     })
 })
+
+test("can't save unchanged insight", async ({ page }) => {
+    const insight = await new InsightPage(page).createNew()
+
+    await insight.edit()
+
+    await expect(insight.saveButton).toBeDisabled()
+})
+
+test(' requires confirmation to navigate away from changed insight', async ({ page }) => {
+    const insight = await new InsightPage(page).createNew()
+
+    // add an autocapture series
+    await insight.edit()
+    // :FIXME: Reload shouldn't be necessary to trigger the confirmation dialog
+    await page.reload()
+    await insight.waitForDetailsTable()
+    // END FIXME
+    await insight.addEntityButton.click()
+    await insight.secondEntity.click()
+    await page.getByText('Autocapture').click()
+
+    await page.getByRole('link', { name: 'Home' }).click()
+
+    // page.on('dialog', (dialog) => {
+    //     expect(dialog.message).toEqual('a')
+    //     dialog.dismiss()
+    // })
+    let dialogMessage = null
+    page.on('dialog', async (dialog) => {
+        dialogMessage = dialog.message()
+        await dialog.accept() // Accept the dialog to continue the test
+    })
+
+    expect(dialogMessage).toEqual('s')
+
+    await expect(insight.saveButton).toBeDisabled()
+})

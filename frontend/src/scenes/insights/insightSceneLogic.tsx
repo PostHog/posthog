@@ -28,7 +28,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
     path(['scenes', 'insights', 'insightSceneLogic']),
     connect(() => ({
         logic: [eventUsageLogic],
-        values: [teamLogic, ['currentTeam'], sceneLogic, ['activeScene'], preflightLogic, ['isDev']],
+        values: [teamLogic, ['currentTeam'], sceneLogic, ['activeScene'], preflightLogic, ['isDev', 'isE2E']],
     })),
     actions({
         setInsightId: (insightId: InsightShortId) => ({ insightId }),
@@ -314,7 +314,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 return false
             }
 
-            if (values.isDev) {
+            if (values.isDev && !values.isE2E) {
                 // TRICKY: We disable beforeUnload handling in dev, but ONLY for insights
                 return false
             }

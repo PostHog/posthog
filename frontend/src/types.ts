@@ -2944,6 +2944,8 @@ export interface PreflightStatus {
     }
     /** Whether PostHog is running in DEBUG mode. */
     is_debug?: boolean
+    /** Whether PostHog is running withing an e2e test. */
+    is_e2e?: boolean
     licensed_users_available?: number | null
     openai_available?: boolean
     site_url?: string
