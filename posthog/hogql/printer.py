@@ -114,8 +114,8 @@ def prepare_ast_for_printing(
                 property_swapper = create_property_swapper(node, context)
             except NoContextException:
                 return None
-            # Property swapping should be done after the lazy tables are resolved, otherwise logic added onto the lazy tables
-            # doesn't pass through this swapper. However, in the PropertySwapper, the group_properties and the S3 Table join
+            # It would be nice to be able to run property swapping after we resolve lazy tables, so that logic added onto the lazy tables
+            # could pass through the swapper. However, in the PropertySwapper, the group_properties and the S3 Table join
             # rely on the existence of lazy tables in the AST. They must be run before we resolve lazy tables. Because groups are
             # not currently used in any sort of where clause optimization (WhereClauseExtractor or PersonsTable), this is okay.
             node = PropertySwapper(
