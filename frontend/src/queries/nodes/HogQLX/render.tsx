@@ -22,16 +22,18 @@ export function parseHogQLX(value: any): any {
 export function renderHogQLX(value: any): JSX.Element {
     const object = parseHogQLX(value)
 
-    if (typeof object === 'object' && !Array.isArray(object)) {
-        const tag = object.__hx_tag ?? null
+    if (typeof object === 'object') {
+        if (Array.isArray(object)) {
+            return <JSONViewer src={object} name={null} collapsed={object.length > 10 ? 0 : 1} />
+        }
 
-        if (tag === null) {
-            return <JSONViewer src={object} name={null} collapsed={Object.keys(object).length > 10 ? 0 : 1} />
+        const { __hx_tag: tag, ...rest } = object
+        if (!tag) {
+            return <JSONViewer src={rest} name={null} collapsed={Object.keys(rest).length > 10 ? 0 : 1} />
         } else if (tag === 'Sparkline') {
-            const { data, type } = object
             return (
                 <ErrorBoundary>
-                    <Sparkline data={data ?? []} type={type ?? []} {...object} />
+                    <Sparkline {...rest} data={rest.data ?? []} type={rest.type ?? []} />
                 </ErrorBoundary>
             )
         }
