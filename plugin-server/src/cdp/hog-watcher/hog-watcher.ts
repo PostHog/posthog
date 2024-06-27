@@ -198,7 +198,6 @@ export class HogWatcher {
     public syncLoop = async () => {
         clearTimeout(this.syncTimer)
         try {
-            // Maybe add a slow function warning here
             await this.sync()
         } finally {
             this.syncTimer = setTimeout(() => this.syncLoop(), OBSERVATION_PERIOD)
@@ -206,10 +205,6 @@ export class HogWatcher {
     }
 
     public async sync() {
-        // TODO: Implement this
-        // 1. Expire all old observations and states
-        // 2. Flush any active observations that we need to do redis (and pubsub)
-
         await this.checkIsLeader()
         await this.flushActiveObservations()
 
