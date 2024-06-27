@@ -19,17 +19,41 @@ test('can create insight', async ({ page }) => {
 })
 
 test('can edit insight filter', async ({ page }) => {
-    const insight = new InsightPage(page)
-    await insight.createNew()
+    const insightPage = await new InsightPage(page).createNew()
 
     // add an autocapture series
-    await insight.withEdit(async () => {
-        await page.getByTestId('add-action-event-button').click()
-        await page.getByTestId('trend-element-subject-1').click()
+    await insightPage.withEdit(async () => {
+        await insightPage.addEntityButton.click()
+        await insightPage.secondEntity.click()
         await page.getByText('Autocapture').click()
     })
 
     // labels in details table match
-    const labels = await page.getByTestId('insights-table-graph').locator('.insights-label').allInnerTexts()
-    expect(labels).toEqual(['Pageview', 'Autocapture'])
+    await insightPage.withReload(async () => {
+        // wait for details table to be visible
+        await insightPage.detailLabels.first().waitFor()
+
+        // test series labels
+        const labels = await insightPage.detailLabels.allInnerTexts()
+        expect(labels).toEqual(['Pageview', 'Autocapture'])
+    })
 })
+
+// test('can edit insight metadata', async ({ page }) => {
+//     const insightPage = await new InsightPage(page).createNew()
+
+//     // add an autocapture series
+//     await insightPage.withEdit(async () => {
+//         await insightPage.addEntityButton.click()
+//         await insightPage.secondEntity.click()
+//         await page.getByText('Autocapture').click()
+//     })
+
+//     // labels in details table match
+//     await insightPage.withReload(async () => {
+//         await expect(page.locator('.LemonTable--loading')).toHaveCount(0)
+
+//         const labels = await insightPage.detailLabels.allInnerTexts()
+//         expect(labels).toEqual(['Pageview', 'Autocapture'])
+//     })
+// })
