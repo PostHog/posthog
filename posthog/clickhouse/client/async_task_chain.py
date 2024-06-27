@@ -7,7 +7,7 @@ from celery import chain
 from celery.canvas import Signature
 from django.db import transaction
 
-from posthog.schema import QueryStatus, Priority
+from posthog.schema import QueryStatus
 
 if typing.TYPE_CHECKING:
     from posthog.clickhouse.client.execute_async import QueryStatusManager
@@ -72,7 +72,7 @@ def execute_task_chain() -> None:
 
         for args in task_chain:
             args[2].task_id = result.id
-            args[2].priority = Priority.NORMAL
+            args[2].labels = ["chained", *(args[2].labels or [])]
             args[1].store_query_status(args[2])
 
         _thread_locals.task_chain = []

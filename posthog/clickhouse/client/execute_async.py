@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 QUERY_WAIT_TIME = Histogram(
-    "query_wait_time_seconds", "Time from query creation to pick-up", labelnames=["team", "priority"]
+    "query_wait_time_seconds", "Time from query creation to pick-up", labelnames=["team", "mode"]
 )
 QUERY_PROCESS_TIME = Histogram("query_process_time_seconds", "Time from query pick-up to result", labelnames=["team"])
 
@@ -158,7 +158,9 @@ def execute_process_query(
     pickup_time = datetime.datetime.now(datetime.timezone.utc)
     if query_status.start_time:
         wait_duration = (pickup_time - query_status.start_time) / datetime.timedelta(seconds=1)
-        QUERY_WAIT_TIME.labels(team=team_id, priority=query_status.priority).observe(wait_duration)
+        QUERY_WAIT_TIME.labels(
+            team=team_id, mode=("chained" if "chained" in (query_status.labels or []) else None)
+        ).observe(wait_duration)
 
     try:
         tag_queries(client_query_id=query_id, team_id=team_id, user_id=user_id)
