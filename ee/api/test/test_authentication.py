@@ -699,6 +699,8 @@ YotAcSbU3p5bzd11wpyebYHB"""
             "Authentication failed: Your organization does not have the required license to use SAML.",
         )
 
+    # Remove after we figure out saml / xmlsec issues
+    # Test login with SAML on dev prod before removing
     def test_xmlsec_and_lxml(self):
         import xmlsec
         import lxml
