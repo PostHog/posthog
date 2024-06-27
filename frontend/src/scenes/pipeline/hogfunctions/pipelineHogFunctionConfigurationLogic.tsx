@@ -198,7 +198,7 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
                     // Fill defaults from template
                     const inputs = {}
 
-                    template!.inputs_schema?.forEach((schema) => {
+                    template.inputs_schema?.forEach((schema) => {
                         if (schema.default) {
                             inputs[schema.key] = { value: schema.default }
                         }
