@@ -28,7 +28,7 @@ test('can create insight', async ({ page }) => {
     )
 })
 
-test('can edit insight filter', async ({ page }) => {
+test('can edit insight query', async ({ page }) => {
     const insight = await new InsightPage(page).createNew()
 
     // add an autocapture series
