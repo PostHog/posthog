@@ -107,6 +107,9 @@ REPLAY_MESSAGE_SIZE_TOO_LARGE_COUNTER = Counter(
 KAFKA_TIMEOUT_ERROR_COUNTER = Counter(
     "capture_replay_kafka_timeout_error",
     "kafka timeout error while writing to replay kafka topic",
+    # from a cardinality perspective
+    # retry_count should only have 0, 1, or 2
+    # and status_code only has 400 or 502
     labelnames=["retry_count", "status_code"],
 )
 
