@@ -96,7 +96,6 @@ export class HogWatcher {
         this.instanceId = randomUUID()
         this.pubSub = new PubSub(hub, {
             'hog-watcher-states': (message) => {
-                // NOTE: This is only emitted by the leader so we can immediately add it to the list of states
                 const { states }: EmittedHogWatcherStates = JSON.parse(message)
 
                 this.states = {
