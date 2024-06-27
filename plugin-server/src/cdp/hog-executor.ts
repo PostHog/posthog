@@ -1,5 +1,6 @@
 import { convertHogToJS, convertJSToHog, exec, ExecResult, VMState } from '@posthog/hogvm'
 import { DateTime } from 'luxon'
+import { Histogram } from 'prom-client'
 
 import { status } from '../utils/status'
 import { UUIDT } from '../utils/utils'
@@ -18,6 +19,13 @@ const MAX_ASYNC_STEPS = 2
 const MAX_HOG_LOGS = 10
 const MAX_LOG_LENGTH = 10000
 const DEFAULT_TIMEOUT_MS = 100
+
+const hogExecutionDuration = new Histogram({
+    name: 'hog_function_execution_duration_ms',
+    help: 'Processing time and success status of internal functions',
+    // We have a timeout so we don't need to worry about much more than that
+    buckets: [0, 10, 20, 50, 100, 200],
+})
 
 export const formatInput = (bytecode: any, globals: HogFunctionInvocation['globals']): any => {
     // Similar to how we generate the bytecode by iterating over the values,
@@ -297,6 +305,7 @@ export class HogExecutor {
             }
 
             const duration = performance.now() - start
+            hogExecutionDuration.observe(duration)
 
             result.finished = execRes.finished
             result.timings.push({
