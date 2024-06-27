@@ -35,7 +35,7 @@ from posthog.hogql.resolver import resolve_types
 from posthog.hogql.resolver_utils import lookup_field_by_name
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
-from posthog.hogql.transforms.property_types import create_property_swapper, PropertySwapper
+from posthog.hogql.transforms.property_types import create_property_swapper, PropertySwapper, NoContextException
 from posthog.hogql.visitor import Visitor, clone_expr
 from posthog.models.property import PropertyName, TableColumn
 from posthog.models.team.team import WeekStartDay
@@ -78,6 +78,8 @@ def print_ast(
     pretty: bool = False,
 ) -> str:
     prepared_ast = prepare_ast_for_printing(node=node, context=context, dialect=dialect, stack=stack, settings=settings)
+    if prepared_ast is None:
+        return ""
     return print_prepared_ast(
         node=prepared_ast,
         context=context,
@@ -94,7 +96,7 @@ def prepare_ast_for_printing(
     dialect: Literal["hogql", "clickhouse"],
     stack: Optional[list[ast.SelectQuery]] = None,
     settings: Optional[HogQLGlobalSettings] = None,
-) -> ast.Expr:
+) -> ast.Expr | None:
     with context.timings.measure("create_hogql_database"):
         context.database = context.database or create_hogql_database(context.team_id, context.modifiers, context.team)
 
@@ -108,14 +110,21 @@ def prepare_ast_for_printing(
 
     if dialect == "clickhouse":
         with context.timings.measure("resolve_property_types"):
-            property_swapper = create_property_swapper(node, context)
+            try:
+                property_swapper = create_property_swapper(node, context)
+            except NoContextException:
+                return None
+            # Property swapping should be done after the lazy tables are resolved, otherwise logic added onto the lazy tables
+            # doesn't pass through this swapper. However, in the PropertySwapper, the group_properties and the S3 Table join
+            # rely on the existence of lazy tables in the AST. They must be run before we resolve lazy tables. Because groups are
+            # not currently used in any sort of where clause optimization (WhereClauseExtractor or PersonsTable), this is okay.
             node = PropertySwapper(
                 timezone=property_swapper.timezone,
                 group_properties=property_swapper.group_properties,
                 event_properties={},
                 person_properties={},
                 context=context,
-                setDateTimeTimeZone=False,
+                setTimeZones=False,
             ).visit(node)
 
         with context.timings.measure("resolve_lazy_tables"):
@@ -128,7 +137,7 @@ def prepare_ast_for_printing(
                 person_properties=property_swapper.person_properties,
                 event_properties=property_swapper.event_properties,
                 context=context,
-                setDateTimeTimeZone=True,
+                setTimeZones=True,
             ).visit(node)
 
         # We support global query settings, and local subquery settings.
