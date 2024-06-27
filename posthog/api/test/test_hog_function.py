@@ -358,8 +358,8 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
     def test_does_not_crash_when_status_not_available(self, *args):
         with patch("posthog.plugins.plugin_server_api.requests.get") as mock_get:
-            mock_get.return_value.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
-            mock_get.return_value.json.return_value = {"error": "oh no"}
+            # Mock the api actually throwing fully
+            mock_get.side_effect = lambda x: Exception("oh no")
 
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_functions/",

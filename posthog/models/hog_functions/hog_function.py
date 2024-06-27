@@ -4,6 +4,7 @@ from typing import Optional
 from django.db import models
 from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
+import structlog
 
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 from posthog.models.action.action import Action
@@ -20,6 +21,8 @@ DEFAULT_STATE = {
     "ratings": [],
     "states": [],
 }
+
+logger = structlog.get_logger(__name__)
 
 
 class HogFunctionState(enum.Enum):
@@ -73,11 +76,13 @@ class HogFunction(UUIDModel):
         if self._status:
             return self._status
 
-        res = get_hog_function_status(self.team_id, self.id)
-        if res.status_code == 200:
-            status = res.json()
-        else:
+        try:
             status = DEFAULT_STATE
+            res = get_hog_function_status(self.team_id, self.id)
+            if res.status_code == 200:
+                status = res.json()
+        except Exception as e:
+            logger.exception("Failed to fetch function status", error=str(e))
 
         self._status = status
 
@@ -86,9 +91,12 @@ class HogFunction(UUIDModel):
     def set_function_status(self, state: int) -> dict:
         if not self.enabled:
             return self.status
-        res = patch_hog_function_status(self.team_id, self.id, state)
-        if res.status_code == 200:
-            self._status = res.json()
+        try:
+            res = patch_hog_function_status(self.team_id, self.id, state)
+            if res.status_code == 200:
+                self._status = res.json()
+        except Exception as e:
+            logger.exception("Failed to set function status", error=str(e))
 
         return self.status
 
