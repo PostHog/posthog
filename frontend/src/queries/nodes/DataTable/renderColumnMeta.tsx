@@ -25,6 +25,9 @@ export function renderColumnMeta(key: string, query: DataTableNode, context?: Qu
         if (title.startsWith('`') && title.endsWith('`')) {
             title = title.substring(1, title.length - 1)
         }
+        if (title.startsWith("tuple('__hogql_chart_type', 'sparkline',")) {
+            title = 'Sparkline'
+        }
     } else if (key === 'timestamp') {
         title = 'Time'
     } else if (key === 'created_at') {

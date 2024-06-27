@@ -407,6 +407,10 @@ class Resolver(CloningVisitor):
             raise QueryError(f"A {type(node.table).__name__} cannot be used as a SELECT source")
 
     def visit_hogqlx_tag(self, node: ast.HogQLXTag):
+        if node.kind == "Sparkline":
+            data_keys = [a for a in node.attributes if a.name == "data"]
+            value = data_keys[0].value if data_keys else None
+            return self.visit(ast.Call(name="sparkline", args=[value]))
         return self.visit(convert_hogqlx_tag(node, self.context.team_id))
 
     def visit_alias(self, node: ast.Alias):

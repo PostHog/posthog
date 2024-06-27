@@ -502,3 +502,11 @@ class TestResolver(BaseTest):
         node = self._select("select plus(1, 2) from events")
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
         self._assert_first_columm_is_type(node, ast.IntegerType(nullable=False))
+
+    def test_sparkline_tag(self):
+        node: ast.SelectQuery = self._select("select <Sparkline data={[1,2,3]} />")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+
+        node2 = self._select("select sparkline([1,2,3])")
+        node2 = cast(ast.SelectQuery, resolve_types(node2, self.context, dialect="clickhouse"))
+        assert node == node2
