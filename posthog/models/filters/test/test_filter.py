@@ -1,8 +1,6 @@
 import datetime
 import json
 from typing import Any, Optional, cast
-
-
 from collections.abc import Callable
 
 from django.db.models import Q, Func, F, CharField
@@ -836,7 +834,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
             distinct_ids=[person1_distinct_id],
             properties={"registration_ts": 1716447600},
         )
-        # This filter came from this issue: https://github.com/PostHog/posthog/issues/23213
+        # This broken filter came from this issue: https://github.com/PostHog/posthog/issues/23213
         filter = Filter(
             data={
                 "properties": {
@@ -845,6 +843,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
                         {
                             "type": "AND",
                             "values": [
+                                # This is the valid condition
                                 {
                                     "key": "registration_ts",
                                     "type": "person",
@@ -852,6 +851,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
                                     "negation": False,
                                     "operator": "gte",
                                 },
+                                # This is the invalid condition (lte operator comparing against a list of values)
                                 {
                                     "key": "registration_ts",
                                     "type": "person",
@@ -884,8 +884,9 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
                 .filter(properties_to_Q(self.team.pk, filter.property_groups.flat))
                 .exists()
             )
-        # This shouldn't pass because it's an invalid filter that should never match
+        # This shouldn't pass because we have an AND condition with a broken lte operator
         # (we should never have a lte operator comparing against a list of values)
+        # So this should never match
         self.assertFalse(matched_person)
 
     def test_broken_condition_does_not_break_entire_filter(self):
@@ -895,7 +896,9 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
             distinct_ids=[person1_distinct_id],
             properties={"registration_ts": 1716447600},
         )
-        # Create a cohort with an OR filter
+        # Create a cohort with an OR filter that has an invalid condition
+        # (a lte operator comparing against a list of values)
+        # This should still evaluate to True, though, because the other condition is valid
         cohort = Cohort.objects.create(
             team=self.team,
             name="Test OR Cohort",
@@ -905,6 +908,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
                     "values": [
                         {
                             "type": "OR",
+                            # This is the valid condition
                             "values": [
                                 {
                                     "key": "registration_ts",
@@ -913,6 +917,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
                                     "negation": False,
                                     "operator": "gte",
                                 },
+                                # This is the invalid condition
                                 {
                                     "key": "registration_ts",
                                     "type": "person",
@@ -945,7 +950,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
                 .filter(properties_to_Q(self.team.pk, filter.property_groups.flat))
                 .exists()
             )
-        # This should now pass because the cohort filter is valid
+        # This should now pass because the cohort filter still has one valid condition
         self.assertTrue(matched_person)
 
     def test_person_matching_real_filter(self):

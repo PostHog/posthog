@@ -2212,7 +2212,9 @@ class TestDecide(BaseTest, QueryMatchingTest):
             properties={"registration_ts": 1716447600},
         )
 
-        # Create a cohort with the complex filter
+        # Create a cohort with an invalid filter condition (tis broken filter came from this issue: https://github.com/PostHog/posthog/issues/23213)
+        # The invalid condition is that the registration_ts property is compared against a list of values
+        # Since this filter must match everything, the flag should evaluate to False
         cohort = Cohort.objects.create(
             team=self.team,
             filters={
@@ -2222,12 +2224,14 @@ class TestDecide(BaseTest, QueryMatchingTest):
                         {
                             "type": "AND",
                             "values": [
+                                # This is the valid condition
                                 {
                                     "key": "registration_ts",
                                     "type": "person",
                                     "value": "1716274800",
                                     "operator": "gte",
                                 },
+                                # This is the invalid condition (lte operator comparing against a list of values)
                                 {
                                     "key": "registration_ts",
                                     "type": "person",
@@ -2280,7 +2284,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
             properties={"registration_ts": 1716447600},
         )
 
-        # Create a cohort with the complex filter
+        # Create a cohort with a safe OR filter that contains an invalid condition
+        # it should still evaluate the FeatureFlag to True
         cohort = Cohort.objects.create(
             team=self.team,
             filters={
@@ -2290,12 +2295,14 @@ class TestDecide(BaseTest, QueryMatchingTest):
                         {
                             "type": "OR",
                             "values": [
+                                # This is the valid condition
                                 {
                                     "key": "registration_ts",
                                     "type": "person",
                                     "value": "1716274800",
                                     "operator": "gte",
                                 },
+                                # This is the invalid condition (lte operator comparing against a list of values)
                                 {
                                     "key": "registration_ts",
                                     "type": "person",
