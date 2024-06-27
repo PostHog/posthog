@@ -31,12 +31,6 @@ export const themeLogic = kea<themeLogicType>([
                 setTheme: (_, { theme }) => theme,
             },
         ],
-        reloadCount: [
-            0,
-            {
-                reload: (state) => state + 1,
-            },
-        ],
     }),
     selectors({
         theme: [
@@ -51,19 +45,8 @@ export const themeLogic = kea<themeLogicType>([
             },
         ],
         isDarkModeOn: [
-            (s) => [s.themeMode, s.darkModeSystemPreference, sceneLogic.selectors.sceneConfig, s.theme, s.reloadCount],
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
-            (themeMode, darkModeSystemPreference, sceneConfig, theme, reloadCount) => {
-                // dark mode in storybook
-                if (
-                    typeof window !== 'undefined' &&
-                    window.document &&
-                    document.body.classList.contains('storybook-test-runner') &&
-                    document.body.getAttribute('theme') == 'dark'
-                ) {
-                    return true
-                }
-
+            (s) => [s.themeMode, s.darkModeSystemPreference, sceneLogic.selectors.sceneConfig, s.theme],
+            (themeMode, darkModeSystemPreference, sceneConfig, theme) => {
                 if (theme) {
                     return !!theme?.dark
                 }
@@ -91,7 +74,7 @@ export const themeLogic = kea<themeLogicType>([
                 document.body.classList.contains('storybook-test-runner') &&
                 document.body.getAttribute('theme') == 'dark'
             ) {
-                ;(window as any).__reloadThemeLogic = () => actions.reload()
+                ;(window as any).__setThemeLogicDarkMode = (enabled: boolean) => actions.syncDarkModePreference(enabled)
             }
         },
         beforeUnmount() {

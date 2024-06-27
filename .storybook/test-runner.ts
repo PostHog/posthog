@@ -171,8 +171,8 @@ async function expectStoryToMatchSnapshot(
     // snapshot dark theme
     await page.evaluate(() => {
         document.body.setAttribute('theme', 'dark')
-        if ('__reloadThemeLogic' in window) {
-            ;(window as any).__reloadThemeLogic()
+        if ('__setThemeLogicDarkMode' in window) {
+            ;(window as any).__setThemeLogicDarkMode(true)
         }
     })
 
