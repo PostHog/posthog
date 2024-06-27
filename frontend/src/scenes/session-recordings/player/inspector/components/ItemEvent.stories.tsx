@@ -128,8 +128,7 @@ WebVitalsEvent.args = {
             $os_version: '10.15.7',
             $browser: 'Chrome',
             $device_type: 'Desktop',
-            $current_url:
-                'http://localhost:8000/project/1/activity/explore?simpleFilters=%7B%22events%22%3A%5B%5D%2C%22properties%22%3A%5B%5D%7D&advancedFilters=%7B%22session_recording_duration%22%3A%7B%22type%22%3A%22recording%22%2C%22key%22%3A%22duration%22%2C%22value%22%3A1%2C%22operator%22%3A%22gt%22%7D%2C%22properties%22%3A%5B%5D%2C%22events%22%3A%5B%5D%2C%22actions%22%3A%5B%5D%2C%22date_from%22%3A%22-3d%22%2C%22date_to%22%3Anull%2C%22console_logs%22%3A%5B%5D%2C%22snapshot_source%22%3Anull%2C%22console_search_query%22%3A%22%22%2C%22operand%22%3A%22AND%22%7D',
+            $current_url: 'http://localhost:8000/project/1/activity/explore',
             $browser_version: 126,
             $browser_language: 'en-GB',
             $lib: 'web',
@@ -143,8 +142,7 @@ WebVitalsEvent.args = {
                 entries: [{}, {}],
                 id: 'v4-1719484470693-6845621238957',
                 navigationType: 'reload',
-                $current_url:
-                    'http://localhost:8000/project/1/activity/explore?simpleFilters=%7B%22events%22%3A%5B%5D%2C%22properties%22%3A%5B%5D%7D&advancedFilters=%7B%22session_recording_duration%22%3A%7B%22type%22%3A%22recording%22%2C%22key%22%3A%22duration%22%2C%22value%22%3A1%2C%22operator%22%3A%22gt%22%7D%2C%22properties%22%3A%5B%5D%2C%22events%22%3A%5B%5D%2C%22actions%22%3A%5B%5D%2C%22date_from%22%3A%22-3d%22%2C%22date_to%22%3Anull%2C%22console_logs%22%3A%5B%5D%2C%22snapshot_source%22%3Anull%2C%22console_search_query%22%3A%22%22%2C%22operand%22%3A%22AND%22%7D',
+                $current_url: 'http://localhost:8000/project/1/activity/explore',
                 $session_id: '0190593b-0f3c-7e04-846a-f3515aa31c2f',
                 $window_id: '01905942-b7ba-7c05-85d3-5d7548868b44',
                 timestamp: 1719484490693,
@@ -158,8 +156,7 @@ WebVitalsEvent.args = {
                 entries: [{}, {}, {}, {}, {}, {}, {}, {}, {}],
                 id: 'v4-1719484470710-6118725051157',
                 navigationType: 'reload',
-                $current_url:
-                    'http://localhost:8000/project/1/activity/explore?simpleFilters=%7B%22events%22%3A%5B%5D%2C%22properties%22%3A%5B%5D%7D&advancedFilters=%7B%22session_recording_duration%22%3A%7B%22type%22%3A%22recording%22%2C%22key%22%3A%22duration%22%2C%22value%22%3A1%2C%22operator%22%3A%22gt%22%7D%2C%22properties%22%3A%5B%5D%2C%22events%22%3A%5B%5D%2C%22actions%22%3A%5B%5D%2C%22date_from%22%3A%22-3d%22%2C%22date_to%22%3Anull%2C%22console_logs%22%3A%5B%5D%2C%22snapshot_source%22%3Anull%2C%22console_search_query%22%3A%22%22%2C%22operand%22%3A%22AND%22%7D',
+                $current_url: 'http://localhost:8000/project/1/activity/explore',
                 $session_id: '0190593b-0f3c-7e04-846a-f3515aa31c2f',
                 $window_id: '01905942-b7ba-7c05-85d3-5d7548868b44',
                 timestamp: 1719484490693,
