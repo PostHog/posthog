@@ -53,7 +53,7 @@ class HogQLContext:
     # Enables more verbose output for debugging
     debug: bool = False
 
-    property_swapper: "PropertySwapper" = None
+    property_swapper: Optional["PropertySwapper"] = None
 
     def add_value(self, value: Any) -> str:
         key = f"hogql_val_{len(self.values)}"

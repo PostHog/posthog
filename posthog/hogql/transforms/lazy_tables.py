@@ -310,7 +310,8 @@ class LazyTableResolver(TraversingVisitor):
             subquery = table_to_add.lazy_table.lazy_select(table_to_add, self.context, node=node)
             subquery = cast(ast.SelectQuery, clone_expr(subquery, clear_locations=True))
             subquery = cast(ast.SelectQuery, resolve_types(subquery, self.context, self.dialect, [node.type]))
-            subquery = self.context.property_swapper.visit(subquery)
+            if self.context.property_swapper is not None:
+                subquery = self.context.property_swapper.visit(subquery)
             old_table_type = select_type.tables[table_name]
             select_type.tables[table_name] = ast.SelectQueryAliasType(alias=table_name, select_query_type=subquery.type)
 
