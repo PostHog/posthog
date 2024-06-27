@@ -15,7 +15,6 @@ export const themeLogic = kea<themeLogicType>([
     actions({
         syncDarkModePreference: (darkModePreference: boolean) => ({ darkModePreference }),
         setTheme: (theme: string | null) => ({ theme }),
-        reload: true,
     }),
     reducers({
         darkModeSystemPreference: [
@@ -47,6 +46,14 @@ export const themeLogic = kea<themeLogicType>([
         isDarkModeOn: [
             (s) => [s.themeMode, s.darkModeSystemPreference, sceneLogic.selectors.sceneConfig, s.theme],
             (themeMode, darkModeSystemPreference, sceneConfig, theme) => {
+                if (
+                    typeof window !== 'undefined' &&
+                    window.document &&
+                    document.body.classList.contains('storybook-test-runner') &&
+                    document.body.getAttribute('theme') == 'dark'
+                ) {
+                    return true
+                }
                 if (theme) {
                     return !!theme?.dark
                 }
@@ -68,14 +75,6 @@ export const themeLogic = kea<themeLogicType>([
             cache.prefersColorSchemeMedia = window.matchMedia('(prefers-color-scheme: dark)')
             cache.onPrefersColorSchemeChange = (e: MediaQueryListEvent) => actions.syncDarkModePreference(e.matches)
             cache.prefersColorSchemeMedia.addEventListener('change', cache.onPrefersColorSchemeChange)
-            if (
-                typeof window !== 'undefined' &&
-                window.document &&
-                document.body.classList.contains('storybook-test-runner') &&
-                document.body.getAttribute('theme') == 'dark'
-            ) {
-                ;(window as any).__setThemeLogicDarkMode = (enabled: boolean) => actions.syncDarkModePreference(enabled)
-            }
         },
         beforeUnmount() {
             cache.prefersColorSchemeMedia.removeEventListener('change', cache.onPrefersColorSchemeChange)

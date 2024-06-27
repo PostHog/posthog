@@ -161,13 +161,6 @@ export function CodeEditor({
         }
     }, [])
 
-    if (autoFocus) {
-        useEffect(() => {
-            editor?.focus()
-            editor?.['_editor']?.focus()
-        }, [editor])
-    }
-
     return (
         <MonacoEditor // eslint-disable-line react/forbid-elements
             theme={isDarkModeOn ? 'vs-dark' : 'vs-light'}

@@ -171,9 +171,6 @@ async function expectStoryToMatchSnapshot(
     // snapshot dark theme
     await page.evaluate(() => {
         document.body.setAttribute('theme', 'dark')
-        if ('__setThemeLogicDarkMode' in window) {
-            ;(window as any).__setThemeLogicDarkMode(true)
-        }
     })
 
     // Wait for all images to load
