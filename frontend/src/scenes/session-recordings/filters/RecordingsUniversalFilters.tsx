@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -9,29 +10,35 @@ import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { actionsModel } from '~/models/actionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
+import { RecordingUniversalFilters } from '~/types'
 
-import { sessionRecordingsPlaylistLogic } from '../playlist/sessionRecordingsPlaylistLogic'
 import { DurationFilter } from './DurationFilter'
 
-export const RecordingsUniversalFilters = (): JSX.Element => {
+export const RecordingsUniversalFilters = ({
+    filters,
+    setFilters,
+    className,
+}: {
+    filters: RecordingUniversalFilters
+    setFilters: (filters: Partial<RecordingUniversalFilters>) => void
+    className?: string
+}): JSX.Element => {
     useMountedLogic(cohortsModel)
     useMountedLogic(actionsModel)
-    const { universalFilters } = useValues(sessionRecordingsPlaylistLogic)
-    const { setUniversalFilters } = useActions(sessionRecordingsPlaylistLogic)
 
-    const durationFilter = universalFilters.duration[0]
+    const durationFilter = filters.duration[0]
 
     return (
-        <div className="divide-y bg-bg-light rounded border">
-            <div className="flex justify-between px-2 py-1.5">
-                <div className="flex space-x-2">
+        <div className={clsx('divide-y bg-bg-light rounded', className)}>
+            <div className="flex flex-wrap justify-between px-2 py-1.5 gap-2">
+                <div className="flex flex-wrap-reverse gap-2">
                     <DateFilter
-                        dateFrom={universalFilters.date_from ?? '-3d'}
-                        dateTo={universalFilters.date_to}
-                        disabled={universalFilters.live_mode}
+                        dateFrom={filters.date_from ?? '-3d'}
+                        dateTo={filters.date_to}
+                        disabled={filters.live_mode}
                         onChange={(changedDateFrom, changedDateTo) => {
-                            setUniversalFilters({
-                                ...universalFilters,
+                            setFilters({
+                                ...filters,
                                 date_from: changedDateFrom,
                                 date_to: changedDateTo,
                             })
@@ -49,7 +56,7 @@ export const RecordingsUniversalFilters = (): JSX.Element => {
                     />
                     <DurationFilter
                         onChange={(newRecordingDurationFilter, newDurationType) => {
-                            setUniversalFilters({
+                            setFilters({
                                 duration: [{ ...newRecordingDurationFilter, key: newDurationType }],
                             })
                         }}
@@ -58,10 +65,10 @@ export const RecordingsUniversalFilters = (): JSX.Element => {
                         pageKey="session-recordings"
                     />
                     <TestAccountFilter
-                        filters={universalFilters}
+                        filters={filters}
                         onChange={(testFilters) =>
-                            setUniversalFilters({
-                                ...universalFilters,
+                            setFilters({
+                                ...filters,
                                 filter_test_accounts: testFilters.filter_test_accounts,
                             })
                         }
@@ -69,19 +76,19 @@ export const RecordingsUniversalFilters = (): JSX.Element => {
                 </div>
                 <div>
                     <AndOrFilterSelect
-                        value={universalFilters.filter_group.type}
+                        value={filters.filter_group.type}
                         onChange={(type) => {
-                            let values = universalFilters.filter_group.values
+                            let values = filters.filter_group.values
 
                             // set the type on the nested child when only using a single filter group
-                            const hasSingleGroup = universalFilters.filter_group.values.length === 1
+                            const hasSingleGroup = filters.filter_group.values.length === 1
                             if (hasSingleGroup) {
-                                const group = universalFilters.filter_group.values[0] as UniversalFiltersGroup
+                                const group = filters.filter_group.values[0] as UniversalFiltersGroup
                                 values = [{ ...group, type }]
                             }
 
-                            setUniversalFilters({
-                                ...universalFilters,
+                            setFilters({
+                                ...filters,
                                 filter_group: {
                                     type: type,
                                     values: values,
@@ -96,7 +103,7 @@ export const RecordingsUniversalFilters = (): JSX.Element => {
             <div className="flex gap-2 p-2">
                 <UniversalFilters
                     rootKey="session-recordings"
-                    group={universalFilters.filter_group}
+                    group={filters.filter_group}
                     taxonomicGroupTypes={[
                         TaxonomicFilterGroupType.Replay,
                         TaxonomicFilterGroupType.Events,
@@ -106,8 +113,8 @@ export const RecordingsUniversalFilters = (): JSX.Element => {
                         TaxonomicFilterGroupType.SessionProperties,
                     ]}
                     onChange={(filterGroup) => {
-                        setUniversalFilters({
-                            ...universalFilters,
+                        setFilters({
+                            ...filters,
                             filter_group: filterGroup,
                         })
                     }}

@@ -1,5 +1,7 @@
 import { JSONContent } from '@tiptap/core'
 import { isEmptyObject } from 'lib/utils'
+import { NotebookNodePlaylistAttributes } from 'scenes/notebooks/Nodes/NotebookNodePlaylist'
+import { convertLegacyFiltersToUniversalFilters } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
 import {
     breakdownFilterToQuery,
@@ -49,7 +51,28 @@ export function migrate(notebook: NotebookType): NotebookType {
     content = convertInsightToQueryNode(content)
     content = convertInsightQueryStringsToObjects(content)
     content = convertInsightQueriesToNewSchema(content)
+    content = convertPlaylistFiltersToUniversalFilters(content)
     return { ...notebook, content: { type: 'doc', content: content } }
+}
+
+function convertPlaylistFiltersToUniversalFilters(content: JSONContent[]): JSONContent[] {
+    return content.map((node) => {
+        if (node.type != NotebookNodeType.RecordingPlaylist) {
+            return node
+        }
+
+        const attrs = node.attrs as NotebookNodePlaylistAttributes
+
+        const universalFilters = convertLegacyFiltersToUniversalFilters(attrs.simpleFilters, attrs.filters)
+
+        return {
+            ...node,
+            attrs: {
+                ...node.attrs,
+                universalFilters,
+            },
+        }
+    })
 }
 
 function convertInsightToQueryNode(content: JSONContent[]): JSONContent[] {
