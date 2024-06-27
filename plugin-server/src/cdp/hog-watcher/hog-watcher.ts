@@ -26,7 +26,10 @@ import {
     periodTimestamp,
     RATINGS_PERIOD_MASK,
     runRedis,
+    stripFalsey,
 } from './utils'
+
+const REDIS_KEY_STATE = `${BASE_REDIS_KEY}/state`
 
 export class HogWatcherActiveObservations {
     observations: Record<HogFunctionType['id'], HogWatcherObservationPeriod> = {}
@@ -246,7 +249,7 @@ export class HogWatcher {
             changes.observations.forEach(({ id, observation }) => {
                 // We key the observations by observerId and timestamp with a ttl of the max period we want to keep the data for
                 const subKey = `observation:${id}:${this.instanceId}:${observation.timestamp}`
-                pipeline.hset(`${BASE_REDIS_KEY}/state`, subKey, JSON.stringify(observation))
+                pipeline.hset(REDIS_KEY_STATE, subKey, Serializer.serializeObservation(observation))
             })
 
             return pipeline.exec()
@@ -395,22 +398,22 @@ export class HogWatcher {
 
             // Remove old observations
             keysToRemove.forEach((key) => {
-                pipeline.hdel(`${BASE_REDIS_KEY}/state`, key)
+                pipeline.hdel(REDIS_KEY_STATE, key)
             })
 
             // Write the new ratings
             changedHogFunctionRatings.forEach((id) => {
                 const ratings = globalState.ratings[id] ?? []
-                pipeline.hset(`${BASE_REDIS_KEY}/state`, `ratings:${id}`, JSON.stringify(ratings))
+                pipeline.hset(REDIS_KEY_STATE, `ratings:${id}`, Serializer.serializeRatings(ratings))
             })
 
             Object.keys(stateChanges.states).forEach((id) => {
                 const states = globalState.states[id] ?? []
-                pipeline.hset(`${BASE_REDIS_KEY}/state`, `states:${id}`, JSON.stringify(states))
+                pipeline.hset(REDIS_KEY_STATE, `states:${id}`, Serializer.serializeStates(states))
             })
 
             // Write the new states
-            pipeline.hset(`${BASE_REDIS_KEY}/state`, 'states', JSON.stringify(states))
+            pipeline.hset(REDIS_KEY_STATE, 'states', Serializer.serializeAllStates(states))
 
             return pipeline.exec()
         })
@@ -421,10 +424,10 @@ export class HogWatcher {
 
     async syncStates(): Promise<Record<HogFunctionType['id'], HogWatcherState>> {
         const res = await runRedis(this.hub.redisPool, 'fetchWatcher', async (client) => {
-            return client.hget(`${BASE_REDIS_KEY}/state`, 'states')
+            return client.hget(REDIS_KEY_STATE, 'states')
         })
 
-        this.states = res ? JSON.parse(res) : {}
+        this.states = res ? Serializer.deserializeAllStates(res) : {}
 
         return this.states
     }
@@ -434,11 +437,11 @@ export class HogWatcher {
      */
     async fetchWatcher(id: HogFunctionType['id']): Promise<HogWatcherSummary> {
         const [statesStr, ratingsStr] = await runRedis(this.hub.redisPool, 'fetchWatcher', async (client) => {
-            return client.hmget(`${BASE_REDIS_KEY}/state`, `states:${id}`, `ratings:${id}`)
+            return client.hmget(REDIS_KEY_STATE, `states:${id}`, `ratings:${id}`)
         })
 
-        const states: HogWatcherStatePeriod[] = statesStr ? JSON.parse(statesStr) : []
-        const ratings: HogWatcherRatingPeriod[] = ratingsStr ? JSON.parse(ratingsStr) : []
+        const states: HogWatcherStatePeriod[] = statesStr ? Serializer.deserializeStates(statesStr) : []
+        const ratings: HogWatcherRatingPeriod[] = ratingsStr ? Serializer.deserializeRatings(ratingsStr) : []
 
         return {
             state: last(states)?.state ?? HogWatcherState.healthy,
@@ -465,9 +468,17 @@ export class HogWatcher {
      */
     async fetchState(): Promise<HogWatcherGlobalState> {
         const redisState = await runRedis(this.hub.redisPool, 'fetchWatcher', async (client) => {
-            return client.hgetall(`${BASE_REDIS_KEY}/state`)
+            return client.hgetall(REDIS_KEY_STATE)
         })
 
+        return Serializer.deserializeGlobalState(redisState)
+    }
+}
+
+class Serializer {
+    // Serializer to help parsing back and forth to redis - mostly focused on reducing the size of the stored values
+
+    static deserializeGlobalState(redisState: Record<string, string>): HogWatcherGlobalState {
         const response: HogWatcherGlobalState = {
             states: {},
             ratings: {},
@@ -477,13 +488,13 @@ export class HogWatcher {
         Object.entries(redisState).forEach(([key, value]) => {
             const [kind, id, ...rest] = key.split(':')
             if (kind === 'states' && id) {
-                response.states[id] = JSON.parse(value)
+                response.states[id] = this.deserializeStates(value)
             } else if (kind === 'ratings') {
-                response.ratings[id] = JSON.parse(value)
+                response.ratings[id] = this.deserializeRatings(value)
             } else if (kind === 'observation') {
                 const [instanceId, timestamp] = rest
-                const partial = JSON.parse(value)
-                const observations: HogWatcherObservationPeriod[] = (response.observations[id] =
+                const partial = this.deserializeObservation(value)
+                const observations: HogWatcherObservationPeriodWithInstanceId[] = (response.observations[id] =
                     response.observations[id] ?? [])
 
                 observations.push({
@@ -499,5 +510,57 @@ export class HogWatcher {
         })
 
         return response
+    }
+
+    static serializeAllStates(val: Record<HogFunctionType['id'], HogWatcherState>): string {
+        const obj = Object.entries(val).map(([id, state]) => [id, state])
+        return JSON.stringify(obj)
+    }
+
+    static deserializeAllStates(val: string): Record<HogFunctionType['id'], HogWatcherState> {
+        const obj: (string | HogWatcherState)[][] = JSON.parse(val)
+        return Object.fromEntries(obj)
+    }
+
+    static serializeStates(val: HogWatcherStatePeriod[]): string {
+        const obj = val.map((x) => ({ t: x.timestamp, s: x.state }))
+        return JSON.stringify(obj)
+    }
+
+    static deserializeStates(val: string): HogWatcherStatePeriod[] {
+        const obj = JSON.parse(val)
+        return obj.map((x: { t: number; s: HogWatcherState }) => ({ timestamp: x.t, state: x.s }))
+    }
+
+    static serializeRatings(val: HogWatcherRatingPeriod[]): string {
+        const obj = val.map((x) => ({ t: x.timestamp, r: x.rating }))
+        return JSON.stringify(obj)
+    }
+
+    static deserializeRatings(val: string): HogWatcherRatingPeriod[] {
+        const obj = JSON.parse(val)
+        return obj.map((x: { t: number; r: number }) => ({ timestamp: x.t, rating: x.r }))
+    }
+
+    static serializeObservation(val: HogWatcherObservationPeriod): string {
+        const obj = stripFalsey({
+            t: val.timestamp,
+            s: val.successes,
+            f: val.failures,
+            af: val.asyncFunctionFailures,
+            as: val.asyncFunctionSuccesses,
+        })
+        return JSON.stringify(obj)
+    }
+
+    static deserializeObservation(val: string): HogWatcherObservationPeriod {
+        const obj = JSON.parse(val)
+        return {
+            timestamp: obj.t,
+            successes: obj.s ?? 0,
+            failures: obj.f ?? 0,
+            asyncFunctionFailures: obj.af ?? 0,
+            asyncFunctionSuccesses: obj.as ?? 0,
+        }
     }
 }
