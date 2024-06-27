@@ -20,7 +20,7 @@
               "first_name": "",
               "last_name": "",
               "email": "",
-              "is_email_verified": false
+              "is_email_verified": null
           }
       },
       "children": [
