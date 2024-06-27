@@ -61,6 +61,8 @@ const cleanInsightQuery = (query: InsightQueryNode, ignoreVisualizationOnlyChang
             showLabelsOnSeries: undefined,
             showMean: undefined,
             yAxisScaleType: undefined,
+            hiddenLegendIndexes: undefined,
+            hiddenLegendBreakdowns: undefined,
         }
 
         if (isInsightQueryWithSeries(cleanedQuery)) {

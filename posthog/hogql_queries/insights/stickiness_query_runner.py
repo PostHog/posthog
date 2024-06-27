@@ -181,7 +181,7 @@ class StickinessQueryRunner(QueryRunner):
 
         for series in self.series:
             events_query = self._events_query(series)
-            aggregation_alias = "person_id"
+            aggregation_alias = "actor_id"
             if series.series.math == "hogql" and series.series.math_hogql is not None:
                 aggregation_alias = "actor_id"
             elif series.series.math == "unique_group" and series.series.math_group_type_index is not None:

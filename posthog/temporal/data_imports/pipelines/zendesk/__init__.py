@@ -12,7 +12,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "name": "brands",
             "table_name": "brands",
             "primary_key": "id",
-            "write_disposition": "merge",
+            "write_disposition": "merge" if is_incremental else "replace",
             "columns": get_dlt_mapping_for_external_table("zendesk_brands"),  # type: ignore
             "endpoint": {
                 "data_selector": "brands",
@@ -30,7 +30,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "name": "organizations",
             "table_name": "organizations",
             "primary_key": "id",
-            "write_disposition": "merge",
+            "write_disposition": "merge" if is_incremental else "replace",
             "columns": get_dlt_mapping_for_external_table("zendesk_organizations"),  # type: ignore
             "endpoint": {
                 "data_selector": "organizations",
@@ -48,7 +48,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "name": "groups",
             "table_name": "groups",
             "primary_key": "id",
-            "write_disposition": "merge",
+            "write_disposition": "merge" if is_incremental else "replace",
             "columns": get_dlt_mapping_for_external_table("zendesk_groups"),  # type: ignore
             "endpoint": {
                 "data_selector": "groups",
@@ -68,7 +68,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "name": "sla_policies",
             "table_name": "sla_policies",
             "primary_key": "id",
-            "write_disposition": "merge",
+            "write_disposition": "merge" if is_incremental else "replace",
             "columns": get_dlt_mapping_for_external_table("zendesk_sla_policies"),  # type: ignore
             "endpoint": {
                 "data_selector": "sla_policies",
@@ -83,7 +83,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "name": "users",
             "table_name": "users",
             "primary_key": "id",
-            "write_disposition": "merge",
+            "write_disposition": "merge" if is_incremental else "replace",
             "columns": get_dlt_mapping_for_external_table("zendesk_users"),  # type: ignore
             "endpoint": {
                 "data_selector": "users",
@@ -106,7 +106,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "name": "ticket_fields",
             "table_name": "ticket_fields",
             "primary_key": "id",
-            "write_disposition": "merge",
+            "write_disposition": "merge" if is_incremental else "replace",
             "columns": get_dlt_mapping_for_external_table("zendesk_ticket_fields"),  # type: ignore
             "endpoint": {
                 "data_selector": "ticket_fields",
@@ -127,7 +127,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "name": "ticket_events",
             "table_name": "ticket_events",
             "primary_key": "id",
-            "write_disposition": "merge",
+            "write_disposition": "merge" if is_incremental else "replace",
             "columns": get_dlt_mapping_for_external_table("zendesk_ticket_events"),  # type: ignore
             "endpoint": {
                 "data_selector": "ticket_events",
@@ -150,7 +150,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "name": "tickets",
             "table_name": "tickets",
             "primary_key": "id",
-            "write_disposition": "merge",
+            "write_disposition": "merge" if is_incremental else "replace",
             "columns": get_dlt_mapping_for_external_table("zendesk_tickets"),  # type: ignore
             "endpoint": {
                 "data_selector": "tickets",
@@ -172,7 +172,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "name": "ticket_metric_events",
             "table_name": "ticket_metric_events",
             "primary_key": "id",
-            "write_disposition": "merge",
+            "write_disposition": "merge" if is_incremental else "replace",
             "columns": get_dlt_mapping_for_external_table("zendesk_ticket_metric_events"),  # type: ignore
             "endpoint": {
                 "data_selector": "ticket_metric_events",
@@ -263,7 +263,7 @@ def zendesk_source(
         },
         "resource_defaults": {
             "primary_key": "id",
-            "write_disposition": "merge",
+            "write_disposition": "merge" if is_incremental else "replace",
         },
         "resources": [get_resource(endpoint, is_incremental)],
     }

@@ -87,7 +87,7 @@ def _handle_slack_event(event_payload: Any) -> None:
     if unfurls:
         try:
             slack_integration.client.chat_unfurl(unfurls=unfurls, unfurl_id=unfurl_id, source=source, channel="", ts="")
-        except Exception as e:
+        except Exception:
             # NOTE: This is temporary as a test to understand if the channel and ts are actually required as the docs are not clear
             slack_integration.client.chat_unfurl(
                 unfurls=unfurls,
@@ -96,7 +96,7 @@ def _handle_slack_event(event_payload: Any) -> None:
                 channel=channel,
                 ts=message_ts,
             )
-            raise e
+            raise
 
 
 def handle_slack_event(payload: Any) -> None:

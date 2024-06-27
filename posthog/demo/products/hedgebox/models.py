@@ -1,7 +1,7 @@
 import datetime as dt
 import math
 from dataclasses import dataclass, field
-from enum import Enum, auto
+from enum import auto, Enum
 from typing import (
     TYPE_CHECKING,
     Any,

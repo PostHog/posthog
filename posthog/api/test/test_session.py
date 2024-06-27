@@ -3,25 +3,27 @@ import uuid
 from rest_framework import status
 
 from posthog.models.event.util import create_event
+from posthog.models.utils import uuid7
 from posthog.test.base import APIBaseTest
 
 
 class TestSessionsAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
+        s1 = str(uuid7())
 
         create_event(
             team=self.team,
             event="$pageview",
             distinct_id="d1",
-            properties={"$session_id": "s1", "utm_source": "google"},
+            properties={"$session_id": s1, "utm_source": "google"},
             event_uuid=(uuid.uuid4()),
         )
         create_event(
             team=self.team,
             event="$pageview",
             distinct_id="d1",
-            properties={"$session_id": "s1", "utm_source": "youtube"},
+            properties={"$session_id": s1, "utm_source": "youtube"},
             event_uuid=(uuid.uuid4()),
         )
 
