@@ -501,35 +501,6 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
             results = filter_persons(filter, self.team)
             self.assertEqual(results, [p2_uuid])
 
-        # def test_is_greater_than_persons(self):
-        #     p1_uuid = str(
-        #         person_factory(
-        #             team_id=self.team.pk,
-        #             distinct_ids=["p1"],
-        #             properties={"some_number": "5"},
-        #         ).uuid
-        #     )
-        #     person_factory(
-        #         team_id=self.team.pk,
-        #         distinct_ids=["p2"],
-        #         properties={"some_number": "4"},
-        #     )
-
-        #     filter = Filter(
-        #         data={
-        #             "properties": [
-        #                 {
-        #                     "type": "person",
-        #                     "key": "some_number",
-        #                     "value": "4",
-        #                     "operator": "gt",
-        #                 }
-        #             ]
-        #         }
-        #     )
-        #     results = filter_persons(filter, self.team)
-        #     self.assertEqual(results, [p1_uuid])
-
         def test_is_date_before_persons(self):
             p1_uuid = str(
                 person_factory(
@@ -834,17 +805,24 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
         Person.objects.create(
             team=self.team,
             distinct_ids=[person1_distinct_id],
-            properties={"$some_prop": 5},
+            properties={"registration_ts": 5},
         )
         filter = Filter(
-            data={"properties": [{"key": "$some_prop", "value": ["4"], "type": "person", "operator": "gt"}]}
+            data={"properties": [{"key": "registration_ts", "value": "4", "type": "person", "operator": "gt"}]}
         )
-
-        # logger.debug(filter.property_groups.flat)
 
         with self.assertNumQueries(1):
             matched_person = (
-                Person.objects.filter(
+                Person.objects.annotate(
+                    **{
+                        "properties_registrationts_68f210b8c014e1b_type": Func(
+                            F("properties__registration_ts"),
+                            function="JSONB_TYPEOF",
+                            output_field=CharField(),
+                        )
+                    }
+                )
+                .filter(
                     team_id=self.team.pk,
                     persondistinctid__distinct_id=person1_distinct_id,
                 )
@@ -852,6 +830,64 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
                 .exists()
             )
         self.assertTrue(matched_person)
+
+    def test_broken_person_filter_never_matching(self):
+        person1_distinct_id = "example_id"
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=[person1_distinct_id],
+            properties={"registration_ts": 1716447600},
+        )
+        # This filter came from this issue: https://github.com/PostHog/posthog/issues/23213
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "key": "registration_ts",
+                                    "type": "person",
+                                    "value": "1716274800",
+                                    "negation": False,
+                                    "operator": "gte",
+                                },
+                                {
+                                    "key": "registration_ts",
+                                    "type": "person",
+                                    "value": ["1716447600"],
+                                    "negation": False,
+                                    "operator": "lte",
+                                },
+                            ],
+                        }
+                    ],
+                }
+            }
+        )
+        with self.assertNumQueries(1):
+            matched_person = (
+                Person.objects.annotate(
+                    **{
+                        "properties_registrationts_68f210b8c014e1b_type": Func(
+                            F("properties__registration_ts"),
+                            function="JSONB_TYPEOF",
+                            output_field=CharField(),
+                        )
+                    }
+                )
+                .filter(
+                    team_id=self.team.pk,
+                    persondistinctid__distinct_id=person1_distinct_id,
+                )
+                .filter(properties_to_Q(self.team.pk, filter.property_groups.flat))
+                .exists()
+            )
+        # This shouldn't pass because it's an invalid filter that should never match
+        # (we should never have a lte operator comparing against a list of values)
+        self.assertFalse(matched_person)
 
     def test_person_matching_real_filter(self):
         person1_distinct_id = "example_id"
@@ -890,7 +926,16 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
         )
         with self.assertNumQueries(1):
             matched_person = (
-                Person.objects.filter(
+                Person.objects.annotate(
+                    **{
+                        "properties_registrationts_68f210b8c014e1b_type": Func(
+                            F("properties__registration_ts"),
+                            function="JSONB_TYPEOF",
+                            output_field=CharField(),
+                        )
+                    }
+                )
+                .filter(
                     team_id=self.team.pk,
                     persondistinctid__distinct_id=person1_distinct_id,
                 )
@@ -1080,20 +1125,6 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
             }
         )
         self.assertEqual(len(filter_persons_with_annotation(filter, self.team)), 1)
-
-        filter = Filter(
-            data={
-                "properties": [
-                    {
-                        "type": "person",
-                        "key": "$key",
-                        "value": ["2"],
-                        "operator": "gt",
-                    }
-                ]
-            }
-        )
-        self.assertEqual(len(filter_persons_with_annotation(filter, self.team)), 0)
 
 
 def filter_persons_with_property_group(
