@@ -519,7 +519,7 @@ export async function startPluginsServer(
             }
         }
 
-        if (capabilities.cdpOverflow) {
+        if (capabilities.cdpFunctionOverflow) {
             ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, capabilities)
             const consumer = new CdpOverflowConsumer(hub)
             await consumer.start()

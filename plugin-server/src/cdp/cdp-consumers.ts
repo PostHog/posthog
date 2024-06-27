@@ -3,7 +3,7 @@ import { Counter, Histogram } from 'prom-client'
 
 import {
     KAFKA_CDP_FUNCTION_CALLBACKS,
-    KAFKA_CDP_OVERFLOW,
+    KAFKA_CDP_FUNCTION_OVERFLOW,
     KAFKA_EVENTS_JSON,
     KAFKA_LOG_ENTRIES,
 } from '../config/kafka-topics'
@@ -195,7 +195,7 @@ abstract class CdpConsumerBase {
                     if (functionState === HogWatcherState.overflowed) {
                         // TODO: _Maybe_ report to AppMetrics 2 when it is ready
                         this.messagesToProduce.push({
-                            topic: KAFKA_CDP_OVERFLOW,
+                            topic: KAFKA_CDP_FUNCTION_OVERFLOW,
                             value: {
                                 source: 'hog_function_callback',
                                 payload: item,
@@ -259,7 +259,7 @@ abstract class CdpConsumerBase {
                                 })
 
                                 this.messagesToProduce.push({
-                                    topic: KAFKA_CDP_OVERFLOW,
+                                    topic: KAFKA_CDP_FUNCTION_OVERFLOW,
                                     value: {
                                         source: 'event_invocations',
                                         payload: {
@@ -491,7 +491,7 @@ export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
 
 export class CdpOverflowConsumer extends CdpConsumerBase {
     protected name = 'CdpOverflowConsumer'
-    protected topic = KAFKA_CDP_OVERFLOW
+    protected topic = KAFKA_CDP_FUNCTION_OVERFLOW
     protected consumerGroupId = 'cdp-overflow-consumer'
 
     public async _handleEachBatch(messages: Message[], heartbeat: () => void): Promise<void> {
