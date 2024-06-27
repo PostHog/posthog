@@ -119,13 +119,18 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
         ],
     }),
     selectors({
-        isMultipleBreakdownsEnabled: [(s) => [s.featureFlags], () => false],
+        isMultipleBreakdownsEnabled: [(s) => [s.featureFlags], () => true],
         breakdownFilter: [(_, p) => [p.breakdownFilter], (breakdownFilter) => breakdownFilter],
         includeSessions: [(_, p) => [p.isTrends], (isTrends) => isTrends],
         maxBreakdownsSelected: [
-            (s) => [s.breakdownFilter],
-            ({ breakdown, breakdowns }) =>
-                (breakdown && typeof breakdown !== 'string') || (Array.isArray(breakdowns) && breakdowns.length >= 3),
+            (s) => [s.breakdownFilter, s.isMultipleBreakdownsEnabled],
+            ({ breakdown, breakdowns }, isMultipleBreakdownsEnabled) => {
+                if (isMultipleBreakdownsEnabled) {
+                    return Array.isArray(breakdowns) && breakdowns.length >= 3
+                }
+
+                return !Array.isArray(breakdown) && breakdown != null
+            },
         ],
         taxonomicBreakdownType: [
             (s) => [s.breakdownFilter],
