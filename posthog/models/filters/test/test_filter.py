@@ -1,6 +1,8 @@
 import datetime
 import json
 from typing import Any, Optional, cast
+from django.db import connection
+
 
 from collections.abc import Callable
 
@@ -842,7 +844,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
                     "type": "OR",
                     "values": [
                         {
-                            "type": "OR",
+                            "type": "AND",
                             "values": [
                                 {
                                     "key": "registration_ts",
@@ -854,7 +856,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
                                 {
                                     "key": "registration_ts",
                                     "type": "person",
-                                    "value": ["1716447600"],
+                                    "value": "1716447600",
                                     "negation": False,
                                     "operator": "lte",
                                 },
@@ -864,7 +866,11 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
                 }
             }
         )
-        with self.assertNumQueries(1):
+
+        with self.assertNumQueries(3):
+            with connection.cursor() as cursor:
+                cursor.execute("SET log_statement = 'all'")
+
             matched_person = (
                 Person.objects.annotate(
                     **{
@@ -882,9 +888,87 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
                 .filter(properties_to_Q(self.team.pk, filter.property_groups.flat))
                 .exists()
             )
+
+            with connection.cursor() as cursor:
+                cursor.execute("SET log_statement = 'none'")
+
+            print("SQL Queries:")
+            for query in connection.queries:
+                print(query["sql"])
+
         # This shouldn't pass because it's an invalid filter that should never match
         # (we should never have a lte operator comparing against a list of values)
         self.assertFalse(matched_person)
+
+    def test_broken_condition_does_not_break_entire_filter(self):
+        person1_distinct_id = "example_id"
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=[person1_distinct_id],
+            properties={"registration_ts": 1716447600},
+        )
+        # This filter came from this issue: https://github.com/PostHog/posthog/issues/23213
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "key": "registration_ts",
+                                    "type": "person",
+                                    "value": "1716274800",
+                                    "negation": False,
+                                    "operator": "gte",
+                                },
+                                {
+                                    "key": "registration_ts",
+                                    "type": "person",
+                                    "value": "1716447600",
+                                    "negation": False,
+                                    "operator": "lte",
+                                },
+                            ],
+                        }
+                    ],
+                }
+            }
+        )
+
+        with self.assertNumQueries(3):
+            with connection.cursor() as cursor:
+                cursor.execute("SET log_statement = 'all'")
+
+            matched_person = (
+                Person.objects.annotate(
+                    **{
+                        "properties_registrationts_68f210b8c014e1b_type": Func(
+                            F("properties__registration_ts"),
+                            function="JSONB_TYPEOF",
+                            output_field=CharField(),
+                        )
+                    }
+                )
+                .filter(
+                    team_id=self.team.pk,
+                    persondistinctid__distinct_id=person1_distinct_id,
+                )
+                .filter(properties_to_Q(self.team.pk, filter.property_groups.flat))
+                .exists()
+            )
+
+            with connection.cursor() as cursor:
+                cursor.execute("SET log_statement = 'none'")
+
+            print("SQL Queries:")
+            for query in connection.queries:
+                print(query["sql"])
+
+        # This shouldn't pass because it's an invalid filter that should never match
+        # (we should never have a lte operator comparing against a list of values)
+        self.assertTrue(matched_person)
 
     def test_person_matching_real_filter(self):
         person1_distinct_id = "example_id"
