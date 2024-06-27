@@ -1,6 +1,6 @@
 import hashlib
 from dataclasses import dataclass
-from enum import StrEnum
+from enum import Enum
 import time
 import structlog
 from typing import Literal, Optional, Union, cast
@@ -67,7 +67,7 @@ ENTITY_EXISTS_PREFIX = "flag_entity_exists_"
 PERSON_KEY = "person"
 
 
-class FeatureFlagMatchReason(StrEnum):
+class FeatureFlagMatchReason(str, Enum):
     SUPER_CONDITION_VALUE = "super_condition_value"
     CONDITION_MATCH = "condition_match"
     NO_CONDITION_MATCH = "no_condition_match"

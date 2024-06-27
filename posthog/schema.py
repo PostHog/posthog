@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from enum import Enum, StrEnum
+from enum import Enum
 from typing import Any, Literal, Optional, Union
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel
@@ -20,7 +20,7 @@ class MathGroupTypeIndex(float, Enum):
     NUMBER_4 = 4
 
 
-class AggregationAxisFormat(StrEnum):
+class AggregationAxisFormat(str, Enum):
     NUMERIC = "numeric"
     DURATION = "duration"
     DURATION_MS = "duration_ms"
@@ -28,7 +28,7 @@ class AggregationAxisFormat(StrEnum):
     PERCENTAGE_SCALED = "percentage_scaled"
 
 
-class Kind(StrEnum):
+class Kind(str, Enum):
     METHOD = "Method"
     FUNCTION = "Function"
     CONSTRUCTOR = "Constructor"
@@ -87,7 +87,7 @@ class AutocompleteCompletionItem(BaseModel):
     )
 
 
-class BaseMathType(StrEnum):
+class BaseMathType(str, Enum):
     TOTAL = "total"
     DAU = "dau"
     WEEKLY_ACTIVE = "weekly_active"
@@ -95,14 +95,14 @@ class BaseMathType(StrEnum):
     UNIQUE_SESSION = "unique_session"
 
 
-class BreakdownAttributionType(StrEnum):
+class BreakdownAttributionType(str, Enum):
     FIRST_TOUCH = "first_touch"
     LAST_TOUCH = "last_touch"
     ALL_EVENTS = "all_events"
     STEP = "step"
 
 
-class BreakdownType(StrEnum):
+class BreakdownType(str, Enum):
     COHORT = "cohort"
     PERSON = "person"
     EVENT = "event"
@@ -164,7 +164,7 @@ class ChartAxis(BaseModel):
     column: str
 
 
-class ChartDisplayType(StrEnum):
+class ChartDisplayType(str, Enum):
     ACTIONS_LINE_GRAPH = "ActionsLineGraph"
     ACTIONS_BAR = "ActionsBar"
     ACTIONS_AREA_GRAPH = "ActionsAreaGraph"
@@ -205,7 +205,7 @@ class CompareFilter(BaseModel):
     compare_to: Optional[str] = None
 
 
-class CountPerActorMathType(StrEnum):
+class CountPerActorMathType(str, Enum):
     AVG_COUNT_PER_ACTOR = "avg_count_per_actor"
     MIN_COUNT_PER_ACTOR = "min_count_per_actor"
     MAX_COUNT_PER_ACTOR = "max_count_per_actor"
@@ -255,14 +255,14 @@ class DatabaseSchemaSource(BaseModel):
     status: str
 
 
-class Type(StrEnum):
+class Type(str, Enum):
     POSTHOG = "posthog"
     DATA_WAREHOUSE = "data_warehouse"
     VIEW = "view"
     BATCH_EXPORT = "batch_export"
 
 
-class DatabaseSerializedFieldType(StrEnum):
+class DatabaseSerializedFieldType(str, Enum):
     INTEGER = "integer"
     FLOAT = "float"
     STRING = "string"
@@ -301,13 +301,13 @@ class Day(RootModel[int]):
     root: int
 
 
-class DurationType(StrEnum):
+class DurationType(str, Enum):
     DURATION = "duration"
     ACTIVE_SECONDS = "active_seconds"
     INACTIVE_SECONDS = "inactive_seconds"
 
 
-class Key(StrEnum):
+class Key(str, Enum):
     TAG_NAME = "tag_name"
     TEXT = "text"
     HREF = "href"
@@ -336,14 +336,14 @@ class EmptyPropertyFilter(BaseModel):
     )
 
 
-class EntityType(StrEnum):
+class EntityType(str, Enum):
     ACTIONS = "actions"
     EVENTS = "events"
     DATA_WAREHOUSE = "data_warehouse"
     NEW_ENTITY = "new_entity"
 
 
-class ErrorTrackingOrder(StrEnum):
+class ErrorTrackingOrder(str, Enum):
     LAST_SEEN = "last_seen"
     FIRST_SEEN = "first_seen"
     UNIQUE_OCCURRENCES = "unique_occurrences"
@@ -360,7 +360,7 @@ class EventDefinition(BaseModel):
     properties: dict[str, Any]
 
 
-class CorrelationType(StrEnum):
+class CorrelationType(str, Enum):
     SUCCESS = "success"
     FAILURE = "failure"
 
@@ -418,12 +418,12 @@ class EventsQueryPersonColumn(BaseModel):
     uuid: str
 
 
-class FilterLogicalOperator(StrEnum):
+class FilterLogicalOperator(str, Enum):
     AND_ = "AND"
     OR_ = "OR"
 
 
-class FunnelConversionWindowTimeUnit(StrEnum):
+class FunnelConversionWindowTimeUnit(str, Enum):
     SECOND = "second"
     MINUTE = "minute"
     HOUR = "hour"
@@ -440,7 +440,7 @@ class FunnelCorrelationResult(BaseModel):
     skewed: bool
 
 
-class FunnelCorrelationResultsType(StrEnum):
+class FunnelCorrelationResultsType(str, Enum):
     EVENTS = "events"
     PROPERTIES = "properties"
     EVENT_WITH_PROPERTIES = "event_with_properties"
@@ -468,18 +468,18 @@ class FunnelExclusionSteps(BaseModel):
     funnelToStep: int
 
 
-class FunnelLayout(StrEnum):
+class FunnelLayout(str, Enum):
     HORIZONTAL = "horizontal"
     VERTICAL = "vertical"
 
 
-class FunnelPathType(StrEnum):
+class FunnelPathType(str, Enum):
     FUNNEL_PATH_BEFORE_STEP = "funnel_path_before_step"
     FUNNEL_PATH_BETWEEN_STEPS = "funnel_path_between_steps"
     FUNNEL_PATH_AFTER_STEP = "funnel_path_after_step"
 
 
-class FunnelStepReference(StrEnum):
+class FunnelStepReference(str, Enum):
     TOTAL = "total"
     PREVIOUS = "previous"
 
@@ -492,7 +492,7 @@ class FunnelTimeToConvertResults(BaseModel):
     bins: list[list[int]]
 
 
-class FunnelVizType(StrEnum):
+class FunnelVizType(str, Enum):
     STEPS = "steps"
     TIME_TO_CONVERT = "time_to_convert"
     TRENDS = "trends"
@@ -516,44 +516,44 @@ class HogQLNotice(BaseModel):
     start: Optional[int] = None
 
 
-class BounceRatePageViewMode(StrEnum):
+class BounceRatePageViewMode(str, Enum):
     COUNT_PAGEVIEWS = "count_pageviews"
     UNIQ_URLS = "uniq_urls"
 
 
-class InCohortVia(StrEnum):
+class InCohortVia(str, Enum):
     AUTO = "auto"
     LEFTJOIN = "leftjoin"
     SUBQUERY = "subquery"
     LEFTJOIN_CONJOINED = "leftjoin_conjoined"
 
 
-class MaterializationMode(StrEnum):
+class MaterializationMode(str, Enum):
     AUTO = "auto"
     LEGACY_NULL_AS_STRING = "legacy_null_as_string"
     LEGACY_NULL_AS_NULL = "legacy_null_as_null"
     DISABLED = "disabled"
 
 
-class PersonsArgMaxVersion(StrEnum):
+class PersonsArgMaxVersion(str, Enum):
     AUTO = "auto"
     V1 = "v1"
     V2 = "v2"
 
 
-class PersonsJoinMode(StrEnum):
+class PersonsJoinMode(str, Enum):
     INNER = "inner"
     LEFT = "left"
 
 
-class PersonsOnEventsMode(StrEnum):
+class PersonsOnEventsMode(str, Enum):
     DISABLED = "disabled"
     PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS = "person_id_no_override_properties_on_events"
     PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS = "person_id_override_properties_on_events"
     PERSON_ID_OVERRIDE_PROPERTIES_JOINED = "person_id_override_properties_joined"
 
 
-class SessionTableVersion(StrEnum):
+class SessionTableVersion(str, Enum):
     AUTO = "auto"
     V1 = "v1"
     V2 = "v2"
@@ -586,7 +586,7 @@ class HogQueryResponse(BaseModel):
     stdout: Optional[str] = None
 
 
-class Compare(StrEnum):
+class Compare(str, Enum):
     CURRENT = "current"
     PREVIOUS = "previous"
 
@@ -626,7 +626,7 @@ class InsightDateRange(BaseModel):
     )
 
 
-class InsightFilterProperty(StrEnum):
+class InsightFilterProperty(str, Enum):
     TRENDS_FILTER = "trendsFilter"
     FUNNELS_FILTER = "funnelsFilter"
     RETENTION_FILTER = "retentionFilter"
@@ -635,7 +635,7 @@ class InsightFilterProperty(StrEnum):
     LIFECYCLE_FILTER = "lifecycleFilter"
 
 
-class InsightNodeKind(StrEnum):
+class InsightNodeKind(str, Enum):
     TRENDS_QUERY = "TrendsQuery"
     FUNNELS_QUERY = "FunnelsQuery"
     RETENTION_QUERY = "RetentionQuery"
@@ -644,7 +644,7 @@ class InsightNodeKind(StrEnum):
     LIFECYCLE_QUERY = "LifecycleQuery"
 
 
-class InsightType(StrEnum):
+class InsightType(str, Enum):
     TRENDS = "TRENDS"
     STICKINESS = "STICKINESS"
     LIFECYCLE = "LIFECYCLE"
@@ -656,7 +656,7 @@ class InsightType(StrEnum):
     HOG = "HOG"
 
 
-class IntervalType(StrEnum):
+class IntervalType(str, Enum):
     MINUTE = "minute"
     HOUR = "hour"
     DAY = "day"
@@ -664,14 +664,14 @@ class IntervalType(StrEnum):
     MONTH = "month"
 
 
-class LifecycleToggle(StrEnum):
+class LifecycleToggle(str, Enum):
     NEW = "new"
     RESURRECTING = "resurrecting"
     RETURNING = "returning"
     DORMANT = "dormant"
 
 
-class NodeKind(StrEnum):
+class NodeKind(str, Enum):
     EVENTS_NODE = "EventsNode"
     ACTIONS_NODE = "ActionsNode"
     DATA_WAREHOUSE_NODE = "DataWarehouseNode"
@@ -716,7 +716,7 @@ class PathCleaningFilter(BaseModel):
     regex: Optional[str] = None
 
 
-class PathType(StrEnum):
+class PathType(str, Enum):
     FIELD_PAGEVIEW = "$pageview"
     FIELD_SCREEN = "$screen"
     CUSTOM_EVENT = "custom_event"
@@ -765,7 +765,7 @@ class PathsFilterLegacy(BaseModel):
     step_limit: Optional[int] = None
 
 
-class PropertyFilterType(StrEnum):
+class PropertyFilterType(str, Enum):
     META = "meta"
     EVENT = "event"
     PERSON = "person"
@@ -780,7 +780,7 @@ class PropertyFilterType(StrEnum):
     DATA_WAREHOUSE_PERSON_PROPERTY = "data_warehouse_person_property"
 
 
-class PropertyMathType(StrEnum):
+class PropertyMathType(str, Enum):
     AVG = "avg"
     SUM = "sum"
     MIN = "min"
@@ -791,7 +791,7 @@ class PropertyMathType(StrEnum):
     P99 = "p99"
 
 
-class PropertyOperator(StrEnum):
+class PropertyOperator(str, Enum):
     EXACT = "exact"
     IS_NOT = "is_not"
     ICONTAINS = "icontains"
@@ -909,7 +909,7 @@ class RecordingPropertyFilter(BaseModel):
     value: Optional[Union[str, float, list[Union[str, float]]]] = None
 
 
-class Kind1(StrEnum):
+class Kind1(str, Enum):
     ACTIONS_NODE = "ActionsNode"
     EVENTS_NODE = "EventsNode"
 
@@ -927,19 +927,19 @@ class RetentionEntity(BaseModel):
     uuid: Optional[str] = None
 
 
-class RetentionReference(StrEnum):
+class RetentionReference(str, Enum):
     TOTAL = "total"
     PREVIOUS = "previous"
 
 
-class RetentionPeriod(StrEnum):
+class RetentionPeriod(str, Enum):
     HOUR = "Hour"
     DAY = "Day"
     WEEK = "Week"
     MONTH = "Month"
 
 
-class RetentionType(StrEnum):
+class RetentionType(str, Enum):
     RETENTION_RECURRING = "retention_recurring"
     RETENTION_FIRST_TIME = "retention_first_time"
 
@@ -970,7 +970,7 @@ class SessionPropertyFilter(BaseModel):
     value: Optional[Union[str, float, list[Union[str, float]]]] = None
 
 
-class StepOrderValue(StrEnum):
+class StepOrderValue(str, Enum):
     STRICT = "strict"
     UNORDERED = "unordered"
     ORDERED = "ordered"
@@ -1101,7 +1101,7 @@ class TimelineEntry(BaseModel):
     sessionId: Optional[str] = Field(default=None, description="Session ID. None means out-of-session events")
 
 
-class YAxisScaleType(StrEnum):
+class YAxisScaleType(str, Enum):
     LOG10 = "log10"
     LINEAR = "linear"
 
@@ -1191,7 +1191,7 @@ class VizSpecificOptions(BaseModel):
     RETENTION: Optional[RETENTION] = None
 
 
-class Kind2(StrEnum):
+class Kind2(str, Enum):
     UNIT = "unit"
     DURATION_S = "duration_s"
     PERCENTAGE = "percentage"
@@ -1238,7 +1238,7 @@ class WebOverviewQueryResponse(BaseModel):
     )
 
 
-class WebStatsBreakdown(StrEnum):
+class WebStatsBreakdown(str, Enum):
     PAGE = "Page"
     INITIAL_PAGE = "InitialPage"
     EXIT_PAGE = "ExitPage"

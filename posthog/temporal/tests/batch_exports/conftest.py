@@ -203,7 +203,7 @@ def data_interval_start(data_interval_end, interval):
 @pytest.fixture
 def data_interval_end(interval):
     """Set a test data interval end."""
-    return dt.datetime(2023, 4, 25, 15, 0, 0, tzinfo=dt.UTC)
+    return dt.datetime(2023, 4, 25, 15, 0, 0, tzinfo=dt.timezone.utc)
 
 
 @pytest_asyncio.fixture

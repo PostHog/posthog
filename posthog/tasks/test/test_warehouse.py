@@ -46,7 +46,7 @@ class TestWarehouse(APIBaseTest):
     @patch("posthog.tasks.warehouse.get_ph_client")
     @patch(
         "posthog.tasks.warehouse.DEFAULT_DATE_TIME",
-        datetime.datetime(2023, 11, 7, 0, 0, 0, tzinfo=datetime.UTC),
+        datetime.datetime(2023, 11, 7, 0, 0, 0, tzinfo=datetime.timezone.utc),
     )
     @freeze_time("2023-11-07")
     def test_capture_workspace_rows_synced_by_team_month_cutoff(self, mock_get_ph_client: MagicMock) -> None:
@@ -87,13 +87,13 @@ class TestWarehouse(APIBaseTest):
         self.team.refresh_from_db()
         self.assertEqual(
             self.team.external_data_workspace_last_synced_at,
-            datetime.datetime(2023, 11, 7, 16, 50, 49, tzinfo=datetime.UTC),
+            datetime.datetime(2023, 11, 7, 16, 50, 49, tzinfo=datetime.timezone.utc),
         )
 
     @patch("posthog.tasks.warehouse.get_ph_client")
     @patch(
         "posthog.tasks.warehouse.DEFAULT_DATE_TIME",
-        datetime.datetime(2023, 11, 7, 0, 0, 0, tzinfo=datetime.UTC),
+        datetime.datetime(2023, 11, 7, 0, 0, 0, tzinfo=datetime.timezone.utc),
     )
     @freeze_time("2023-11-07")
     def test_capture_workspace_rows_synced_by_team_month_cutoff_field_set(self, mock_get_ph_client: MagicMock) -> None:
@@ -101,7 +101,7 @@ class TestWarehouse(APIBaseTest):
         mock_get_ph_client.return_value = mock_ph_client
 
         self.team.external_data_workspace_last_synced_at = datetime.datetime(
-            2023, 10, 30, 19, 32, 41, tzinfo=datetime.UTC
+            2023, 10, 30, 19, 32, 41, tzinfo=datetime.timezone.utc
         )
         self.team.save()
 
@@ -142,5 +142,5 @@ class TestWarehouse(APIBaseTest):
         self.team.refresh_from_db()
         self.assertEqual(
             self.team.external_data_workspace_last_synced_at,
-            datetime.datetime(2023, 11, 7, 16, 50, 49, tzinfo=datetime.UTC),
+            datetime.datetime(2023, 11, 7, 16, 50, 49, tzinfo=datetime.timezone.utc),
         )
