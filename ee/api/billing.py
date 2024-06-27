@@ -176,7 +176,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             else:
-                raise e
+                raise
 
         return self.list(request, *args, **kwargs)
 
@@ -199,7 +199,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             if len(e.args) > 2:
                 detail_object = e.args[2]
                 if not isinstance(detail_object, dict):
-                    raise e
+                    raise
                 return Response(
                     {
                         "statusText": e.args[0],
@@ -209,7 +209,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             else:
-                raise e
+                raise
 
         return Response(
             {

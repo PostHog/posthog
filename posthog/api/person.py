@@ -425,7 +425,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     "team_id": self.team.id,
                 },
             )
-            raise e
+            raise
 
         return result
 

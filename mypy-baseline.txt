@@ -7,8 +7,6 @@ posthog/temporal/data_imports/pipelines/rest_source/config_setup.py:0: error: Di
 posthog/temporal/data_imports/pipelines/rest_source/config_setup.py:0: error: Incompatible types in assignment (expression has type "None", variable has type "AuthConfigBase")  [assignment]
 posthog/temporal/data_imports/pipelines/rest_source/config_setup.py:0: error: Argument 1 to "get_auth_class" has incompatible type "Literal['bearer', 'api_key', 'http_basic'] | None"; expected "Literal['bearer', 'api_key', 'http_basic']"  [arg-type]
 posthog/temporal/data_imports/pipelines/rest_source/config_setup.py:0: error: Need type annotation for "dependency_graph"  [var-annotated]
-posthog/temporal/data_imports/pipelines/rest_source/config_setup.py:0: error: Value of type variable "TDict" of "update_dict_nested" cannot be "Mapping[str, object]"  [type-var]
-posthog/temporal/data_imports/pipelines/rest_source/config_setup.py:0: note: Error code "type-var" not covered by "type: ignore" comment
 posthog/temporal/data_imports/pipelines/rest_source/config_setup.py:0: error: Incompatible types in assignment (expression has type "None", target has type "ResolvedParam")  [assignment]
 posthog/temporal/data_imports/pipelines/rest_source/config_setup.py:0: error: Incompatible return value type (got "tuple[TopologicalSorter[Any], dict[str, EndpointResource], dict[str, ResolvedParam]]", expected "tuple[Any, dict[str, EndpointResource], dict[str, ResolvedParam | None]]")  [return-value]
 posthog/temporal/data_imports/pipelines/rest_source/config_setup.py:0: error: Unsupported right operand type for in ("str | Endpoint | None")  [operator]
@@ -217,13 +215,7 @@ posthog/hogql/resolver.py:0: error: Item "None" of "Type | None" has no attribut
 posthog/hogql/resolver.py:0: error: Item "None" of "Type | None" has no attribute "resolve_constant_type"  [union-attr]
 posthog/hogql/resolver.py:0: error: Item "None" of "Type | None" has no attribute "resolve_constant_type"  [union-attr]
 posthog/demo/matrix/taxonomy_inference.py:0: error: Name "timezone.datetime" is not defined  [name-defined]
-posthog/hogql/transforms/lazy_tables.py:0: error: Incompatible default for argument "context" (default has type "None", argument has type "HogQLContext")  [assignment]
-posthog/hogql/transforms/lazy_tables.py:0: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
-posthog/hogql/transforms/lazy_tables.py:0: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
 posthog/hogql/transforms/lazy_tables.py:0: error: Incompatible types in assignment (expression has type "dict[Never, Never]", variable has type "list[ConstraintOverride]")  [assignment]
-posthog/hogql/transforms/lazy_tables.py:0: error: Incompatible default for argument "context" (default has type "None", argument has type "HogQLContext")  [assignment]
-posthog/hogql/transforms/lazy_tables.py:0: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
-posthog/hogql/transforms/lazy_tables.py:0: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
 posthog/hogql/transforms/lazy_tables.py:0: error: Non-overlapping equality check (left operand type: "TableType", right operand type: "LazyTableType")  [comparison-overlap]
 posthog/hogql/transforms/lazy_tables.py:0: error: Non-overlapping equality check (left operand type: "TableType", right operand type: "LazyTableType")  [comparison-overlap]
 posthog/hogql/transforms/lazy_tables.py:0: error: Name "chain" already defined on line 0  [no-redef]
@@ -268,7 +260,6 @@ posthog/hogql/printer.py:0: error: "FieldOrTable" has no attribute "name"  [attr
 posthog/hogql/printer.py:0: error: "FieldOrTable" has no attribute "name"  [attr-defined]
 posthog/hogql/printer.py:0: error: Argument 2 to "_get_materialized_column" of "_Printer" has incompatible type "str | int"; expected "str"  [arg-type]
 posthog/hogql/printer.py:0: error: Argument 1 to "_print_identifier" of "_Printer" has incompatible type "str | None"; expected "str"  [arg-type]
-posthog/hogql/hogql.py:0: error: Item "None" of "JoinExpr | None" has no attribute "alias"  [union-attr]
 posthog/test/base.py:0: error: Module has no attribute "configure"  [attr-defined]
 posthog/test/base.py:0: error: Incompatible types in assignment (expression has type "None", variable has type "Organization")  [assignment]
 posthog/test/base.py:0: error: Incompatible types in assignment (expression has type "None", variable has type "Project")  [assignment]
@@ -311,7 +302,6 @@ posthog/hogql_queries/sessions_timeline_query_runner.py:0: error: Statement is u
 posthog/hogql_queries/hogql_query_runner.py:0: error: Statement is unreachable  [unreachable]
 posthog/hogql_queries/hogql_query_runner.py:0: error: Incompatible return value type (got "SelectQuery | SelectUnionQuery", expected "SelectQuery")  [return-value]
 posthog/hogql_queries/events_query_runner.py:0: error: Statement is unreachable  [unreachable]
-posthog/hogql/metadata.py:0: error: Argument "metadata_source" to "translate_hogql" has incompatible type "SelectQuery | SelectUnionQuery"; expected "SelectQuery | None"  [arg-type]
 posthog/queries/breakdown_props.py:0: error: Argument 1 to "translate_hogql" has incompatible type "str | int"; expected "str"  [arg-type]
 posthog/queries/breakdown_props.py:0: error: Incompatible type for lookup 'pk': (got "str | None", expected "str | int")  [misc]
 posthog/hogql_queries/insights/funnels/base.py:0: error: Incompatible type for lookup 'pk': (got "str | int | None", expected "str | int")  [misc]

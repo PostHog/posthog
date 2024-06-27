@@ -14,7 +14,9 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
 import { BASE_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
 
+import { actionsModel } from '~/models/actionsModel'
 import { queryNodeToFilter, seriesNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { getAllEventNames } from '~/queries/nodes/InsightViz/utils'
 import {
     BreakdownFilter,
     CompareFilter,
@@ -43,6 +45,7 @@ import {
     getShowLegend,
     getShowPercentStackView,
     getShowValuesOnSeries,
+    getYAxisScaleType,
     isActionsNode,
     isDataWarehouseNode,
     isEventsNode,
@@ -162,6 +165,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         showValuesOnSeries: [(s) => [s.querySource], (q) => (q ? getShowValuesOnSeries(q) : null)],
         showLabelOnSeries: [(s) => [s.querySource], (q) => (q ? getShowLabelsOnSeries(q) : null)],
         showPercentStackView: [(s) => [s.querySource], (q) => (q ? getShowPercentStackView(q) : null)],
+        yAxisScaleType: [(s) => [s.querySource], (q) => (q ? getYAxisScaleType(q) : null)],
         vizSpecificOptions: [(s) => [s.query], (q: Node) => (isInsightVizNode(q) ? q.vizSpecificOptions : null)],
         insightFilter: [(s) => [s.querySource], (q) => (q ? filterForQuery(q) : null)],
         trendsFilter: [(s) => [s.querySource], (q) => (isTrendsQuery(q) ? q.trendsFilter : null)],
@@ -357,6 +361,12 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     ...seriesNodeToFilter(rest),
                 })),
             }),
+        ],
+
+        // all events used in the insight (useful for fetching only relevant property definitions)
+        allEventNames: [
+            (s) => [s.querySource, actionsModel.selectors.actions],
+            (querySource, actions) => (querySource ? getAllEventNames(querySource, actions) : []),
         ],
     }),
 

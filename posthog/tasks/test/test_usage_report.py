@@ -1071,11 +1071,11 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
             start_time = (now() - relativedelta(hours=i)).strftime("%Y-%m-%dT%H:%M:%SZ")
             _create_event(
                 distinct_id="3",
-                event="external data sync job",
+                event="$data_sync_job_completed",
                 properties={
                     "count": 10,
                     "job_id": 10924,
-                    "startTime": start_time,
+                    "start_time": start_time,
                 },
                 timestamp=now() - relativedelta(hours=i),
                 team=self.analytics_team,
@@ -1083,11 +1083,11 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
             # identical job id should be deduped and not counted
             _create_event(
                 distinct_id="3",
-                event="external data sync job",
+                event="$data_sync_job_completed",
                 properties={
                     "count": 10,
                     "job_id": 10924,
-                    "startTime": start_time,
+                    "start_time": start_time,
                 },
                 timestamp=now() - relativedelta(hours=i, minutes=i),
                 team=self.analytics_team,
@@ -1096,11 +1096,11 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
         for i in range(5):
             _create_event(
                 distinct_id="4",
-                event="external data sync job",
+                event="$data_sync_job_completed",
                 properties={
                     "count": 10,
                     "job_id": 10924,
-                    "startTime": (now() - relativedelta(hours=i)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "start_time": (now() - relativedelta(hours=i)).strftime("%Y-%m-%dT%H:%M:%SZ"),
                 },
                 timestamp=now() - relativedelta(hours=i),
                 team=self.analytics_team,

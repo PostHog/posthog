@@ -48,6 +48,7 @@ from posthog.tasks.tasks import (
     verify_persons_data_in_sync,
     update_survey_iteration,
     invalid_web_replays,
+    calculate_external_data_rows_synced,
 )
 from posthog.utils import get_crontab
 
@@ -319,4 +320,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         3600,
         invalid_web_replays.s(),
         name="Invalid web replays count",
+    )
+
+    # Every 20 minutes try to retrieve and calculate total rows synced in period
+
+    sender.add_periodic_task(
+        crontab(minute="*/20"),
+        calculate_external_data_rows_synced.s(),
+        name="calculate external data rows synced",
     )
