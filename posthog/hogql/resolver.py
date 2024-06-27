@@ -18,6 +18,7 @@ from posthog.hogql.functions.action import matches_action
 from posthog.hogql.functions.cohort import cohort_query_node
 from posthog.hogql.functions.mapping import validate_function_args, HOGQL_CLICKHOUSE_FUNCTIONS, compare_types
 from posthog.hogql.functions.sparkline import sparkline
+from posthog.hogql.hogqlx import convert_to_hx
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver_utils import convert_hogqlx_tag, lookup_cte_by_name, lookup_field_by_name
 from posthog.hogql.visitor import CloningVisitor, clone_expr, TraversingVisitor
@@ -81,39 +82,6 @@ def resolve_types(
     scopes: Optional[list[ast.SelectQueryType]] = None,
 ) -> ast.Expr:
     return Resolver(scopes=scopes, context=context, dialect=dialect).visit(node)
-
-
-def convert_tag_to_hx(node: ast.HogQLXTag) -> ast.Tuple:
-    attrs: list[ast.Expr] = [
-        ast.Constant(value="__hx_tag"),
-        ast.Constant(value=node.kind),
-    ]
-    for attribute in node.attributes:
-        attrs.append(convert_to_hx(attribute.name))
-        attrs.append(convert_to_hx(attribute.value))
-    return ast.Tuple(exprs=attrs)
-
-
-def convert_dict_to_hx(node: ast.Dict) -> ast.Tuple:
-    attrs: list[ast.Expr] = [ast.Constant(value="__hx_obj")]
-    for attribute in node.items:
-        attrs.append(convert_to_hx(attribute[0]))
-        attrs.append(convert_to_hx(attribute[1]))
-    return ast.Tuple(exprs=attrs)
-
-
-def convert_to_hx(node: Any) -> ast.Expr:
-    if isinstance(node, ast.HogQLXTag):
-        return convert_tag_to_hx(node)
-    if isinstance(node, ast.Dict):
-        return convert_dict_to_hx(node)
-    if isinstance(node, ast.Array) or isinstance(node, ast.Tuple):
-        return ast.Tuple(exprs=[convert_to_hx(x) for x in node.exprs])
-    if isinstance(node, ast.Expr):
-        return node
-    if isinstance(node, list) or isinstance(node, tuple):
-        return ast.Tuple(exprs=[convert_to_hx(x) for x in node])
-    return ast.Constant(value=node)
 
 
 class AliasCollector(TraversingVisitor):

@@ -7,7 +7,6 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
-import { Sparkline } from 'lib/lemon-ui/Sparkline'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { autoCaptureEventToDescription } from 'lib/utils'
@@ -15,8 +14,8 @@ import { GroupActorDisplay } from 'scenes/persons/GroupActorDisplay'
 import { PersonDisplay, PersonDisplayProps } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
-import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { errorColumn, loadingColumn } from '~/queries/nodes/DataTable/dataTableLogic'
+import { renderHogQLX } from '~/queries/nodes/HogQLX/render'
 import { DeletePersonButton } from '~/queries/nodes/PersonsNode/DeletePersonButton'
 import { DataTableNode, EventsQueryPersonColumn, HasPropertiesNode } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
@@ -29,44 +28,6 @@ import {
     trimQuotes,
 } from '~/queries/utils'
 import { AnyPropertyFilter, EventType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
-
-export function parseHogQLX(value: any): any {
-    if (!Array.isArray(value)) {
-        return value
-    }
-    if (value[0] === '__hx_tag') {
-        const object: Record<string, any> = {}
-        // keep the "__hx_tag" key on the object
-        for (let i = 0; i < value.length; i += 2) {
-            const key = parseHogQLX(value[i])
-            object[key] = parseHogQLX(value[i + 1])
-        }
-        return object
-    }
-    if (value[0] === '__hx_obj') {
-        const object: Record<string, any> = {}
-        for (let i = 1; i < value.length; i += 2) {
-            const key = parseHogQLX(value[i])
-            object[key] = parseHogQLX(value[i + 1])
-        }
-        return object
-    }
-    return value.map((v) => parseHogQLX(v))
-}
-export function renderHogQLX(value: any): JSX.Element {
-    const object: Record<string, any> = parseHogQLX(value)
-    const tag = object.__hx_tag ?? null
-
-    if (tag === 'Sparkline') {
-        const { data, type } = object
-        return (
-            <ErrorBoundary>
-                <Sparkline data={data ?? []} type={type ?? []} {...object} />
-            </ErrorBoundary>
-        )
-    }
-    return <div>Unknown tag: {String(tag)}</div>
-}
 
 export function renderColumn(
     key: string,
