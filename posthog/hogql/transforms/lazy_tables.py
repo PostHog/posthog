@@ -337,6 +337,9 @@ class LazyTableResolver(TraversingVisitor):
                 self.context,
                 node,
             )
+            join_to_add.table = resolve_types(join_to_add.table, self.context, self.dialect, [node.type])
+            if self.context.property_swapper is not None:
+                join_to_add.table = self.context.property_swapper.visit(join_to_add.table)
 
             overrides = [
                 *join_constraint_overrides.get(join_scope.to_table, []),

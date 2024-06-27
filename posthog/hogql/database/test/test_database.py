@@ -480,6 +480,6 @@ class TestDatabase(BaseTest):
         sql = "select person.id from events"
         query = print_ast(parse_select(sql), context, dialect="clickhouse")
         assert (
-            "ifNull(less(argMax(person.created_at, person.version), plus(now64(6, %(hogql_val_0)s), toIntervalDay(1)))"
+            "ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1)))"
             in query
         ), query

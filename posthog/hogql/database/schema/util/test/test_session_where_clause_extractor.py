@@ -366,17 +366,17 @@ SELECT
 FROM
     events
     LEFT JOIN (SELECT
-        dateDiff(%(hogql_val_0)s, min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
+        dateDiff(%(hogql_val_0)s, min(toTimeZone(sessions.min_timestamp, %(hogql_val_1)s)), max(toTimeZone(sessions.max_timestamp, %(hogql_val_2)s))) AS `$session_duration`,
         sessions.session_id AS session_id
     FROM
         sessions
     WHERE
-        and(equals(sessions.team_id, {self.team.id}), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, %(hogql_val_1)s), toIntervalDay(3)), today()), 0))
+        and(equals(sessions.team_id, {self.team.id}), ifNull(lessOrEquals(minus(toTimeZone(toTimeZone(sessions.min_timestamp, %(hogql_val_3)s), %(hogql_val_4)s), toIntervalDay(3)), today()), 0))
     GROUP BY
         sessions.session_id,
         sessions.session_id) AS events__session ON equals(events.`$session_id`, events__session.session_id)
 WHERE
-    and(equals(events.team_id, {self.team.id}), less(toTimeZone(events.timestamp, %(hogql_val_2)s), today()))
+    and(equals(events.team_id, {self.team.id}), less(toTimeZone(events.timestamp, %(hogql_val_5)s), today()))
 LIMIT {MAX_SELECT_RETURNED_ROWS}"""
         assert expected == actual
 
@@ -424,8 +424,8 @@ GROUP BY day_start,
         )
         expected = f"""SELECT
     count(DISTINCT e.`$session_id`) AS total,
-    toStartOfDay(toTimeZone(e.timestamp, %(hogql_val_7)s)) AS day_start,
-    multiIf(and(ifNull(greaterOrEquals(e__session.`$session_duration`, 2.0), 0), ifNull(less(e__session.`$session_duration`, 4.5), 0)), %(hogql_val_8)s, and(ifNull(greaterOrEquals(e__session.`$session_duration`, 4.5), 0), ifNull(less(e__session.`$session_duration`, 27.0), 0)), %(hogql_val_9)s, and(ifNull(greaterOrEquals(e__session.`$session_duration`, 27.0), 0), ifNull(less(e__session.`$session_duration`, 44.0), 0)), %(hogql_val_10)s, and(ifNull(greaterOrEquals(e__session.`$session_duration`, 44.0), 0), ifNull(less(e__session.`$session_duration`, 48.0), 0)), %(hogql_val_11)s, and(ifNull(greaterOrEquals(e__session.`$session_duration`, 48.0), 0), ifNull(less(e__session.`$session_duration`, 57.5), 0)), %(hogql_val_12)s, and(ifNull(greaterOrEquals(e__session.`$session_duration`, 57.5), 0), ifNull(less(e__session.`$session_duration`, 61.0), 0)), %(hogql_val_13)s, and(ifNull(greaterOrEquals(e__session.`$session_duration`, 61.0), 0), ifNull(less(e__session.`$session_duration`, 74.0), 0)), %(hogql_val_14)s, and(ifNull(greaterOrEquals(e__session.`$session_duration`, 74.0), 0), ifNull(less(e__session.`$session_duration`, 90.0), 0)), %(hogql_val_15)s, and(ifNull(greaterOrEquals(e__session.`$session_duration`, 90.0), 0), ifNull(less(e__session.`$session_duration`, 98.5), 0)), %(hogql_val_16)s, and(ifNull(greaterOrEquals(e__session.`$session_duration`, 98.5), 0), ifNull(less(e__session.`$session_duration`, 167.01), 0)), %(hogql_val_17)s, %(hogql_val_18)s) AS breakdown_value
+    toStartOfDay(toTimeZone(e.timestamp, %(hogql_val_11)s)) AS day_start,
+    multiIf(and(ifNull(greaterOrEquals(e__session.`$session_duration`, 2.0), 0), ifNull(less(e__session.`$session_duration`, 4.5), 0)), %(hogql_val_12)s, and(ifNull(greaterOrEquals(e__session.`$session_duration`, 4.5), 0), ifNull(less(e__session.`$session_duration`, 27.0), 0)), %(hogql_val_13)s, and(ifNull(greaterOrEquals(e__session.`$session_duration`, 27.0), 0), ifNull(less(e__session.`$session_duration`, 44.0), 0)), %(hogql_val_14)s, and(ifNull(greaterOrEquals(e__session.`$session_duration`, 44.0), 0), ifNull(less(e__session.`$session_duration`, 48.0), 0)), %(hogql_val_15)s, and(ifNull(greaterOrEquals(e__session.`$session_duration`, 48.0), 0), ifNull(less(e__session.`$session_duration`, 57.5), 0)), %(hogql_val_16)s, and(ifNull(greaterOrEquals(e__session.`$session_duration`, 57.5), 0), ifNull(less(e__session.`$session_duration`, 61.0), 0)), %(hogql_val_17)s, and(ifNull(greaterOrEquals(e__session.`$session_duration`, 61.0), 0), ifNull(less(e__session.`$session_duration`, 74.0), 0)), %(hogql_val_18)s, and(ifNull(greaterOrEquals(e__session.`$session_duration`, 74.0), 0), ifNull(less(e__session.`$session_duration`, 90.0), 0)), %(hogql_val_19)s, and(ifNull(greaterOrEquals(e__session.`$session_duration`, 90.0), 0), ifNull(less(e__session.`$session_duration`, 98.5), 0)), %(hogql_val_20)s, and(ifNull(greaterOrEquals(e__session.`$session_duration`, 98.5), 0), ifNull(less(e__session.`$session_duration`, 167.01), 0)), %(hogql_val_21)s, %(hogql_val_22)s) AS breakdown_value
 FROM
     events AS e SAMPLE 1
     INNER JOIN (SELECT
@@ -441,17 +441,17 @@ FROM
         ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)
     SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
     LEFT JOIN (SELECT
-        dateDiff(%(hogql_val_0)s, min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
+        dateDiff(%(hogql_val_0)s, min(toTimeZone(sessions.min_timestamp, %(hogql_val_1)s)), max(toTimeZone(sessions.max_timestamp, %(hogql_val_2)s))) AS `$session_duration`,
         sessions.session_id AS session_id
     FROM
         sessions
     WHERE
-        and(equals(sessions.team_id, {self.team.id}), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, %(hogql_val_1)s), toIntervalDay(3)), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_2)s, 6, %(hogql_val_3)s)))), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, %(hogql_val_4)s), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_5)s, 6, %(hogql_val_6)s))), 0))
+        and(equals(sessions.team_id, {self.team.id}), ifNull(greaterOrEquals(plus(toTimeZone(toTimeZone(sessions.min_timestamp, %(hogql_val_3)s), %(hogql_val_4)s), toIntervalDay(3)), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_5)s, 6, %(hogql_val_6)s)))), 0), ifNull(lessOrEquals(minus(toTimeZone(toTimeZone(sessions.min_timestamp, %(hogql_val_7)s), %(hogql_val_8)s), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_9)s, 6, %(hogql_val_10)s))), 0))
     GROUP BY
         sessions.session_id,
         sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
 WHERE
-    and(equals(e.team_id, {self.team.id}), and(greaterOrEquals(toTimeZone(e.timestamp, %(hogql_val_19)s), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_20)s, 6, %(hogql_val_21)s)))), lessOrEquals(toTimeZone(e.timestamp, %(hogql_val_22)s), assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_23)s, 6, %(hogql_val_24)s))), equals(e.event, %(hogql_val_25)s), ifNull(in(e__pdi.person_id, (SELECT
+    and(equals(e.team_id, {self.team.id}), and(greaterOrEquals(toTimeZone(e.timestamp, %(hogql_val_23)s), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_24)s, 6, %(hogql_val_25)s)))), lessOrEquals(toTimeZone(e.timestamp, %(hogql_val_26)s), assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_27)s, 6, %(hogql_val_28)s))), equals(e.event, %(hogql_val_29)s), ifNull(in(e__pdi.person_id, (SELECT
                     cohortpeople.person_id AS person_id
                 FROM
                     cohortpeople
@@ -476,7 +476,7 @@ GROUP BY session_id
         )
         expected = f"""SELECT
     s.session_id AS session_id,
-    min(toTimeZone(s.min_first_timestamp, %(hogql_val_5)s)) AS start_time
+    min(toTimeZone(s.min_first_timestamp, %(hogql_val_7)s)) AS start_time
 FROM
     session_replay_events AS s
     LEFT JOIN (SELECT
@@ -485,12 +485,12 @@ FROM
     FROM
         sessions
     WHERE
-        and(equals(sessions.team_id, {self.team.id}), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, %(hogql_val_1)s), toIntervalDay(3)), %(hogql_val_2)s), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, %(hogql_val_3)s), toIntervalDay(3)), now64(6, %(hogql_val_4)s)), 0))
+        and(equals(sessions.team_id, {self.team.id}), ifNull(greaterOrEquals(plus(toTimeZone(toTimeZone(sessions.min_timestamp, %(hogql_val_1)s), %(hogql_val_2)s), toIntervalDay(3)), %(hogql_val_3)s), 0), ifNull(lessOrEquals(minus(toTimeZone(toTimeZone(sessions.min_timestamp, %(hogql_val_4)s), %(hogql_val_5)s), toIntervalDay(3)), now64(6, %(hogql_val_6)s)), 0))
     GROUP BY
         sessions.session_id,
         sessions.session_id) AS s__session ON equals(s.session_id, s__session.session_id)
 WHERE
-    and(equals(s.team_id, {self.team.id}), ifNull(equals(s__session.`$entry_pathname`, %(hogql_val_6)s), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, %(hogql_val_7)s), %(hogql_val_8)s), 0), ifNull(less(toTimeZone(s.min_first_timestamp, %(hogql_val_9)s), now64(6, %(hogql_val_10)s)), 0))
+    and(equals(s.team_id, {self.team.id}), ifNull(equals(s__session.`$entry_pathname`, %(hogql_val_8)s), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, %(hogql_val_9)s), %(hogql_val_10)s), 0), ifNull(less(toTimeZone(s.min_first_timestamp, %(hogql_val_11)s), now64(6, %(hogql_val_12)s)), 0))
 GROUP BY
     s.session_id
 LIMIT 50000"""
