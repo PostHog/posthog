@@ -25,7 +25,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 preflightSchedules: true,
                 cdpProcessedEvents: true,
                 cdpFunctionCallbacks: true,
-                cdpOverflow: true,
+                cdpFunctionOverflow: true,
                 ...sharedCapabilities,
             }
         case PluginServerMode.ingestion:
@@ -101,9 +101,9 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 cdpFunctionCallbacks: true,
                 ...sharedCapabilities,
             }
-        case PluginServerMode.cdp_overflow:
+        case PluginServerMode.cdp_function_overflow:
             return {
-                cdpOverflow: true,
+                cdpFunctionOverflow: true,
                 ...sharedCapabilities,
             }
     }

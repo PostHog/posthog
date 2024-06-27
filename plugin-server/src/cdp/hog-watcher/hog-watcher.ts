@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { Counter } from 'prom-client'
 
 import { Hub } from '../../types'
 import { PubSub } from '../../utils/pubsub'
@@ -30,6 +31,12 @@ import {
 } from './utils'
 
 const REDIS_KEY_STATE = `${BASE_REDIS_KEY}/state`
+
+const hogStateChangeCounter = new Counter({
+    name: 'cdp_hog_watcher_state_change',
+    help: 'An function was moved to a different state',
+    labelNames: ['state'],
+})
 
 export class HogWatcherActiveObservations {
     observations: Record<HogFunctionType['id'], HogWatcherObservationPeriod> = {}
@@ -339,6 +346,7 @@ export class HogWatcher {
             globalState.states[id].push(state)
             globalState.states[id] = globalState.states[id].slice(-MAX_RECORDED_STATES)
             stateChanges.states[id] = newState
+            hogStateChangeCounter.inc({ state: newState })
         }
 
         changedHogFunctionRatings.forEach((id) => {
