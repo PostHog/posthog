@@ -1,7 +1,5 @@
 import { IconGear } from '@posthog/icons'
 import { BindLogic, useActions, useValues } from 'kea'
-import { MultipleBreakdownsOptionsMenu } from 'scenes/insights/filters/BreakdownFilter/MultipleBreakdownsOptionsMenu'
-import { TaxonomicBreakdownButton } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownButton'
 
 import { LemonButton } from '~/lib/lemon-ui/LemonButton'
 import { LemonLabel } from '~/lib/lemon-ui/LemonLabel'
@@ -10,6 +8,8 @@ import { BreakdownFilter } from '~/queries/schema'
 import { ChartDisplayType, InsightLogicProps } from '~/types'
 
 import { EditableBreakdownTag } from './BreakdownTag'
+import { GlobalBreakdownOptionsMenu } from './GlobalBreakdownOptionsMenu'
+import { TaxonomicBreakdownButton } from './TaxonomicBreakdownButton'
 import { taxonomicBreakdownFilterLogic, TaxonomicBreakdownFilterLogicProps } from './taxonomicBreakdownFilterLogic'
 
 export interface TaxonomicBreakdownFilterProps {
@@ -70,7 +70,7 @@ export function TaxonomicBreakdownFilter({
                 </LemonLabel>
                 {isMultipleBreakdownsEnabled && (
                     <Popover
-                        overlay={<MultipleBreakdownsOptionsMenu />}
+                        overlay={<GlobalBreakdownOptionsMenu />}
                         visible={breakdownOptionsOpened}
                         onClickOutside={() => toggleBreakdownOptions(false)}
                     >

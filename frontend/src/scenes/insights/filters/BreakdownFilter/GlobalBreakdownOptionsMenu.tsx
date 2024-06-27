@@ -9,13 +9,12 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
 
-export const MultipleBreakdownsOptionsMenu = (): JSX.Element => {
+export const GlobalBreakdownOptionsMenu = (): JSX.Element => {
     const { insightProps } = useValues(insightLogic)
-    const { breakdownFilter, isTrends } = useValues(insightVizDataLogic(insightProps))
-    const { updateBreakdownFilter } = useActions(insightVizDataLogic(insightProps))
+    const { isTrends } = useValues(insightVizDataLogic(insightProps))
 
-    const { breakdownLimit } = useValues(taxonomicBreakdownFilterLogic)
-    const { setBreakdownLimit } = useActions(taxonomicBreakdownFilterLogic)
+    const { breakdownLimit, breakdownHideOtherAggregation } = useValues(taxonomicBreakdownFilterLogic)
+    const { setBreakdownLimit, setBreakdownHideOtherAggregation } = useActions(taxonomicBreakdownFilterLogic)
 
     return (
         <>
@@ -23,22 +22,17 @@ export const MultipleBreakdownsOptionsMenu = (): JSX.Element => {
                 <LemonSwitch
                     fullWidth
                     className="min-h-10 px-2"
-                    checked={!breakdownFilter?.breakdown_hide_other_aggregation}
-                    onChange={() =>
-                        updateBreakdownFilter({
-                            ...breakdownFilter,
-                            breakdown_hide_other_aggregation: !breakdownFilter?.breakdown_hide_other_aggregation,
-                        })
-                    }
+                    checked={!breakdownHideOtherAggregation}
+                    onChange={() => setBreakdownHideOtherAggregation(!breakdownHideOtherAggregation)}
                     label={
                         <div className="flex gap-1">
                             <span>Group remaining values under "Other"</span>
                             <Tooltip
                                 title={
                                     <>
-                                        If you have over {breakdownFilter?.breakdown_limit ?? 25} breakdown options, the
-                                        smallest ones are aggregated under the label "Other". Use this toggle to
-                                        show/hide the "Other" option.
+                                        If you have over {breakdownLimit ?? 25} breakdown options, the smallest ones are
+                                        aggregated under the label "Other". Use this toggle to show/hide the "Other"
+                                        option.
                                     </>
                                 }
                             >

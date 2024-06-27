@@ -54,8 +54,14 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
         }),
         removeBreakdown: (breakdown: string | number, breakdownType: string) => ({ breakdown, breakdownType }),
         setBreakdownLimit: (value: number | undefined) => ({ value }),
-        setHistogramBinsUsed: (breakdown: string | number, breakdownType: string, value: boolean) => ({
-            value,
+        setHistogramBinsUsed: (
+            breakdown: string | number,
+            breakdownType: string,
+            binsUsed: boolean,
+            binCount?: number
+        ) => ({
+            binsUsed,
+            binCount,
             breakdown,
             breakdownType,
         }),
@@ -76,6 +82,9 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
         toggleBreakdownOptions: (opened: boolean) => ({
             opened,
         }),
+        setBreakdownHideOtherAggregation: (hidden: boolean) => ({
+            hidden,
+        }),
     }),
     reducers({
         localHistogramBinCount: [
@@ -90,6 +99,18 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                 setBreakdownLimit: (_, { value }) => value,
             },
         ],
+        localNormalizeBreakdownURL: [
+            true as boolean,
+            {
+                setNormalizeBreakdownURL: (_, { normalizeBreakdownURL }) => normalizeBreakdownURL,
+            },
+        ],
+        localBreakdownHideOtherAggregation: [
+            undefined as boolean | undefined,
+            {
+                setBreakdownHideOtherAggregation: (_, { hidden }) => hidden,
+            },
+        ],
         breakdownOptionsOpened: [
             false as boolean,
             {
@@ -98,7 +119,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
         ],
     }),
     selectors({
-        isMultipleBreakdownsEnabled: [(s) => [s.featureFlags], () => true],
+        isMultipleBreakdownsEnabled: [(s) => [s.featureFlags], () => false],
         breakdownFilter: [(_, p) => [p.breakdownFilter], (breakdownFilter) => breakdownFilter],
         includeSessions: [(_, p) => [p.isTrends], (isTrends) => isTrends],
         maxBreakdownsSelected: [
@@ -142,6 +163,16 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
         breakdownLimit: [
             (s) => [s.breakdownFilter, s.localBreakdownLimit],
             (breakdownFilter, localBreakdownLimit) => localBreakdownLimit || breakdownFilter?.breakdown_limit || 25,
+        ],
+        normalizeBreakdownUrl: [
+            (s) => [s.breakdownFilter, s.localNormalizeBreakdownURL],
+            (breakdownFilter, localNormalizeBreakdownURL) =>
+                localNormalizeBreakdownURL ?? breakdownFilter.breakdown_normalize_url ?? true,
+        ],
+        breakdownHideOtherAggregation: [
+            (s) => [s.breakdownFilter, s.localBreakdownHideOtherAggregation],
+            (breakdownFilter, localBreakdownHideOtherAggregation) =>
+                localBreakdownHideOtherAggregation ?? breakdownFilter.breakdown_hide_other_aggregation,
         ],
     }),
     listeners(({ props, values }) => ({
@@ -278,14 +309,14 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                 })
             }
         },
-        setHistogramBinsUsed: ({ value, breakdown, breakdownType }) => {
+        setHistogramBinsUsed: ({ binsUsed, binCount, breakdown, breakdownType }) => {
             if (values.isMultipleBreakdownsEnabled) {
                 props.updateBreakdownFilter?.({
                     breakdown_histogram_bin_count: undefined,
                     breakdowns: updateNestedBreakdown(
                         values.breakdownFilter.breakdowns,
                         {
-                            histogram_bin_count: value ? values.histogramBinCount : undefined,
+                            histogram_bin_count: binsUsed ? binCount : undefined,
                         },
                         breakdown,
                         breakdownType
@@ -293,7 +324,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                 })
             } else {
                 props.updateBreakdownFilter?.({
-                    breakdown_histogram_bin_count: value ? values.histogramBinCount : undefined,
+                    breakdown_histogram_bin_count: binsUsed ? values.histogramBinCount : undefined,
                 })
             }
         },
@@ -306,7 +337,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                     breakdowns: updateNestedBreakdown(
                         values.breakdownFilter.breakdowns,
                         {
-                            histogram_bin_count: values.histogramBinsUsed ? count : undefined,
+                            histogram_bin_count: count,
                         },
                         breakdown,
                         breakdownType
@@ -317,6 +348,12 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                     breakdown_histogram_bin_count: values.histogramBinsUsed ? count : undefined,
                 })
             }
+        },
+        setBreakdownHideOtherAggregation: async ({ hidden }, breakpoint) => {
+            await breakpoint(300)
+            props.updateBreakdownFilter?.({
+                breakdown_hide_other_aggregation: hidden,
+            })
         },
     })),
 ])
