@@ -19,13 +19,13 @@ logger = structlog.get_logger(__name__)
 MONTHLY_LIMIT = 500_000_000
 
 # TODO: adjust to whenever billing officially starts
-DEFAULT_DATE_TIME = datetime.datetime(2024, 7, 31, tzinfo=datetime.timezone.utc)
+DEFAULT_DATE_TIME = datetime.datetime(2024, 6, 1, tzinfo=datetime.timezone.utc)
 
 
 @app.task(ignore_result=True)
 def capture_external_data_rows_synced() -> None:
     for team in Team.objects.select_related("organization").exclude(
-        Q(organization__for_internal_metrics=True) | Q(is_demo=True) | Q(external_data_workspace_id__isnull=True)
+        Q(organization__for_internal_metrics=True) | Q(is_demo=True)
     ):
         capture_workspace_rows_synced_by_team.delay(team.pk)
 
@@ -57,7 +57,7 @@ def check_synced_row_limits_of_team(team_id: int) -> None:
     ]
     total_rows_synced = sum(rows_synced_list)
 
-    if team_id in limited_teams_rows_synced or total_rows_synced < MONTHLY_LIMIT:
+    if team_id in limited_teams_rows_synced or total_rows_synced > MONTHLY_LIMIT:
         running_jobs = ExternalDataJob.objects.filter(team_id=team_id, status=ExternalDataJob.Status.RUNNING)
         for job in running_jobs:
             try:

@@ -21,7 +21,7 @@ import {
     isTimeToSeeDataSessionsQuery,
 } from './utils'
 
-const QUERY_ASYNC_MAX_INTERVAL_SECONDS = 5
+const QUERY_ASYNC_MAX_INTERVAL_SECONDS = 3
 const QUERY_ASYNC_TOTAL_POLL_SECONDS = 10 * 60 + 6 // keep in sync with backend-side timeout (currently 10min) + a small buffer
 
 //get export context for a given query
@@ -87,7 +87,7 @@ export async function pollForResults(
 
     while (performance.now() - pollStart < QUERY_ASYNC_TOTAL_POLL_SECONDS * 1000) {
         await delay(currentDelay, methodOptions?.signal)
-        currentDelay = Math.min(currentDelay * 2, QUERY_ASYNC_MAX_INTERVAL_SECONDS * 1000)
+        currentDelay = Math.min(currentDelay * 1.25, QUERY_ASYNC_MAX_INTERVAL_SECONDS * 1000)
 
         try {
             const statusResponse = (await api.queryStatus.get(queryId, showProgress)).query_status
