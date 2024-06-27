@@ -83,6 +83,37 @@ def resolve_types(
     return Resolver(scopes=scopes, context=context, dialect=dialect).visit(node)
 
 
+def convert_tag_to_hx(node: ast.HogQLXTag) -> ast.Tuple:
+    attrs: list[ast.Expr] = [
+        ast.Constant(value="__hx_tag"),
+        ast.Constant(value=node.kind),
+    ]
+    for attribute in node.attributes:
+        attrs.append(convert_to_hx(attribute.name))
+        attrs.append(convert_to_hx(attribute.value))
+    return ast.Tuple(exprs=attrs)
+
+
+def convert_dict_to_hx(node: ast.Dict) -> ast.Tuple:
+    attrs: list[ast.Expr] = [ast.Constant(value="__hx_obj")]
+    for attribute in node.items:
+        attrs.append(convert_to_hx(attribute[0]))
+        attrs.append(convert_to_hx(attribute[1]))
+    return ast.Tuple(exprs=attrs)
+
+
+def convert_to_hx(node: Any) -> ast.Expr:
+    if isinstance(node, ast.HogQLXTag):
+        return convert_tag_to_hx(node)
+    if isinstance(node, ast.Dict):
+        return convert_dict_to_hx(node)
+    if isinstance(node, ast.Expr):
+        return node
+    if isinstance(node, list) or isinstance(node, tuple):
+        return ast.Tuple(exprs=[convert_to_hx(x) for x in node])
+    return ast.Constant(value=node)
+
+
 class AliasCollector(TraversingVisitor):
     def __init__(self):
         super().__init__()
@@ -408,9 +439,7 @@ class Resolver(CloningVisitor):
 
     def visit_hogqlx_tag(self, node: ast.HogQLXTag):
         if node.kind == "Sparkline":
-            data_keys = [a for a in node.attributes if a.name == "data"]
-            value = data_keys[0].value if data_keys else None
-            return self.visit(ast.Call(name="sparkline", args=[value]))
+            return convert_to_hx(node)
         return self.visit(convert_hogqlx_tag(node, self.context.team_id))
 
     def visit_alias(self, node: ast.Alias):

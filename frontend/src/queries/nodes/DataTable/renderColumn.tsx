@@ -29,6 +29,30 @@ import {
 } from '~/queries/utils'
 import { AnyPropertyFilter, EventType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
 
+export function parseHogQLX(value: any): any {
+    if (!Array.isArray(value)) {
+        return value
+    }
+    if (value[0] === '__hx_tag') {
+        const object: Record<string, any> = {}
+        // keep the "__hx_tag" key on the object
+        for (let i = 0; i < value.length; i += 2) {
+            const key = parseHogQLX(value[i])
+            object[key] = parseHogQLX(value[i + 1])
+        }
+        return object
+    }
+    if (value[0] === '__hx_obj') {
+        const object: Record<string, any> = {}
+        for (let i = 1; i < value.length; i += 2) {
+            const key = parseHogQLX(value[i])
+            object[key] = parseHogQLX(value[i + 1])
+        }
+        return object
+    }
+    return value
+}
+
 export function renderColumn(
     key: string,
     value: any,
@@ -79,24 +103,26 @@ export function renderColumn(
         }
         if (typeof value === 'object') {
             if (Array.isArray(value)) {
-                if (value[0] === '__hogql_chart_type' && value[1] === 'sparkline') {
-                    const object: Record<string, any> = {}
-                    for (let i = 0; i < value.length; i += 2) {
-                        object[value[i]] = value[i + 1]
-                    }
-                    if ('results' in object && Array.isArray(object.results)) {
-                        // TODO: If results aren't an array of numbers, show a helpful message on using sparkline()
-                        return (
-                            <Sparkline
-                                data={[
-                                    {
-                                        name: key.includes('__hogql_chart_type') ? 'Data' : key,
-                                        values: object.results.map((v: any) => Number(v)),
-                                    },
-                                ]}
-                            />
-                        )
-                    }
+                if (value[0] === '__hx_tag' && (value[1] === 'sparkline' || value[1] === 'Sparkline')) {
+                    const object: Record<string, any> = parseHogQLX(value)
+                    const data =
+                        'data' in object && Array.isArray(object.data)
+                            ? object.data
+                            : 'results' in object && Array.isArray(object.results) // legacy key
+                            ? object.results
+                            : []
+                    // TODO: If results aren't an array of numbers, show a helpful message on using sparkline()
+                    return (
+                        <Sparkline
+                            data={[
+                                {
+                                    name: key.includes('__hx_tag') ? 'Data' : key,
+                                    values: data.map((v: any) => Number(v)),
+                                },
+                            ]}
+                            type={object.type || 'bar'}
+                        />
+                    )
                 }
 
                 return <JSONViewer src={value} name={key} collapsed={value.length > 10 ? 0 : 1} />
