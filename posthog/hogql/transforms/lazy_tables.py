@@ -310,14 +310,15 @@ class LazyTableResolver(TraversingVisitor):
             subquery = table_to_add.lazy_table.lazy_select(table_to_add, self.context, node=node)
             subquery = cast(ast.SelectQuery, clone_expr(subquery, clear_locations=True))
             subquery = cast(ast.SelectQuery, resolve_types(subquery, self.context, self.dialect, [node.type]))
-            subquery = PropertySwapper(
-                timezone=self.context.property_swapper.timezone,
-                group_properties=self.context.property_swapper.group_properties,
-                event_properties={},
-                person_properties={},
-                context=self.context,
-                setTimeZones=False,
-            ).visit(subquery)
+            if self.context.property_swapper is not None:
+                subquery = PropertySwapper(
+                    timezone=self.context.property_swapper.timezone,
+                    group_properties=self.context.property_swapper.group_properties,
+                    event_properties={},
+                    person_properties={},
+                    context=self.context,
+                    setTimeZones=False,
+                ).visit(subquery)
             old_table_type = select_type.tables[table_name]
             select_type.tables[table_name] = ast.SelectQueryAliasType(alias=table_name, select_query_type=subquery.type)
 
@@ -352,14 +353,15 @@ class LazyTableResolver(TraversingVisitor):
 
             join_to_add = cast(ast.JoinExpr, clone_expr(join_to_add, clear_locations=True, clear_types=True))
             join_to_add = cast(ast.JoinExpr, resolve_types(join_to_add, self.context, self.dialect, [node.type]))
-            join_to_add = PropertySwapper(
-                timezone=self.context.property_swapper.timezone,
-                group_properties=self.context.property_swapper.group_properties,
-                event_properties={},
-                person_properties={},
-                context=self.context,
-                setTimeZones=False,
-            ).visit(join_to_add)
+            if self.context.property_swapper is not None:
+                join_to_add = PropertySwapper(
+                    timezone=self.context.property_swapper.timezone,
+                    group_properties=self.context.property_swapper.group_properties,
+                    event_properties={},
+                    person_properties={},
+                    context=self.context,
+                    setTimeZones=False,
+                ).visit(join_to_add)
 
             if join_to_add.type is not None:
                 select_type.tables[to_table] = join_to_add.type
