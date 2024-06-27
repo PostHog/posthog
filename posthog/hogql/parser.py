@@ -22,15 +22,32 @@ from hogql_parser import (
     parse_program as _parse_program_cpp,
 )
 
+
+def safe_lambda(f):
+    def wrapped(*args, **kwargs):
+        try:
+            return f(*args, **kwargs)
+        except Exception as e:
+            if str(e) == "Empty Stack":  # Antlr throws `Exception("Empty Stack")` ¯\_(ツ)_/¯
+                raise SyntaxError("Unmatched curly bracket") from e
+            raise
+
+    return wrapped
+
+
 RULE_TO_PARSE_FUNCTION: dict[
     Literal["python", "cpp"], dict[Literal["expr", "order_expr", "select", "full_template_string", "program"], Callable]
 ] = {
     "python": {
-        "expr": lambda string, start: HogQLParseTreeConverter(start=start).visit(get_parser(string).expr()),
-        "order_expr": lambda string: HogQLParseTreeConverter().visit(get_parser(string).orderExpr()),
-        "select": lambda string: HogQLParseTreeConverter().visit(get_parser(string).select()),
-        "full_template_string": lambda string: HogQLParseTreeConverter().visit(get_parser(string).fullTemplateString()),
-        "program": lambda string: HogQLParseTreeConverter().visit(get_parser(string).program()),
+        "expr": safe_lambda(
+            lambda string, start: HogQLParseTreeConverter(start=start).visit(get_parser(string).expr())
+        ),
+        "order_expr": safe_lambda(lambda string: HogQLParseTreeConverter().visit(get_parser(string).orderExpr())),
+        "select": safe_lambda(lambda string: HogQLParseTreeConverter().visit(get_parser(string).select())),
+        "full_template_string": safe_lambda(
+            lambda string: HogQLParseTreeConverter().visit(get_parser(string).fullTemplateString())
+        ),
+        "program": safe_lambda(lambda string: HogQLParseTreeConverter().visit(get_parser(string).program())),
     },
     "cpp": {
         "expr": lambda string, start: _parse_expr_cpp(string, is_internal=start is None),
@@ -78,6 +95,8 @@ def parse_expr(
     *,
     backend: Literal["python", "cpp"] = "cpp",
 ) -> ast.Expr:
+    if expr == "":
+        raise SyntaxError("Empty query")
     if timings is None:
         timings = HogQLTimings()
     with timings.measure(f"parse_expr_{backend}"):
@@ -189,7 +208,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             if start is not None and end is not None and e.start is None or e.end is None:
                 e.start = start
                 e.end = end
-            raise e
+            raise
 
     def visitProgram(self, ctx: HogQLParser.ProgramContext):
         declarations: list[ast.Declaration] = []

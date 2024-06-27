@@ -82,11 +82,28 @@ function convertInsightQueryStringsToObjects(content: JSONContent[]): JSONConten
             return node
         }
 
+        let query
+
+        try {
+            query = JSON.parse(node.attrs.query)
+        } catch (e) {
+            query = {
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.EventsQuery,
+                    select: ['*', 'event', 'person', 'timestamp'],
+                    orderBy: ['timestamp DESC'],
+                    after: '-24h',
+                    limit: 100,
+                },
+            }
+        }
+
         return {
             ...node,
             attrs: {
                 ...node.attrs,
-                query: JSON.parse(node.attrs.query),
+                query,
             },
         }
     })

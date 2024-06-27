@@ -15,6 +15,7 @@ import {
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { languages } from 'monaco-editor'
@@ -201,15 +202,15 @@ function DictionaryField({ onChange, value }: { onChange?: (value: any) => void;
                         placeholder="Key"
                     />
 
-                    <LemonInput
-                        className="flex-1"
+                    <CodeEditorInline
+                        className="flex-2"
                         value={val}
+                        language="hogTemplate"
                         onChange={(val) => {
                             const newEntries = [...entries]
-                            newEntries[index] = [newEntries[index][0], val]
+                            newEntries[index] = [newEntries[index][0], val ?? '']
                             setEntries(newEntries)
                         }}
-                        placeholder="Value"
                     />
 
                     <LemonButton
@@ -240,7 +241,14 @@ function DictionaryField({ onChange, value }: { onChange?: (value: any) => void;
 export function HogFunctionInputRenderer({ value, onChange, schema, disabled }: HogFunctionInputProps): JSX.Element {
     switch (schema.type) {
         case 'string':
-            return <LemonInput value={value} onChange={onChange} className="ph-no-capture" disabled={disabled} />
+            return (
+                <CodeEditorInline
+                    language="hogTemplate"
+                    value={value}
+                    onChange={disabled ? () => {} : onChange}
+                    className="ph-no-capture"
+                />
+            )
         case 'json':
             return <JsonConfigField value={value} onChange={onChange} className="ph-no-capture" />
         case 'choice':

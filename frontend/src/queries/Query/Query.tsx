@@ -31,7 +31,7 @@ export interface QueryProps<Q extends Node> {
     /** The query to render */
     query: Q | string | null
     /** Set this if you're controlling the query parameter */
-    setQuery?: (query: Q) => void
+    setQuery?: (query: Q, isSourceUpdate?: boolean) => void
 
     /** Custom components passed down to a few query nodes (e.g. custom table columns) */
     context?: QueryContext
@@ -134,7 +134,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                         <>
                             <QueryEditor
                                 query={JSON.stringify(query)}
-                                setQuery={(stringQuery) => setQuery?.(JSON.parse(stringQuery))}
+                                setQuery={(stringQuery) => setQuery?.(JSON.parse(stringQuery), true)}
                                 context={queryContext}
                             />
                             <div className="my-4">

@@ -1,4 +1,5 @@
 from posthog.hogql.ast import SelectQuery
+from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
 
 from posthog.hogql.database.argmax import argmax_select
@@ -32,13 +33,15 @@ def select_from_person_distinct_id_overrides_table(requested_fields: dict[str, l
     # Always include "person_id", as it's the key we use to make further joins, and it'd be great if it's available
     if "person_id" not in requested_fields:
         requested_fields = {**requested_fields, "person_id": ["person_id"]}
-    return argmax_select(
+    select = argmax_select(
         table_name="raw_person_distinct_id_overrides",
         select_fields=requested_fields,
         group_fields=["distinct_id"],
         argmax_field="version",
         deleted_field="is_deleted",
     )
+    select.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
+    return select
 
 
 def join_with_person_distinct_id_overrides_table(

@@ -692,7 +692,7 @@ class SessionRecordingListFromReplaySummary(EventQuery):
         except Exception as ex:
             # error here weren't making it to sentry, let's be explicit
             capture_exception(ex, tags={"team_id": self._team.pk})
-            raise ex
+            raise
 
     @property
     def limit(self):

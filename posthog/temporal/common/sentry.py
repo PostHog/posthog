@@ -36,14 +36,14 @@ class _SentryActivityInboundInterceptor(ActivityInboundInterceptor):
             set_tag("temporal.workflow.run_id", activity_info.workflow_run_id)
             try:
                 return await super().execute_activity(input)
-            except Exception as e:
+            except Exception:
                 if len(input.args) == 1 and is_dataclass(input.args[0]):
                     team_id = getattr(input.args[0], "team_id", None)
                     if team_id:
                         set_tag("team_id", team_id)
                 set_context("temporal.activity.info", activity.info().__dict__)
                 capture_exception()
-                raise e
+                raise
 
 
 class _SentryWorkflowInterceptor(WorkflowInboundInterceptor):
@@ -59,7 +59,7 @@ class _SentryWorkflowInterceptor(WorkflowInboundInterceptor):
             set_tag("temporal.workflow.run_id", workflow_info.run_id)
             try:
                 return await super().execute_workflow(input)
-            except Exception as e:
+            except Exception:
                 if len(input.args) == 1 and is_dataclass(input.args[0]):
                     team_id = getattr(input.args[0], "team_id", None)
                     if team_id:
@@ -69,7 +69,7 @@ class _SentryWorkflowInterceptor(WorkflowInboundInterceptor):
                 if not workflow.unsafe.is_replaying():
                     with workflow.unsafe.sandbox_unrestricted():
                         capture_exception()
-                raise e
+                raise
 
 
 class SentryInterceptor(Interceptor):
