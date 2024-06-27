@@ -65,6 +65,8 @@ const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
             return <>Region</>
         case WebStatsBreakdown.City:
             return <>City</>
+        case WebStatsBreakdown.InitialUTMSourceMediumCampaign:
+            return <>Source / Medium / Campaign</>
         default:
             throw new UnexpectedNeverError(breakdownBy)
     }
@@ -156,6 +158,8 @@ export const webStatsBreakdownToPropertyName = (
             return { key: '$geoip_subdivision_1_code', type: PropertyFilterType.Event }
         case WebStatsBreakdown.City:
             return { key: '$geoip_city_name', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.InitialUTMSourceMediumCampaign:
+            return undefined
         default:
             throw new UnexpectedNeverError(breakdownBy)
     }

@@ -703,6 +703,7 @@ export type TrendsFilter = {
     showLabelsOnSeries?: TrendsFilterLegacy['show_labels_on_series']
     /** @default false */
     showPercentStackView?: TrendsFilterLegacy['show_percent_stack_view']
+    yAxisScaleType?: TrendsFilterLegacy['y_axis_scale_type']
     hiddenLegendIndexes?: integer[]
 }
 
@@ -719,6 +720,7 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'showValuesOnSeries',
     'showLabelsOnSeries',
     'showPercentStackView',
+    'yAxisScaleType',
     'hiddenLegendIndexes',
 ])
 
@@ -1069,6 +1071,7 @@ export type QueryStatus = {
     expiration_time?: string
     task_id?: string
     query_progress?: ClickhouseQueryProgress
+    labels?: string[]
 }
 
 export interface LifecycleQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}
@@ -1202,6 +1205,7 @@ export enum WebStatsBreakdown {
     InitialUTMMedium = 'InitialUTMMedium',
     InitialUTMTerm = 'InitialUTMTerm',
     InitialUTMContent = 'InitialUTMContent',
+    InitialUTMSourceMediumCampaign = 'InitialUTMSourceMediumCampaign',
     Browser = 'Browser',
     OS = 'OS',
     DeviceType = 'DeviceType',

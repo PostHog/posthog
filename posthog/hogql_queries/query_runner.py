@@ -320,7 +320,7 @@ def get_query_runner_or_none(
     except ValueError as e:
         if "Can't get a runner for an unknown" in str(e):
             return None
-        raise e
+        raise
 
 
 Q = TypeVar("Q", bound=RunnableQueryNode)

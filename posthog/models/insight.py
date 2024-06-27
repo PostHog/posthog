@@ -219,4 +219,4 @@ def generate_insight_filters_hash(insight: Insight, dashboard: Optional[Dashboar
             exception=e,
             exc_info=True,
         )
-        raise e
+        raise
