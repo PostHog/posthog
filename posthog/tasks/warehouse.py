@@ -18,7 +18,7 @@ logger = structlog.get_logger(__name__)
 MONTHLY_LIMIT = 500_000_000
 
 # TODO: adjust to whenever billing officially starts
-DEFAULT_DATE_TIME = datetime.datetime(2024, 6, 1, tzinfo=datetime.timezone.utc)
+DEFAULT_DATE_TIME = datetime.datetime(2024, 6, 1, tzinfo=datetime.UTC)
 
 
 def capture_external_data_rows_synced() -> None:
@@ -91,7 +91,7 @@ def check_synced_row_limits_of_team(team_id: int) -> None:
 def capture_workspace_rows_synced_by_team(team_id: int) -> None:
     ph_client = get_ph_client()
     team = Team.objects.get(pk=team_id)
-    now = datetime.datetime.now(datetime.timezone.utc)
+    now = datetime.datetime.now(datetime.UTC)
     begin = team.external_data_workspace_last_synced_at or DEFAULT_DATE_TIME
 
     team.external_data_workspace_last_synced_at = now
