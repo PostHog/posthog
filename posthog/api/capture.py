@@ -118,6 +118,11 @@ REPLAY_CAPTURE_PRODUCTION_HISTOGRAM = Histogram(
     "Duration of replay kafka capture production",
 )
 
+REPLAY_CAPTURE_PRODUCTION_COUNT_HISTOGRAM = Histogram(
+    "capture_replay_production_count",
+    "Number of kafka messages produced per each replay API call",
+)
+
 # This is a heuristic of ids we have seen used as anonymous. As they frequently
 # have significantly more traffic than non-anonymous distinct_ids, and likely
 # don't refer to the same underlying person we prefer to partition them randomly
@@ -559,6 +564,8 @@ def get_event(request):
                 # This is mostly a copy of above except we only log, we don't error out
                 if alternative_replay_events:
                     processed_events = list(preprocess_events(alternative_replay_events))
+                    REPLAY_CAPTURE_PRODUCTION_COUNT_HISTOGRAM.observe(len(processed_events))
+
                     for event, event_uuid, distinct_id in processed_events:
                         replay_futures.append(
                             capture_internal_with_message_replacement(
