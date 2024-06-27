@@ -217,7 +217,7 @@ jobs:
     capture-run-time:
         name: Capture run time
         runs-on: ubuntu-latest
-        needs: [cypress]
+        needs: [playwright]
         if: needs.changes.outputs.shouldRun == 'true'
         steps:
             - name: Calculate run time and send to PostHog
