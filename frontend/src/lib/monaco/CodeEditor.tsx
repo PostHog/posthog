@@ -20,6 +20,8 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> {
     queryKey?: string
     autocompleteContext?: string
+    globals?: Record<string, any>
+    exprSource?: string
 }
 let codeEditorIndex = 0
 
@@ -105,7 +107,15 @@ function initEditor(
     }
 }
 
-export function CodeEditor({ queryKey, options, onMount, value, ...editorProps }: CodeEditorProps): JSX.Element {
+export function CodeEditor({
+    queryKey,
+    options,
+    onMount,
+    value,
+    globals,
+    exprSource,
+    ...editorProps
+}: CodeEditorProps): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
     const scrollbarRendering = !inStorybookTestRunner() ? 'auto' : 'hidden'
     const [monacoAndEditor, setMonacoAndEditor] = useState(
@@ -118,6 +128,8 @@ export function CodeEditor({ queryKey, options, onMount, value, ...editorProps }
         key: queryKey ?? `new/${realKey}`,
         query: value ?? '',
         language: editorProps.language,
+        globals,
+        exprSource,
         monaco: monaco,
         editor: editor,
     })

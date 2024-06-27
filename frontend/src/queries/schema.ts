@@ -358,6 +358,8 @@ export interface HogQLMetadata extends DataNode<HogQLMetadataResponse> {
     expr?: string
     /** Query within which "expr" and "template" are validated. Defaults to "select * from events" */
     exprSource?: AnyDataNode
+    /** Extra globals for the query */
+    globals?: Record<string, any>
     /** Table to validate the expression against */
     table?: string
     /** Extra filters applied to query via {filters} */
@@ -374,8 +376,10 @@ export interface HogQLAutocomplete extends DataNode<HogQLAutocompleteResponse> {
     select?: string
     /** HogQL expression to validate */
     expr?: string
-    /** Query within which "expr" and "template" are validated. Defaults to "select * from events" */
+    /** Query within which "expr" and "template" are validated. Defaults to "select * from events". Can take an object of globals. */
     exprSource?: string
+    /** Global values in scope */
+    globals?: Record<string, any>
     /** Table to validate the expression against */
     filters?: HogQLFilters
     /**

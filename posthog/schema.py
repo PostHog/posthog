@@ -3559,9 +3559,13 @@ class HogQLAutocomplete(BaseModel):
     expr: Optional[str] = Field(default=None, description="HogQL expression to validate")
     exprSource: Optional[str] = Field(
         default=None,
-        description='Query within which "expr" and "template" are validated. Defaults to "select * from events"',
+        description=(
+            'Query within which "expr" and "template" are validated. Defaults to "select * from events". Can take an'
+            " object of globals."
+        ),
     )
     filters: Optional[HogQLFilters] = Field(default=None, description="Table to validate the expression against")
+    globals: Optional[dict[str, Any]] = Field(default=None, description="Global values in scope")
     kind: Literal["HogQLAutocomplete"] = "HogQLAutocomplete"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
@@ -4495,6 +4499,7 @@ class HogQLMetadata(BaseModel):
         description='Query within which "expr" and "template" are validated. Defaults to "select * from events"',
     )
     filters: Optional[HogQLFilters] = Field(default=None, description="Extra filters applied to query via {filters}")
+    globals: Optional[dict[str, Any]] = Field(default=None, description="Extra globals for the query")
     kind: Literal["HogQLMetadata"] = "HogQLMetadata"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"

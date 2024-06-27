@@ -4101,12 +4101,16 @@
                     "type": "string"
                 },
                 "exprSource": {
-                    "description": "Query within which \"expr\" and \"template\" are validated. Defaults to \"select * from events\"",
+                    "description": "Query within which \"expr\" and \"template\" are validated. Defaults to \"select * from events\". Can take an object of globals.",
                     "type": "string"
                 },
                 "filters": {
                     "$ref": "#/definitions/HogQLFilters",
                     "description": "Table to validate the expression against"
+                },
+                "globals": {
+                    "description": "Global values in scope",
+                    "type": "object"
                 },
                 "kind": {
                     "const": "HogQLAutocomplete",
@@ -4203,6 +4207,10 @@
                 "filters": {
                     "$ref": "#/definitions/HogQLFilters",
                     "description": "Extra filters applied to query via {filters}"
+                },
+                "globals": {
+                    "description": "Extra globals for the query",
+                    "type": "object"
                 },
                 "kind": {
                     "const": "HogQLMetadata",

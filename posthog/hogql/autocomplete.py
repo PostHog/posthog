@@ -1,3 +1,4 @@
+import json
 from copy import deepcopy
 from typing import Optional, cast
 from collections.abc import Callable
@@ -308,19 +309,22 @@ def get_hogql_autocomplete(
         database = create_hogql_database(team_id=team.pk, team_arg=team)
 
     context = HogQLContext(team_id=team.pk, team=team, database=database)
+    globals_object: Optional[dict] = None
 
     if query.expr is not None and query.expr != "":
         query_type = "expr"
         query_input = query.expr
+        globals_object = query.globals
         expr_source = query.exprSource or "select * from events"
     elif query.template is not None and query.template != "":
         query_type = "template"
         query_input = query.template
-        expr_source = query.exprSource or "select * from events"
+        globals_object = query.globals
+        expr_source = query.exprSource or "select 1"
     else:
         query_type = "select"
         query_input = query.select or ""
-        expr_source = "select * from events"
+        expr_source = ""
 
     for extra_characters, length_to_add in [
         ("", 0),
@@ -372,6 +376,38 @@ def get_hogql_autocomplete(
             node = find_node.node
             parent_node = find_node.parent_node
             nearest_select = find_node.nearest_select_query or select_ast
+
+            if isinstance(globals_object, dict) and isinstance(node, ast.Field):
+                for index, key in enumerate(node.chain):
+                    if MATCH_ANY_CHARACTER in str(key):
+                        break
+                    if globals_object is not None and key in globals_object:
+                        globals_object = globals_object[key]
+                    elif index == len(node.chain) - 1:
+                        break
+                    else:
+                        globals_object = None
+                        break
+                if isinstance(globals_object, dict):
+                    values: list[str | None] = []
+                    for value in list(globals_object.values()):
+                        if isinstance(value, dict):
+                            values.append("Object")
+                        elif isinstance(value, list):
+                            values.append("Array")
+                        elif isinstance(value, tuple):
+                            values.append("Tuple")
+                        else:
+                            value = json.dumps(value)
+                            if len(value) > 20:
+                                value = value[:20] + "..."
+                            values.append(value)
+                    extend_responses(
+                        keys=list(globals_object.keys()),
+                        suggestions=response.suggestions,
+                        kind=Kind.FOLDER,
+                        details=values,
+                    )
 
             table_has_alias = (
                 nearest_select is not None

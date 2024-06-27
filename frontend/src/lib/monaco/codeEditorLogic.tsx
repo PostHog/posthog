@@ -28,6 +28,8 @@ export interface CodeEditorLogicProps {
     metadataFilters?: HogQLFilters
     monaco?: Monaco | null
     editor?: editor.IStandaloneCodeEditor | null
+    globals?: Record<string, any>
+    exprSource?: string
 }
 
 export const codeEditorLogic = kea<codeEditorLogicType>([
@@ -54,12 +56,32 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                     const query = props.query
                     const response = await performQuery<HogQLMetadata>(
                         props.language === 'hogQL'
-                            ? { kind: NodeKind.HogQLMetadata, select: query, filters: props.metadataFilters }
+                            ? {
+                                  kind: NodeKind.HogQLMetadata,
+                                  select: query,
+                                  globals: props.globals,
+                                  filters: props.metadataFilters,
+                              }
                             : props.language === 'hogTemplate'
-                            ? { kind: NodeKind.HogQLMetadata, template: query, filters: props.metadataFilters }
+                            ? {
+                                  kind: NodeKind.HogQLMetadata,
+                                  template: query,
+                                  globals: props.globals,
+                                  filters: props.metadataFilters,
+                              }
                             : props.language === 'hogExpr'
-                            ? { kind: NodeKind.HogQLMetadata, expr: query, filters: props.metadataFilters }
-                            : { kind: NodeKind.HogQLMetadata, program: query, filters: props.metadataFilters }
+                            ? {
+                                  kind: NodeKind.HogQLMetadata,
+                                  expr: query,
+                                  globals: props.globals,
+                                  filters: props.metadataFilters,
+                              }
+                            : {
+                                  kind: NodeKind.HogQLMetadata,
+                                  program: query,
+                                  globals: props.globals,
+                                  filters: props.metadataFilters,
+                              }
                     )
                     breakpoint()
                     return [query, response]

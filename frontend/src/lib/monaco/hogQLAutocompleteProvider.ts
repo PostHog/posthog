@@ -105,9 +105,11 @@ export const hogQLAutocompleteProvider = (
             ...(type === 'hogQL'
                 ? { select: model.getValue() }
                 : type === 'hogExpr'
-                ? { expr: model.getValue(), exprSource: 'select * from events' }
-                : { template: model.getValue(), exprSource: 'select * from events' }),
+                ? { expr: model.getValue() }
+                : { template: model.getValue() }),
             filters: logic.isMounted() ? logic.props.metadataFilters : undefined,
+            globals: logic.props.globals,
+            exprSource: logic.props.exprSource,
             startPosition: startOffset,
             endPosition: endOffset,
         }
