@@ -39,8 +39,16 @@ export function PipelineHogFunctionConfiguration({
 }): JSX.Element {
     const logicProps = { templateId, id }
     const logic = pipelineHogFunctionConfigurationLogic(logicProps)
-    const { isConfigurationSubmitting, configurationChanged, showSource, configuration, loading, loaded, hogFunction } =
-        useValues(logic)
+    const {
+        isConfigurationSubmitting,
+        configurationChanged,
+        showSource,
+        configuration,
+        loading,
+        loaded,
+        hogFunction,
+        willReEnableOnSave,
+    } = useValues(logic)
     const {
         submitConfiguration,
         resetForm,
@@ -101,7 +109,7 @@ export function PipelineHogFunctionConfiguration({
                 onClick={submitConfiguration}
                 loading={isConfigurationSubmitting}
             >
-                {templateId ? 'Create' : 'Save'}
+                {templateId ? 'Create' : willReEnableOnSave ? 'Save & re-enable' : 'Save'}
             </LemonButton>
         </>
     )

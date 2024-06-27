@@ -1,4 +1,3 @@
-from typing import Any
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import QuerySet
@@ -17,16 +16,18 @@ from posthog.api.shared import UserBasicSerializer
 
 from posthog.cdp.services.icons import CDPIconsService
 from posthog.cdp.validation import compile_hog, validate_inputs, validate_inputs_schema
-from posthog.models.hog_functions.hog_function import HogFunction
+from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionState
 from posthog.permissions import PostHogFeatureFlagPermission
-from posthog.plugins.plugin_server_api import (
-    create_hog_invocation_test,
-    get_hog_function_status,
-    patch_hog_function_status,
-)
+from posthog.plugins.plugin_server_api import create_hog_invocation_test
 
 
 logger = structlog.get_logger(__name__)
+
+
+class HogFunctionStatusSerializer(serializers.Serializer):
+    state = serializers.ChoiceField(choices=[state.value for state in HogFunctionState])
+    states: serializers.ListField = serializers.ListField(child=serializers.DictField())
+    ratings: serializers.ListField = serializers.ListField(child=serializers.DictField())
 
 
 class HogFunctionMinimalSerializer(serializers.ModelSerializer):
@@ -51,7 +52,7 @@ class HogFunctionMinimalSerializer(serializers.ModelSerializer):
 
 class HogFunctionSerializer(HogFunctionMinimalSerializer):
     template = HogFunctionTemplateSerializer(read_only=True)
-    status = serializers.SerializerMethodField(read_only=True)
+    status = HogFunctionStatusSerializer(read_only=True)
 
     class Meta:
         model = HogFunction
@@ -113,17 +114,13 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         validated_data["created_by"] = request.user
         return super().create(validated_data=validated_data)
 
-    def get_status(self, instance: HogFunction) -> Any:
-        # Only get if the request is a retrieve
-        if self.context["view"].action == "retrieve" and instance.enabled:
-            try:
-                res = get_hog_function_status(instance.team_id, instance.id)
-                if res.status_code == 200:
-                    return res.json()
-            except Exception as e:
-                logger.error("Failed to get hog function status", error=str(e))
+    def update(self, instance: HogFunction, validated_data: dict, *args, **kwargs) -> HogFunction:
+        res: HogFunction = super().update(instance, validated_data)
 
-        return None
+        if res.enabled and res.status.get("state", 0) >= HogFunctionState.DISABLED_TEMPORARILY.value:
+            res.set_function_status(HogFunctionState.OVERFLOWED.value)
+
+        return res
 
 
 class HogFunctionInvocationSerializer(serializers.Serializer):
@@ -199,19 +196,3 @@ class HogFunctionViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, ForbidDestroyMod
             return Response({"status": "error"}, status=res.status_code)
 
         return Response(res.json())
-
-    @action(detail=True, methods=["GET", "PATCH"])
-    def status(self, request: Request, *args, **kwargs):
-        hog_function = self.get_object()
-
-        if request.method == "PATCH":
-            res = patch_hog_function_status(hog_function.team_id, hog_function.id, request.data["state"])
-            if res.status_code != 200:
-                return Response({"message": "Error updating status"}, status=res.status_code)
-            return Response(res.json())
-
-        else:
-            res = get_hog_function_status(hog_function.team_id, hog_function.id)
-            if res.status_code != 200:
-                return Response({"message": "Error getting status"}, status=res.status_code)
-            return Response(res.json())

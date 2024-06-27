@@ -43,10 +43,10 @@ The state is kept in one redis @hash with keys like this:
 
 ```js
 {
-    "states": [{ id: "123", state: 1 }],
-    "FUNCTION_ID:states": [{ timestamp: 1, rating: 0.5 }],
-    "FUNCTION_ID:ratings": [{ timestamp: 1, rating: 0.9 }],
-    "FUNCTION_ID:observation:observerID:periodTimestamp": [{ successes: 1, failures: 2, ... }]
+    "states": `[["a", 1], ["b", 2]]`,
+    "FUNCTION_ID:states": `[{ t: 1, s: 0.5 }]`,
+    "FUNCTION_ID:ratings": `[{ t: 1, r: 0.9 }]`,
+    "FUNCTION_ID:observation:observerID:periodTimestamp": `[{ s: 1, f: 2, as: 0, af: 1 }]`
 }
 ```
 

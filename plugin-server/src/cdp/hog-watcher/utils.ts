@@ -124,3 +124,7 @@ export async function runRedis<T>(
 export function last<T>(array?: T[]): T | undefined {
     return array?.[array?.length - 1]
 }
+
+export function stripFalsey<T extends { [s: string]: unknown }>(obj: T): Partial<T> {
+    return Object.fromEntries(Object.entries(obj).filter(([, value]) => value)) as Partial<T>
+}

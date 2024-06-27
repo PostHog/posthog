@@ -3,6 +3,7 @@ import express from 'express'
 
 import { GroupTypeToColumnIndex, Hub } from '../types'
 import { status } from '../utils/status'
+import { delay } from '../utils/utils'
 import { AsyncFunctionExecutor } from './async-function-executor'
 import { addLog, HogExecutor } from './hog-executor'
 import { HogFunctionManager } from './hog-function-manager'
@@ -75,6 +76,9 @@ export class CdpApi {
             if (summary.state !== state) {
                 await this.hogWatcher.forceStateChange(id, state)
             }
+
+            // Hacky - wait for a little to give a chance for the state to change
+            await delay(100)
 
             res.json(await this.hogWatcher.fetchWatcher(id))
         }
