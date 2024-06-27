@@ -47,8 +47,9 @@ import {
     isStickinessQuery,
     isTrendsQuery,
 } from '~/queries/utils'
-import { BaseMathType, FilterType, InsightLogicProps, InsightType, MathAvailability } from '~/types'
+import { BaseMathType, FilterType, InsightLogicProps, InsightType } from '~/types'
 
+import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import type { insightNavLogicType } from './insightNavLogicType'
 
 export interface Tab {

@@ -45,7 +45,6 @@ import {
     EntityTypes,
     FunnelExclusionLegacy,
     HogQLMathType,
-    MathAvailability,
     PropertyFilterValue,
     PropertyMathType,
 } from '~/types'
@@ -58,6 +57,12 @@ const DragHandle = (props: DraggableSyntheticListeners | undefined): JSX.Element
         <SortableDragIcon />
     </span>
 )
+
+export enum MathAvailability {
+    All,
+    ActorsOnly,
+    None,
+}
 
 const getValue = (
     value: string | number | null | undefined,

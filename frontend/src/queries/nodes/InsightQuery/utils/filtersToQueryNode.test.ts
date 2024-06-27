@@ -1,4 +1,5 @@
 import { FunnelLayout, ShownAsValue } from 'lib/constants'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import {
     FunnelsQuery,
@@ -25,7 +26,6 @@ import {
     GroupMathType,
     InsightType,
     LifecycleFilterType,
-    MathAvailability,
     PathsFilterType,
     PathType,
     PropertyFilterType,

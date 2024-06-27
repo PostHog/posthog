@@ -10,8 +10,9 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
-import { InsightType, MathAvailability } from '~/types'
+import { InsightType } from '~/types'
 
 import { SECONDARY_METRIC_INSIGHT_ID } from './constants'
 import { experimentLogic, TabularSecondaryMetricResults } from './experimentLogic'
