@@ -66,6 +66,8 @@ export function HogFunctionStatusIndicator(): JSX.Element | null {
         ? displayMap[hogFunction.status.state]
         : DEFAULT_DISPLAY
 
+    const noRatings = hogFunction.status?.ratings.length === 0
+
     const averageRating = hogFunction.status?.ratings.length
         ? hogFunction.status.ratings.reduce((acc, x) => acc + x.rating, 0) / hogFunction.status.ratings.length
         : 0
@@ -80,8 +82,19 @@ export function HogFunctionStatusIndicator(): JSX.Element | null {
                         </h2>
 
                         <p>
-                            Your function has a rating of <b>{Math.round(averageRating * 100)}%</b>. A rating of 100%
-                            means the function is running perfectly, with 0% meaning it is failing every time.
+                            Your function has{' '}
+                            {noRatings ? (
+                                <>
+                                    no ratings yet. There are either no recent invocations or data is still being
+                                    gathered.
+                                </>
+                            ) : (
+                                <>
+                                    a rating of <b>{Math.round(averageRating * 100)}%</b>.
+                                </>
+                            )}{' '}
+                            A rating of 100% means the function is running perfectly, with 0% meaning it is failing
+                            every time.
                         </p>
 
                         <p>{description}</p>
