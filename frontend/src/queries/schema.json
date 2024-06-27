@@ -7069,6 +7069,12 @@
                 "id": {
                     "type": "string"
                 },
+                "labels": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "query_async": {
                     "const": true,
                     "default": true,

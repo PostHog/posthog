@@ -49,9 +49,9 @@ def is_in_context() -> bool:
     return getattr(_thread_locals, "in_context", False)
 
 
-def add_task_to_chain(task_signature: Signature, manager: "QueryStatusManager", query_status: QueryStatus) -> None:
+def add_task_to_on_commit(task_signature: Signature, manager: "QueryStatusManager", query_status: QueryStatus) -> None:
     """
-    Adds a task to the chain. If not in context, registers the task with on_commit directly.
+    Adds a task to the chain for on_commit later. If not in context, registers the task with on_commit directly.
     """
 
     if is_in_context():
@@ -72,6 +72,7 @@ def execute_task_chain() -> None:
 
         for args in task_chain:
             args[2].task_id = result.id
+            args[2].labels = ["chained", *(args[2].labels or [])]
             args[1].store_query_status(args[2])
 
         _thread_locals.task_chain = []
