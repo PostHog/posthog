@@ -556,13 +556,11 @@ class TrendsQueryRunner(QueryRunner):
                             continue
                         remapped_label = "none"
 
-                    formatted_breakdown_value = self._format_breakdown_label(remapped_label)
-
                     # if count of series == 1, then we don't need to include the object label in the series label
                     if real_series_count > 1:
-                        series_object["label"] = "{} - {}".format(series_object["label"], formatted_breakdown_value)
+                        series_object["label"] = "{} - {}".format(series_object["label"], remapped_label)
                     else:
-                        series_object["label"] = formatted_breakdown_value
+                        series_object["label"] = remapped_label
                     series_object["breakdown_value"] = remapped_label
                 elif self.query.breakdownFilter.breakdown_type == "cohort":
                     cohort_id = get_value("breakdown_value", val)
@@ -990,9 +988,16 @@ class TrendsQueryRunner(QueryRunner):
             self.query.compareFilter.compare = False
 
     def _format_breakdown_label(self, breakdown_value: Any):
-        # Mirrors the frontend formatting
-        if isinstance(breakdown_value, list):
-            return "::".join(breakdown_value)
+        if self.query.breakdownFilter is not None and self.query.breakdownFilter.breakdowns is not None:
+            labels = []
+            for breakdown, label in zip(self.query.breakdownFilter.breakdowns, breakdown_value):
+                if self._is_breakdown_field_boolean(breakdown.property, breakdown.type, breakdown.group_type_index):
+                    labels.append(self._convert_boolean(label))
+                else:
+                    labels.append(label)
+
+            # Mirrors the frontend formatting
+            return "::".join(labels)
         return breakdown_value
 
     @cached_property
