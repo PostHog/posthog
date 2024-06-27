@@ -436,7 +436,7 @@ SELECT
     session_id_v7,
     fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)) as session_timestamp,
     team_id,
-    any(distinct_id) as distinct_id,
+    argMaxMerge(distinct_id) as distinct_id,
     min(min_timestamp) as min_timestamp,
     max(max_timestamp) as max_timestamp,
 

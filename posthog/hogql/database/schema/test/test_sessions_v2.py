@@ -24,6 +24,28 @@ class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
             modifiers=modifiers,
         )
 
+    def test_session_view(self):
+        session_id = str(uuid7())
+
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="d1",
+            properties={"$current_url": "https://example.com", "$session_id": session_id},
+        )
+
+        response = self.__execute(
+            parse_select(
+                "select * from raw_sessions_v where session_id = {session_id}",
+                placeholders={"session_id": ast.Constant(value=session_id)},
+            ),
+        )
+
+        self.assertEqual(
+            len(response.results or []),
+            1,
+        )
+
     def test_select_star(self):
         session_id = str(uuid7())
 
