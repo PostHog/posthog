@@ -524,14 +524,14 @@ def get_event(request):
                 replay_events, settings.SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES
             )
 
-            futures: list[FutureRecordMetadata | None] = []
+            replay_futures: list[FutureRecordMetadata | None] = []
 
             # We want to be super careful with our new ingestion flow for now so the whole thing is separated
             # This is mostly a copy of above except we only log, we don't error out
             if alternative_replay_events:
                 processed_events = list(preprocess_events(alternative_replay_events))
                 for event, event_uuid, distinct_id in processed_events:
-                    futures.append(
+                    replay_futures.append(
                         capture_internal_with_message_replacement(
                             event,
                             distinct_id,
@@ -546,7 +546,7 @@ def get_event(request):
                     )
 
                 start_time = time.monotonic()
-                for future in futures:
+                for future in replay_futures:
                     if future is not None:
                         future.get(timeout=settings.KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS - (time.monotonic() - start_time))
     except ValueError as e:
