@@ -93,8 +93,6 @@ export const themeLogic = kea<themeLogicType>([
             ) {
                 ;(window as any).__reloadThemeLogic = () => actions.reload()
             }
-
-            // document.body.setAttribute('theme', 'dark')
         },
         beforeUnmount() {
             cache.prefersColorSchemeMedia.removeEventListener('change', cache.onPrefersColorSchemeChange)
