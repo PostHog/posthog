@@ -323,7 +323,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         self._associate_actions(instance, validated_data.get("conditions"))
         return instance
 
-    def _associate_actions(self, instance: Survey, conditions: None):
+    def _associate_actions(self, instance: Survey, conditions):
         if conditions is None:
             instance.actions.clear()
             return
