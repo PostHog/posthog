@@ -15,6 +15,7 @@ export const themeLogic = kea<themeLogicType>([
     actions({
         syncDarkModePreference: (darkModePreference: boolean) => ({ darkModePreference }),
         setTheme: (theme: string | null) => ({ theme }),
+        reload: true,
     }),
     reducers({
         darkModeSystemPreference: [
@@ -28,6 +29,12 @@ export const themeLogic = kea<themeLogicType>([
             { persist: true },
             {
                 setTheme: (_, { theme }) => theme,
+            },
+        ],
+        reloadCount: [
+            0,
+            {
+                reload: (state) => state + 1,
             },
         ],
     }),
@@ -44,8 +51,9 @@ export const themeLogic = kea<themeLogicType>([
             },
         ],
         isDarkModeOn: [
-            (s) => [s.themeMode, s.darkModeSystemPreference, sceneLogic.selectors.sceneConfig, s.theme],
-            (themeMode, darkModeSystemPreference, sceneConfig, theme) => {
+            (s) => [s.themeMode, s.darkModeSystemPreference, sceneLogic.selectors.sceneConfig, s.theme, s.reloadCount],
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+            (themeMode, darkModeSystemPreference, sceneConfig, theme, reloadCount) => {
                 // dark mode in storybook
                 if (
                     typeof window !== 'undefined' &&
@@ -77,6 +85,16 @@ export const themeLogic = kea<themeLogicType>([
             cache.prefersColorSchemeMedia = window.matchMedia('(prefers-color-scheme: dark)')
             cache.onPrefersColorSchemeChange = (e: MediaQueryListEvent) => actions.syncDarkModePreference(e.matches)
             cache.prefersColorSchemeMedia.addEventListener('change', cache.onPrefersColorSchemeChange)
+            if (
+                typeof window !== 'undefined' &&
+                window.document &&
+                document.body.classList.contains('storybook-test-runner') &&
+                document.body.getAttribute('theme') == 'dark'
+            ) {
+                ;(window as any).__reloadThemeLogic = () => actions.reload()
+            }
+
+            // document.body.setAttribute('theme', 'dark')
         },
         beforeUnmount() {
             cache.prefersColorSchemeMedia.removeEventListener('change', cache.onPrefersColorSchemeChange)
