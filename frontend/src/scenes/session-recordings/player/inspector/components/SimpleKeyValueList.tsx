@@ -33,7 +33,9 @@ export function SimpleKeyValueList({
 
         // promoted items are shown in the order provided
         const promotedItems = promotedKeys?.length
-            ? Object.entries(item).filter(([key]) => promotedKeys.includes(key))
+            ? Object.entries(item)
+                  .filter(([key]) => promotedKeys.includes(key))
+                  .sort((a, b) => promotedKeys.indexOf(a[0]) - promotedKeys.indexOf(b[0]))
             : []
         // all other keys are provided sorted by key
         const nonPromotedItems = promotedKeys?.length
