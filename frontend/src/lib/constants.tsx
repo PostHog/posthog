@@ -207,9 +207,11 @@ export const FEATURE_FLAGS = {
     PERSONLESS_EVENTS_NOT_SUPPORTED: 'personless-events-not-supported', // owner: @raquelmsmith
     SESSION_REPLAY_UNIVERSAL_FILTERS: 'session-replay-universal-filters', // owner: #team-replay
     ALERTS: 'alerts', // owner: github.com/nikitaevg
+    SUBSCRIBE_TO_ALL_PRODUCTS: 'subscribe-to-all-products', // owner: #team-growth
     ERROR_TRACKING: 'error-tracking', // owner: #team-replay
     SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE: 'settings-bounce-rate-page-view-mode', // owner: @robbie-c
     SURVEYS_BRANCHING_LOGIC: 'surveys-branching-logic', // owner: @jurajmajerik #team-feature-success
+    WEB_ANALYTICS_LIVE_USER_COUNT: 'web-analytics-live-user-count', // owner: @robbie-c
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

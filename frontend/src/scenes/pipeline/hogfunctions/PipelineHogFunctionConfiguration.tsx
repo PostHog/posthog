@@ -11,13 +11,13 @@ import {
 } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { CodeEditorResizeable } from 'lib/components/CodeEditors'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
@@ -26,6 +26,7 @@ import { EntityTypes } from '~/types'
 
 import { HogFunctionIconEditable } from './HogFunctionIcon'
 import { HogFunctionInputs } from './HogFunctionInputs'
+import { HogFunctionStatusIndicator } from './HogFunctionStatusIndicator'
 import { HogFunctionTest, HogFunctionTestPlaceholder } from './HogFunctionTest'
 import { pipelineHogFunctionConfigurationLogic } from './pipelineHogFunctionConfigurationLogic'
 
@@ -38,8 +39,16 @@ export function PipelineHogFunctionConfiguration({
 }): JSX.Element {
     const logicProps = { templateId, id }
     const logic = pipelineHogFunctionConfigurationLogic(logicProps)
-    const { isConfigurationSubmitting, configurationChanged, showSource, configuration, loading, loaded, hogFunction } =
-        useValues(logic)
+    const {
+        isConfigurationSubmitting,
+        configurationChanged,
+        showSource,
+        configuration,
+        loading,
+        loaded,
+        hogFunction,
+        willReEnableOnSave,
+    } = useValues(logic)
     const {
         submitConfiguration,
         resetForm,
@@ -100,7 +109,7 @@ export function PipelineHogFunctionConfiguration({
                 onClick={submitConfiguration}
                 loading={isConfigurationSubmitting}
             >
-                {templateId ? 'Create' : 'Save'}
+                {templateId ? 'Create' : willReEnableOnSave ? 'Save & re-enable' : 'Save'}
             </LemonButton>
         </>
     )
@@ -138,9 +147,12 @@ export function PipelineHogFunctionConfiguration({
                                         )}
                                     </LemonField>
 
-                                    <div className="flex flex-col py-1 flex-1">
+                                    <div className="flex flex-col py-1 flex-1 justify-start">
                                         <span className="font-semibold">{configuration.name}</span>
                                     </div>
+
+                                    <HogFunctionStatusIndicator />
+
                                     <LemonField name="enabled">
                                         {({ value, onChange }) => (
                                             <LemonSwitch

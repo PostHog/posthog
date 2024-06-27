@@ -273,8 +273,15 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         persistRecording: true,
         maybePersistRecording: true,
         pollRealtimeSnapshots: true,
+        setTrackedWindow: (windowId: string | null) => ({ windowId }),
     }),
     reducers(() => ({
+        trackedWindow: [
+            null as string | null,
+            {
+                setTrackedWindow: (_, { windowId }) => windowId,
+            },
+        ],
         filters: [
             {} as Partial<RecordingEventsFilters>,
             {
@@ -741,9 +748,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
 
         segments: [
-            (s) => [s.snapshots, s.start, s.end],
-            (snapshots, start, end): RecordingSegment[] => {
-                return createSegments(snapshots || [], start, end)
+            (s) => [s.snapshots, s.start, s.end, s.trackedWindow],
+            (snapshots, start, end, trackedWindow): RecordingSegment[] => {
+                return createSegments(snapshots || [], start, end, trackedWindow)
             },
         ],
 
@@ -797,9 +804,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
 
         snapshotsInvalid: [
-            (s, p) => [s.snapshotsByWindowId, s.fullyLoaded, p.sessionRecordingId],
-            (snapshotsByWindowId, fullyLoaded, sessionRecordingId): boolean => {
-                if (!fullyLoaded) {
+            (s, p) => [s.snapshotsByWindowId, s.fullyLoaded, s.start, p.sessionRecordingId],
+            (snapshotsByWindowId, fullyLoaded, start, sessionRecordingId): boolean => {
+                if (!fullyLoaded || !start) {
                     return false
                 }
 
@@ -828,7 +835,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     })
                 }
 
-                return everyWindowMissingFullSnapshot
+                const minutesSinceRecording = dayjs().diff(start, 'minute')
+
+                return everyWindowMissingFullSnapshot && minutesSinceRecording <= 5
             },
         ],
 

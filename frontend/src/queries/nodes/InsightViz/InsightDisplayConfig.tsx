@@ -13,6 +13,7 @@ import { ReactNode } from 'react'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
 import { PercentStackViewFilter } from 'scenes/insights/EditorFilters/PercentStackViewFilter'
+import { ScalePicker } from 'scenes/insights/EditorFilters/ScalePicker'
 import { ShowLegendFilter } from 'scenes/insights/EditorFilters/ShowLegendFilter'
 import { ValueOnSeriesFilter } from 'scenes/insights/EditorFilters/ValueOnSeriesFilter'
 import { InsightDateFilter } from 'scenes/insights/filters/InsightDateFilter'
@@ -48,6 +49,8 @@ export function InsightDisplayConfig(): JSX.Element {
         supportsValueOnSeries,
         showPercentStackView,
         supportsPercentStackView,
+        yAxisScaleType,
+        isNonTimeSeriesDisplay,
     } = useValues(insightVizDataLogic(insightProps))
     const { isTrendsFunnel, isStepsFunnel, isTimeToConvertFunnel, isEmptyFunnel } = useValues(
         funnelDataLogic(insightProps)
@@ -84,6 +87,14 @@ export function InsightDisplayConfig(): JSX.Element {
                   },
               ]
             : []),
+        ...(!isNonTimeSeriesDisplay && isTrends
+            ? [
+                  {
+                      title: 'Y-axis scale',
+                      items: [{ label: () => <ScalePicker /> }],
+                  },
+              ]
+            : []),
         ...(mightContainFractionalNumbers && isTrends
             ? [
                   {
@@ -102,7 +113,8 @@ export function InsightDisplayConfig(): JSX.Element {
         trendsFilter.aggregationAxisFormat !== 'numeric'
             ? 1
             : 0) +
-        (hasLegend && showLegend ? 1 : 0)
+        (hasLegend && showLegend ? 1 : 0) +
+        (!!yAxisScaleType && yAxisScaleType !== 'linear' ? 1 : 0)
 
     return (
         <div

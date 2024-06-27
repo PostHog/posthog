@@ -38,7 +38,7 @@ import { createTooltipData } from 'scenes/insights/views/LineGraph/tooltip-data'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { areObjectValuesEmpty, hexToRGBA, lightenDarkenColor } from '~/lib/utils'
+import { hexToRGBA, lightenDarkenColor } from '~/lib/utils'
 import { groupsModel } from '~/models/groupsModel'
 import { TrendsFilter } from '~/queries/schema'
 import { GraphDataset, GraphPoint, GraphPointPayload, GraphType } from '~/types'
@@ -164,14 +164,14 @@ export function onChartHover(
 }
 
 export const filterNestedDataset = (
-    hiddenLegendKeys: Record<string | number, boolean | undefined> | undefined,
+    hiddenLegendIndexes: number[] | undefined,
     datasets: GraphDataset[]
 ): GraphDataset[] => {
-    if (!hiddenLegendKeys) {
+    if (!hiddenLegendIndexes) {
         return datasets
     }
     // If series are nested (for ActionsHorizontalBar and Pie), filter out the series by index
-    const filterFn = (_: any, i: number): boolean => !hiddenLegendKeys?.[i]
+    const filterFn = (_: any, i: number): boolean => !hiddenLegendIndexes?.includes(i)
     return datasets.map((_data) => {
         // Performs a filter transformation on properties that contain arrayed data
         return Object.fromEntries(
@@ -215,7 +215,7 @@ function createPinstripePattern(color: string, isDarkMode: boolean): CanvasPatte
 
 export interface LineGraphProps {
     datasets: GraphDataset[]
-    hiddenLegendKeys?: Record<string | number, boolean | undefined>
+    hiddenLegendIndexes?: number[] | undefined
     labels: string[]
     type: GraphType
     isInProgress?: boolean
@@ -238,6 +238,7 @@ export interface LineGraphProps {
     hideXAxis?: boolean
     hideYAxis?: boolean
     legend?: _DeepPartialObject<LegendOptions<ChartType>>
+    yAxisScaleType?: string | null
 }
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
@@ -248,9 +249,14 @@ export const LineGraph = (props: LineGraphProps): JSX.Element => {
     )
 }
 
+/**
+ * Chart.js in log scale refuses to render points that are 0 – as log(0) is undefined – hence a special value for that case.
+ */
+const LOG_ZERO = 1e-10
+
 export function LineGraph_({
     datasets: _datasets,
-    hiddenLegendKeys,
+    hiddenLegendIndexes,
     labels,
     type,
     isInProgress = false,
@@ -272,13 +278,14 @@ export function LineGraph_({
     hideXAxis,
     hideYAxis,
     legend = { display: false },
+    yAxisScaleType,
 }: LineGraphProps): JSX.Element {
     let datasets = _datasets
 
     const { aggregationLabel } = useValues(groupsModel)
     const { isDarkModeOn } = useValues(themeLogic)
 
-    const { insightProps, insight } = useValues(insightLogic)
+    const { insightProps, queryBasedInsight } = useValues(insightLogic)
     const { timezone, isTrends, breakdownFilter } = useValues(insightVizDataLogic(insightProps))
 
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -298,6 +305,7 @@ export function LineGraph_({
     const isBackgroundBasedGraphType = [GraphType.Bar, GraphType.HorizontalBar].includes(type)
     const isPercentStackView = !!supportsPercentStackView && !!showPercentStackView
     const showAnnotations = isTrends && !isHorizontal && !hideAnnotations
+    const isLog10 = yAxisScaleType === 'log10' // Currently log10 is the only logarithmic scale supported
 
     // Remove tooltip element on unmount
     useEffect(() => {
@@ -319,6 +327,12 @@ export function LineGraph_({
             backgroundColor = mainColor
         } else if (isArea) {
             backgroundColor = areaBackgroundColor
+        }
+
+        let adjustedData = dataset.data
+        if (isLog10 && Array.isArray(adjustedData)) {
+            // In log scale, transform zeros to our special value
+            adjustedData = adjustedData.map((value) => (value === 0 ? LOG_ZERO : value))
         }
 
         // `horizontalBar` colors are set in `ActionsHorizontalBar.tsx` and overridden in spread of `dataset` below
@@ -358,6 +372,7 @@ export function LineGraph_({
             order: 1,
             ...(type === GraphType.Histogram ? { barPercentage: 1 } : {}),
             ...dataset,
+            data: adjustedData,
             hoverBorderWidth: isBar ? 0 : 2,
             hoverBorderRadius: isBar ? 0 : 2,
             type: (isHorizontal ? GraphType.Bar : type) as ChartType,
@@ -367,18 +382,19 @@ export function LineGraph_({
     // Build chart
     useEffect(() => {
         // Hide intentionally hidden keys
-        if (!areObjectValuesEmpty(hiddenLegendKeys)) {
+        if (hiddenLegendIndexes && hiddenLegendIndexes.length > 0) {
             if (isHorizontal) {
-                datasets = filterNestedDataset(hiddenLegendKeys, datasets)
+                datasets = filterNestedDataset(hiddenLegendIndexes, datasets)
             } else {
-                datasets = datasets.filter((data) => !hiddenLegendKeys?.[data.id])
+                datasets = datasets.filter((data) => !hiddenLegendIndexes?.includes(data.id))
             }
         }
 
         datasets = datasets.map((dataset) => processDataset(dataset))
 
-        const seriesMax = Math.max(...datasets.flatMap((d) => d.data).filter((n) => !!n))
-        const precision = seriesMax < 5 ? 1 : seriesMax < 2 ? 2 : 0
+        const seriesNonZeroMax = Math.max(...datasets.flatMap((d) => d.data).filter((n) => !!n && n !== LOG_ZERO))
+        const seriesNonZeroMin = Math.min(...datasets.flatMap((d) => d.data).filter((n) => !!n && n !== LOG_ZERO))
+        const precision = seriesNonZeroMax < 5 ? 1 : seriesNonZeroMax < 2 ? 2 : 0
         const tickOptions: Partial<TickOptions> = {
             color: colors.axisLabel as Color,
             font: {
@@ -411,6 +427,9 @@ export function LineGraph_({
                 line: {
                     tension: 0,
                 },
+            },
+            interaction: {
+                includeInvisible: true, // Only important for log scale, where 0 values are always below the minimum
             },
             plugins: {
                 stacked100: { enable: isPercentStackView, precision: 1 },
@@ -617,8 +636,8 @@ export function LineGraph_({
                     beginAtZero: true,
                     stacked: true,
                     ticks: {
-                        display: !hideYAxis,
                         ...tickOptions,
+                        display: !hideYAxis,
                         precision,
                         callback: (value) => {
                             return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView)
@@ -644,12 +663,16 @@ export function LineGraph_({
                 },
                 y: {
                     display: !hideYAxis,
-                    beginAtZero: true,
+                    type: isLog10 ? 'logarithmic' : 'linear',
+                    beginAtZero: true, // Note that `beginAtZero` has no effect on the log scale
+                    // Below guarding against LOG_ZERO being the minimum in log scale, as that would make the graph
+                    // hard to read (due to the multiple orders of magnitude between `seriesNonZeroMin` and `LOG_ZERO`)
+                    min: isLog10 ? Math.pow(10, Math.ceil(Math.log10(seriesNonZeroMin)) - 1) : undefined,
                     stacked: showPercentStackView || isArea,
                     ticks: {
-                        display: !hideYAxis,
                         ...tickOptions,
-                        precision,
+                        display: !hideYAxis,
+                        ...(yAxisScaleType !== 'log10' && { precision }), // Precision is not supported for the log scale
                         callback: (value) => {
                             return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView)
                         },
@@ -743,7 +766,7 @@ export function LineGraph_({
         })
         setMyLineChart(newChart)
         return () => newChart.destroy()
-    }, [datasets, hiddenLegendKeys, isDarkModeOn, trendsFilter, formula, showValuesOnSeries, showPercentStackView])
+    }, [datasets, hiddenLegendIndexes, isDarkModeOn, trendsFilter, formula, showValuesOnSeries, showPercentStackView])
 
     return (
         <div className={clsx('LineGraph w-full grow relative overflow-hidden')} data-attr={dataAttr}>
@@ -754,7 +777,7 @@ export function LineGraph_({
                     dates={datasets[0]?.days || []}
                     chartWidth={chartWidth}
                     chartHeight={chartHeight}
-                    insightNumericId={insight.id || 'new'}
+                    insightNumericId={queryBasedInsight.id || 'new'}
                 />
             ) : null}
         </div>
