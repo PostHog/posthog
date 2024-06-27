@@ -82,7 +82,7 @@ class TestModifiers(BaseTest):
                     "events.event AS event",
                     "events__pdi__person.id AS id",
                     "events__pdi__person.properties AS properties",
-                    "toTimeZone(events__pdi__person.created_at, %(hogql_val_1)s) AS created_at",
+                    "events__pdi__person.created_at AS created_at",
                 ],
             ),
             TestCase(
@@ -112,7 +112,7 @@ class TestModifiers(BaseTest):
                     "events.event AS event",
                     "events__person.id AS id",
                     "events__person.properties AS properties",
-                    "toTimeZone(events__person.created_at, %(hogql_val_1)s) AS created_at",
+                    "events__person.created_at AS created_at",
                 ],
                 [
                     "events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)",
