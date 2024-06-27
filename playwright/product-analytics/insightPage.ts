@@ -63,7 +63,8 @@ export class InsightPage {
 
     /** Checks assertions, reloads and checks again. This is useful for asserting both the local state
      * and the backend side state are persisted correctly. */
-    async withReload(callback: () => Promise<void>): Promise<void> {
+    async withReload(callback: () => Promise<void>, beforeFn?: () => Promise<void>): Promise<void> {
+        await beforeFn?.()
         await callback()
         await this.page.reload()
         await callback()

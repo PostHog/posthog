@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test'
 import { urls } from 'scenes/urls'
 
+import { InsightType } from '~/types'
+
 import { ToastObject } from '../shared/toastObject'
 import { InsightPage } from './insightPage'
 
@@ -12,48 +14,70 @@ test('can create insight', async ({ page }) => {
     await page.goto(urls.insightNew())
     await expect(insight.topBarName, 'has no name').toContainText('Unnamed')
 
-    // name field displays 'Pageview count' after save
+    // save the insight
     await insight.save()
-    await expect(insight.topBarName, 'sets name').toContainText('Pageview count')
-    await expect(toast.container, 'displays toast').toContainText('Insight saved')
+
+    // name field displays 'Pageview count' after save
+    await insight.withReload(
+        async () => {
+            await expect(insight.topBarName, 'sets name').toContainText('Pageview count')
+        },
+        async () => {
+            await expect(toast.container, 'displays toast').toContainText('Insight saved')
+        }
+    )
 })
 
 test('can edit insight filter', async ({ page }) => {
-    const insightPage = await new InsightPage(page).createNew()
+    const insight = await new InsightPage(page).createNew()
 
     // add an autocapture series
-    await insightPage.withEdit(async () => {
-        await insightPage.addEntityButton.click()
-        await insightPage.secondEntity.click()
+    await insight.withEdit(async () => {
+        await insight.addEntityButton.click()
+        await insight.secondEntity.click()
         await page.getByText('Autocapture').click()
     })
 
     // labels in details table match
-    await insightPage.withReload(async () => {
+    await insight.withReload(async () => {
         // wait for details table to be visible
-        await insightPage.detailLabels.first().waitFor()
+        await insight.detailLabels.first().waitFor()
 
         // test series labels
-        const labels = await insightPage.detailLabels.allInnerTexts()
+        const labels = await insight.detailLabels.allInnerTexts()
         expect(labels).toEqual(['Pageview', 'Autocapture'])
     })
 })
 
-// test('can edit insight metadata', async ({ page }) => {
-//     const insightPage = await new InsightPage(page).createNew()
+test('can edit insight metadata', async ({ page }) => {
+    const insight = await new InsightPage(page).createNew()
+    const toast = new ToastObject(page)
 
-//     // add an autocapture series
-//     await insightPage.withEdit(async () => {
-//         await insightPage.addEntityButton.click()
-//         await insightPage.secondEntity.click()
-//         await page.getByText('Autocapture').click()
-//     })
+    await insight.editName('new name')
 
-//     // labels in details table match
-//     await insightPage.withReload(async () => {
-//         await expect(page.locator('.LemonTable--loading')).toHaveCount(0)
+    await insight.withReload(
+        async () => {
+            await expect(insight.topBarName).toContainText('new name')
+        },
+        async () => {
+            await expect(toast.container, 'displays toast').toContainText('Updated insight')
+        }
+    )
+})
 
-//         const labels = await insightPage.detailLabels.allInnerTexts()
-//         expect(labels).toEqual(['Pageview', 'Autocapture'])
-//     })
-// })
+test('can undo insight metadata edit', async ({ page }) => {
+    const insight = await new InsightPage(page).createNew(InsightType.TRENDS, 'old name')
+    const toast = new ToastObject(page)
+
+    await insight.editName('new name')
+    await toast.undo()
+
+    await insight.withReload(
+        async () => {
+            await expect(insight.topBarName).toContainText('old name')
+        },
+        async () => {
+            await expect(toast.container, 'displays toast').toContainText('Insight change reverted')
+        }
+    )
+})
