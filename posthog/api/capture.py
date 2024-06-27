@@ -561,7 +561,10 @@ def get_event(request):
             generate_exception_response("capture", f"Invalid recording payload", code="invalid_payload"),
         )
     except Exception as exc:
-        capture_exception(exc, {"data": data})
+        with sentry_sdk.push_scope() as scope:
+            scope.set_tag("capture-pathway", "replay")
+            scope.set_tag("ph-team-token", token)
+            capture_exception(exc, {"data": data})
         logger.error("kafka_session_recording_produce_failure", exc_info=exc)
         pass
 
@@ -606,7 +609,9 @@ def replace_with_warning(event: dict[str, Any]) -> dict[str, Any] | None:
             },
         }
     except Exception as ex:
-        capture_exception(ex)
+        with sentry_sdk.push_scope() as scope:
+            scope.set_tag("capture-pathway", "replay")
+            capture_exception(ex)
         return None
 
 
