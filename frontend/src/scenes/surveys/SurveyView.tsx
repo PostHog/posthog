@@ -220,29 +220,24 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                             </div>
                                             <div className="flex flex-row gap-8">
                                                 {survey.iteration_count &&
-                                                    survey.iteration_frequency_days &&
-                                                    survey.iteration_count > 0 &&
-                                                    survey.iteration_frequency_days > 0 && (
-                                                        <div className="flex flex-col">
-                                                            <span className="card-secondary mt-4">Schedule</span>
-                                                            <span>
-                                                                Repeats every {survey.iteration_frequency_days}{' '}
-                                                                {pluralize(
-                                                                    survey.iteration_frequency_days,
-                                                                    'day',
-                                                                    'days',
-                                                                    false
-                                                                )}
-                                                                , {survey.iteration_count}{' '}
-                                                                {pluralize(
-                                                                    survey.iteration_count,
-                                                                    'time',
-                                                                    'times',
-                                                                    false
-                                                                )}
-                                                            </span>
-                                                        </div>
-                                                    )}
+                                                survey.iteration_frequency_days &&
+                                                survey.iteration_count > 0 &&
+                                                survey.iteration_frequency_days > 0 ? (
+                                                    <div className="flex flex-col">
+                                                        <span className="card-secondary mt-4">Schedule</span>
+                                                        <span>
+                                                            Repeats every {survey.iteration_frequency_days}{' '}
+                                                            {pluralize(
+                                                                survey.iteration_frequency_days,
+                                                                'day',
+                                                                'days',
+                                                                false
+                                                            )}
+                                                            , {survey.iteration_count}{' '}
+                                                            {pluralize(survey.iteration_count, 'time', 'times', false)}
+                                                        </span>
+                                                    </div>
+                                                ) : null}
                                             </div>
                                             {survey.responses_limit && (
                                                 <>

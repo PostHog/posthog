@@ -850,6 +850,7 @@ class QueryResponseAlternative8(BaseModel):
     inputExpr: Optional[str] = None
     inputProgram: Optional[str] = None
     inputSelect: Optional[str] = None
+    inputTemplate: Optional[str] = None
     isValid: Optional[bool] = None
     isValidView: Optional[bool] = None
     notices: list[HogQLNotice]
@@ -873,6 +874,7 @@ class QueryStatus(BaseModel):
     error_message: Optional[str] = None
     expiration_time: Optional[AwareDatetime] = None
     id: str
+    labels: Optional[list[str]] = None
     query_async: Literal[True] = Field(default=True, description="ONLY async queries use QueryStatus.")
     query_progress: Optional[ClickhouseQueryProgress] = None
     results: Optional[Any] = None
@@ -1099,6 +1101,11 @@ class TimelineEntry(BaseModel):
     sessionId: Optional[str] = Field(default=None, description="Session ID. None means out-of-session events")
 
 
+class YAxisScaleType(str, Enum):
+    LOG10 = "log10"
+    LINEAR = "linear"
+
+
 class TrendsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1116,6 +1123,7 @@ class TrendsFilter(BaseModel):
     showPercentStackView: Optional[bool] = False
     showValuesOnSeries: Optional[bool] = False
     smoothingIntervals: Optional[int] = 1
+    yAxisScaleType: Optional[YAxisScaleType] = None
 
 
 class TrendsFilterLegacy(BaseModel):
@@ -1137,6 +1145,7 @@ class TrendsFilterLegacy(BaseModel):
     show_percent_stack_view: Optional[bool] = None
     show_values_on_series: Optional[bool] = None
     smoothing_intervals: Optional[float] = None
+    y_axis_scale_type: Optional[YAxisScaleType] = None
 
 
 class TrendsQueryResponse(BaseModel):
@@ -1240,6 +1249,7 @@ class WebStatsBreakdown(str, Enum):
     INITIAL_UTM_MEDIUM = "InitialUTMMedium"
     INITIAL_UTM_TERM = "InitialUTMTerm"
     INITIAL_UTM_CONTENT = "InitialUTMContent"
+    INITIAL_UTM_SOURCE_MEDIUM_CAMPAIGN = "InitialUTMSourceMediumCampaign"
     BROWSER = "Browser"
     OS = "OS"
     DEVICE_TYPE = "DeviceType"
@@ -2045,6 +2055,7 @@ class HogQLMetadataResponse(BaseModel):
     inputExpr: Optional[str] = None
     inputProgram: Optional[str] = None
     inputSelect: Optional[str] = None
+    inputTemplate: Optional[str] = None
     isValid: Optional[bool] = None
     isValidView: Optional[bool] = None
     notices: list[HogQLNotice]
@@ -3545,14 +3556,20 @@ class HogQLAutocomplete(BaseModel):
         extra="forbid",
     )
     endPosition: int = Field(..., description="End position of the editor word")
+    expr: Optional[str] = Field(default=None, description="HogQL expression to validate")
+    exprSource: Optional[str] = Field(
+        default=None,
+        description='Query within which "expr" and "template" are validated. Defaults to "select * from events"',
+    )
     filters: Optional[HogQLFilters] = Field(default=None, description="Table to validate the expression against")
     kind: Literal["HogQLAutocomplete"] = "HogQLAutocomplete"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[HogQLAutocompleteResponse] = None
-    select: str = Field(..., description="Full select query to validate")
+    select: Optional[str] = Field(default=None, description="Select query to validate")
     startPosition: int = Field(..., description="Start position of the editor word")
+    template: Optional[str] = Field(default=None, description="HogQL string template to validate")
 
 
 class InsightFilter(
@@ -4453,9 +4470,7 @@ class HogQLMetadata(BaseModel):
     debug: Optional[bool] = Field(
         default=None, description="Enable more verbose output, usually run from the /debug page"
     )
-    expr: Optional[str] = Field(
-        default=None, description="HogQL expression to validate (use `select` or `expr`, but not both)"
-    )
+    expr: Optional[str] = Field(default=None, description="HogQL expression to validate")
     exprSource: Optional[
         Union[
             EventsNode,
@@ -4475,18 +4490,20 @@ class HogQLMetadata(BaseModel):
             WebStatsTableQuery,
             WebTopClicksQuery,
         ]
-    ] = Field(default=None, description='Query within which "expr" is validated. Defaults to "select * from events"')
+    ] = Field(
+        default=None,
+        description='Query within which "expr" and "template" are validated. Defaults to "select * from events"',
+    )
     filters: Optional[HogQLFilters] = Field(default=None, description="Extra filters applied to query via {filters}")
     kind: Literal["HogQLMetadata"] = "HogQLMetadata"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    program: Optional[str] = Field(default=None, description="Full Hog program")
+    program: Optional[str] = Field(default=None, description="Hog program to validate")
     response: Optional[HogQLMetadataResponse] = None
-    select: Optional[str] = Field(
-        default=None, description="Full select query to validate (use `select` or `expr`, but not both)"
-    )
+    select: Optional[str] = Field(default=None, description="Select query to validate")
     table: Optional[str] = Field(default=None, description="Table to validate the expression against")
+    template: Optional[str] = Field(default=None, description="Template string to validate")
 
 
 class QueryRequest(BaseModel):

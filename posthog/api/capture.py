@@ -196,10 +196,10 @@ def log_event(
         future = producer.produce(topic=kafka_topic, data=data, key=partition_key, headers=headers)
         statsd.incr("posthog_cloud_plugin_server_ingestion")
         return future
-    except Exception as e:
+    except Exception:
         statsd.incr("capture_endpoint_log_event_error")
         logger.exception("Failed to produce event to Kafka topic %s with error", kafka_topic)
-        raise e
+        raise
 
 
 def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:
@@ -466,7 +466,7 @@ def get_event(request):
             except Exception as exc:
                 capture_exception(exc, {"data": data})
                 statsd.incr("posthog_cloud_raw_endpoint_failure", tags={"endpoint": "capture"})
-                logger.error("kafka_produce_failure", exc_info=exc)
+                logger.exception("kafka_produce_failure", exc_info=exc)
                 return cors_response(
                     request,
                     generate_exception_response(
@@ -490,7 +490,7 @@ def get_event(request):
                 # TODO: return 400 error for non-retriable errors that require the
                 # client to change their request.
 
-                logger.error(
+                logger.exception(
                     "kafka_produce_failure",
                     exc_info=exc,
                     name=exc.__class__.__name__,
@@ -544,7 +544,7 @@ def get_event(request):
 
     except Exception as exc:
         capture_exception(exc, {"data": data})
-        logger.error("kafka_session_recording_produce_failure", exc_info=exc)
+        logger.exception("kafka_session_recording_produce_failure", exc_info=exc)
         pass
 
     statsd.incr("posthog_cloud_raw_endpoint_success", tags={"endpoint": "capture"})

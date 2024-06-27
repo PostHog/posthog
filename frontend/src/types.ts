@@ -2163,6 +2163,7 @@ export interface TrendsFilterType extends FilterType {
     show_values_on_series?: boolean
     show_labels_on_series?: boolean
     show_percent_stack_view?: boolean
+    y_axis_scale_type?: 'log10' | 'linear'
 }
 
 export interface StickinessFilterType extends FilterType {

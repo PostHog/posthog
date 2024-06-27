@@ -95,6 +95,8 @@ def parse_expr(
     *,
     backend: Literal["python", "cpp"] = "cpp",
 ) -> ast.Expr:
+    if expr == "":
+        raise SyntaxError("Empty query")
     if timings is None:
         timings = HogQLTimings()
     with timings.measure(f"parse_expr_{backend}"):
@@ -206,7 +208,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             if start is not None and end is not None and e.start is None or e.end is None:
                 e.start = start
                 e.end = end
-            raise e
+            raise
 
     def visitProgram(self, ctx: HogQLParser.ProgramContext):
         declarations: list[ast.Declaration] = []

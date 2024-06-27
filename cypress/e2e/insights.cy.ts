@@ -120,7 +120,7 @@ describe('Insights', () => {
         cy.get('[data-attr="more-button"]').click()
         cy.get('[data-attr="show-insight-source"]').click()
         // Find "day"
-        cy.get('.monaco-editor')
+        cy.get('.monaco-editor[role="code"]')
             .click()
             // change subject to currently focused element
             .focused()
@@ -129,7 +129,10 @@ describe('Insights', () => {
             .type('day')
 
         // Remove day and add hour
-        cy.get('.monaco-editor').click().focused().type('{leftArrow}{leftArrow}{backspace}{backspace}{backspace}hour')
+        cy.get('.monaco-editor[role="code"]')
+            .click()
+            .focused()
+            .type('{leftArrow}{leftArrow}{backspace}{backspace}{backspace}hour')
         cy.get('[data-attr=query-editor-save]').click()
 
         cy.get('[data-attr="interval-filter').contains('hour').should('exist')
