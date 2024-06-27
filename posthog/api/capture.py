@@ -582,7 +582,7 @@ def get_event(request):
             capture_exception(kte)
         # this means we're getting an event we can't process, we shouldn't swallow this
         # in production this is mostly seen as events with a missing distinct_id
-        status_code = 400 if retry_count is None or retry_count > 2 else 504
+        status_code = 400 if retry_count > 2 else 504
         return cors_response(
             request,
             generate_exception_response(
