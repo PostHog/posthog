@@ -159,7 +159,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                         <CodeEditor
                             queryKey={codeEditorKey}
                             className="border rounded overflow-hidden h-full"
-                            language="hogql"
+                            language="hogQL"
                             value={queryInput}
                             onChange={(v) => setQueryInput(v ?? '')}
                             height="100%"

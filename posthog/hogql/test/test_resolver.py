@@ -1,4 +1,4 @@
-from datetime import timezone, datetime, date
+from datetime import datetime, date, UTC
 from typing import Optional, cast
 import pytest
 from django.test import override_settings
@@ -97,7 +97,7 @@ class TestResolver(BaseTest):
                 "SELECT 1, 'boo', true, 1.1232, null, {date}, {datetime}, {uuid}, {array}, {array12}, {tuple}",
                 placeholders={
                     "date": ast.Constant(value=date(2020, 1, 10)),
-                    "datetime": ast.Constant(value=datetime(2020, 1, 10, 0, 0, 0, tzinfo=timezone.utc)),
+                    "datetime": ast.Constant(value=datetime(2020, 1, 10, 0, 0, 0, tzinfo=UTC)),
                     "uuid": ast.Constant(value=UUID("00000000-0000-4000-8000-000000000000")),
                     "array": ast.Constant(value=[]),
                     "array12": ast.Constant(value=[1, 2]),
@@ -253,7 +253,8 @@ class TestResolver(BaseTest):
 
     def test_ctes_with_union_all(self):
         self.assertEqual(
-            self._print_hogql("""
+            self._print_hogql(
+                """
                     WITH cte1 AS (SELECT 1 AS a)
                     SELECT 1 AS a
                     UNION ALL
@@ -261,14 +262,17 @@ class TestResolver(BaseTest):
                     SELECT * FROM cte2
                     UNION ALL
                     SELECT * FROM cte1
-                        """),
-            self._print_hogql("""
+                        """
+            ),
+            self._print_hogql(
+                """
                     SELECT 1 AS a
                     UNION ALL
                     SELECT * FROM (SELECT 2 AS a) AS cte2
                     UNION ALL
                     SELECT * FROM (SELECT 1 AS a) AS cte1
-                        """),
+                        """
+            ),
         )
 
     def test_join_using(self):

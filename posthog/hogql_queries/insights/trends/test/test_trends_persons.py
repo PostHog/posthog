@@ -27,7 +27,12 @@ from posthog.schema import (
     CompareFilter,
     HogQLQueryModifiers,
 )
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+)
 
 
 def get_actors(

@@ -3,7 +3,7 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="alpha",
-    id="template-hello-workd",
+    id="template-hello-world",
     name="Hello world",
     description="Prints your message or hello world!",
     icon_url="/api/projects/@current/hog_functions/icon/?id=posthog.com&temp=true",
