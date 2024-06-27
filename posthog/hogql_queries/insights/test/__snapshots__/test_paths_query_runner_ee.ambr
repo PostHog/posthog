@@ -2608,7 +2608,7 @@
 # name: TestClickhousePaths.test_recording
   '''
   SELECT persons.id AS id,
-         toTimeZone(persons.created_at, 'UTC') AS created_at,
+         persons.created_at AS created_at,
          source.event_count AS event_count,
          source.matching_events AS matching_events
   FROM
@@ -2775,7 +2775,7 @@
 # name: TestClickhousePaths.test_recording_for_dropoff
   '''
   SELECT persons.id AS id,
-         toTimeZone(persons.created_at, 'UTC') AS created_at,
+         persons.created_at AS created_at,
          source.event_count AS event_count,
          source.matching_events AS matching_events
   FROM
@@ -2929,7 +2929,7 @@
 # name: TestClickhousePaths.test_recording_for_dropoff.1
   '''
   SELECT persons.id AS id,
-         toTimeZone(persons.created_at, 'UTC') AS created_at,
+         persons.created_at AS created_at,
          source.event_count AS event_count,
          source.matching_events AS matching_events
   FROM
@@ -3098,7 +3098,7 @@
 # name: TestClickhousePaths.test_recording_with_no_window_or_session_id
   '''
   SELECT persons.id AS id,
-         toTimeZone(persons.created_at, 'UTC') AS created_at,
+         persons.created_at AS created_at,
          source.event_count AS event_count,
          source.matching_events AS matching_events
   FROM
@@ -3265,7 +3265,7 @@
 # name: TestClickhousePaths.test_recording_with_start_and_end
   '''
   SELECT persons.id AS id,
-         toTimeZone(persons.created_at, 'UTC') AS created_at,
+         persons.created_at AS created_at,
          source.event_count AS event_count,
          source.matching_events AS matching_events
   FROM
