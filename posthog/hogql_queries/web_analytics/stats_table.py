@@ -24,6 +24,9 @@ from posthog.schema import (
     PersonPropertyFilter,
 )
 
+BREAKDOWN_NULL_DISPLAY = "(none)"
+BREAKDOWN_NULL_VALUE = "$$_posthog_breakdown_null_$$"
+
 
 class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
     query: WebStatsTableQuery
@@ -468,8 +471,17 @@ ORDER BY "context.columns.visitors" DESC,
             case WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
                 return ast.Field(chain=["session", "$channel_type"])
             case WebStatsBreakdown.INITIAL_UTM_SOURCE_MEDIUM_CAMPAIGN:
-                return parse_expr(
-                    "concatWithSeparator(' / ', coalesce(nullIf(session.$entry_utm_source, ''), nullIf(session.$entry_referring_domain, ''), '(null)'), coalesce(nullIf(session.$entry_utm_medium, ''), '(null)'), coalesce(nullIf(session.$entry_utm_campaign, ''), '(null)'))"
+                return ast.Call(
+                    name="concatWithSeparator",
+                    args=[
+                        ast.Constant(value=" / "),
+                        coalesce_with_null_display(
+                            ast.Field(chain=["session", "$entry_utm_source"]),
+                            ast.Field(chain=["session", "$entry_referring_domain"]),
+                        ),
+                        coalesce_with_null_display(ast.Field(chain=["session", "$entry_utm_medium"])),
+                        coalesce_with_null_display(ast.Field(chain=["session", "$entry_utm_campaign"])),
+                    ],
                 )
             case WebStatsBreakdown.BROWSER:
                 return ast.Field(chain=["properties", "$browser"])
@@ -530,3 +542,11 @@ ORDER BY "context.columns.visitors" DESC,
             )
 
         return path_expr
+
+
+def coalesce_with_null_value(*exprs: ast.Expr) -> ast.Expr:
+    return ast.Call(name="coalesce", args=[*exprs, ast.Constant(value=BREAKDOWN_NULL_VALUE)])
+
+
+def coalesce_with_null_display(*exprs: ast.Expr) -> ast.Expr:
+    return ast.Call(name="coalesce", args=[*exprs, ast.Constant(value=BREAKDOWN_NULL_DISPLAY)])
