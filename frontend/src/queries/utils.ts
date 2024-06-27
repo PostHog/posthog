@@ -342,6 +342,13 @@ export const getShowValuesOnSeries = (query: InsightQueryNode): boolean | undefi
     return undefined
 }
 
+export const getYAxisScaleType = (query: InsightQueryNode): string | undefined => {
+    if (isTrendsQuery(query)) {
+        return query.trendsFilter?.yAxisScaleType
+    }
+    return undefined
+}
+
 export const supportsPercentStackView = (q: InsightQueryNode | null | undefined): boolean =>
     isTrendsQuery(q) && PERCENT_STACK_VIEW_DISPLAY_TYPE.includes(getDisplay(q) || ChartDisplayType.ActionsLineGraph)
 

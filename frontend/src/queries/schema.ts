@@ -704,6 +704,7 @@ export type TrendsFilter = {
     showLabelsOnSeries?: TrendsFilterLegacy['show_labels_on_series']
     /** @default false */
     showPercentStackView?: TrendsFilterLegacy['show_percent_stack_view']
+    yAxisScaleType?: TrendsFilterLegacy['y_axis_scale_type']
     hiddenLegendIndexes?: integer[]
 }
 
@@ -720,6 +721,7 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'showValuesOnSeries',
     'showLabelsOnSeries',
     'showPercentStackView',
+    'yAxisScaleType',
     'hiddenLegendIndexes',
 ])
 
