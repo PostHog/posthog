@@ -71,7 +71,11 @@ export const addLog = (result: HogFunctionInvocationResult, level: HogFunctionLo
 export class HogExecutor {
     constructor(private hogFunctionManager: HogFunctionManager) {}
 
-    findMatchingFunctions(event: HogFunctionInvocationGlobals): HogFunctionType[] {
+    findMatchingFunctions(event: HogFunctionInvocationGlobals): {
+        total: number
+        matching: number
+        functions: HogFunctionType[]
+    } {
         const allFunctionsForTeam = this.hogFunctionManager.getTeamHogFunctions(event.project.id)
         const filtersGlobals = convertToHogFunctionFilterGlobal(event)
 
@@ -109,18 +113,18 @@ export class HogExecutor {
             return false
         })
 
-        if (!Object.keys(functions).length) {
-            return []
-        }
-
-        status.info(
+        status.debug(
             '🦔',
             `[HogExecutor] Found ${Object.keys(functions).length} matching functions out of ${
                 Object.keys(allFunctionsForTeam).length
             } for team`
         )
 
-        return functions
+        return {
+            total: allFunctionsForTeam.length,
+            matching: functions.length,
+            functions,
+        }
     }
 
     /**

@@ -1,5 +1,5 @@
 import { features, librdkafkaVersion, Message } from 'node-rdkafka'
-import { Histogram } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 
 import {
     KAFKA_CDP_FUNCTION_CALLBACKS,
@@ -50,6 +50,18 @@ const histogramKafkaBatchSizeKb = new Histogram({
     name: 'cdp_function_executor_batch_size_kb',
     help: 'The size in kb of the batches we are receiving from Kafka',
     buckets: BUCKETS_KB_WRITTEN,
+})
+
+const counterFunctionInvocation = new Counter({
+    name: 'cdp_function_invocation',
+    help: 'A function invocation was evaluated with an outcome',
+    labelNames: ['outcome'], // One of 'failed', 'succeeded', 'overflowed', 'disabled', 'filtered'
+})
+
+const counterAsyncFunctionResponse = new Counter({
+    name: 'cdp_async_function_response',
+    help: 'An async function response was received with an outcome',
+    labelNames: ['outcome'], // One of 'failed', 'succeeded', 'overflowed', 'disabled', 'filtered'
 })
 
 export interface TeamIDWithConfig {
@@ -125,6 +137,10 @@ abstract class CdpConsumerBase {
                         const logs = result.logs
                         result.logs = []
 
+                        counterFunctionInvocation.inc({
+                            outcome: result.error ? 'failed' : 'succeeded',
+                        })
+
                         logs.forEach((x) => {
                             const sanitized = {
                                 ...x,
@@ -164,8 +180,13 @@ abstract class CdpConsumerBase {
             statsKey: `cdpConsumer.handleEachBatch.executeAsyncResponses`,
             func: async () => {
                 this.hogWatcher.currentObservations.observeAsyncFunctionResponses(asyncResponses)
-                // Filter for blocked functions
+                asyncResponses.forEach((x) => {
+                    counterAsyncFunctionResponse.inc({
+                        outcome: x.asyncFunctionResponse.error ? 'failed' : 'succeeded',
+                    })
+                })
 
+                // Filter for blocked functions
                 const asyncResponsesToRun: HogFunctionInvocationAsyncResponse[] = []
 
                 for (const item of asyncResponses) {
@@ -181,8 +202,10 @@ abstract class CdpConsumerBase {
                             },
                             key: item.id,
                         })
+                        counterFunctionInvocation.inc({ outcome: 'overflowed' })
                     } else if (functionState > HogWatcherState.disabledForPeriod) {
                         // TODO: Report to AppMetrics 2 when it is ready
+                        counterFunctionInvocation.inc({ outcome: 'disabled' })
                         continue
                     } else {
                         asyncResponsesToRun.push(item)
@@ -207,10 +230,12 @@ abstract class CdpConsumerBase {
                 const results = (
                     await Promise.all(
                         invocationGlobals.map((globals) => {
-                            const matchingFunctions = this.hogExecutor.findMatchingFunctions(globals)
+                            const { functions, total, matching } = this.hogExecutor.findMatchingFunctions(globals)
+
+                            counterFunctionInvocation.inc({ outcome: 'filtered' }, total - matching)
 
                             // Filter for overflowed and disabled functions
-                            const [healthy, overflowed, disabled] = matchingFunctions.reduce(
+                            const [healthy, overflowed, disabled] = functions.reduce(
                                 (acc, item) => {
                                     const state = this.hogWatcher.getFunctionState(item.id)
                                     if (state >= HogWatcherState.disabledForPeriod) {
@@ -227,6 +252,7 @@ abstract class CdpConsumerBase {
                             )
 
                             if (overflowed.length) {
+                                counterFunctionInvocation.inc({ outcome: 'overflowed' }, overflowed.length)
                                 // TODO: Report to AppMetrics 2 when it is ready
                                 status.debug('🔁', `Oveflowing functions`, {
                                     count: overflowed.length,
@@ -246,6 +272,7 @@ abstract class CdpConsumerBase {
                             }
 
                             if (disabled.length) {
+                                counterFunctionInvocation.inc({ outcome: 'disabled' }, disabled.length)
                                 // TODO: Report to AppMetrics 2 when it is ready
                                 status.debug('🔁', `Disabled functions skipped`, {
                                     count: disabled.length,
@@ -256,6 +283,7 @@ abstract class CdpConsumerBase {
                         })
                     )
                 ).flat()
+
                 this.hogWatcher.currentObservations.observeResults(results)
                 return results
             },
