@@ -1,4 +1,4 @@
-import { Locator, Page } from '@playwright/test'
+import { expect, Locator, Page } from '@playwright/test'
 import { urls } from 'scenes/urls'
 
 import { InsightType } from '~/types'
@@ -10,10 +10,15 @@ export class InsightPage {
     readonly saveButton: Locator
     readonly editButton: Locator
     readonly topBarName: Locator
-    readonly detailLabels: Locator
+
+    // series
     readonly addEntityButton: Locator
     readonly firstEntity: Locator
     readonly secondEntity: Locator
+
+    // details table
+    readonly detailsLabels: Locator
+    readonly detailsLoader: Locator
 
     constructor(page: Page) {
         this.page = page
@@ -21,10 +26,13 @@ export class InsightPage {
         this.saveButton = page.getByTestId('insight-save-button')
         this.editButton = page.getByTestId('insight-edit-button')
         this.topBarName = page.getByTestId('top-bar-name')
-        this.detailLabels = page.getByTestId('insights-table-graph').locator('.insights-label')
+
         this.addEntityButton = page.getByTestId('add-action-event-button')
         this.firstEntity = page.getByTestId('trend-element-subject-0')
         this.secondEntity = page.getByTestId('trend-element-subject-1')
+
+        this.detailsLabels = page.getByTestId('insights-table-graph').locator('.insights-label')
+        this.detailsLoader = page.locator('.LemonTableLoader')
     }
 
     async goToNew(insightType?: InsightType): Promise<InsightPage> {
@@ -68,6 +76,11 @@ export class InsightPage {
         await callback()
         await this.page.reload()
         await callback()
+    }
+
+    async waitForDetailsTable(): Promise<void> {
+        await this.detailsLabels.first().waitFor()
+        await expect(this.detailsLoader).toHaveCount(0)
     }
 
     /*

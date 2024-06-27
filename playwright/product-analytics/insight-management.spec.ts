@@ -40,11 +40,10 @@ test('can edit insight query', async ({ page }) => {
 
     // labels in details table match
     await insight.withReload(async () => {
-        // wait for details table to be visible
-        await insight.detailLabels.first().waitFor()
+        await insight.waitForDetailsTable()
 
         // test series labels
-        const labels = await insight.detailLabels.allInnerTexts()
+        const labels = await insight.detailsLabels.allInnerTexts()
         expect(labels).toEqual(['Pageview', 'Autocapture'])
     })
 })
