@@ -72,7 +72,7 @@ def ast_to_query_node(expr: ast.Expr | ast.HogQLXTag):
         raise SyntaxError(f'Expression of type "{type(expr).__name__}". Can\'t convert to constant.')
 
 
-def convert_hogqlx_tag(node: ast.HogQLXTag, team_id: Optional[int]):
+def expand_hogqlx_query(node: ast.HogQLXTag, team_id: Optional[int]):
     from posthog.hogql_queries.query_runner import get_query_runner
     from posthog.models import Team
 
