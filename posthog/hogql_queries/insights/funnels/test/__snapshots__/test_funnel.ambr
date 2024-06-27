@@ -1575,7 +1575,7 @@
                                     argMinIf(prop, timestamp, isNotNull(prop)) OVER (PARTITION BY aggregation_target) AS prop_vals
                              FROM events AS e
                              LEFT JOIN
-                               (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                               (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                        groups.group_type_index AS index,
                                        groups.group_key AS key
                                 FROM groups
@@ -1713,7 +1713,7 @@
                                     argMinIf(prop, timestamp, isNotNull(prop)) OVER (PARTITION BY aggregation_target) AS prop_vals
                              FROM events AS e
                              LEFT JOIN
-                               (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                               (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                        groups.group_type_index AS index,
                                        groups.group_key AS key
                                 FROM groups
@@ -1858,7 +1858,7 @@
                                 GROUP BY person_distinct_id2.distinct_id
                                 HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
                              LEFT JOIN
-                               (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                               (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                        groups.group_type_index AS index,
                                        groups.group_key AS key
                                 FROM groups
