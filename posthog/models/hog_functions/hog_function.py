@@ -1,14 +1,36 @@
+import enum
 from typing import Optional
 
 from django.db import models
 from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
+import structlog
 
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 from posthog.models.action.action import Action
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDModel
-from posthog.plugins.plugin_server_api import reload_hog_functions_on_workers
+from posthog.plugins.plugin_server_api import (
+    get_hog_function_status,
+    patch_hog_function_status,
+    reload_hog_functions_on_workers,
+)
+
+DEFAULT_STATE = {
+    "state": 0,
+    "ratings": [],
+    "states": [],
+}
+
+logger = structlog.get_logger(__name__)
+
+
+class HogFunctionState(enum.Enum):
+    UNKNOWN = 0
+    HEALTHY = 1
+    OVERFLOWED = 2
+    DISABLED_TEMPORARILY = 3
+    DISABLED_PERMANENTLY = 4
 
 
 class HogFunction(UUIDModel):
@@ -43,6 +65,40 @@ class HogFunction(UUIDModel):
             return [int(action["id"]) for action in self.filters.get("actions", [])]
         except KeyError:
             return []
+
+    _status: Optional[dict] = None
+
+    @property
+    def status(self) -> dict:
+        if not self.enabled:
+            return DEFAULT_STATE
+
+        if self._status:
+            return self._status
+
+        try:
+            status = DEFAULT_STATE
+            res = get_hog_function_status(self.team_id, self.id)
+            if res.status_code == 200:
+                status = res.json()
+        except Exception as e:
+            logger.exception("Failed to fetch function status", error=str(e))
+
+        self._status = status
+
+        return status
+
+    def set_function_status(self, state: int) -> dict:
+        if not self.enabled:
+            return self.status
+        try:
+            res = patch_hog_function_status(self.team_id, self.id, state)
+            if res.status_code == 200:
+                self._status = res.json()
+        except Exception as e:
+            logger.exception("Failed to set function status", error=str(e))
+
+        return self.status
 
     def save(self, *args, **kwargs):
         from posthog.cdp.filters import compile_filters_bytecode
