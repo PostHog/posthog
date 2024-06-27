@@ -95,11 +95,11 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     -- slower and more expensive to store, but will be correct even if events are double-counted, so can be used to
     -- verify correctness and as a backup. Ideally we will be able to delete the uniq columns in the future when we're
     -- satisfied that counts are accurate.
-    pageview_count AggregateFunction(countIf, Int64, bool),
+    pageview_count_2 AggregateFunction(countIf, Int64, bool),
     pageview_uniq AggregateFunction(uniq, Nullable(UUID)),
-    autocapture_count AggregateFunction(countIf, Int64, bool),
+    autocapture_count_2 AggregateFunction(countIf, Int64, bool),
     autocapture_uniq AggregateFunction(uniq, Nullable(UUID)),
-    screen_count AggregateFunction(countIf, Int64, bool),
+    screen_count_2 AggregateFunction(countIf, Int64, bool),
     screen_uniq AggregateFunction(uniq, Nullable(UUID)),
 
     -- replay
@@ -213,11 +213,11 @@ SELECT
     initializeAggregation('argMinState', {ttclid}, timestamp) as initial_ttclid,
 
     -- counts
-    initializeAggregation('countIfState', event='$pageview') as pageview_count,
+    initializeAggregation('countIfState', event='$pageview') as pageview_count_2,
     initializeAggregation('uniqState', if(event='$pageview', uuid, NULL)) as pageview_uniq,
-    initializeAggregation('countIfState', event='$autocapture') as autocapture_count,
+    initializeAggregation('countIfState', event='$autocapture') as autocapture_count_2,
     initializeAggregation('uniqState', if(event='autocapture', uuid, NULL)) as autocapture_uniq,
-    initializeAggregation('countIfState', event='$screen') as screen_count,
+    initializeAggregation('countIfState', event='$screen') as screen_count_2,
     initializeAggregation('uniqState', if(event='screen', uuid, NULL)) as screen_uniq,
 
     -- replay
@@ -319,11 +319,11 @@ SELECT
     argMinState({ttclid}, timestamp) as initial_ttclid,
 
     -- count
-    countIfState(event='$pageview') as pageview_count,
+    countIfState(event='$pageview') as pageview_count_2,
     uniqState(if(event='$pageview', uuid, NULL)) as pageview_uniq,
-    countIfState(event='$autocapture') as autocapture_count,
+    countIfState(event='$autocapture') as autocapture_count_2,
     uniqState(if(event='$autocapture', uuid, NULL)) as autocapture_uniq,
-    countIfState(event='$screen') as screen_count,
+    countIfState(event='$screen') as screen_count_2,
     uniqState(if(event='$screen', uuid, NULL)) as screen_uniq,
 
     -- replay
@@ -479,11 +479,11 @@ SELECT
     argMinMerge(initial_igshid) as initial_igshid,
     argMinMerge(initial_ttclid) as initial_ttclid,
 
-    countIfMerge(pageview_count) as pageview_count,
+    countIfMerge(pageview_count_2) as pageview_count_2,
     uniqMerge(pageview_uniq) as pageview_uniq,
-    countIfMerge(autocapture_count) as autocapture_count,
+    countIfMerge(autocapture_count_2) as autocapture_count_2,
     uniqMerge(autocapture_uniq) as autocapture_uniq,
-    countIfMerge(screen_count) as screen_count,
+    countIfMerge(screen_count_2) as screen_count_2,
     uniqMerge(screen_uniq) as screen_uniq,
 
     max(maybe_has_session_replay) as maybe_has_session_replay

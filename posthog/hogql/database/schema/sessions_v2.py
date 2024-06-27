@@ -50,9 +50,9 @@ RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "initial_referring_domain": DatabaseField(name="initial_referring_domain"),
     "initial_gclid": DatabaseField(name="initial_gclid"),
     "initial_gad_source": DatabaseField(name="initial_gad_source"),
-    "pageview_count": IntegerDatabaseField(name="pageview_count"),
-    "autocapture_count": IntegerDatabaseField(name="autocapture_count"),
-    "screen_count": IntegerDatabaseField(name="screen_count"),
+    "pageview_count_2": IntegerDatabaseField(name="pageview_count_2"),
+    "autocapture_count_2": IntegerDatabaseField(name="autocapture_count_2"),
+    "screen_count_2": IntegerDatabaseField(name="screen_count_2"),
     "last_external_click_url": StringDatabaseField(name="last_external_click_url"),
 }
 
@@ -195,9 +195,11 @@ def select_from_sessions_table_v2(
         "$entry_referring_domain": arg_min_merge_field("initial_referring_domain"),
         "$entry_gclid": arg_min_merge_field("initial_gclid"),
         "$entry_gad_source": arg_min_merge_field("initial_gad_source"),
-        "$pageview_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "pageview_count"])]),
-        "$screen_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "screen_count"])]),
-        "$autocapture_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "autocapture_count"])]),
+        "$pageview_count": ast.Call(name="countIfMerge", args=[ast.Field(chain=[table_name, "pageview_count_2"])]),
+        "$screen_count": ast.Call(name="countIfMerge", args=[ast.Field(chain=[table_name, "screen_count_2"])]),
+        "$autocapture_count": ast.Call(
+            name="countIfMerge", args=[ast.Field(chain=[table_name, "autocapture_count_2"])]
+        ),
         "$last_external_click_url": arg_max_merge_field("last_external_click_url"),
     }
     # Alias
