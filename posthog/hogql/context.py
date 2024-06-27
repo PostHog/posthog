@@ -5,6 +5,7 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.schema import HogQLNotice, HogQLQueryModifiers
 
 if TYPE_CHECKING:
+    from posthog.hogql.transforms.property_types import PropertySwapper
     from posthog.hogql.database.database import Database
     from posthog.models import Team
 
