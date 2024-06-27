@@ -580,17 +580,9 @@ def get_event(request):
                         except MessageSizeTooLargeError:
                             REPLAY_MESSAGE_SIZE_TOO_LARGE_COUNTER.inc()
                             warning_event = replace_with_warning(args[0])
-                            if not warning_event:
-                                # we couldn't ingest this event or the warning event, something is invalid here
-                                return cors_response(
-                                    request,
-                                    generate_exception_response(
-                                        "capture", f"Invalid recording payload", code="invalid_payload"
-                                    ),
-                                )
-
-                            warning_future = capture_internal(warning_event, *args[1:], **kwargs)
-                            warning_future.get(timeout=settings.KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS)
+                            if warning_event:
+                                warning_future = capture_internal(warning_event, *args[1:], **kwargs)
+                                warning_future.get(timeout=settings.KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS)
 
     except ValueError as e:
         with sentry_sdk.push_scope() as scope:
