@@ -1,5 +1,5 @@
 import { IconFlag } from '@posthog/icons'
-import clsx from 'clsx'
+import { TitledSnack } from 'lib/components/TitledSnack'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
@@ -49,43 +49,6 @@ function StackTrace({ rawTrace }: { rawTrace: string }): JSX.Element | null {
         posthog.capture('Cannot parse stack trace in Exception event', { tag: 'error-display-stack-trace', e })
         return <LemonTag type="caution">Error parsing stack trace</LemonTag>
     }
-}
-
-function TitledSnack({
-    title,
-    value,
-    type = 'default',
-}: {
-    title: string
-    value: string | JSX.Element
-    type?: 'default' | 'success'
-}): JSX.Element {
-    return (
-        <div className="flex flex-row items-center">
-            <span
-                className={clsx(
-                    'pl-1.5 pr-1 py-1 max-w-full',
-                    'border-r',
-                    'rounded-l rounded-r-none',
-                    'text-primary-alt overflow-hidden text-ellipsis',
-                    type === 'success' ? 'bg-success-highlight' : 'bg-primary-highlight'
-                )}
-            >
-                <strong>{title}:</strong>
-            </span>
-            <span
-                className={clsx(
-                    'pr-1.5 pl-1 py-1 max-w-full',
-                    'rounded-r rounded-l-none',
-                    'text-primary-alt overflow-hidden text-ellipsis',
-                    type === 'success' ? 'bg-success-highlight' : 'bg-primary-highlight',
-                    'flex flex-1 items-center'
-                )}
-            >
-                {value}
-            </span>
-        </div>
-    )
 }
 
 function ActiveFlags({ flags }: { flags: string[] }): JSX.Element {

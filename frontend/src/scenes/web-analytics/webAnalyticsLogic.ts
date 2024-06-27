@@ -133,6 +133,7 @@ export enum SourceTab {
     UTM_CAMPAIGN = 'UTM_CAMPAIGN',
     UTM_CONTENT = 'UTM_CONTENT',
     UTM_TERM = 'UTM_TERM',
+    UTM_SOURCE_MEDIUM_CAMPAIGN = 'UTM_SOURCE_MEDIUM_CAMPAIGN',
 }
 
 export enum DeviceTab {
@@ -795,6 +796,25 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     },
                                 },
                                 insightProps: createInsightProps(TileId.SOURCES, SourceTab.UTM_TERM),
+                                canOpenModal: true,
+                            },
+                            {
+                                id: SourceTab.UTM_SOURCE_MEDIUM_CAMPAIGN,
+                                title: 'Source / Medium / Campaign',
+                                linkText: 'UTM s/m/c',
+                                query: {
+                                    full: true,
+                                    kind: NodeKind.DataTableNode,
+                                    source: {
+                                        kind: NodeKind.WebStatsTableQuery,
+                                        properties: webAnalyticsFilters,
+                                        breakdownBy: WebStatsBreakdown.InitialUTMSourceMediumCampaign,
+                                        dateRange,
+                                        sampling,
+                                        limit: 10,
+                                    },
+                                },
+                                insightProps: createInsightProps(TileId.SOURCES, SourceTab.UTM_SOURCE_MEDIUM_CAMPAIGN),
                                 canOpenModal: true,
                             },
                         ],

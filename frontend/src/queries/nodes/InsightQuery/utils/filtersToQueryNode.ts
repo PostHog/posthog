@@ -377,6 +377,7 @@ export const trendsFilterToQuery = (filters: Partial<TrendsFilterType>): TrendsF
         showValuesOnSeries: filters.show_values_on_series,
         showPercentStackView: filters.show_percent_stack_view,
         showLabelsOnSeries: filters.show_labels_on_series,
+        yAxisScaleType: filters.y_axis_scale_type,
     })
 }
 

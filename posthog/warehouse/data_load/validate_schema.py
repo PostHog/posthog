@@ -207,7 +207,7 @@ async def validate_schema_and_update_table(
             f"Data Warehouse: Could not validate schema for external data job {job.pk}",
             exc_info=e,
         )
-        raise e
+        raise
 
     # TODO: figure out data deletes - currently borked right now
     # if (
