@@ -321,7 +321,8 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             if (
                 !props.updateBreakdownFilter ||
                 !breakdownType ||
-                (breakdownType === previousBreakdown.type && breakdownValue === previousBreakdown.value)
+                (breakdownType === previousBreakdown.type && breakdownValue === previousBreakdown.value) ||
+                checkBreakdownExists(values.breakdownFilter.breakdowns, breakdownValue, breakdownType)
             ) {
                 return
             }

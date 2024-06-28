@@ -303,5 +303,45 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 breakdown_histogram_bin_count: undefined,
             })
         })
+
+        it('replaceBreakdown does not create a duplicate', async () => {
+            logic = taxonomicBreakdownFilterLogic({
+                insightProps,
+                breakdownFilter: {
+                    breakdowns: [
+                        {
+                            value: 'c',
+                            type: 'event',
+                        },
+                        {
+                            value: 'duplicate',
+                            type: 'event',
+                        },
+                    ],
+                },
+                isTrends: true,
+                updateBreakdownFilter,
+                updateDisplay,
+            })
+            mockFeatureFlag(logic)
+            logic.mount()
+            const changedBreakdown = 'c'
+            const group: TaxonomicFilterGroup = taxonomicGroupFor(TaxonomicFilterGroupType.EventProperties, undefined)
+
+            await expectLogic(logic, () => {
+                logic.actions.replaceBreakdown(
+                    {
+                        type: 'event',
+                        value: changedBreakdown,
+                    },
+                    {
+                        group: group,
+                        value: 'duplicate',
+                    }
+                )
+            }).toFinishListeners()
+
+            expect(updateBreakdownFilter).not.toHaveBeenCalled()
+        })
     })
 })
