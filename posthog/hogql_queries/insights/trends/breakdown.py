@@ -27,12 +27,6 @@ BREAKDOWN_OTHER_STRING_LABEL = "$$_posthog_breakdown_other_$$"
 BREAKDOWN_NULL_STRING_LABEL = "$$_posthog_breakdown_null_$$"
 BREAKDOWN_OTHER_DISPLAY = "Other (i.e. all remaining values)"
 BREAKDOWN_NULL_DISPLAY = "None (i.e. no value)"
-
-BREAKDOWN_OTHER_STRING_LABEL = "$$_posthog_breakdown_other_$$"
-BREAKDOWN_NULL_STRING_LABEL = "$$_posthog_breakdown_null_$$"
-BREAKDOWN_OTHER_DISPLAY = "Other (i.e. all remaining values)"
-BREAKDOWN_NULL_DISPLAY = "None (i.e. no value)"
-
 BREAKDOWN_NUMERIC_ALL_VALUES_PLACEHOLDER = '["",""]'
 
 
@@ -230,34 +224,38 @@ class Breakdown:
                 for breakdown, lookup_value in zip(
                     cast(list[BreakdownSchema], self._breakdown_filter.breakdowns), lookup_values
                 ):
-                    exprs.append(
-                        self._get_actors_query_where_expr(
-                            breakdown_value=breakdown.property,
-                            breakdown_type=breakdown.type,
-                            lookup_value=str(
-                                lookup_value
-                            ),  # numeric values are only in cohorts, so it's a safe convertion here
-                            histogram_bin_count=breakdown.histogram_bin_count,
-                            group_type_index=breakdown.group_type_index,
-                        )
+                    actors_filter = self._get_actors_query_where_expr(
+                        breakdown_value=breakdown.property,
+                        breakdown_type=breakdown.type,
+                        lookup_value=str(
+                            lookup_value
+                        ),  # numeric values are only in cohorts, so it's a safe convertion here
+                        histogram_bin_count=breakdown.histogram_bin_count,
+                        group_type_index=breakdown.group_type_index,
                     )
-                return ast.And(exprs=exprs)
+
+                    if actors_filter:
+                        exprs.append(actors_filter)
+
+                if exprs:
+                    return ast.And(exprs=exprs)
 
             if not isinstance(lookup_values, list):
-                return cast(
-                    ast.Expr,
-                    self._get_actors_query_where_expr(
-                        breakdown_value=str(
-                            self._breakdown_filter.breakdown
-                        ),  # all other value types were excluded already
-                        breakdown_type=self._breakdown_filter.breakdown_type,
-                        lookup_value=str(
-                            lookup_values
-                        ),  # numeric values are only in cohorts, so it's a safe convertion here
-                        histogram_bin_count=self._breakdown_filter.breakdown_histogram_bin_count,
-                        group_type_index=self._breakdown_filter.breakdown_group_type_index,
-                    ),
+                actors_filter = self._get_actors_query_where_expr(
+                    breakdown_value=str(
+                        self._breakdown_filter.breakdown
+                    ),  # all other value types were excluded already
+                    breakdown_type=self._breakdown_filter.breakdown_type,
+                    lookup_value=str(
+                        lookup_values
+                    ),  # numeric values are only in cohorts, so it's a safe convertion here
+                    histogram_bin_count=self._breakdown_filter.breakdown_histogram_bin_count,
+                    group_type_index=self._breakdown_filter.breakdown_group_type_index,
                 )
+
+                if actors_filter:
+                    return cast(ast.Expr, actors_filter)
+
         return None
 
     def _get_actors_query_where_expr(
