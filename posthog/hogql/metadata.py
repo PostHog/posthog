@@ -38,7 +38,11 @@ def get_hogql_metadata(
         else:
             if query.language == HogLanguage.HOG_QL_EXPR or query.language == HogLanguage.HOG_TEMPLATE:
                 context = HogQLContext(
-                    team_id=team.pk, modifiers=query_modifiers, debug=query.debug or False, enable_select_queries=True
+                    team_id=team.pk,
+                    modifiers=query_modifiers,
+                    debug=query.debug or False,
+                    enable_select_queries=True,
+                    globals=query.globals,
                 )
                 node: ast.Expr
                 if query.language == HogLanguage.HOG_TEMPLATE:
@@ -56,6 +60,7 @@ def get_hogql_metadata(
                     modifiers=query_modifiers,
                     enable_select_queries=True,
                     debug=query.debug or False,
+                    globals=query.globals,
                 )
                 select_ast = parse_select(query.query)
                 if query.filters:
@@ -101,25 +106,16 @@ def process_expr_on_table(
     node: ast.Expr,
     context: HogQLContext,
     source_query: Optional[ast.SelectQuery | ast.SelectUnionQuery] = None,
-    source_table: Optional[str] = None,
-    source_table_alias: Optional[str] = None,
-) -> str:
+):
     try:
         if source_query is not None:
             select_query = cast(ast.SelectQuery, clone_expr(source_query, clear_locations=True))
             select_query.select.append(node)
         else:
-            select_query = ast.SelectQuery(
-                select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=[source_table or "events"]))
-            )
-            if (
-                source_table_alias is not None
-                and isinstance(select_query, ast.SelectQuery)
-                and isinstance(select_query.select_from, ast.JoinExpr)
-            ):
-                select_query.select_from.alias = source_table_alias
+            select_query = ast.SelectQuery(select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])))
 
-        return print_ast(select_query, context, "clickhouse")
+        # Nothing to return, we just make sure it doesn't throw
+        print_ast(select_query, context, "clickhouse")
     except (NotImplementedError, SyntaxError):
         raise
 

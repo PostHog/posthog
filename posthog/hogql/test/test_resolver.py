@@ -502,3 +502,39 @@ class TestResolver(BaseTest):
         node = self._select("select plus(1, 2) from events")
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
         self._assert_first_columm_is_type(node, ast.IntegerType(nullable=False))
+
+    def test_globals(self):
+        context = HogQLContext(
+            team_id=self.team.pk, database=self.database, globals={"globalVar": 1}, enable_select_queries=True
+        )
+        node: ast.SelectQuery = self._select("select globalVar from events")
+        node = cast(ast.SelectQuery, resolve_types(node, context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.IntegerType(nullable=False))
+        assert isinstance(node.select[0], ast.Constant)
+        assert node.select[0].value == 1
+        query = print_prepared_ast(node, context, "hogql")
+        assert "SELECT 1 FROM events LIMIT " in query
+
+    def test_globals_nested(self):
+        context = HogQLContext(
+            team_id=self.team.pk,
+            database=self.database,
+            globals={"globalVar": {"nestedVar": "banana"}},
+            enable_select_queries=True,
+        )
+        node: ast.SelectQuery = self._select("select globalVar.nestedVar from events")
+        node = cast(ast.SelectQuery, resolve_types(node, context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.StringType(nullable=False))
+        assert isinstance(node.select[0], ast.Constant)
+        assert node.select[0].value == "banana"
+        query = print_prepared_ast(node, context, "hogql")
+        assert "SELECT 'banana' FROM events LIMIT " in query
+
+    def test_globals_nested_error(self):
+        context = HogQLContext(
+            team_id=self.team.pk, database=self.database, globals={"globalVar": 1}, enable_select_queries=True
+        )
+        node: ast.SelectQuery = self._select("select globalVar.nested from events")
+        with self.assertRaises(QueryError) as ctx:
+            node = cast(ast.SelectQuery, resolve_types(node, context, dialect="clickhouse"))
+        self.assertEqual(str(ctx.exception), "Cannot resolve field: globalVar.nested")
