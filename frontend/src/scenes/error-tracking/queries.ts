@@ -17,17 +17,17 @@ export const errorTrackingQuery = ({
     filterGroup: UniversalFiltersGroup
 }): DataTableNode => {
     const period = 24
-    const segmentation = 'hour'
-    const labels = generateFormattedDateLabels(period, segmentation)
+    const unit = 'hour'
+    const labels = generateFormattedDateLabels(period, unit)
 
     return {
         kind: NodeKind.DataTableNode,
         source: {
             kind: NodeKind.EventsQuery,
             select: [
-                'any(properties) -- Error',
+                'any(properties) -- context.columns.error',
                 'properties.$exception_type',
-                `sparkline(reverse(arrayMap(x -> countEqual(groupArray(dateDiff('${segmentation}', now() - INTERVAL ${period} ${segmentation}, timestamp)), x), range(${period}))), [${labels}]) -- Volume`,
+                `sparkline(reverse(arrayMap(x -> countEqual(groupArray(dateDiff('${unit}', now() - INTERVAL ${period} ${unit}, timestamp)), x), range(${period}))), [${labels}]) -- context.columns.volume`,
                 'count() as unique_occurrences -- Occurrences',
                 'count(distinct $session_id) as unique_sessions -- Sessions',
                 'count(distinct distinct_id) as unique_users -- Users',
@@ -48,9 +48,9 @@ export const errorTrackingQuery = ({
     }
 }
 
-const generateFormattedDateLabels = (period: number, segmentation: 'hour'): string => {
-    const now = dayjs().startOf(segmentation)
-    const formattedDates = range(period).map((idx) => now.subtract(period - idx, segmentation))
+const generateFormattedDateLabels = (period: number, unit: 'hour'): string => {
+    const now = dayjs().startOf(unit)
+    const formattedDates = range(period).map((idx) => now.subtract(period - idx, unit))
     const stringifiedDates = formattedDates.map((d) => `'${d.format('D MMM, YYYY HH:mm')} (UTC)'`)
     return stringifiedDates.join(',')
 }

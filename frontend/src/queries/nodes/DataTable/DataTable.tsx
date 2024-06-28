@@ -177,10 +177,11 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                     }
                     return { props: { colSpan: 0 } }
                 } else if (result) {
+                    const extractedKey = extractExpressionComment(key)
                     if (sourceFeatures.has(QueryFeature.resultIsArrayOfArrays)) {
-                        return renderColumn(key, result[index], result, query, setQuery, context)
+                        return renderColumn(extractedKey, result[index], result, query, setQuery, context)
                     }
-                    return renderColumn(key, result[key], result, query, setQuery, context)
+                    return renderColumn(extractedKey, result[key], result, query, setQuery, context)
                 }
             },
             sorter: undefined, // using custom sorting code
