@@ -105,7 +105,7 @@ class PropertiesTimeline:
 
         crucial_property_keys = self.extract_crucial_property_keys(filter)
         crucial_property_columns, crucial_property_params = get_single_or_multi_property_string_expr(
-            crucial_property_keys,
+            sorted(crucial_property_keys),
             query_alias=None,
             table="events",
             column="person_properties",
