@@ -403,7 +403,7 @@ class SnowflakeClient:
         for n, field in enumerate(merge_key):
             if n > 0:
                 merge_condition += " AND "
-            merge_condition += f"final.{field[0]} = stage.{field[0]}"
+            merge_condition += f'final."{field[0]}" = stage."{field[0]}"'
 
         update_clause = ""
         values = ""
@@ -414,16 +414,16 @@ class SnowflakeClient:
                 values += ", "
                 field_names += ", "
 
-            update_clause += f"final.{field[0]} = stage.{field[0]}"
+            update_clause += f'final."{field[0]}" = stage."{field[0]}"'
             field_names += f'"{field[0]}"'
-            values += f"stage.{field[0]}"
+            values += f'stage."{field[0]}"'
 
         merge_query = f"""
         MERGE INTO "{final_table}" AS final
         USING "{stage_table}" AS stage
         {merge_condition}
 
-        WHEN MATCHED AND stage.{version_key} > final.{version_key} THEN
+        WHEN MATCHED AND stage.\"{version_key}\" > final.\"{version_key}\" THEN
             UPDATE SET
                 {update_clause}
         WHEN NOT MATCHED THEN
