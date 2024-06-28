@@ -704,7 +704,7 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         source_query = TrendsQuery(
             series=[EventsNode(event="$pageview")],
             dateRange=InsightDateRange(date_from="-7d"),
-            breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="$browser")]),
+            breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(value="$browser")]),
         )
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=["Safari"])
@@ -725,7 +725,7 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
             series=[EventsNode(event="$pageview")],
             dateRange=InsightDateRange(date_from="-7d"),
             breakdownFilter=BreakdownFilter(
-                breakdowns=[Breakdown(property="$geoip_country_code", type=BreakdownType.PERSON)]
+                breakdowns=[Breakdown(value="$geoip_country_code", type=BreakdownType.PERSON)]
             ),
         )
 
@@ -750,7 +750,7 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
             breakdownFilter=BreakdownFilter(
                 breakdowns=[
                     Breakdown(
-                        property="$browser",
+                        value="$browser",
                     )
                 ],
                 breakdown_limit=1,
@@ -779,7 +779,7 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
             breakdownFilter=BreakdownFilter(
                 breakdowns=[
                     Breakdown(
-                        property="$browser",
+                        value="$browser",
                     )
                 ],
                 breakdown_limit=1,
@@ -804,7 +804,7 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
             series=[EventsNode(event="$pageview")],
             dateRange=InsightDateRange(date_from="-7d"),
             breakdownFilter=BreakdownFilter(
-                breakdowns=[Breakdown(property="properties.some_property", type=BreakdownType.HOGQL)],
+                breakdowns=[Breakdown(value="properties.some_property", type=BreakdownType.HOGQL)],
                 breakdown_limit=1,
             ),
         )
@@ -859,7 +859,7 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         source_query = TrendsQuery(
             series=[EventsNode(event="$pageview")],
             dateRange=InsightDateRange(date_from="-7d"),
-            breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="some_property", histogram_bin_count=4)]),
+            breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(value="some_property", histogram_bin_count=4)]),
         )
 
         # should not include 20

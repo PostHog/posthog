@@ -160,7 +160,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 breakdown_type: undefined,
                 breakdowns: [
                     {
-                        property: 'c',
+                        value: 'c',
                         type: 'event',
                     },
                 ],
@@ -175,7 +175,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 breakdownFilter: {
                     breakdowns: [
                         {
-                            property: 'c',
+                            value: 'c',
                             type: 'event',
                         },
                     ],
@@ -218,7 +218,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 breakdown_type: undefined,
                 breakdowns: [
                     {
-                        property: 'height',
+                        value: 'height',
                         type: 'person',
                     },
                 ],
@@ -249,7 +249,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 breakdowns: [
                     {
                         type: 'group',
-                        property: '$lib_version',
+                        value: '$lib_version',
                         group_type_index: 0,
                     },
                 ],
@@ -264,7 +264,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 breakdownFilter: {
                     breakdowns: [
                         {
-                            property: 'c',
+                            value: 'c',
                             type: 'event',
                         },
                     ],
@@ -296,7 +296,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 breakdowns: [
                     {
                         type: 'event',
-                        property: 'a',
+                        value: 'a',
                     },
                 ],
                 breakdown_group_type_index: undefined,

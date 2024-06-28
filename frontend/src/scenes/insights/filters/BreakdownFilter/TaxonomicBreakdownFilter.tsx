@@ -47,8 +47,8 @@ export function TaxonomicBreakdownFilter({
     const tags = breakdownArray.map((breakdown) =>
         typeof breakdown === 'object' ? (
             <EditableBreakdownTag
-                key={breakdown.property}
-                breakdown={breakdown.property}
+                key={breakdown.value}
+                breakdown={breakdown.value}
                 breakdownType={breakdown.type ?? 'event'}
                 isTrends={isTrends}
             />

@@ -65,7 +65,7 @@ function summarizeMultipleBreakdown(
     if (breakdowns && breakdowns.length > 0) {
         return (breakdowns as Breakdown[])
             .map((breakdown) =>
-                summarizeSinglularBreakdown(breakdown.property, breakdown.type, breakdown.group_type_index, context)
+                summarizeSinglularBreakdown(breakdown.value, breakdown.type, breakdown.group_type_index, context)
             )
             .filter((label): label is string => !!label)
             .join(', ')

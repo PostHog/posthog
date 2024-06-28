@@ -1306,8 +1306,8 @@ class Breakdown(BaseModel):
     group_type_index: Optional[int] = None
     histogram_bin_count: Optional[int] = None
     normalize_url: Optional[bool] = None
-    property: str
     type: Optional[MultipleBreakdownType] = None
+    value: str
 
 
 class BreakdownFilter(BaseModel):

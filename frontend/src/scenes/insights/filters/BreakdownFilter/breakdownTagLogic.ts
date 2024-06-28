@@ -97,7 +97,7 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
             (s) => [s.breakdownFilter, s.breakdown, s.breakdownType],
             ({ breakdowns }, breakdown, breakdownType) =>
                 breakdowns?.find(
-                    (savedBreakdown) => savedBreakdown.property === breakdown && savedBreakdown.type === breakdownType
+                    (savedBreakdown) => savedBreakdown.value === breakdown && savedBreakdown.type === breakdownType
                 ),
         ],
         histogramBinsUsed: [
@@ -147,7 +147,7 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
                     ? filterToTaxonomicFilterType(
                           multipleBreakdown?.type,
                           multipleBreakdown?.group_type_index,
-                          multipleBreakdown?.property
+                          multipleBreakdown?.value
                       )
                     : breakdownFilterToTaxonomicFilterType(breakdownFilter)
 

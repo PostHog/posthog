@@ -1342,7 +1342,7 @@ class TestFilterToQuery(BaseTest):
         assert isinstance(query, TrendsQuery)
         self.assertEqual(
             query.breakdownFilter,
-            BreakdownFilter(breakdowns=[{"type": BreakdownType.EVENT, "property": "$browser"}]),
+            BreakdownFilter(breakdowns=[{"type": BreakdownType.EVENT, "value": "$browser"}]),
         )
 
         filter = {
@@ -1359,8 +1359,8 @@ class TestFilterToQuery(BaseTest):
             query.breakdownFilter,
             BreakdownFilter(
                 breakdowns=[
-                    {"type": BreakdownType.EVENT, "property": "$browser"},
-                    {"type": BreakdownType.SESSION, "property": "$session_duration"},
+                    {"type": BreakdownType.EVENT, "value": "$browser"},
+                    {"type": BreakdownType.SESSION, "value": "$session_duration"},
                 ]
             ),
         )

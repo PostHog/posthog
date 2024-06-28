@@ -227,7 +227,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                 }
 
                 const newBreakdown = {
-                    property: breakdown as string,
+                    value: breakdown as string,
                     type: breakdownType,
                     group_type_index: taxonomicGroup.groupTypeIndex,
                     histogram_bin_count: isHistogramable ? 10 : undefined,
@@ -274,8 +274,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                 }
             } else if (values.isMultipleBreakdownsEnabled) {
                 const breakdowns = props.breakdownFilter.breakdowns?.filter(
-                    (savedBreakdown) =>
-                        !(savedBreakdown.property === breakdown && savedBreakdown.type === breakdownType)
+                    (savedBreakdown) => !(savedBreakdown.value === breakdown && savedBreakdown.type === breakdownType)
                 )
 
                 props.updateBreakdownFilter({
@@ -341,12 +340,12 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                 props.updateBreakdownFilter?.({
                     breakdowns: values.breakdownFilter.breakdowns?.map((savedBreakdown) => {
                         if (
-                            savedBreakdown.property === previousBreakdown.value &&
+                            savedBreakdown.value === previousBreakdown.value &&
                             savedBreakdown.type === previousBreakdown.type
                         ) {
                             return {
                                 ...savedBreakdown,
-                                property: breakdownValue,
+                                value: breakdownValue,
                                 type: breakdownType,
                                 group_type_index: newBreakdown.group.groupTypeIndex,
                                 histogram_bin_count: isHistogramable
@@ -445,7 +444,7 @@ function updateNestedBreakdown(
     lookupType: string
 ): Breakdown[] | undefined {
     return breakdowns?.map((savedBreakdown) =>
-        savedBreakdown.property === lookupValue && savedBreakdown.type === lookupType
+        savedBreakdown.value === lookupValue && savedBreakdown.type === lookupType
             ? {
                   ...savedBreakdown,
                   ...breakdownUpdate,
@@ -460,7 +459,7 @@ function checkBreakdownExists(
     lookupType: string
 ): boolean {
     return !!breakdowns?.find(
-        (savedBreakdown) => savedBreakdown.property === lookupValue && savedBreakdown.type === lookupType
+        (savedBreakdown) => savedBreakdown.value === lookupValue && savedBreakdown.type === lookupType
     )
 }
 

@@ -180,7 +180,7 @@ export function InsightsTable({
                 )
 
             columns.push({
-                title: <MultipleBreakdownColumnTitle>{breakdown.property?.toString()}</MultipleBreakdownColumnTitle>,
+                title: <MultipleBreakdownColumnTitle>{breakdown.value?.toString()}</MultipleBreakdownColumnTitle>,
                 render: (_, item) => (
                     <BreakdownColumnItem
                         item={item}
@@ -190,7 +190,7 @@ export function InsightsTable({
                         formatItemBreakdownLabel={formatItemBreakdownLabel}
                     />
                 ),
-                key: `breakdown-${breakdown.property?.toString() || index}`,
+                key: `breakdown-${breakdown.value?.toString() || index}`,
                 sorter: (a, b) => {
                     const leftValue = Array.isArray(a.breakdown_value) ? a.breakdown_value[index] : a.breakdown_value
                     const rightValue = Array.isArray(b.breakdown_value) ? b.breakdown_value[index] : b.breakdown_value

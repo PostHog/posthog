@@ -328,17 +328,8 @@ def _breakdown_filter(_filter: dict):
                 breakdowns.append(
                     {
                         "type": breakdown.get("type", "event"),
-                        "property": breakdown.get("property", None),
+                        "value": breakdown["property"],
                         "normalize_url": breakdown.get("normalize_url", None),
-                    }
-                )
-            elif isinstance(breakdown, str):
-                breakdowns.append(
-                    {
-                        "type": breakdownFilter["breakdown_type"],
-                        "property": breakdown,
-                        "normalize_url": breakdownFilter["breakdown_normalize_url"],
-                        "histogram_bin_count": breakdownFilter["breakdownbreakdown_histogram_bin_count_normalize_url"],
                     }
                 )
 
