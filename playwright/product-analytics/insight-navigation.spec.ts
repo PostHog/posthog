@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { urls } from 'scenes/urls'
 
 import { InsightType } from '~/types'
 
@@ -19,4 +20,50 @@ typeTestCases.forEach(({ type, selector }) => {
         await new InsightPage(page).goToNew(type)
         await expect(page.locator(selector)).toHaveCount(1)
     })
+})
+
+test('can navigate to insight by filters', async ({ page }) => {
+    const insight = new InsightPage(page)
+    const url = urls.insightNew({
+        insight: InsightType.TRENDS,
+        interval: 'day',
+        events: [{ id: '$autocapture', name: 'Autocapture', type: 'events' }],
+    })
+
+    await page.goto(url)
+
+    // test series labels
+    await insight.waitForDetailsTable()
+    const labels = await insight.detailsLabels.allInnerTexts()
+    expect(labels).toEqual(['Autocapture'])
+})
+
+test('can navigate to insight by query', async ({ page }) => {
+    const insight = new InsightPage(page)
+    const url = urls.insightNew(undefined, undefined, {
+        kind: 'InsightVizNode',
+        source: {
+            kind: 'TrendsQuery',
+            series: [
+                {
+                    kind: 'EventsNode',
+                    event: '$autocapture',
+                    name: 'Autocapture',
+                    math: 'total',
+                },
+            ],
+            interval: 'day',
+            trendsFilter: {
+                display: 'ActionsLineGraph',
+            },
+        },
+        full: true,
+    })
+
+    await page.goto(url)
+
+    // test series labels
+    await insight.waitForDetailsTable()
+    const labels = await insight.detailsLabels.allInnerTexts()
+    expect(labels).toEqual(['Autocapture'])
 })
