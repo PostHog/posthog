@@ -1,4 +1,5 @@
 import { BuiltLogic } from 'kea'
+import { metadataSourceToQuery } from 'lib/monaco/codeEditorLogic'
 import type { codeEditorLogicType } from 'lib/monaco/codeEditorLogicType'
 import { languages } from 'monaco-editor'
 
@@ -79,7 +80,7 @@ const kindToSortText = (kind: AutocompleteCompletionItem['kind'], label: string)
 }
 
 export const hogQLAutocompleteProvider = (
-    type: 'hogQL' | 'hogTemplate' | 'hogExpr'
+    type: 'hogQL' | 'hogQLExpr' | 'hogTemplate'
 ): languages.CompletionItemProvider => ({
     triggerCharacters: [' ', ',', '.', '{'],
     provideCompletionItems: async (model, position) => {
@@ -99,17 +100,20 @@ export const hogQLAutocompleteProvider = (
             lineNumber: position.lineNumber,
             column: word.endColumn,
         })
+        const metadataFilters = logic.isMounted() ? logic.props.metadataFilters : undefined
+        const exprSource = metadataSourceToQuery(logic.isMounted() ? logic.props.metadataSource : undefined)
+        const globals = logic.isMounted() ? logic.props.globals : undefined
         const query: HogQLAutocomplete = {
             kind: NodeKind.HogQLAutocomplete,
             // Use the text from the model instead of logic due to a race condition on the logic values updating quick enough
             ...(type === 'hogQL'
                 ? { select: model.getValue() }
-                : type === 'hogExpr'
+                : type === 'hogQLExpr'
                 ? { expr: model.getValue() }
                 : { template: model.getValue() }),
-            filters: logic.isMounted() ? logic.props.metadataFilters : undefined,
-            globals: logic.props.globals,
-            exprSource: logic.props.exprSource,
+            filters: metadataFilters,
+            globals: globals,
+            exprSource: exprSource,
             startPosition: startOffset,
             endPosition: endOffset,
         }

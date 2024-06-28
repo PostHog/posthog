@@ -1071,7 +1071,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
             start_time = (now() - relativedelta(hours=i)).strftime("%Y-%m-%dT%H:%M:%SZ")
             _create_event(
                 distinct_id="3",
-                event="external data sync job",
+                event="$data_sync_job_completed",
                 properties={
                     "count": 10,
                     "job_id": 10924,
@@ -1083,7 +1083,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
             # identical job id should be deduped and not counted
             _create_event(
                 distinct_id="3",
-                event="external data sync job",
+                event="$data_sync_job_completed",
                 properties={
                     "count": 10,
                     "job_id": 10924,
@@ -1096,7 +1096,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
         for i in range(5):
             _create_event(
                 distinct_id="4",
-                event="external data sync job",
+                event="$data_sync_job_completed",
                 properties={
                     "count": 10,
                     "job_id": 10924,

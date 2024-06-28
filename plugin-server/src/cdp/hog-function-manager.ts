@@ -57,11 +57,18 @@ export class HogFunctionManager {
         await this.pubSub.stop()
     }
 
-    public getTeamHogFunctions(teamId: Team['id']): HogFunctionMap {
+    public getTeamHogFunctions(teamId: Team['id']): HogFunctionType[] {
         if (!this.ready) {
             throw new Error('HogFunctionManager is not ready! Run HogFunctionManager.start() before this')
         }
-        return this.cache[teamId] || {}
+        return Object.values(this.cache[teamId] || {})
+    }
+
+    public getTeamHogFunction(teamId: Team['id'], hogFunctionId: HogFunctionType['id']): HogFunctionType | undefined {
+        if (!this.ready) {
+            throw new Error('HogFunctionManager is not ready! Run HogFunctionManager.start() before this')
+        }
+        return this.cache[teamId]?.[hogFunctionId]
     }
 
     public teamHasHogFunctions(teamId: Team['id']): boolean {

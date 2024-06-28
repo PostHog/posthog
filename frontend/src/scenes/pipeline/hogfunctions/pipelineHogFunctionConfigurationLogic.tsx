@@ -108,6 +108,7 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
     actions({
         setShowSource: (showSource: boolean) => ({ showSource }),
         resetForm: (configuration?: HogFunctionConfigurationType) => ({ configuration }),
+        upsertHogFunction: (configuration: HogFunctionConfigurationType) => ({ configuration }),
         duplicate: true,
         duplicateFromTemplate: true,
         resetToTemplate: true,
@@ -155,10 +156,20 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
 
                     return await api.hogFunctions.get(props.id)
                 },
+
+                upsertHogFunction: async ({ configuration }) => {
+                    const res = props.id
+                        ? await api.hogFunctions.update(props.id, configuration)
+                        : await api.hogFunctions.create(configuration)
+
+                    lemonToast.success('Configuration saved')
+
+                    return res
+                },
             },
         ],
     })),
-    forms(({ values, props, actions }) => ({
+    forms(({ values, props, asyncActions }) => ({
         configuration: {
             defaults: {} as HogFunctionConfigurationType,
             alwaysShowErrors: true,
@@ -169,46 +180,43 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
                 }
             },
             submit: async (data) => {
-                try {
-                    const payload = sanitizeConfiguration(data)
+                const payload = sanitizeConfiguration(data)
 
-                    if (props.templateId) {
-                        // Only sent on create
-                        ;(payload as any).template_id = props.templateId
-                    }
-
-                    const res = props.id
-                        ? await api.hogFunctions.update(props.id, payload)
-                        : await api.hogFunctions.create(payload)
-
-                    lemonToast.success('Configuration saved')
-
-                    return res
-                } catch (e) {
-                    const maybeValidationError = (e as any).data
-                    if (maybeValidationError?.type === 'validation_error') {
-                        if (maybeValidationError.attr.includes('inputs__')) {
-                            actions.setConfigurationManualErrors({
-                                inputs: {
-                                    [maybeValidationError.attr.split('__')[1]]: maybeValidationError.detail,
-                                },
-                            })
-                        } else {
-                            actions.setConfigurationManualErrors({
-                                [maybeValidationError.attr]: maybeValidationError.detail,
-                            })
-                        }
-                    } else {
-                        console.error(e)
-                        lemonToast.error('Error submitting configuration')
-                    }
-
-                    throw e
+                if (props.templateId) {
+                    // Only sent on create
+                    ;(payload as any).template_id = props.templateId
                 }
+
+                await asyncActions.upsertHogFunction(payload)
             },
         },
     })),
     selectors(() => ({
+        defaultFormState: [
+            (s) => [s.template, s.hogFunction],
+            (template, hogFunction): HogFunctionConfigurationType => {
+                if (template) {
+                    // Fill defaults from template
+                    const inputs = {}
+
+                    template.inputs_schema?.forEach((schema) => {
+                        if (schema.default) {
+                            inputs[schema.key] = { value: schema.default }
+                        }
+                    })
+
+                    return {
+                        ...template,
+                        inputs,
+                        enabled: false,
+                    }
+                } else if (hogFunction) {
+                    return hogFunction
+                }
+                return {} as HogFunctionConfigurationType
+            },
+        ],
+
         loading: [
             (s) => [s.hogFunctionLoading, s.templateLoading],
             (hogFunctionLoading, templateLoading) => hogFunctionLoading || templateLoading,
@@ -243,34 +251,49 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
                     : null
             },
         ],
+
+        willReEnableOnSave: [
+            (s) => [s.configuration, s.hogFunction],
+            (configuration, hogFunction) => {
+                return configuration?.enabled && (hogFunction?.status?.state ?? 0) >= 3
+            },
+        ],
         // TODO: connect to the actual globals
         globalVars: [(s) => [s.hogFunction], (): Record<string, any> => createExampleEvent()],
     })),
 
     listeners(({ actions, values, cache, props }) => ({
-        loadTemplateSuccess: ({ template }) => {
-            // Fill defaults from template
-            const inputs = {}
+        loadTemplateSuccess: () => actions.resetForm(),
+        loadHogFunctionSuccess: () => actions.resetForm(),
+        upsertHogFunctionSuccess: () => actions.resetForm(),
 
-            template!.inputs_schema?.forEach((schema) => {
-                if (schema.default) {
-                    inputs[schema.key] = { value: schema.default }
-                }
-            })
+        upsertHogFunctionFailure: ({ errorObject }) => {
+            const maybeValidationError = errorObject.data
 
-            actions.resetForm({
-                ...template!,
-                inputs,
-                enabled: false,
-            })
+            if (maybeValidationError?.type === 'validation_error') {
+                setTimeout(() => {
+                    // TRICKY: We want to run on the next tick otherwise the errors don't show (possibly because of the async wait in the submit)
+                    if (maybeValidationError.attr.includes('inputs__')) {
+                        actions.setConfigurationManualErrors({
+                            inputs: {
+                                [maybeValidationError.attr.split('__')[1]]: maybeValidationError.detail,
+                            },
+                        })
+                    } else {
+                        actions.setConfigurationManualErrors({
+                            [maybeValidationError.attr]: maybeValidationError.detail,
+                        })
+                    }
+                }, 1)
+            } else {
+                console.error(errorObject)
+                lemonToast.error('Error submitting configuration')
+            }
         },
-        loadHogFunctionSuccess: ({ hogFunction }) => actions.resetForm(hogFunction!),
 
-        resetForm: ({ configuration }) => {
-            const savedValue = configuration
+        resetForm: () => {
             actions.resetConfiguration({
-                ...savedValue,
-                inputs: savedValue?.inputs ?? {},
+                ...values.defaultFormState,
                 ...(cache.configFromUrl || {}),
             })
         },
@@ -318,8 +341,23 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
         },
         resetToTemplate: async () => {
             if (values.hogFunction?.template) {
-                actions.resetForm({
+                const template = values.hogFunction.template
+                // Fill defaults from template
+                const inputs = {}
+
+                template.inputs_schema?.forEach((schema) => {
+                    if (schema.default) {
+                        inputs[schema.key] = { value: schema.default }
+                    }
+                })
+
+                actions.setConfigurationValues({
                     ...values.hogFunction.template,
+                    filters: values.configuration.filters ?? template.filters,
+                    // Keep some existing things
+                    name: values.configuration.name,
+                    description: values.configuration.description,
+                    inputs,
                     enabled: false,
                 })
             }

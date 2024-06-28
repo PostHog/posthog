@@ -1,7 +1,7 @@
 import os
 import time
 from contextlib import contextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from prometheus_client import Histogram
 import json
 from typing import Any, cast
@@ -430,7 +430,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 # Keys are like 1619712000-1619712060
                 blob_key = full_key.replace(blob_prefix.rstrip("/") + "/", "")
                 blob_key_base = blob_key.split(".")[0]  # Remove the extension if it exists
-                time_range = [datetime.fromtimestamp(int(x) / 1000, tz=timezone.utc) for x in blob_key_base.split("-")]
+                time_range = [datetime.fromtimestamp(int(x) / 1000, tz=UTC) for x in blob_key_base.split("-")]
 
                 sources.append(
                     {
@@ -446,7 +446,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             newest_timestamp = min(sources, key=lambda k: k["end_timestamp"])["end_timestamp"]
 
             if might_have_realtime:
-                might_have_realtime = oldest_timestamp + timedelta(hours=24) > datetime.now(timezone.utc)
+                might_have_realtime = oldest_timestamp + timedelta(hours=24) > datetime.now(UTC)
         if might_have_realtime:
             sources.append(
                 {
