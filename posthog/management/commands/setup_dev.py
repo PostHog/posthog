@@ -1,5 +1,6 @@
 from django.core.management.base import BaseCommand
 from django.db import transaction
+from django.utils import timezone
 
 from posthog.demo.legacy import ORGANIZATION_NAME, TEAM_NAME, create_demo_data
 from posthog.models import (
@@ -10,6 +11,8 @@ from posthog.models import (
     PluginSourceFile,
     Team,
     User,
+    OrganizationDomain,
+    Organization,
 )
 from posthog.models.event_definition import EventDefinition
 from posthog.models.personal_api_key import hash_key_value
@@ -64,6 +67,18 @@ class Command(BaseCommand):
 
             if options["create_e2e_test_plugin"]:
                 self.create_plugin(team)
+
+            saml_organization = Organization.objects.update(name="saml org")
+            OrganizationDomain.objects.create(
+                organization=saml_organization,
+                domain="",
+                verified_at=timezone.now(),
+                jit_provisioning_enabled=True,
+                sso_enforcement="saml",
+                saml_entity_id="",
+                saml_acs_url="",
+                saml_x509_cert="",
+            )
 
     @staticmethod
     def add_property_definition(team: Team, property: str) -> None:
