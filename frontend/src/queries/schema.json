@@ -4136,7 +4136,7 @@
                     "type": "integer"
                 }
             },
-            "required": ["endPosition", "kind", "language", "startPosition"],
+            "required": ["endPosition", "kind", "language", "query", "startPosition"],
             "type": "object"
         },
         "HogQLAutocompleteResponse": {
@@ -4228,7 +4228,7 @@
                     "description": "Query within which \"expr\" and \"template\" are validated. Defaults to \"select * from events\""
                 }
             },
-            "required": ["kind", "language"],
+            "required": ["kind", "language", "query"],
             "type": "object"
         },
         "HogQLMetadataResponse": {

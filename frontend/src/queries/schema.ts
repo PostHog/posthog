@@ -355,7 +355,7 @@ export interface HogQLMetadata extends DataNode<HogQLMetadataResponse> {
     /** Language to validate */
     language: HogLanguage
     /** Query to validate */
-    query?: string
+    query: string
     /** Query within which "expr" and "template" are validated. Defaults to "select * from events" */
     sourceQuery?: AnyDataNode
     /** Extra globals for the query */
@@ -371,7 +371,7 @@ export interface HogQLAutocomplete extends DataNode<HogQLAutocompleteResponse> {
     /** Language to validate */
     language: HogLanguage
     /** Query to validate */
-    query?: string
+    query: string
     /** Query in whose context to validate. */
     sourceQuery?: AnyDataNode
     /** Global values in scope */

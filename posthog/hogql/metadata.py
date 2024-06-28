@@ -12,7 +12,7 @@ from posthog.hogql.query import create_default_modifiers_for_team
 from posthog.hogql.visitor import clone_expr
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
-from posthog.schema import HogQLMetadataResponse, HogQLMetadata, HogQLNotice
+from posthog.schema import HogQLMetadataResponse, HogQLMetadata, HogQLNotice, HogLanguage
 from posthog.hogql import ast
 
 
@@ -32,16 +32,16 @@ def get_hogql_metadata(
     query_modifiers = create_default_modifiers_for_team(team)
 
     try:
-        if query.language == "hog":
+        if query.language == HogLanguage.HOG:
             program = parse_program(query.query)
             create_bytecode(program, supported_functions={"fetch"}, args=[])
         else:
-            if query.language == "hogQLExpr" or query.language == "hogTemplate":
+            if query.language == HogLanguage.HOG_QL_EXPR or query.language == HogLanguage.HOG_TEMPLATE:
                 context = HogQLContext(
                     team_id=team.pk, modifiers=query_modifiers, debug=query.debug or False, enable_select_queries=True
                 )
                 node: ast.Expr
-                if query.language == "hogTemplate":
+                if query.language == HogLanguage.HOG_TEMPLATE:
                     node = parse_string_template(query.query)
                 else:
                     node = parse_expr(query.query)
@@ -50,7 +50,7 @@ def get_hogql_metadata(
                     process_expr_on_table(node, context=context, source_query=source_query)
                 else:
                     process_expr_on_table(node, context=context)
-            elif query.language == "hogQL":
+            elif query.language == HogLanguage.HOG_QL:
                 context = HogQLContext(
                     team_id=team.pk,
                     modifiers=query_modifiers,
@@ -88,7 +88,7 @@ def get_hogql_metadata(
             response.errors.append(HogQLNotice(message=f"Unexpected {e.__class__.__name__}"))
 
     # We add a magic "F'" start prefix to get Antlr into the right parsing mode, subtract it now
-    if query.language == "hogTemplate":
+    if query.language == HogLanguage.HOG_TEMPLATE:
         for err in response.errors:
             if err.start is not None and err.end is not None and err.start > 0:
                 err.start -= 2

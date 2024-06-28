@@ -4455,7 +4455,7 @@ class HogQLAutocomplete(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    query: Optional[str] = Field(default=None, description="Query to validate")
+    query: str = Field(..., description="Query to validate")
     response: Optional[HogQLAutocompleteResponse] = None
     sourceQuery: Optional[
         Union[
@@ -4494,7 +4494,7 @@ class HogQLMetadata(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    query: Optional[str] = Field(default=None, description="Query to validate")
+    query: str = Field(..., description="Query to validate")
     response: Optional[HogQLMetadataResponse] = None
     sourceQuery: Optional[
         Union[
