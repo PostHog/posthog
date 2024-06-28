@@ -41,6 +41,8 @@ from posthog.tasks.usage_report import (
     capture_event,
     get_instance_metadata,
     send_all_org_usage_reports,
+    OrgReport,
+    _add_team_report_to_org_reports,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -673,8 +675,13 @@ class ReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTable
         report = _get_team_report(all_reports, self.team)
 
         assert report.recording_count_in_period == 5
-
         assert report.mobile_recording_count_in_period == 0
+
+        org_reports: dict[str, OrgReport] = {}
+        _add_team_report_to_org_reports(org_reports, self.team, report, period_start)
+
+        assert org_reports[str(self.organization.id)].recording_count_in_period == 5
+        assert org_reports[str(self.organization.id)].mobile_recording_count_in_period == 0
 
     def test_usage_report_replay_with_mobile(self) -> None:
         _setup_replay_data(self.team.pk, include_mobile_replay=True)
@@ -688,6 +695,12 @@ class ReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTable
         # but we do split them out of the daily usage since that field is used
         assert report.recording_count_in_period == 5
         assert report.mobile_recording_count_in_period == 1
+
+        org_reports: dict[str, OrgReport] = {}
+        _add_team_report_to_org_reports(org_reports, self.team, report, period_start)
+
+        assert org_reports[str(self.organization.id)].recording_count_in_period == 5
+        assert org_reports[str(self.organization.id)].mobile_recording_count_in_period == 1
 
 
 class HogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):

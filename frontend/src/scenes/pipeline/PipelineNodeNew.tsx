@@ -14,8 +14,8 @@ import { AvailableFeature, BatchExportService, HogFunctionTemplateType, Pipeline
 
 import { pipelineDestinationsLogic } from './destinationsLogic'
 import { frontendAppsLogic } from './frontendAppsLogic'
+import { HogFunctionConfiguration } from './hogfunctions/HogFunctionConfiguration'
 import { HogFunctionIcon } from './hogfunctions/HogFunctionIcon'
-import { PipelineHogFunctionConfiguration } from './hogfunctions/PipelineHogFunctionConfiguration'
 import { PipelineBatchExportConfiguration } from './PipelineBatchExportConfiguration'
 import { PIPELINE_TAB_TO_NODE_STAGE } from './PipelineNode'
 import { pipelineNodeNewLogic, PipelineNodeNewLogicProps } from './pipelineNodeNewLogic'
@@ -118,7 +118,7 @@ export function PipelineNodeNew(params: { stage?: string; id?: string } = {}): J
     }
 
     if (hogFunctionId) {
-        const res = <PipelineHogFunctionConfiguration templateId={hogFunctionId} />
+        const res = <HogFunctionConfiguration templateId={hogFunctionId} />
         if (stage === PipelineStage.Destination) {
             return <PayGateMini feature={AvailableFeature.DATA_PIPELINES}>{res}</PayGateMini>
         }
