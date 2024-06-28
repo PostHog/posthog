@@ -4197,8 +4197,8 @@
                     "type": "string"
                 },
                 "exprSource": {
-                    "$ref": "#/definitions/AnyDataNode",
-                    "description": "Query within which \"expr\" and \"template\" are validated. Defaults to \"select * from events\""
+                    "description": "Query within which \"expr\" and \"template\" are validated. Defaults to \"select * from events\"",
+                    "type": "string"
                 },
                 "filters": {
                     "$ref": "#/definitions/HogQLFilters",
