@@ -228,7 +228,7 @@ def ingestion_lag() -> None:
         pass
 
 
-@shared_task(ignore_result=True)
+@shared_task(ignore_result=True, queue=CeleryQueue.SESSION_REPLAY_GENERAL.value)
 def invalid_web_replays() -> None:
     from posthog.client import sync_execute
 
