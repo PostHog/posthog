@@ -25,7 +25,7 @@ export const errorTrackingQuery = ({
         source: {
             kind: NodeKind.EventsQuery,
             select: [
-                'any(properties) -- context.columns.error',
+                'any(properties) as "context.columns.error"',
                 'properties.$exception_type',
                 `sparkline(reverse(arrayMap(x -> countEqual(groupArray(dateDiff('${unit}', now() - INTERVAL ${period} ${unit}, timestamp)), x), range(${period}))), [${labels}]) -- context.columns.volume`,
                 'count() as unique_occurrences -- Occurrences',
