@@ -47,7 +47,7 @@ class TestQueryRunner(BaseTest):
             def _refresh_frequency(self) -> timedelta:
                 return timedelta(minutes=4)
 
-            def _is_stale(self, cached_result_package) -> bool:
+            def _is_stale(self, cached_result_package, *args, **kwargs) -> bool:
                 return cached_result_package.last_refresh + timedelta(minutes=10) <= datetime.now(tz=ZoneInfo("UTC"))
 
         TestQueryRunner.__abstractmethods__ = frozenset()

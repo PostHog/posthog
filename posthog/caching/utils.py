@@ -95,6 +95,7 @@ def is_stale_filter(
 
 
 staleness_threshold_map = {
+    None: timedelta(minutes=1),
     "minute": timedelta(seconds=15),
     "hour": timedelta(minutes=15),
     "day": timedelta(hours=2),
@@ -102,6 +103,7 @@ staleness_threshold_map = {
     "month": timedelta(days=1),
 }
 staleness_threshold_map_lazy = {
+    None: timedelta(hours=1),
     "minute": timedelta(hours=1),
     "hour": timedelta(hours=6),
     "day": timedelta(hours=24),
@@ -131,10 +133,6 @@ def is_stale(
     # If the date_to is in the past of the last refresh, the data cannot be stale
     if date_to and date_to < last_refresh:
         return False
-
-    if not interval:
-        # For example for HogQL queries
-        return last_refresh < datetime.now(UTC) - (timedelta(minutes=1) if not lazy else timedelta(hours=6))
 
     if interval not in staleness_threshold_map:
         return False

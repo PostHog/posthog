@@ -1024,7 +1024,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 const queryId = `${dashboardQueryId}::${uuid()}`
                 const queryStartTime = performance.now()
                 const apiUrl = `api/projects/${values.currentTeamId}/insights/${insight.id}/?${toParams({
-                    refresh: hardRefreshWithoutCache ? 'force_async' : 'async',
+                    refresh: hardRefreshWithoutCache ? 'async' : 'lazy_async',
                     from_dashboard: dashboardId, // needed to load insight in correct context
                     client_query_id: queryId,
                     session_id: currentSessionId(),
