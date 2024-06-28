@@ -114,7 +114,7 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
             (s) => [s.isMultipleBreakdownsEnabled, s.localHistogramBinCount, s.globalBinCount, s.multipleBreakdown],
             (isMultipleBreakdownsEnabled, localHistogramBinCount, gloabalBinCount, multipleBreakdown) => {
                 if (isMultipleBreakdownsEnabled) {
-                    return localHistogramBinCount ?? multipleBreakdown?.histogram_bin_count
+                    return localHistogramBinCount ?? multipleBreakdown?.histogram_bin_count ?? 10
                 }
 
                 return gloabalBinCount
