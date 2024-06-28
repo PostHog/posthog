@@ -132,6 +132,7 @@ describe('extractHeatmapDataStep()', () => {
             hub: {
                 kafkaProducer: {
                     produce: jest.fn((e) => Promise.resolve(e)),
+                    queueMessage: jest.fn((e) => Promise.resolve(e)),
                 },
                 teamManager: {
                     fetchTeam: jest.fn(() => Promise.resolve({ heatmaps_opt_in: true })),
