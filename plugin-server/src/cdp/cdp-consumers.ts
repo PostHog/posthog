@@ -547,12 +547,12 @@ export class CdpOverflowConsumer extends CdpConsumerBase {
             statsKey: `cdpConsumer.handleEachBatch.executeOverflowedFunctions`,
             func: async () => {
                 const invocations = invocationGlobals
-                    .map((item) => {
-                        return item.hogFunctionIds.map((hogFunctionId) => ({
+                    .map((item) =>
+                        item.hogFunctionIds.map((hogFunctionId) => ({
                             globals: item.globals,
                             hogFunctionId,
                         }))
-                    })
+                    )
                     .flat()
 
                 const results = (
