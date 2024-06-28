@@ -596,6 +596,9 @@ def get_event(request):
             generate_exception_response("capture", f"Invalid recording payload", code="invalid_payload"),
         )
     except KafkaTimeoutError as kte:
+        # posthog-js will retry when it receives a 504, and it sends `retry_count` in the query params,
+        # so we use this to retry on 0, 1, and 2 and then return a 400 on the fourth attempt
+        # this is to prevent a client from retrying indefinitely
         status_code = status.HTTP_400_BAD_REQUEST if (retry_count or 0) > 2 else status.HTTP_504_GATEWAY_TIMEOUT
 
         KAFKA_TIMEOUT_ERROR_COUNTER.labels(retry_count=retry_count, status_code=status_code).inc()
