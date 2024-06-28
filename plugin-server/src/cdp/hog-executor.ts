@@ -138,40 +138,36 @@ export class HogExecutor {
     /**
      * Intended to be invoked as a starting point from an event
      */
-    executeFunctions(
+    executeFunction(
         event: HogFunctionInvocationGlobals,
-        functionsOrIds: HogFunctionType[] | HogFunctionType['id'][]
-    ): HogFunctionInvocationResult[] {
-        const functions = functionsOrIds
-            .map((x) => {
-                if (typeof x === 'string') {
-                    return this.hogFunctionManager.getTeamHogFunction(event.project.id, x) as HogFunctionType
-                }
-                return x as HogFunctionType
-            })
-            .filter((x) => x) // Filter out any undefined values
+        functionOrId: HogFunctionType | HogFunctionType['id']
+    ): HogFunctionInvocationResult | undefined {
+        const hogFunction =
+            typeof functionOrId === 'string'
+                ? this.hogFunctionManager.getTeamHogFunction(event.project.id, functionOrId)
+                : functionOrId
 
-        const results = functions.map((hogFunction) => {
-            // Add the source of the trigger to the globals
-            const modifiedGlobals: HogFunctionInvocationGlobals = {
-                ...event,
-                source: {
-                    name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
-                    url: `${event.project.url}/pipeline/destinations/hog-${hogFunction.id}/configuration/`,
-                },
-            }
+        if (!hogFunction) {
+            return
+        }
 
-            return this.execute(hogFunction, {
-                id: new UUIDT().toString(),
-                globals: modifiedGlobals,
-                teamId: hogFunction.team_id,
-                hogFunctionId: hogFunction.id,
-                logs: [],
-                timings: [],
-            })
+        // Add the source of the trigger to the globals
+        const modifiedGlobals: HogFunctionInvocationGlobals = {
+            ...event,
+            source: {
+                name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
+                url: `${event.project.url}/pipeline/destinations/hog-${hogFunction.id}/configuration/`,
+            },
+        }
+
+        return this.execute(hogFunction, {
+            id: new UUIDT().toString(),
+            globals: modifiedGlobals,
+            teamId: hogFunction.team_id,
+            hogFunctionId: hogFunction.id,
+            logs: [],
+            timings: [],
         })
-
-        return results
     }
 
     /**
