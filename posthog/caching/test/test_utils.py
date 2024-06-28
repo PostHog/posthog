@@ -18,6 +18,10 @@ def stale_cache_invalidation_disabled(team):
 @pytest.mark.parametrize(
     "team, date_to, interval, last_refresh, expected",
     [
+        # Test cases for no interval
+        (Team("A"), None, None, datetime.now(tz=UTC) - timedelta(minutes=20), True),
+        (Team("A"), None, None, datetime.now(tz=UTC) - timedelta(seconds=20), False),
+        (Team("A"), None, None, datetime.now(tz=UTC) - timedelta(seconds=10), False),
         # Test cases for "minute" interval
         (Team("A"), datetime.now(tz=UTC), "minute", datetime.now(tz=UTC) - timedelta(seconds=20), True),
         (Team("A"), datetime.now(tz=UTC), "minute", datetime.now(tz=UTC) - timedelta(seconds=10), False),

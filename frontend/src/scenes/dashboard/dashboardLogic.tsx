@@ -849,7 +849,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.loadDashboardSuccess(props.dashboard)
                 } else {
                     actions.loadDashboard({
-                        refresh: values.featureFlags[FEATURE_FLAGS.HOGQL_DASHBOARD_ASYNC] ? 'async' : 'force_cache',
+                        refresh: values.featureFlags[FEATURE_FLAGS.HOGQL_DASHBOARD_ASYNC]
+                            ? 'lazy_async'
+                            : 'force_cache',
                         action: 'initial_load',
                     })
                 }

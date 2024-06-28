@@ -94,7 +94,29 @@ def is_stale_filter(
     return is_stale(team, filter.date_to, interval, cached_result)
 
 
-def is_stale(team: Team, date_to: Optional[datetime], interval: str, last_refresh: datetime) -> bool:
+staleness_threshold_map = {
+    "minute": timedelta(seconds=15),
+    "hour": timedelta(minutes=15),
+    "day": timedelta(hours=2),
+    "week": timedelta(hours=12),
+    "month": timedelta(days=1),
+}
+staleness_threshold_map_lazy = {
+    "minute": timedelta(hours=1),
+    "hour": timedelta(hours=6),
+    "day": timedelta(hours=24),
+    "week": timedelta(days=2),
+    "month": timedelta(days=2),
+}
+
+
+def is_stale(
+    team: Team,
+    date_to: Optional[datetime],
+    interval: Optional[str],
+    last_refresh: Optional[datetime],
+    lazy: bool = False,
+) -> bool:
     """
     Indicates whether a cache item is obviously outdated based on the last_refresh date, the last
     requested date (date_to) and the granularity of the query (interval).
@@ -110,17 +132,14 @@ def is_stale(team: Team, date_to: Optional[datetime], interval: str, last_refres
     if date_to and date_to < last_refresh:
         return False
 
-    # Determine the staleness threshold based on the interval
-    if interval == "minute":
-        staleness_threshold = timedelta(seconds=15)
-    elif interval == "hour":
-        staleness_threshold = timedelta(minutes=15)
-    elif interval == "day":
-        staleness_threshold = timedelta(hours=2)
-    elif interval == "month":
-        staleness_threshold = timedelta(days=1)
-    else:
+    if not interval:
+        # For example for HogQL queries
+        return last_refresh < datetime.now(UTC) - (timedelta(minutes=1) if not lazy else timedelta(hours=6))
+
+    if interval not in staleness_threshold_map:
         return False
+
+    staleness_threshold = staleness_threshold_map_lazy[interval] if lazy else staleness_threshold_map[interval]
 
     max_age = datetime.now(UTC) - staleness_threshold
     return last_refresh < max_age
