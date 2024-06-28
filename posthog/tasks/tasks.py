@@ -230,6 +230,8 @@ def ingestion_lag() -> None:
 
 @shared_task(ignore_result=True, queue=CeleryQueue.SESSION_REPLAY_GENERAL.value)
 def invalid_web_replays() -> None:
+    logger.info("[invalid web replays] running task")
+
     from posthog.client import sync_execute
 
     # ultimately I want to observe values by team id, but at the moment that would be lots of series, let's reduce the value first
