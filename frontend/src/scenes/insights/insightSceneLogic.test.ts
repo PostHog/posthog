@@ -6,6 +6,7 @@ import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
+import { InsightVizNode } from '~/queries/schema'
 import { initKeaTests } from '~/test/init'
 import { InsightShortId, InsightType, ItemMode } from '~/types'
 
@@ -55,7 +56,9 @@ describe('insightSceneLogic', () => {
                 }),
             })
 
-        expect(logic.values.insightLogicRef?.logic.values.filters.insight).toEqual(InsightType.FUNNELS)
+        expect(
+            (logic.values.insightLogicRef?.logic.values.queryBasedInsight.query as InsightVizNode).source?.kind
+        ).toEqual('FunnelsQuery')
     })
 
     it('persists edit mode in the url', async () => {
