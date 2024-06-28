@@ -324,7 +324,10 @@ class FunnelBase(ABC):
         target_step = self.context.actorsQuery.funnelStep
         if target_step < 0:
             if target_step == -1:
-                raise ValueError("The first valid drop-off argument for funnelStep is -2. -2 refers to persons who performed the first step but never made it to the second.")
+                raise ValueError(
+                    "The first valid drop-off argument for funnelStep is -2. -2 refers to persons who performed "
+                    "the first step but never made it to the second."
+                )
             return abs(target_step) - 2
         elif target_step == 0:
             raise ValueError("Funnel steps are 1-indexed, so step 0 doesn't exist")

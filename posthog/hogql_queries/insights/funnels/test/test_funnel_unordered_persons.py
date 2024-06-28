@@ -60,7 +60,7 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
         with self.assertRaisesMessage(ValueError, "Funnel steps are 1-indexed, so step 0 doesn't exist"):
             get_actors(filters, self.team, funnel_step=0)
 
-        with self.assertRaisesMessage(ValueError, "To request dropoff of initial step use -2"):
+        with self.assertRaisesMessage(ValueError, "The first valid drop-off argument for funnelStep is -2"):
             get_actors(filters, self.team, funnel_step=-1)
 
     def test_first_step(self):
