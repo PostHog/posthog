@@ -600,6 +600,7 @@ export interface Team {
     api_token: string
     slack_incoming_webhook: string | null
     session_recording_opt_in: boolean
+    heatmaps_opt_in: boolean | null
     ingested_event: boolean
     person_display_name_properties: string[] | null
     test_account_filters:

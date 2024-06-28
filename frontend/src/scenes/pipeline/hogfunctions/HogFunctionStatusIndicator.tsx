@@ -5,7 +5,7 @@ import { dayjs } from 'lib/dayjs'
 
 import { HogWatcherState } from '~/types'
 
-import { pipelineHogFunctionConfigurationLogic } from './pipelineHogFunctionConfigurationLogic'
+import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
 
 type DisplayOptions = { tagType: LemonTagProps['type']; display: string; description: JSX.Element }
 const displayMap: Record<HogWatcherState, DisplayOptions> = {
@@ -56,7 +56,7 @@ const DEFAULT_DISPLAY: DisplayOptions = {
 }
 
 export function HogFunctionStatusIndicator(): JSX.Element | null {
-    const { hogFunction } = useValues(pipelineHogFunctionConfigurationLogic)
+    const { hogFunction } = useValues(hogFunctionConfigurationLogic)
 
     if (!hogFunction || !hogFunction.enabled) {
         return null

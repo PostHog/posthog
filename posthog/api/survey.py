@@ -4,7 +4,7 @@ from urllib.parse import urlparse
 
 import nh3
 from django.db.models import Min
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
 from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
 from nanoid import generate
@@ -466,6 +466,9 @@ class SurveyAPISerializer(serializers.ModelSerializer):
 @csrf_exempt
 def surveys(request: Request):
     token = get_token(None, request)
+
+    if request.method == "OPTIONS":
+        return cors_response(request, HttpResponse(""))
 
     if not token:
         return cors_response(
