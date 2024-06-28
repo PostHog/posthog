@@ -21,7 +21,7 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.functions.mapping import ALL_EXPOSED_FUNCTION_NAMES
-from posthog.hogql.parser import parse_select, parse_expr, parse_string_template
+from posthog.hogql.parser import parse_select, parse_expr, parse_string_template, parse_program
 from posthog.hogql import ast
 from posthog.hogql.base import AST, CTE, ConstantType
 from posthog.hogql.resolver import resolve_types
@@ -326,22 +326,28 @@ def get_hogql_autocomplete(
             query_to_try = query.query[: query.endPosition] + extra_characters + query.query[query.endPosition :]
             query_start = query.startPosition
             query_end = query.endPosition + length_to_add
+            node_ast: ast.AST
 
             if query.language == HogLanguage.HOG_QL:
                 with timings.measure("parse_select"):
-                    select_ast = parse_select(query_to_try)
+                    select_ast = parse_select(query_to_try, timings=timings)
                     root_node: ast.AST = select_ast
             elif query.language == HogLanguage.HOG_QL_EXPR:
                 with timings.measure("parse_expr"):
-                    node_ast = parse_expr(query_to_try)
+                    node_ast = parse_expr(query_to_try, timings=timings)
                     select_ast = cast(ast.SelectQuery, clone_expr(source_query, clear_locations=True))
                     select_ast.select = [node_ast]
                     root_node = node_ast
             elif query.language == HogLanguage.HOG_TEMPLATE:
                 with timings.measure("parse_template"):
-                    node_ast = parse_string_template(query_to_try)
+                    node_ast = parse_string_template(query_to_try, timings=timings)
                     select_ast = cast(ast.SelectQuery, clone_expr(source_query, clear_locations=True))
                     select_ast.select = [node_ast]
+                    root_node = node_ast
+            elif query.language == HogLanguage.HOG:
+                with timings.measure("parse_program"):
+                    node_ast = parse_program(query_to_try, timings=timings)
+                    select_ast = cast(ast.SelectQuery, clone_expr(source_query, clear_locations=True))
                     root_node = node_ast
             else:
                 raise ValueError(f"Unsupported autocomplete language: {query.language}")
