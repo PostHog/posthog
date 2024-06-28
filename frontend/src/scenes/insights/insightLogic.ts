@@ -77,14 +77,12 @@ export const insightLogic = kea<insightLogicType>([
             insightMode,
             clearInsightQuery,
         }),
-        setIsLoading: (isLoading: boolean) => ({ isLoading }),
         setInsight: (insight: Partial<InsightModel>, options: SetInsightOptions) => ({
             insight,
             options,
         }),
         saveAsNamingSuccess: (name: string) => ({ name }),
         cancelChanges: true,
-        setInsightDescription: (description: string) => ({ description }),
         saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
         saveInsightSuccess: true,
         saveInsightFailure: true,
@@ -274,7 +272,7 @@ export const insightLogic = kea<insightLogicType>([
             },
         },
         /* filters contains the in-flight filters, might not (yet?) be the same as insight.filters */
-        filters: [
+        legacyFilters: [
             () => props.cachedInsight?.filters || ({} as Partial<FilterType>),
             {
                 setFilters: (_, { filters }) => cleanFilters(filters),
@@ -303,7 +301,6 @@ export const insightLogic = kea<insightLogicType>([
         insightLoading: [
             false,
             {
-                setIsLoading: (_, { isLoading }) => isLoading,
                 loadInsight: () => true,
                 loadInsightSuccess: () => false,
                 loadInsightFailure: () => false,
@@ -360,13 +357,6 @@ export const insightLogic = kea<insightLogicType>([
                     (insight.description || '') !== (savedInsight.description || '') ||
                     !objectsEqual(insight.tags || [], savedInsight.tags || [])
                 )
-            },
-        ],
-        filtersKnown: [
-            (s) => [s.legacyInsight],
-            ({ filters }) => {
-                // any real filter will have the `insight` key in it
-                return 'insight' in (filters ?? {})
             },
         ],
         showPersonsModal: [() => [(_, p) => p.query], (query?: InsightVizNode) => !query || !query.hidePersonsModal],
@@ -440,7 +430,7 @@ export const insightLogic = kea<insightLogicType>([
         saveAsNamingSuccess: async ({ name }) => {
             const insight: InsightModel = await api.create(`api/projects/${teamLogic.values.currentTeamId}/insights/`, {
                 name,
-                filters: values.filters,
+                filters: values.legacyFilters,
                 query: values.legacyInsight.query,
                 saved: true,
             })
