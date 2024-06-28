@@ -1,8 +1,9 @@
 import json
 import uuid
 from datetime import datetime
-from typing import Optional, Union
+from typing import Any, Optional, Union, cast
 from unittest.mock import patch
+import dataclasses
 
 from zoneinfo import ZoneInfo
 from django.test import override_settings
@@ -12,21 +13,20 @@ import pytest
 from rest_framework.exceptions import ValidationError
 
 from posthog.constants import (
-    ENTITY_ID,
-    ENTITY_TYPE,
     TREND_FILTER_TYPE_EVENTS,
     TRENDS_BAR_VALUE,
     TRENDS_LINEAR,
     TRENDS_TABLE,
 )
+from posthog.hogql_queries.insights.trends.test.test_trends_persons import get_actors
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import (
     clean_entity_properties,
     clean_global_properties,
+    filter_to_query,
 )
 from posthog.models import (
     Action,
-    ActionStep,
     Cohort,
     Entity,
     Filter,
@@ -43,15 +43,17 @@ from posthog.models.instance_setting import (
 from posthog.models.person.util import create_person_distinct_id
 from posthog.models.property_definition import PropertyDefinition
 from posthog.models.team.team import Team
+from posthog.models.utils import uuid7
 from posthog.schema import (
     ActionsNode,
     BreakdownFilter,
-    DateRange,
+    InsightDateRange,
     EventsNode,
     DataWarehouseNode,
     PropertyGroupFilter,
     TrendsFilter,
     TrendsQuery,
+    CompareFilter,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -89,8 +91,7 @@ def _create_action(**kwargs):
     team = kwargs.pop("team")
     name = kwargs.pop("name")
     properties = kwargs.pop("properties", {})
-    action = Action.objects.create(team=team, name=name)
-    ActionStep.objects.create(action=action, event=name, properties=properties)
+    action = Action.objects.create(team=team, name=name, steps_json=[{"event": name, "properties": properties}])
     return action
 
 
@@ -178,7 +179,7 @@ def convert_filter_to_trends_query(filter: Filter) -> TrendsQuery:
         series=series,
         kind="TrendsQuery",
         filterTestAccounts=filter.filter_test_accounts,
-        dateRange=DateRange(date_from=filter_as_dict.get("date_from"), date_to=filter_as_dict.get("date_to")),
+        dateRange=InsightDateRange(date_from=filter_as_dict.get("date_from"), date_to=filter_as_dict.get("date_to")),
         samplingFactor=filter.sampling_factor,
         aggregation_group_type_index=filter.aggregation_group_type_index,
         breakdownFilter=BreakdownFilter(
@@ -194,10 +195,10 @@ def convert_filter_to_trends_query(filter: Filter) -> TrendsQuery:
         trendsFilter=TrendsFilter(
             display=filter.display,
             breakdown_histogram_bin_count=filter.breakdown_histogram_bin_count,
-            compare=filter.compare,
             formula=filter.formula,
             smoothingIntervals=filter.smoothing_intervals,
         ),
+        compareFilter=CompareFilter(compare=filter.compare, compare_to=filter.compare_to),
     )
 
     return tq
@@ -216,20 +217,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         tqr = TrendsQueryRunner(team=team, query=trend_query)
         return tqr.calculate().results
 
-    def _get_trend_people(self, filter: Filter, entity: Entity):
-        data = filter.to_dict()
-        # The test client doesn't serialize nested objects into JSON, so we need to do it ourselves
-        if data.get("events", None):
-            data["events"] = json.dumps(data["events"])
-        if data.get("properties", None):
-            data["properties"] = json.dumps(data["properties"])
-        with self.settings(DEBUG=True):
-            response = self.client.get(
-                f"/api/projects/{self.team.id}/persons/trends/",
-                data={**data, ENTITY_TYPE: entity.type, ENTITY_ID: entity.id},
-                content_type="application/json",
-            ).json()
-        return response["results"][0]["people"]
+    def _get_actors(self, filters: dict[str, Any], **kwargs) -> list[list[Any]]:
+        trends_query = cast(TrendsQuery, filter_to_query(filters))
+        return get_actors(trends_query=trends_query, **kwargs)
 
     def _create_event(self, **kwargs):
         _create_event(**kwargs)
@@ -757,8 +747,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[2]["labels"][4], "1-Jan-2020")
         self.assertEqual(response[2]["data"], [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0])
 
-    @also_test_with_person_on_events_v2
     @snapshot_clickhouse_queries
+    @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True)
     def test_trends_breakdown_normalize_url(self):
         self._create_breakdown_url_events()
         with freeze_time("2020-01-04T13:00:01Z"):
@@ -914,6 +904,10 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_trends_with_session_property_single_aggregate_math(self):
+        s1 = str(uuid7("2020-01-01", 1))
+        s2 = str(uuid7("2020-01-01", 2))
+        s3 = str(uuid7("2020-01-01", 3))
+        s4 = str(uuid7("2020-01-01", 4))
         self._create_person(
             team_id=self.team.pk,
             distinct_ids=["blabla", "anonymous_id"],
@@ -929,21 +923,21 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             event="sign up before",
             distinct_id="blabla",
-            properties={"$session_id": 1},
+            properties={"$session_id": s1},
             timestamp="2020-01-01 00:06:30",
         )
         self._create_event(
             team=self.team,
             event="sign up",
             distinct_id="blabla",
-            properties={"$session_id": 1},
+            properties={"$session_id": s1},
             timestamp="2020-01-01 00:06:34",
         )
         self._create_event(
             team=self.team,
             event="sign up later",
             distinct_id="blabla",
-            properties={"$session_id": 1},
+            properties={"$session_id": s1},
             timestamp="2020-01-01 00:06:35",
         )
         # First session lasted 5 seconds
@@ -951,14 +945,14 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             event="sign up",
             distinct_id="blabla2",
-            properties={"$session_id": 2},
+            properties={"$session_id": s2},
             timestamp="2020-01-01 00:06:35",
         )
         self._create_event(
             team=self.team,
             event="sign up",
             distinct_id="blabla2",
-            properties={"$session_id": 2},
+            properties={"$session_id": s2},
             timestamp="2020-01-01 00:06:45",
         )
         # Second session lasted 10 seconds
@@ -967,7 +961,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             event="sign up",
             distinct_id="blabla",
-            properties={"$session_id": 3},
+            properties={"$session_id": s3},
             timestamp="2020-01-01 00:06:45",
         )
         # Third session lasted 0 seconds
@@ -976,14 +970,14 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             event="sign up",
             distinct_id="blabla",
-            properties={"$session_id": 4},
+            properties={"$session_id": s4},
             timestamp="2020-01-02 00:06:30",
         )
         self._create_event(
             team=self.team,
             event="sign up",
             distinct_id="blabla",
-            properties={"$session_id": 4},
+            properties={"$session_id": s4},
             timestamp="2020-01-02 00:06:45",
         )
         # Fourth session lasted 15 seconds
@@ -1033,6 +1027,10 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_unique_session_with_session_breakdown(self):
+        s1 = str(uuid7("2020-01-01", 1))
+        s2 = str(uuid7("2020-01-01", 2))
+        s3 = str(uuid7("2020-01-01", 3))
+        s4 = str(uuid7("2020-01-01", 4))
         self._create_person(
             team_id=self.team.pk,
             distinct_ids=["blabla", "anonymous_id"],
@@ -1048,21 +1046,21 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             event="sign up before",
             distinct_id="blabla",
-            properties={"$session_id": 1},
+            properties={"$session_id": s1},
             timestamp="2020-01-01 00:06:30",
         )
         self._create_event(
             team=self.team,
             event="sign up",
             distinct_id="blabla",
-            properties={"$session_id": 1},
+            properties={"$session_id": s1},
             timestamp="2020-01-01 00:06:34",
         )
         self._create_event(
             team=self.team,
             event="sign up later",
             distinct_id="blabla",
-            properties={"$session_id": 1},
+            properties={"$session_id": s1},
             timestamp="2020-01-01 00:06:35",
         )
         # First session lasted 5 seconds
@@ -1070,14 +1068,14 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             event="sign up",
             distinct_id="blabla2",
-            properties={"$session_id": 2},
+            properties={"$session_id": s2},
             timestamp="2020-01-01 00:06:35",
         )
         self._create_event(
             team=self.team,
             event="sign up",
             distinct_id="blabla2",
-            properties={"$session_id": 2},
+            properties={"$session_id": s2},
             timestamp="2020-01-01 00:06:45",
         )
         # Second session lasted 10 seconds
@@ -1086,7 +1084,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             event="sign up",
             distinct_id="blabla",
-            properties={"$session_id": 3},
+            properties={"$session_id": s3},
             timestamp="2020-01-01 00:06:45",
         )
         # Third session lasted 0 seconds
@@ -1095,14 +1093,14 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             event="sign up",
             distinct_id="blabla",
-            properties={"$session_id": 4},
+            properties={"$session_id": s4},
             timestamp="2020-01-02 00:06:30",
         )
         self._create_event(
             team=self.team,
             event="sign up",
             distinct_id="blabla",
-            properties={"$session_id": 4},
+            properties={"$session_id": s4},
             timestamp="2020-01-02 00:06:45",
         )
         # Fourth session lasted 15 seconds
@@ -1128,12 +1126,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
             self.assertEqual(
                 [(item["breakdown_value"], item["count"], item["data"]) for item in response],
-                [
-                    ("[4.95,10.05]", 2.0, [2.0, 0.0, 0.0, 0.0]),
-                    ("[0.0,4.95]", 1.0, [1.0, 0.0, 0.0, 0.0]),
-                    ("[10.05,15.01]", 1.0, [0.0, 1.0, 0.0, 0.0]),
-                    ('["",""]', 0.0, [0.0, 0.0, 0.0, 0.0]),
-                ],
+                [("[10,15.01]", 2.0, [1, 1, 0, 0]), ("[0,5]", 1.0, [1, 0, 0, 0]), ("[5,10]", 1.0, [1, 0, 0, 0])],
             )
 
     @also_test_with_person_on_events_v2
@@ -1507,6 +1500,10 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown(self):
+        s1 = str(uuid7("2020-01-01", 1))
+        s2 = str(uuid7("2020-01-01", 2))
+        s3 = str(uuid7("2020-01-01", 3))
+        s4 = str(uuid7("2020-01-01", 4))
         self._create_person(
             team_id=self.team.pk,
             distinct_ids=["blabla", "anonymous_id"],
@@ -1522,21 +1519,21 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             event="sign up before",
             distinct_id="blabla",
-            properties={"$session_id": 1, "$some_property": "value1"},
+            properties={"$session_id": s1, "$some_property": "value1"},
             timestamp="2020-01-01 00:06:30",
         )
         self._create_event(
             team=self.team,
             event="sign up",
             distinct_id="blabla",
-            properties={"$session_id": 1, "$some_property": "value1"},
+            properties={"$session_id": s1, "$some_property": "value1"},
             timestamp="2020-01-01 00:06:34",
         )
         self._create_event(
             team=self.team,
             event="sign up later",
             distinct_id="blabla",
-            properties={"$session_id": 1, "$some_property": "value doesnt matter"},
+            properties={"$session_id": s1, "$some_property": "value doesnt matter"},
             timestamp="2020-01-01 00:06:35",
         )
         # First session lasted 5 seconds
@@ -1544,14 +1541,14 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             event="sign up",
             distinct_id="blabla2",
-            properties={"$session_id": 2, "$some_property": "value2"},
+            properties={"$session_id": s2, "$some_property": "value2"},
             timestamp="2020-01-01 00:06:35",
         )
         self._create_event(
             team=self.team,
             event="sign up",
             distinct_id="blabla2",
-            properties={"$session_id": 2, "$some_property": "value1"},
+            properties={"$session_id": s2, "$some_property": "value1"},
             timestamp="2020-01-01 00:06:45",
         )
         # Second session lasted 10 seconds
@@ -1560,14 +1557,14 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             event="sign up",
             distinct_id="blabla",
-            properties={"$session_id": 3},
+            properties={"$session_id": s3},
             timestamp="2020-01-01 00:06:45",
         )
         self._create_event(
             team=self.team,
             event="sign up",
             distinct_id="blabla",
-            properties={"$session_id": 3},
+            properties={"$session_id": s3},
             timestamp="2020-01-01 00:06:46",
         )
         # Third session lasted 1 seconds
@@ -1576,21 +1573,21 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             event="sign up",
             distinct_id="blabla",
-            properties={"$session_id": 4, "$some_property": "value2"},
+            properties={"$session_id": s4, "$some_property": "value2"},
             timestamp="2020-01-02 00:06:30",
         )
         self._create_event(
             team=self.team,
             event="sign up",
             distinct_id="blabla",
-            properties={"$session_id": 4, "$some_property": "value2"},
+            properties={"$session_id": s4, "$some_property": "value2"},
             timestamp="2020-01-02 00:06:35",
         )
         self._create_event(
             team=self.team,
             event="sign up",
             distinct_id="blabla",
-            properties={"$session_id": 4, "$some_property": "value1"},
+            properties={"$session_id": s4, "$some_property": "value1"},
             timestamp="2020-01-02 00:06:45",
         )
         # Fourth session lasted 15 seconds
@@ -1620,7 +1617,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # empty has: 1 seconds
         self.assertEqual(
             [resp["breakdown_value"] for resp in daily_response],
-            ["value1", "value2", "$$_posthog_breakdown_null_$$"],
+            ["value2", "value1", "$$_posthog_breakdown_null_$$"],
         )
         self.assertEqual(sorted([resp["aggregated_value"] for resp in daily_response]), sorted([12.5, 10, 1]))
 
@@ -1655,6 +1652,10 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_trends_person_breakdown_with_session_property_single_aggregate_math_and_breakdown(self):
+        s1 = str(uuid7("2020-01-01", 1))
+        s2 = str(uuid7("2020-01-01", 2))
+        s3 = str(uuid7("2020-01-01", 3))
+        s4 = str(uuid7("2020-01-01", 4))
         self._create_person(
             team_id=self.team.pk,
             distinct_ids=["blabla", "anonymous_id"],
@@ -1670,21 +1671,21 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             event="sign up before",
             distinct_id="blabla",
-            properties={"$session_id": 1, "$some_property": "value1"},
+            properties={"$session_id": s1, "$some_property": "value1"},
             timestamp="2020-01-01 00:06:30",
         )
         self._create_event(
             team=self.team,
             event="sign up",
             distinct_id="blabla",
-            properties={"$session_id": 1, "$some_property": "value1"},
+            properties={"$session_id": s1, "$some_property": "value1"},
             timestamp="2020-01-01 00:06:34",
         )
         self._create_event(
             team=self.team,
             event="sign up later",
-            distinct_id="blabla",
-            properties={"$session_id": 1, "$some_property": "value doesnt matter"},
+            distinct_id="blasbla",
+            properties={"$session_id": s1, "$some_property": "value doesnt matter"},
             timestamp="2020-01-01 00:06:35",
         )
         # First session lasted 5 seconds
@@ -1692,14 +1693,14 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             event="sign up",
             distinct_id="blabla2",
-            properties={"$session_id": 2, "$some_property": "value2"},
+            properties={"$session_id": s2, "$some_property": "value2"},
             timestamp="2020-01-01 00:06:35",
         )
         self._create_event(
             team=self.team,
             event="sign up",
             distinct_id="blabla2",
-            properties={"$session_id": 2, "$some_property": "value1"},
+            properties={"$session_id": s2, "$some_property": "value1"},
             timestamp="2020-01-01 00:06:45",
         )
         # Second session lasted 10 seconds
@@ -1708,14 +1709,14 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             event="sign up",
             distinct_id="blabla",
-            properties={"$session_id": 3},
+            properties={"$session_id": s3},
             timestamp="2020-01-01 00:06:45",
         )
         self._create_event(
             team=self.team,
             event="sign up",
             distinct_id="blabla",
-            properties={"$session_id": 3},
+            properties={"$session_id": s3},
             timestamp="2020-01-01 00:06:46",
         )
         # Third session lasted 1 seconds
@@ -1724,21 +1725,21 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             event="sign up",
             distinct_id="blabla",
-            properties={"$session_id": 4, "$some_property": "value2"},
+            properties={"$session_id": s4, "$some_property": "value2"},
             timestamp="2020-01-02 00:06:30",
         )
         self._create_event(
             team=self.team,
             event="sign up",
             distinct_id="blabla",
-            properties={"$session_id": 4, "$some_property": "value2"},
+            properties={"$session_id": s4, "$some_property": "value2"},
             timestamp="2020-01-02 00:06:35",
         )
         self._create_event(
             team=self.team,
             event="sign up",
             distinct_id="blabla",
-            properties={"$session_id": 4, "$some_property": "value1"},
+            properties={"$session_id": s4, "$some_property": "value1"},
             timestamp="2020-01-02 00:06:45",
         )
         # Fourth session lasted 15 seconds
@@ -2822,6 +2823,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_trends_with_hogql_math(self):
+        s1 = str(uuid7("2020-01-01", 1))
+        s5 = str(uuid7("2020-01-01", 5))
         self._create_person(
             team_id=self.team.pk,
             distinct_ids=["blabla", "anonymous_id"],
@@ -2831,14 +2834,14 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             event="sign up",
             distinct_id="blabla",
-            properties={"$session_id": 1},
+            properties={"$session_id": s1, "x": 1},
             timestamp="2020-01-01 00:06:30",
         )
         self._create_event(
             team=self.team,
             event="sign up",
             distinct_id="blabla",
-            properties={"$session_id": 5},
+            properties={"$session_id": s5, "x": 5},
             timestamp="2020-01-02 00:06:45",
         )
 
@@ -2852,7 +2855,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                             {
                                 "id": "sign up",
                                 "math": "hogql",
-                                "math_hogql": "avg(properties.$session_id) + 1000",
+                                "math_hogql": "avg(properties.x) + 1000",
                             }
                         ],
                     },
@@ -2864,6 +2867,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_trends_with_session_property_total_volume_math(self):
+        s1 = str(uuid7("2020-01-01", 1))
+        s2 = str(uuid7("2020-01-01", 2))
+        s3 = str(uuid7("2020-01-01", 3))
+        s4 = str(uuid7("2020-01-01", 4))
+        s5 = str(uuid7("2020-01-01", 5))
         self._create_person(
             team_id=self.team.pk,
             distinct_ids=["blabla", "anonymous_id"],
@@ -2879,21 +2887,21 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             event="sign up before",
             distinct_id="blabla",
-            properties={"$session_id": 1},
+            properties={"$session_id": s1},
             timestamp="2020-01-01 00:06:30",
         )
         self._create_event(
             team=self.team,
             event="sign up",
             distinct_id="blabla",
-            properties={"$session_id": 1},
+            properties={"$session_id": s1},
             timestamp="2020-01-01 00:06:34",
         )
         self._create_event(
             team=self.team,
             event="sign up later",
             distinct_id="blabla",
-            properties={"$session_id": 1},
+            properties={"$session_id": s1},
             timestamp="2020-01-01 00:06:35",
         )
         # First session lasted 5 seconds
@@ -2901,14 +2909,14 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             event="sign up",
             distinct_id="blabla2",
-            properties={"$session_id": 2},
+            properties={"$session_id": s2},
             timestamp="2020-01-01 00:06:35",
         )
         self._create_event(
             team=self.team,
             event="sign up",
             distinct_id="blabla2",
-            properties={"$session_id": 2},
+            properties={"$session_id": s2},
             timestamp="2020-01-01 00:06:45",
         )
         # Second session lasted 10 seconds
@@ -2917,7 +2925,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             event="sign up",
             distinct_id="blabla",
-            properties={"$session_id": 3},
+            properties={"$session_id": s3},
             timestamp="2020-01-01 00:06:45",
         )
         # Third session lasted 0 seconds
@@ -2926,14 +2934,14 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             event="sign up",
             distinct_id="blabla",
-            properties={"$session_id": 4},
+            properties={"$session_id": s4},
             timestamp="2020-01-02 00:06:30",
         )
         self._create_event(
             team=self.team,
             event="sign up",
             distinct_id="blabla",
-            properties={"$session_id": 4},
+            properties={"$session_id": s4},
             timestamp="2020-01-02 00:06:45",
         )
         # Fourth session lasted 15 seconds
@@ -2942,14 +2950,14 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             event="sign up",
             distinct_id="blabla",
-            properties={"$session_id": 5},
+            properties={"$session_id": s5},
             timestamp="2020-01-02 00:06:40",
         )
         self._create_event(
             team=self.team,
             event="sign up",
             distinct_id="blabla",
-            properties={"$session_id": 5},
+            properties={"$session_id": s5},
             timestamp="2020-01-02 00:06:45",
         )
         # Fifth session lasted 5 seconds
@@ -3010,6 +3018,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_trends_with_session_property_total_volume_math_with_breakdowns(self):
+        s1 = str(uuid7("2020-01-01", 1))
+        s2 = str(uuid7("2020-01-01", 2))
+        s3 = str(uuid7("2020-01-01", 3))
+        s4 = str(uuid7("2020-01-01", 4))
+        s5 = str(uuid7("2020-01-01", 5))
         self._create_person(
             team_id=self.team.pk,
             distinct_ids=["blabla", "anonymous_id"],
@@ -3025,21 +3038,21 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             event="sign up before",
             distinct_id="blabla",
-            properties={"$session_id": 1, "$some_property": "value1"},
+            properties={"$session_id": s1, "$some_property": "value1"},
             timestamp="2020-01-01 00:06:30",
         )
         self._create_event(
             team=self.team,
             event="sign up",
             distinct_id="blabla",
-            properties={"$session_id": 1, "$some_property": "value2"},
+            properties={"$session_id": s1, "$some_property": "value2"},
             timestamp="2020-01-01 00:06:34",
         )
         self._create_event(
             team=self.team,
             event="sign up",
             distinct_id="blabla",
-            properties={"$session_id": 1, "$some_property": "value2"},
+            properties={"$session_id": s1, "$some_property": "value2"},
             timestamp="2020-01-01 00:06:35",
         )
         # First session lasted 5 seconds
@@ -3047,14 +3060,14 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             event="sign up",
             distinct_id="blabla2",
-            properties={"$session_id": 2, "$some_property": "value2"},
+            properties={"$session_id": s2, "$some_property": "value2"},
             timestamp="2020-01-01 00:06:35",
         )
         self._create_event(
             team=self.team,
             event="sign up",
             distinct_id="blabla2",
-            properties={"$session_id": 2, "$some_property": "value1"},
+            properties={"$session_id": s2, "$some_property": "value1"},
             timestamp="2020-01-01 00:06:45",
         )
         # Second session lasted 10 seconds
@@ -3063,7 +3076,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             event="sign up",
             distinct_id="blabla",
-            properties={"$session_id": 3, "$some_property": "value1"},
+            properties={"$session_id": s3, "$some_property": "value1"},
             timestamp="2020-01-01 00:06:45",
         )
         # Third session lasted 0 seconds
@@ -3072,14 +3085,14 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             event="sign up",
             distinct_id="blabla",
-            properties={"$session_id": 4, "$some_property": "value2"},
+            properties={"$session_id": s4, "$some_property": "value2"},
             timestamp="2020-01-02 00:06:30",
         )
         self._create_event(
             team=self.team,
             event="sign up",
             distinct_id="blabla",
-            properties={"$session_id": 4, "$some_property": "value2"},
+            properties={"$session_id": s4, "$some_property": "value2"},
             timestamp="2020-01-02 00:06:45",
         )
         # Fourth session lasted 15 seconds
@@ -3088,14 +3101,14 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             event="sign up",
             distinct_id="blabla",
-            properties={"$session_id": 5, "$some_property": "value1"},
+            properties={"$session_id": s5, "$some_property": "value1"},
             timestamp="2020-01-02 00:06:40",
         )
         self._create_event(
             team=self.team,
             event="sign up",
             distinct_id="blabla",
-            properties={"$session_id": 5, "$some_property": "value1"},
+            properties={"$session_id": s5, "$some_property": "value1"},
             timestamp="2020-01-02 00:06:45",
         )
         # Fifth session lasted 5 seconds
@@ -3163,6 +3176,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertCountEqual(weekly_response[1]["data"], [0, 0, 0, 0, 5, 5, 0, 0])
 
     def test_trends_with_session_property_total_volume_math_with_sessions_spanning_multiple_intervals(self):
+        s1 = str(uuid7("2020-01-01", 1))
+        s2 = str(uuid7("2020-01-01", 2))
         self._create_person(
             team_id=self.team.pk,
             distinct_ids=["blabla", "anonymous_id"],
@@ -3178,21 +3193,21 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             event="sign up",
             distinct_id="blabla",
-            properties={"$session_id": 1},
+            properties={"$session_id": s1},
             timestamp="2020-01-01 00:06:30",
         )
         self._create_event(
             team=self.team,
             event="sign up",
             distinct_id="blabla",
-            properties={"$session_id": 1},
+            properties={"$session_id": s1},
             timestamp="2020-01-02 00:06:34",
         )
         self._create_event(
             team=self.team,
             event="sign up",
             distinct_id="blabla",
-            properties={"$session_id": 1},
+            properties={"$session_id": s1},
             timestamp="2020-01-03 00:06:30",
         )
         # First Session lasted 48 hours = a lot of seconds
@@ -3200,14 +3215,14 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             event="sign up",
             distinct_id="blabla2",
-            properties={"$session_id": 2},
+            properties={"$session_id": s2},
             timestamp="2020-01-01 00:06:35",
         )
         self._create_event(
             team=self.team,
             event="sign up",
             distinct_id="blabla2",
-            properties={"$session_id": 2},
+            properties={"$session_id": s2},
             timestamp="2020-01-05 00:06:35",
         )
         # Second session lasted 96 hours = a lot of seconds
@@ -3629,11 +3644,15 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self._create_event(team=self.team, event="$pageview", distinct_id="d3")
             self._create_event(team=self.team, event="$pageview", distinct_id="d4")
 
-        event_filtering_action = Action.objects.create(team=self.team, name="$pageview from non-internal")
-        ActionStep.objects.create(
-            action=event_filtering_action,
-            event="$pageview",
-            properties=[{"key": "bar", "type": "person", "value": "a", "operator": "icontains"}],
+        event_filtering_action = Action.objects.create(
+            team=self.team,
+            name="$pageview from non-internal",
+            steps_json=[
+                {
+                    "event": "$pageview",
+                    "properties": [{"key": "bar", "type": "person", "value": "a", "operator": "icontains"}],
+                }
+            ],
         )
 
         with freeze_time("2020-01-04T13:01:01Z"):
@@ -4387,9 +4406,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
     def test_breakdown_by_property_pie(self):
         with freeze_time("2020-01-01T12:00:00Z"):  # Fake created_at for easier assertions
-            person1 = self._create_person(team_id=self.team.pk, distinct_ids=["person1"], immediate=True)
-            person2 = self._create_person(team_id=self.team.pk, distinct_ids=["person2"], immediate=True)
-            person3 = self._create_person(team_id=self.team.pk, distinct_ids=["person3"], immediate=True)
+            self._create_person(team_id=self.team.pk, distinct_ids=["person1"], immediate=True)
+            self._create_person(team_id=self.team.pk, distinct_ids=["person2"], immediate=True)
+            self._create_person(team_id=self.team.pk, distinct_ids=["person3"], immediate=True)
 
         self._create_event(
             team=self.team,
@@ -4439,7 +4458,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         with freeze_time("2020-01-04T13:01:01Z"):
-            data = {
+            filters = {
                 "date_from": "-14d",
                 "breakdown": "fake_prop",
                 "breakdown_type": "event",
@@ -4454,73 +4473,23 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     }
                 ],
             }
-            event_response = self._run(Filter(team=self.team, data=data), self.team)
+            event_response = self._run(Filter(team=self.team, data=filters), self.team)
             event_response = sorted(event_response, key=lambda resp: resp["breakdown_value"])
 
-            entity = Entity({"id": "watched movie", "type": "events", "math": "dau"})
-
-            people_value_1 = self._get_trend_people(
-                Filter(team=self.team, data={**data, "breakdown_value": "value_1"}),
-                entity,
+            people_value_1 = self._get_actors(
+                filters=filters, team=self.team, series=0, breakdown="value_1", includeRecordings=True
             )
-            assert people_value_1 == [
-                # Persons with higher value come first
-                {
-                    "created_at": "2020-01-01T12:00:00Z",
-                    "distinct_ids": ["person2"],
-                    "id": str(person2.uuid),
-                    "is_identified": False,
-                    "matched_recordings": [],
-                    "name": "person2",
-                    "properties": {},
-                    "type": "person",
-                    "uuid": str(person2.uuid),
-                    "value_at_data_point": 2,  # 2 events with fake_prop="value_1" in the time range
-                },
-                {
-                    "created_at": "2020-01-01T12:00:00Z",
-                    "distinct_ids": ["person1"],
-                    "id": str(person1.uuid),
-                    "is_identified": False,
-                    "matched_recordings": [],
-                    "name": "person1",
-                    "properties": {},
-                    "type": "person",
-                    "uuid": str(person1.uuid),
-                    "value_at_data_point": 1,  # 1 event with fake_prop="value_1" in the time range
-                },
-                {
-                    "created_at": "2020-01-01T12:00:00Z",
-                    "distinct_ids": ["person3"],
-                    "id": str(person3.uuid),
-                    "is_identified": False,
-                    "matched_recordings": [],
-                    "name": "person3",
-                    "properties": {},
-                    "type": "person",
-                    "uuid": str(person3.uuid),
-                    "value_at_data_point": 1,  # 1 event with fake_prop="value_1" in the time range
-                },
-            ]
+            # Persons with higher value come first
+            self.assertEqual(people_value_1[0][0]["distinct_ids"][0], "person2")
+            self.assertEqual(people_value_1[0][2], 2)  # 2 events with fake_prop="value_1" in the time range
+            self.assertEqual(people_value_1[1][2], 1)  # 1 event with fake_prop="value_1" in the time range
+            self.assertEqual(people_value_1[2][2], 1)  # 1 event with fake_prop="value_1" in the time range
 
-            people_value_2 = self._get_trend_people(
-                Filter(team=self.team, data={**data, "breakdown_value": "value_2"}),
-                entity,
+            people_value_2 = self._get_actors(
+                filters=filters, team=self.team, series=0, breakdown="value_2", includeRecordings=True
             )
-            assert people_value_2 == [
-                {
-                    "created_at": "2020-01-01T12:00:00Z",
-                    "distinct_ids": ["person2"],
-                    "id": str(person2.uuid),
-                    "is_identified": False,
-                    "matched_recordings": [],
-                    "name": "person2",
-                    "properties": {},
-                    "type": "person",
-                    "uuid": str(person2.uuid),
-                    "value_at_data_point": 1,  # 1 event with fake_prop="value_2" in the time range
-                }
-            ]
+            self.assertEqual(people_value_2[0][0]["distinct_ids"][0], "person2")
+            self.assertEqual(people_value_2[0][2], 1)  # 1 event with fake_prop="value_2" in the time range
 
     @also_test_with_materialized_columns(person_properties=["name"])
     def test_breakdown_by_person_property_pie(self):
@@ -5230,9 +5199,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
 
         response = sorted(response, key=lambda x: x["label"])
-        self.assertEqual(len(response), 1)
-        self.assertEqual(response[0]["label"], "$$_posthog_breakdown_null_$$")
-        self.assertEqual(response[0]["count"], 0)
+        self.assertEqual(len(response), 0)
 
     @also_test_with_person_on_events_v2
     @snapshot_clickhouse_queries
@@ -5477,16 +5444,20 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             distinct_ids=["blabla", "anonymous_id"],
             properties={"$some_prop": "some_val"},
         )
-        sign_up_action = Action.objects.create(team=self.team, name="sign up")
-        ActionStep.objects.create(
-            action=sign_up_action,
-            event="sign up",
-            properties=[
+        sign_up_action = Action.objects.create(
+            team=self.team,
+            name="sign up",
+            steps_json=[
                 {
-                    "key": "$current_url",
-                    "type": "event",
-                    "value": ["https://posthog.com/feedback/1234"],
-                    "operator": "exact",
+                    "event": "sign up",
+                    "properties": [
+                        {
+                            "key": "$current_url",
+                            "type": "event",
+                            "value": ["https://posthog.com/feedback/1234"],
+                            "operator": "exact",
+                        }
+                    ],
                 }
             ],
         )
@@ -5535,7 +5506,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ),
             self.team,
         )
-        self.assertEqual(action_response[0]["count"], 0)
+        self.assertEqual(len(action_response), 0)
 
     @also_test_with_person_on_events_v2
     @snapshot_clickhouse_queries
@@ -5548,10 +5519,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             name="a",
             groups=[{"properties": [{"key": "$some_prop", "value": "some_val", "type": "person"}]}],
         )
-        step = sign_up_action.steps.first()
-        if step:
-            step.properties = [{"key": "id", "value": cohort.pk, "type": "cohort"}]
-            step.save()
+
+        step = sign_up_action.steps[0]
+        step.properties = [{"key": "id", "value": cohort.pk, "type": "cohort"}]
+
+        sign_up_action.steps = [dataclasses.asdict(step)]  # type: ignore
+        sign_up_action.save()
 
         cohort.calculate_people_ch(pending_version=0)
 
@@ -6701,12 +6674,16 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             properties={"key": "val", "$current_url": "/another/page"},
         )
 
-        action = Action.objects.create(name="sign up", team=self.team)
-        ActionStep.objects.create(
-            action=action,
-            event="sign up",
-            url="/some/page",
-            properties=[{"key": "key", "type": "event", "value": ["val"], "operator": "exact"}],
+        action = Action.objects.create(
+            name="sign up",
+            team=self.team,
+            steps_json=[
+                {
+                    "event": "sign up",
+                    "url": "/some/page",
+                    "properties": [{"key": "key", "type": "event", "value": ["val"], "operator": "exact"}],
+                }
+            ],
         )
 
         response = self._run(
@@ -7716,11 +7693,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert len(daily_response) == 3
-        assert daily_response[0]["breakdown_value"] == "blue"
-        assert daily_response[1]["breakdown_value"] == "red"
+        assert daily_response[0]["breakdown_value"] == "red"
+        assert daily_response[1]["breakdown_value"] == "blue"
         assert daily_response[2]["breakdown_value"] == "$$_posthog_breakdown_null_$$"
-        assert daily_response[0]["aggregated_value"] == 1.0  # blue
-        assert daily_response[1]["aggregated_value"] == 2.0  # red
+        assert daily_response[0]["aggregated_value"] == 2.0  # red
+        assert daily_response[1]["aggregated_value"] == 1.0  # blue
         assert daily_response[2]["aggregated_value"] == 1.0  # $$_posthog_breakdown_null_$$
 
     @snapshot_clickhouse_queries
@@ -7743,11 +7720,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert len(daily_response) == 3
-        assert daily_response[0]["breakdown_value"] == "blue"
-        assert daily_response[1]["breakdown_value"] == "red"
+        assert daily_response[0]["breakdown_value"] == "red"
+        assert daily_response[1]["breakdown_value"] == "blue"
         assert daily_response[2]["breakdown_value"] == "$$_posthog_breakdown_null_$$"
-        assert daily_response[0]["aggregated_value"] == 1.0  # blue
-        assert daily_response[1]["aggregated_value"] == 2.0  # red
+        assert daily_response[0]["aggregated_value"] == 2.0  # red
+        assert daily_response[1]["aggregated_value"] == 1.0  # blue
         assert daily_response[2]["aggregated_value"] == 1.0  # $$_posthog_breakdown_null_$$
 
     # TODO: Add support for avg_count by group indexes (see this Slack thread for more context: https://posthog.slack.com/archives/C0368RPHLQH/p1700484174374229)
@@ -8143,18 +8120,18 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[1]["breakdown_value"], "technology")
         self.assertEqual(response[1]["count"], 1)
 
-        filter = filter.shallow_clone(
-            {
-                "breakdown_value": "technology",
-                "date_from": "2020-01-02T00:00:00Z",
-                "date_to": "2020-01-03",
-            }
+        res = self._get_actors(
+            filters=filter.to_dict(),
+            team=self.team,
+            series=0,
+            breakdown="technology",
+            day="2020-01-02",
+            includeRecordings=True,
         )
-        entity = Entity({"id": "sign up", "name": "sign up", "type": "events", "order": 0})
-        res = self._get_trend_people(filter, entity)
 
-        self.assertEqual(res[0]["distinct_ids"], ["person1"])
+        self.assertEqual(res[0][0]["distinct_ids"], ["person1"])
 
+    @freeze_time("2020-01-01")
     @also_test_with_materialized_columns(
         group_properties=[(0, "industry")], materialize_only_with_person_on_events=True
     )
@@ -8209,17 +8186,16 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response[1]["breakdown_value"], "technology")
             self.assertEqual(response[1]["count"], 1)
 
-            filter = filter.shallow_clone(
-                {
-                    "breakdown_value": "technology",
-                    "date_from": "2020-01-02T00:00:00Z",
-                    "date_to": "2020-01-02",
-                }
+            res = self._get_actors(
+                filters=filter.to_dict(),
+                team=self.team,
+                series=0,
+                breakdown="technology",
+                day="2020-01-02",
+                includeRecordings=True,
             )
-            entity = Entity({"id": "sign up", "name": "sign up", "type": "events", "order": 0})
-            res = self._get_trend_people(filter, entity)
 
-            self.assertEqual(res[0]["distinct_ids"], ["person1"])
+            self.assertEqual(res[0][0]["distinct_ids"], ["person1"])
 
     # TODO: Delete this test when moved to person-on-events
     def test_breakdown_by_group_props_with_person_filter(self):
@@ -8484,6 +8460,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             response = self._run(filter, self.team)
             self.assertEqual(response[0]["count"], 1)
 
+    @freeze_time("2020-01-01")
     @also_test_with_materialized_columns(
         group_properties=[(0, "industry"), (2, "name")],
         materialize_only_with_person_on_events=True,
@@ -8578,11 +8555,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
             )
 
-            filter = filter.shallow_clone({"date_from": "2020-01-02T00:00:00Z", "date_to": "2020-01-02T00:00:00Z"})
-            entity = Entity({"id": "sign up", "name": "sign up", "type": "events", "order": 0})
-            res = self._get_trend_people(filter, entity)
+            res = self._get_actors(
+                filters=filter.to_dict(), team=self.team, series=0, day="2020-01-02", includeRecordings=True
+            )
 
-            self.assertEqual(res[0]["distinct_ids"], ["person1"])
+            self.assertEqual(res[0][0]["distinct_ids"], ["person1"])
 
     def test_yesterday_with_hourly_interval(self):
         journey = {

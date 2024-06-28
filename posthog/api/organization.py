@@ -22,6 +22,7 @@ from posthog.permissions import (
     CREATE_METHODS,
     APIScopePermission,
     OrganizationAdminWritePermissions,
+    TimeSensitiveActionPermission,
     extract_organization,
 )
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
@@ -80,7 +81,6 @@ class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSeriali
             "membership_level",
             "plugins_access_level",
             "teams",
-            "available_features",
             "available_product_features",
             "is_member_join_email_enabled",
             "metadata",
@@ -96,7 +96,6 @@ class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSeriali
             "membership_level",
             "plugins_access_level",
             "teams",
-            "available_features",
             "available_product_features",
             "metadata",
             "customer_id",
@@ -142,7 +141,7 @@ class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSeriali
 class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "organization"
     serializer_class = OrganizationSerializer
-    permission_classes = [OrganizationPermissionsWithDelete]
+    permission_classes = [OrganizationPermissionsWithDelete, TimeSensitiveActionPermission]
     queryset = Organization.objects.none()
     lookup_field = "id"
     ordering = "-created_by"
@@ -159,6 +158,7 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 for permission in [
                     permissions.IsAuthenticated,
                     PremiumMultiorganizationPermissions,
+                    TimeSensitiveActionPermission,
                     APIScopePermission,
                 ]
             ]

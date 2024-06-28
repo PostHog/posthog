@@ -1,10 +1,32 @@
 from typing import Literal, cast, Optional
 
 import math
+from posthog.hogql.ast import (
+    VariableAssignment,
+    Constant,
+    ArithmeticOperation,
+    Field,
+    ExprStatement,
+    Call,
+    ArithmeticOperationOp,
+    CompareOperationOp,
+    CompareOperation,
+    JoinExpr,
+    SelectQuery,
+    Program,
+    IfStatement,
+    Block,
+    WhileStatement,
+    Function,
+    Array,
+    Dict,
+    VariableDeclaration,
+)
 
+from posthog.hogql.parser import parse_program
 from posthog.hogql import ast
 from posthog.hogql.errors import ExposedHogQLError, SyntaxError
-from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
+from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select, parse_string_template
 from posthog.hogql.visitor import clear_locations
 from posthog.test.base import BaseTest, MemoryLeakTestMixin
 
@@ -20,11 +42,22 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
 
         maxDiff = None
 
+        def _string_template(self, template: str, placeholders: Optional[dict[str, ast.Expr]] = None) -> ast.Expr:
+            return clear_locations(parse_string_template(template, placeholders=placeholders, backend=backend))
+
         def _expr(self, expr: str, placeholders: Optional[dict[str, ast.Expr]] = None) -> ast.Expr:
             return clear_locations(parse_expr(expr, placeholders=placeholders, backend=backend))
 
-        def _select(self, query: str, placeholders: Optional[dict[str, ast.Expr]] = None) -> ast.Expr:
-            return clear_locations(parse_select(query, placeholders=placeholders, backend=backend))
+        def _select(
+            self, query: str, placeholders: Optional[dict[str, ast.Expr]] = None
+        ) -> ast.SelectQuery | ast.SelectUnionQuery | ast.HogQLXTag:
+            return cast(
+                ast.SelectQuery | ast.SelectUnionQuery | ast.HogQLXTag,
+                clear_locations(parse_select(query, placeholders=placeholders, backend=backend)),
+            )
+
+        def _program(self, program: str) -> ast.Program:
+            return cast(ast.Program, clear_locations(cast(ast.Expr, parse_program(program, backend=backend))))
 
         def test_numbers(self):
             self.assertEqual(self._expr("1"), ast.Constant(value=1))
@@ -74,6 +107,11 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 self._expr("[1, avg()]"),
                 ast.Array(exprs=[ast.Constant(value=1), ast.Call(name="avg", args=[])]),
             )
+            self.assertEqual(self._expr("[1,]"), ast.Array(exprs=[ast.Constant(value=1)]))
+            self.assertEqual(
+                self._expr("[1, avg(),]"),
+                ast.Array(exprs=[ast.Constant(value=1), ast.Call(name="avg", args=[])]),
+            )
             self.assertEqual(
                 self._expr("properties['value']"),
                 ast.ArrayAccess(
@@ -106,6 +144,14 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             self.assertEqual(
                 self._expr("(1, avg())"),
                 ast.Tuple(exprs=[ast.Constant(value=1), ast.Call(name="avg", args=[])]),
+            )
+            self.assertEqual(
+                self._expr("(1, avg(),)"),
+                ast.Tuple(exprs=[ast.Constant(value=1), ast.Call(name="avg", args=[])]),
+            )
+            self.assertEqual(
+                self._expr("(1,)"),
+                ast.Tuple(exprs=[ast.Constant(value=1)]),
             )
             # needs at least two values to be a tuple
             self.assertEqual(self._expr("(1)"), ast.Constant(value=1))
@@ -790,7 +836,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                         next_join=ast.JoinExpr(
                             join_type="JOIN",
                             table=ast.Field(chain=["events2"]),
-                            constraint=ast.JoinConstraint(expr=ast.Constant(value=1)),
+                            constraint=ast.JoinConstraint(expr=ast.Constant(value=1), constraint_type="ON"),
                         ),
                     ),
                 ),
@@ -804,7 +850,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                         next_join=ast.JoinExpr(
                             join_type="LEFT OUTER JOIN",
                             table=ast.Field(chain=["events2"]),
-                            constraint=ast.JoinConstraint(expr=ast.Constant(value=1)),
+                            constraint=ast.JoinConstraint(expr=ast.Constant(value=1), constraint_type="ON"),
                         ),
                     ),
                 ),
@@ -818,12 +864,26 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                         next_join=ast.JoinExpr(
                             join_type="LEFT OUTER JOIN",
                             table=ast.Field(chain=["events2"]),
-                            constraint=ast.JoinConstraint(expr=ast.Constant(value=1)),
+                            constraint=ast.JoinConstraint(expr=ast.Constant(value=1), constraint_type="ON"),
                             next_join=ast.JoinExpr(
                                 join_type="RIGHT ANY JOIN",
                                 table=ast.Field(chain=["events3"]),
-                                constraint=ast.JoinConstraint(expr=ast.Constant(value=2)),
+                                constraint=ast.JoinConstraint(expr=ast.Constant(value=2), constraint_type="ON"),
                             ),
+                        ),
+                    ),
+                ),
+            )
+            self.assertEqual(
+                self._select("select 1 from events JOIN events2 USING 1"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(
+                        table=ast.Field(chain=["events"]),
+                        next_join=ast.JoinExpr(
+                            join_type="JOIN",
+                            table=ast.Field(chain=["events2"]),
+                            constraint=ast.JoinConstraint(expr=ast.Constant(value=1), constraint_type="USING"),
                         ),
                     ),
                 ),
@@ -863,7 +923,8 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                                     op=ast.CompareOperationOp.Eq,
                                     left=ast.Field(chain=["pdi", "distinct_id"]),
                                     right=ast.Field(chain=["e", "distinct_id"]),
-                                )
+                                ),
+                                constraint_type="ON",
                             ),
                             next_join=ast.JoinExpr(
                                 join_type="LEFT JOIN",
@@ -874,7 +935,8 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                                         op=ast.CompareOperationOp.Eq,
                                         left=ast.Field(chain=["p", "id"]),
                                         right=ast.Field(chain=["pdi", "person_id"]),
-                                    )
+                                    ),
+                                    constraint_type="ON",
                                 ),
                             ),
                         ),
@@ -933,7 +995,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
 
         def test_select_array_join(self):
             self.assertEqual(
-                self._select("select a from events ARRAY JOIN [1,2,3] a"),
+                self._select("select a from events ARRAY JOIN [1,2,3] as a"),
                 ast.SelectQuery(
                     select=[ast.Field(chain=["a"])],
                     select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
@@ -953,7 +1015,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ),
             )
             self.assertEqual(
-                self._select("select a from events INNER ARRAY JOIN [1,2,3] a"),
+                self._select("select a from events INNER ARRAY JOIN [1,2,3] as a"),
                 ast.SelectQuery(
                     select=[ast.Field(chain=["a"])],
                     select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
@@ -973,7 +1035,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ),
             )
             self.assertEqual(
-                self._select("select 1, b from events LEFT ARRAY JOIN [1,2,3] a, [4,5,6] AS b"),
+                self._select("select 1, b from events LEFT ARRAY JOIN [1,2,3] as a, [4,5,6] AS b"),
                 ast.SelectQuery(
                     select=[ast.Constant(value=1), ast.Field(chain=["b"])],
                     select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
@@ -1385,7 +1447,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                         alias="timestamp",
                         expr=ast.WindowFunction(
                             name="min",
-                            args=[ast.Field(chain=["timestamp"])],
+                            exprs=[ast.Field(chain=["timestamp"])],
                             over_expr=ast.WindowExpr(
                                 partition_by=[ast.Field(chain=["person", "id"])],
                                 order_by=[
@@ -1405,6 +1467,32 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             )
             self.assertEqual(expr, expected)
 
+        def test_window_functions_call_arg(self):
+            query = "SELECT quantiles(0.0, 0.25, 0.5, 0.75, 1.0)(distinct distinct_id) over () as values FROM events"
+            expr = self._select(query)
+            expected = ast.SelectQuery(
+                select=[
+                    ast.Alias(
+                        alias="values",
+                        expr=ast.WindowFunction(
+                            name="quantiles",
+                            args=[ast.Field(chain=["distinct_id"])],
+                            exprs=[
+                                ast.Constant(value=0.0),
+                                ast.Constant(value=0.25),
+                                ast.Constant(value=0.5),
+                                ast.Constant(value=0.75),
+                                ast.Constant(value=1.0),
+                            ],
+                            over_expr=ast.WindowExpr(),
+                        ),
+                        hidden=False,
+                    )
+                ],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            )
+            self.assertEqual(expr, expected)
+
         def test_window_functions_with_window(self):
             query = "SELECT person.id, min(timestamp) over win1 AS timestamp FROM events WINDOW win1 as (PARTITION by person.id ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)"
             expr = self._select(query)
@@ -1415,7 +1503,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                         alias="timestamp",
                         expr=ast.WindowFunction(
                             name="min",
-                            args=[ast.Field(chain=["timestamp"])],
+                            exprs=[ast.Field(chain=["timestamp"])],
                             over_identifier="win1",
                         ),
                     ),
@@ -1615,5 +1703,513 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 "select trimLeft(event, 'fish'), trimRight(event, 'fish'), trim(event, 'fish') from events"
             )
             assert node1 == node2
+
+            node3 = self._select(
+                "select TRIM (LEADING 'fish' FROM event), TRIM (TRAILING 'fish' FROM event), TRIM (BOTH 'fish' FROM event) from events"
+            )
+            assert node3 == node1
+
+            node4 = self._select("select TRIM (LEADING f'fi{'a'}sh' FROM event) from events")
+            assert isinstance(node4, ast.SelectQuery)
+            assert node4.select[0] == ast.Call(
+                name="trimLeft",
+                args=[
+                    ast.Field(chain=["event"]),
+                    ast.Call(
+                        name="concat",
+                        args=[
+                            ast.Constant(value="fi"),
+                            ast.Constant(value="a"),
+                            ast.Constant(value="sh"),
+                        ],
+                    ),
+                ],
+            )
+
+        def test_template_strings(self):
+            node = self._expr("f'hello {event}'")
+            assert node == ast.Call(name="concat", args=[ast.Constant(value="hello "), ast.Field(chain=["event"])])
+
+            select = self._select("select f'hello {event}' from events")
+            assert isinstance(select, ast.SelectQuery)
+            assert select.select[0] == node
+
+        def test_template_strings_nested_strings(self):
+            node = self._expr("a = f'aa {1 + call('string')}aa'")
+            assert node == ast.CompareOperation(
+                left=ast.Field(chain=["a"]),
+                right=ast.Call(
+                    name="concat",
+                    args=[
+                        ast.Constant(value="aa "),
+                        ast.ArithmeticOperation(
+                            left=ast.Constant(value=1),
+                            right=ast.Call(name="call", args=[ast.Constant(value="string")]),
+                            op=ast.ArithmeticOperationOp.Add,
+                        ),
+                        ast.Constant(value="aa"),
+                    ],
+                ),
+                op=ast.CompareOperationOp.Eq,
+            )
+
+        def test_template_strings_multiple_levels(self):
+            node = self._expr("a = f'aa {1 + call(f'fi{one(more, time, 'stringy')}sh')}aa'")
+            assert node == ast.CompareOperation(
+                left=ast.Field(chain=["a"]),
+                right=ast.Call(
+                    name="concat",
+                    args=[
+                        ast.Constant(value="aa "),
+                        ast.ArithmeticOperation(
+                            left=ast.Constant(value=1),
+                            right=ast.Call(
+                                name="call",
+                                args=[
+                                    ast.Call(
+                                        name="concat",
+                                        args=[
+                                            ast.Constant(value="fi"),
+                                            ast.Call(
+                                                name="one",
+                                                args=[
+                                                    ast.Field(chain=["more"]),
+                                                    ast.Field(chain=["time"]),
+                                                    ast.Constant(value="stringy"),
+                                                ],
+                                            ),
+                                            ast.Constant(value="sh"),
+                                        ],
+                                    )
+                                ],
+                            ),
+                            op=ast.ArithmeticOperationOp.Add,
+                        ),
+                        ast.Constant(value="aa"),
+                    ],
+                ),
+                op=ast.CompareOperationOp.Eq,
+            )
+
+        def test_template_strings_full(self):
+            node = self._string_template("hello {event}")
+            assert node == ast.Call(name="concat", args=[ast.Constant(value="hello "), ast.Field(chain=["event"])])
+
+            node = self._string_template("we're ready to open {person.properties.email}")
+            assert node == ast.Call(
+                name="concat",
+                args=[ast.Constant(value="we're ready to open "), ast.Field(chain=["person", "properties", "email"])],
+            )
+
+            node = self._string_template("strings' to {'strings'}")
+            assert node == ast.Call(
+                name="concat", args=[ast.Constant(value="strings' to "), ast.Constant(value="strings")]
+            )
+            node2 = self._expr("f'strings\\' to {'strings'}'")
+            assert node2 == node
+
+        def test_template_strings_full_multiline(self):
+            node = self._string_template("hello \n{event}")
+            assert node == ast.Call(name="concat", args=[ast.Constant(value="hello \n"), ast.Field(chain=["event"])])
+
+            node = self._string_template("we're ready to \n\nopen {\nperson.properties.email\n}")
+            assert node == ast.Call(
+                name="concat",
+                args=[
+                    ast.Constant(value="we're ready to \n\nopen "),
+                    ast.Field(chain=["person", "properties", "email"]),
+                ],
+            )
+
+        def test_program_variable_declarations(self):
+            code = "let a := '123'; let b := a - 2; print(b);"
+            program = self._program(code)
+
+            expected = Program(
+                declarations=[
+                    VariableDeclaration(name="a", expr=Constant(type=None, value="123")),
+                    VariableDeclaration(
+                        name="b",
+                        expr=ArithmeticOperation(
+                            type=None,
+                            left=Field(type=None, chain=["a"]),
+                            right=Constant(type=None, value=2),
+                            op=ArithmeticOperationOp.Sub,
+                        ),
+                    ),
+                    ExprStatement(
+                        expr=Call(
+                            type=None,
+                            name="print",
+                            args=[Field(type=None, chain=["b"])],
+                            params=None,
+                            distinct=False,
+                        ),
+                    ),
+                ]
+            )
+            self.assertEqual(program, expected)
+
+        def test_program_variable_reassignment(self):
+            code = "let a := 3; a := 4;"
+            program = self._program(code)
+            expected = Program(
+                start=None,
+                end=None,
+                declarations=[
+                    VariableDeclaration(
+                        start=None,
+                        end=None,
+                        name="a",
+                        expr=Constant(start=None, end=None, type=None, value=3),
+                    ),
+                    VariableAssignment(
+                        start=None,
+                        end=None,
+                        left=Field(chain=["a"]),
+                        right=Constant(start=None, end=None, type=None, value=4),
+                    ),
+                ],
+            )
+            self.assertEqual(program, expected)
+
+        def test_program_variable_declarations_with_sql_expr(self):
+            code = """
+                let query := (select id, properties.email from events where timestamp > now() - interval 1 day);
+                let results := run(query);
+            """
+            program = self._program(code)
+            expected = Program(
+                declarations=[
+                    VariableDeclaration(
+                        name="query",
+                        expr=SelectQuery(
+                            type=None,
+                            ctes=None,
+                            select=[
+                                Field(type=None, chain=["id"]),
+                                Field(type=None, chain=["properties", "email"]),
+                            ],
+                            distinct=None,
+                            select_from=JoinExpr(
+                                type=None,
+                                join_type=None,
+                                table=Field(type=None, chain=["events"]),
+                                table_args=None,
+                                alias=None,
+                                table_final=None,
+                                constraint=None,
+                                next_join=None,
+                                sample=None,
+                            ),
+                            array_join_op=None,
+                            array_join_list=None,
+                            window_exprs=None,
+                            where=CompareOperation(
+                                type=None,
+                                left=Field(type=None, chain=["timestamp"]),
+                                right=ArithmeticOperation(
+                                    type=None,
+                                    left=Call(type=None, name="now", args=[], params=None, distinct=False),
+                                    right=Call(
+                                        type=None,
+                                        name="toIntervalDay",
+                                        args=[Constant(type=None, value=1)],
+                                        params=None,
+                                        distinct=False,
+                                    ),
+                                    op=ArithmeticOperationOp.Sub,
+                                ),
+                                op=CompareOperationOp.Gt,
+                            ),
+                            prewhere=None,
+                            having=None,
+                            group_by=None,
+                            order_by=None,
+                            limit=None,
+                            limit_by=None,
+                            limit_with_ties=None,
+                            offset=None,
+                            settings=None,
+                            view_name=None,
+                        ),
+                    ),
+                    VariableDeclaration(
+                        name="results",
+                        expr=Call(
+                            name="run",
+                            args=[Field(type=None, chain=["query"])],
+                            params=None,
+                            distinct=False,
+                        ),
+                    ),
+                ]
+            )
+            self.assertEqual(program, expected)
+
+        def test_program_if(self):
+            code = """
+                if (a) {
+                    let c := 3;
+                }
+                else
+                    print(d);
+            """
+
+            program = self._program(code)
+            expected = Program(
+                declarations=[
+                    IfStatement(
+                        expr=Field(type=None, chain=["a"]),
+                        then=Block(
+                            declarations=[
+                                VariableDeclaration(
+                                    name="c",
+                                    expr=Constant(type=None, value=3),
+                                )
+                            ],
+                        ),
+                        else_=ExprStatement(
+                            expr=Call(
+                                type=None,
+                                name="print",
+                                args=[Field(type=None, chain=["d"])],
+                                params=None,
+                                distinct=False,
+                            ),
+                        ),
+                    )
+                ],
+            )
+
+            self.assertEqual(program, expected)
+
+        def test_program_while(self):
+            code = """
+                while (a < 5) {
+                    let c := 3;
+                }
+            """
+
+            program = self._program(code)
+            expected = Program(
+                declarations=[
+                    WhileStatement(
+                        expr=CompareOperation(
+                            type=None,
+                            left=Field(type=None, chain=["a"]),
+                            right=Constant(type=None, value=5),
+                            op=CompareOperationOp.Lt,
+                        ),
+                        body=Block(
+                            declarations=[VariableDeclaration(name="c", expr=Constant(type=None, value=3))],
+                        ),
+                    )
+                ],
+            )
+
+            self.assertEqual(program, expected)
+
+        def test_program_function(self):
+            code = """
+                fn query(a, b) {
+                    let c := 3;
+                }
+            """
+
+            program = self._program(code)
+            expected = Program(
+                declarations=[
+                    Function(
+                        name="query",
+                        params=["a", "b"],
+                        body=Block(
+                            declarations=[VariableDeclaration(name="c", expr=Constant(type=None, value=3))],
+                        ),
+                    )
+                ],
+            )
+            self.assertEqual(program, expected)
+
+        def test_program_functions(self):
+            code = """
+                fn query(a, b) {
+                    let c := 3;
+                }
+
+                fn read(a, b) {
+                    print(3);
+                    let b := 4;
+                }
+            """
+
+            program = self._program(code)
+
+            expected = Program(
+                start=None,
+                end=None,
+                declarations=[
+                    Function(
+                        start=None,
+                        end=None,
+                        name="query",
+                        params=["a", "b"],
+                        body=Block(
+                            start=None,
+                            end=None,
+                            declarations=[
+                                VariableDeclaration(
+                                    start=None,
+                                    end=None,
+                                    name="c",
+                                    expr=Constant(start=None, end=None, type=None, value=3),
+                                )
+                            ],
+                        ),
+                    ),
+                    Function(
+                        start=None,
+                        end=None,
+                        name="read",
+                        params=["a", "b"],
+                        body=Block(
+                            start=None,
+                            end=None,
+                            declarations=[
+                                ExprStatement(
+                                    start=None,
+                                    end=None,
+                                    expr=Call(
+                                        start=None,
+                                        end=None,
+                                        type=None,
+                                        name="print",
+                                        args=[Constant(start=None, end=None, type=None, value=3)],
+                                        params=None,
+                                        distinct=False,
+                                    ),
+                                ),
+                                VariableDeclaration(
+                                    start=None,
+                                    end=None,
+                                    name="b",
+                                    expr=Constant(start=None, end=None, type=None, value=4),
+                                ),
+                            ],
+                        ),
+                    ),
+                ],
+            )
+            self.assertEqual(program, expected)
+
+        def test_program_array(self):
+            code = "let a := [1, 2, 3];"
+            program = self._program(code)
+
+            expected = Program(
+                start=None,
+                end=None,
+                declarations=[
+                    VariableDeclaration(
+                        start=None,
+                        end=None,
+                        name="a",
+                        expr=Array(
+                            start=None,
+                            end=None,
+                            type=None,
+                            exprs=[
+                                Constant(start=None, end=None, type=None, value=1),
+                                Constant(start=None, end=None, type=None, value=2),
+                                Constant(start=None, end=None, type=None, value=3),
+                            ],
+                        ),
+                    )
+                ],
+            )
+            self.assertEqual(program, expected)
+
+        def test_program_dict(self):
+            code = "let a := {};"
+            program = self._program(code)
+
+            expected = Program(
+                start=None,
+                end=None,
+                declarations=[
+                    VariableDeclaration(
+                        start=None,
+                        end=None,
+                        name="a",
+                        expr=Dict(start=None, end=None, type=None, items=[]),
+                    )
+                ],
+            )
+
+            self.assertEqual(program, expected)
+
+            code = "let a := {1: 2, 'a': [3, 4], g: true};"
+            program = self._program(code)
+
+            expected = Program(
+                start=None,
+                end=None,
+                declarations=[
+                    VariableDeclaration(
+                        start=None,
+                        end=None,
+                        name="a",
+                        expr=Dict(
+                            start=None,
+                            end=None,
+                            type=None,
+                            items=[
+                                (
+                                    Constant(start=None, end=None, type=None, value=1),
+                                    Constant(start=None, end=None, type=None, value=2),
+                                ),
+                                (
+                                    Constant(start=None, end=None, type=None, value="a"),
+                                    Array(
+                                        start=None,
+                                        end=None,
+                                        type=None,
+                                        exprs=[
+                                            Constant(start=None, end=None, type=None, value=3),
+                                            Constant(start=None, end=None, type=None, value=4),
+                                        ],
+                                    ),
+                                ),
+                                (
+                                    Field(start=None, end=None, type=None, chain=["g"]),
+                                    Constant(start=None, end=None, type=None, value=True),
+                                ),
+                            ],
+                        ),
+                    )
+                ],
+            )
+            self.assertEqual(program, expected)
+
+        def test_program_simple_return(self):
+            code = "return"
+            program = self._program(code)
+            expected = Program(
+                declarations=[ast.ReturnStatement(expr=None)],
+            )
+            self.assertEqual(program, expected)
+
+        def test_program_simple_return_twice(self):
+            code = "return;return"
+            program = self._program(code)
+            expected = Program(
+                declarations=[ast.ReturnStatement(expr=None), ast.ReturnStatement(expr=None)],
+            )
+            self.assertEqual(program, expected)
+
+        def test_pop_empty_stack(self):
+            with self.assertRaises(SyntaxError) as e:
+                self._select("select } from events")
+            self.assertEqual(str(e.exception), "Unmatched curly bracket")
 
     return TestParser

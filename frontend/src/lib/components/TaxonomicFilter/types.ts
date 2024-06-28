@@ -1,9 +1,9 @@
 import Fuse from 'fuse.js'
 import { LogicWrapper } from 'kea'
-import { DataWarehouseTableType } from 'scenes/data-warehouse/types'
+import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 
-import { AnyDataNode, DatabaseSchemaQueryResponseField } from '~/queries/schema'
+import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema'
 import {
     ActionType,
     CohortType,
@@ -28,7 +28,7 @@ export interface TaxonomicFilterProps {
     taxonomicFilterLogicKey?: string
     optionsFromProp?: Partial<Record<TaxonomicFilterGroupType, SimpleOption[]>>
     eventNames?: string[]
-    schemaColumns?: DatabaseSchemaQueryResponseField[]
+    schemaColumns?: DatabaseSchemaField[]
     height?: number
     width?: number
     popoverEnabled?: boolean
@@ -47,12 +47,13 @@ export type TaxonomicFilterValue = string | number | null
 
 export type TaxonomicFilterRender = (props: {
     value?: TaxonomicFilterValue
-    onChange: (value: TaxonomicFilterValue) => void
+    onChange: (value: TaxonomicFilterValue, item: any) => void
 }) => JSX.Element | null
 
 export interface TaxonomicFilterGroup {
     name: string
-    searchPlaceholder: string
+    /** Null means this group is not searchable (like HogQL expressions). */
+    searchPlaceholder: string | null
     type: TaxonomicFilterGroupType
     /** Component to show instead of the usual taxonomic list. */
     render?: TaxonomicFilterRender
@@ -108,6 +109,8 @@ export enum TaxonomicFilterGroupType {
     SessionProperties = 'session_properties',
     HogQLExpression = 'hogql_expression',
     Notebooks = 'notebooks',
+    // Misc
+    Replay = 'replay',
 }
 
 export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {
@@ -139,4 +142,4 @@ export type TaxonomicDefinitionTypes =
     | CohortType
     | ActionType
     | PersonProperty
-    | DataWarehouseTableType
+    | DataWarehouseTableForInsight

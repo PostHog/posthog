@@ -40,7 +40,9 @@ class TestLifecycleFilter(BaseTest):
                 "display": "ActionsLineGraph",
                 "events": [
                     {
+                        "distinct_id_field": None,
                         "id": "$pageview",
+                        "id_field": None,
                         "type": "events",
                         "order": 0,
                         "name": "$pageview",
@@ -50,6 +52,8 @@ class TestLifecycleFilter(BaseTest):
                         "math_hogql": None,
                         "math_group_type_index": None,
                         "properties": {},
+                        "timestamp_field": None,
+                        "table_name": None,
                     }
                 ],
                 "entity_id": "$pageview",

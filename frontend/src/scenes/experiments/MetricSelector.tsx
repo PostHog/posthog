@@ -20,7 +20,7 @@ import { FunnelConversionWindowFilter } from 'scenes/insights/views/Funnels/Funn
 
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { TestAccountFilter } from '~/queries/nodes/InsightViz/filters/TestAccountFilter'
+import { InsightTestAccountFilter } from '~/queries/nodes/InsightViz/filters/InsightTestAccountFilter'
 import { Query } from '~/queries/Query/Query'
 import { FunnelsQuery, InsightQueryNode, TrendsQuery } from '~/queries/schema'
 import { EditorFilterProps, FilterType, InsightLogicProps, InsightShortId, InsightType } from '~/types'
@@ -152,7 +152,7 @@ export function ExperimentInsightCreator({ insightProps }: { insightProps: Insig
                         <AttributionSelect insightProps={insightProps} />
                     </>
                 )}
-                <TestAccountFilter query={querySource as InsightQueryNode} setQuery={updateQuerySource} />
+                <InsightTestAccountFilter query={querySource as InsightQueryNode} setQuery={updateQuerySource} />
             </div>
         </>
     )

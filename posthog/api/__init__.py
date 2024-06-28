@@ -8,6 +8,7 @@ from ..heatmaps.heatmaps_api import LegacyHeatmapViewSet, HeatmapViewSet
 from .session import SessionViewSet
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
 from . import (
+    alert,
     activity_log,
     annotation,
     app_metrics,
@@ -19,6 +20,8 @@ from . import (
     event_definition,
     exports,
     feature_flag,
+    hog_function,
+    hog_function_template,
     ingestion_warnings,
     instance_settings,
     instance_status,
@@ -34,6 +37,7 @@ from . import (
     plugin,
     plugin_log_entry,
     property_definition,
+    proxy_record,
     query,
     search,
     scheduled_change,
@@ -43,6 +47,7 @@ from . import (
     team,
     uploaded_media,
     user,
+    debug_ch_queries,
 )
 from .dashboards import dashboard, dashboard_templates
 from .data_management import DataManagementViewSet
@@ -252,6 +257,12 @@ organizations_router.register(
     ["organization_id"],
 )
 organizations_router.register(
+    r"proxy_records",
+    proxy_record.ProxyRecordViewset,
+    "proxy_records",
+    ["organization_id"],
+)
+organizations_router.register(
     r"feature_flags",
     organization_feature_flag.OrganizationFeatureFlagView,
     "organization_feature_flags",
@@ -306,6 +317,8 @@ router.register(r"dead_letter_queue", dead_letter_queue.DeadLetterQueueViewSet, 
 router.register(r"async_migrations", async_migration.AsyncMigrationsViewset, "async_migrations")
 router.register(r"instance_settings", instance_settings.InstanceSettingsViewset, "instance_settings")
 router.register(r"kafka_inspector", kafka_inspector.KafkaInspectorViewSet, "kafka_inspector")
+
+router.register("debug_ch_queries/", debug_ch_queries.DebugCHQueries, "debug_ch_queries")
 
 
 from posthog.api.action import ActionViewSet  # noqa: E402
@@ -394,6 +407,27 @@ projects_router.register(
     r"comments",
     comments.CommentViewSet,
     "project_comments",
+    ["team_id"],
+)
+
+projects_router.register(
+    r"hog_functions",
+    hog_function.HogFunctionViewSet,
+    "project_hog_functions",
+    ["team_id"],
+)
+
+projects_router.register(
+    r"hog_function_templates",
+    hog_function_template.HogFunctionTemplateViewSet,
+    "project_hog_function_templates",
+    ["team_id"],
+)
+
+projects_router.register(
+    r"alerts",
+    alert.AlertViewSet,
+    "project_alerts",
     ["team_id"],
 )
 

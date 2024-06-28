@@ -16,7 +16,7 @@ interface InsightProps {
 
 export function SavedInsight({ query: propsQuery, context }: InsightProps): JSX.Element {
     const insightProps: InsightLogicProps = { dashboardItemId: propsQuery.shortId }
-    const { insight, insightLoading } = useValues(insightLogic(insightProps))
+    const { queryBasedInsight: insight, insightLoading } = useValues(insightLogic(insightProps))
     const { query: dataQuery } = useValues(insightDataLogic(insightProps))
 
     if (insightLoading) {
@@ -27,11 +27,7 @@ export function SavedInsight({ query: propsQuery, context }: InsightProps): JSX.
         )
     }
 
-    if (!insight.filters) {
-        throw new Error('InsightNode expects an insight with filters')
-    }
-
     const query = { ...propsQuery, ...dataQuery, full: propsQuery.full }
 
-    return <Query query={query} cachedResults={insight.result} context={{ ...context, insightProps }} />
+    return <Query query={query} cachedResults={insight} context={{ ...context, insightProps }} />
 }

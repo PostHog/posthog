@@ -1,6 +1,8 @@
 import { LemonDialog } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'posthog-js'
 import React from 'react'
 
@@ -24,7 +26,12 @@ export const billingProductLogic = kea<billingProductLogicType>([
     key((props) => props.product.type),
     path(['scenes', 'billing', 'billingProductLogic']),
     connect({
-        values: [billingLogic, ['billing', 'isUnlicensedDebug', 'scrollToProductKey', 'unsubscribeError']],
+        values: [
+            billingLogic,
+            ['billing', 'isUnlicensedDebug', 'scrollToProductKey', 'unsubscribeError'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
         actions: [
             billingLogic,
             [
@@ -53,7 +60,20 @@ export const billingProductLogic = kea<billingProductLogicType>([
         }),
         reportSurveyDismissed: (surveyID: string) => ({ surveyID }),
         setSurveyID: (surveyID: string) => ({ surveyID }),
-        setBillingProductLoading: (productKey: string) => ({ productKey }),
+        setBillingProductLoading: (productKey: string | null) => ({ productKey }),
+        initiateProductUpgrade: (
+            product: BillingProductV2Type | BillingProductV2AddonType,
+            plan: BillingV2PlanType,
+            redirectPath?: string
+        ) => ({
+            plan,
+            product,
+            redirectPath,
+        }),
+        handleProductUpgrade: (products: string, redirectPath?: string) => ({
+            products,
+            redirectPath,
+        }),
     }),
     reducers({
         billingLimitInput: [
@@ -148,12 +168,6 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 return { currentPlan, upgradePlan, downgradePlan }
             },
         ],
-        showBillingLimitInput: [
-            (s) => [s.billing, s.customLimitUsd, s.isEditingBillingLimit],
-            (billing, customLimitUsd, isEditingBillingLimit) => {
-                return billing?.billing_period?.interval == 'month' && (customLimitUsd || isEditingBillingLimit)
-            },
-        ],
         freeTier: [
             (_s, p) => [p.product],
             (product) => {
@@ -224,6 +238,11 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     },
                 ].filter(Boolean)
             },
+        ],
+        isAddonProduct: [
+            (s, p) => [s.billing, p.product],
+            (billing, product): boolean =>
+                !!billing?.products?.some((p) => p.addons?.some((addon) => addon.type === product?.type)),
         ],
     })),
     listeners(({ actions, values, props }) => ({
@@ -299,12 +318,28 @@ export const billingProductLogic = kea<billingProductLogicType>([
                         if (props.productRef?.current) {
                             props.productRef?.current.scrollIntoView({
                                 behavior: 'smooth',
-                                block: 'start',
+                                block: 'center',
                             })
                         }
                     }, 0)
                 }
             }
+        },
+        initiateProductUpgrade: ({ plan, product, redirectPath }) => {
+            actions.setBillingProductLoading(product.type)
+            let products = `${product.type}:${plan?.plan_key}`
+            if (
+                values.featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' &&
+                values.billing?.subscription_level == 'free'
+            ) {
+                products += ',all_products:'
+            }
+            actions.handleProductUpgrade(products, redirectPath)
+        },
+        handleProductUpgrade: ({ products, redirectPath }) => {
+            window.location.href = `/api/billing/activate?products=${products}${
+                redirectPath && `&redirect_path=${redirectPath}`
+            }`
         },
     })),
     forms(({ actions, props, values }) => ({

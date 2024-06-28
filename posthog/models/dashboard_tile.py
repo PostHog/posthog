@@ -4,7 +4,7 @@ from django.db.models import Q, QuerySet, UniqueConstraint
 from django.utils import timezone
 
 from posthog.models.dashboard import Dashboard
-from posthog.models.insight import generate_insight_cache_key
+from posthog.models.insight import generate_insight_filters_hash
 from posthog.models.tagged_item import build_check
 
 
@@ -105,7 +105,7 @@ class DashboardTile(models.Model):
         if self.insight is not None:
             has_no_filters_hash = self.filters_hash is None
             if has_no_filters_hash and self.insight.filters != {}:
-                self.filters_hash = generate_insight_cache_key(self.insight, self.dashboard)
+                self.filters_hash = generate_insight_filters_hash(self.insight, self.dashboard)
 
                 if "update_fields" in kwargs:
                     kwargs["update_fields"].append("filters_hash")

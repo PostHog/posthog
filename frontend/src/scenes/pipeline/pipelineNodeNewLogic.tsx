@@ -1,9 +1,10 @@
-import { kea, path, props, selectors } from 'kea'
+import { actions, connect, kea, path, props, selectors } from 'kea'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
-import { Breadcrumb, PipelineStage, PipelineTab } from '~/types'
+import { BATCH_EXPORT_SERVICE_NAMES, BatchExportService, Breadcrumb, PipelineStage, PipelineTab } from '~/types'
 
 import type { pipelineNodeNewLogicType } from './pipelineNodeNewLogicType'
 
@@ -17,16 +18,18 @@ export interface PipelineNodeNewLogicProps {
     stage: PipelineStage | null
     pluginId: number | null
     batchExportDestination: string | null
+    hogFunctionId: string | null
 }
 
 export const pipelineNodeNewLogic = kea<pipelineNodeNewLogicType>([
     props({} as PipelineNodeNewLogicProps),
-    path((pluginIdOrBatchExportDestination) => [
-        'scenes',
-        'pipeline',
-        'pipelineNodeNewLogic',
-        pluginIdOrBatchExportDestination,
-    ]),
+    connect({
+        values: [userLogic, ['user']],
+    }),
+    path((id) => ['scenes', 'pipeline', 'pipelineNodeNewLogic', id]),
+    actions({
+        createNewButtonPressed: (stage: PipelineStage, id: number | BatchExportService['type']) => ({ stage, id }),
+    }),
     selectors(() => ({
         breadcrumbs: [
             (_, p) => [p.stage, p.pluginId, p.batchExportDestination],
@@ -42,11 +45,23 @@ export const pipelineNodeNewLogic = kea<pipelineNodeNewLogicType>([
                     path: urls.pipeline(stage ? NODE_STAGE_TO_PIPELINE_TAB[stage] : undefined),
                 },
                 {
-                    // TODO: use the plugin name
                     key: pluginId || batchDestination || 'Unknown',
-                    name: pluginId ? pluginId.toString() : batchDestination ?? 'Options',
+                    name: pluginId ? 'New' : batchDestination ? `New ${batchDestination} destination` : 'Options',
                 },
             ],
+        ],
+        batchExportServiceNames: [
+            (s) => [s.user],
+            (user): BatchExportService['type'][] => {
+                // HTTP is currently only used for Cloud to Cloud migrations and shouldn't be accessible to users
+                const services: BatchExportService['type'][] = BATCH_EXPORT_SERVICE_NAMES.filter(
+                    (service) => service !== 'HTTP'
+                ) as BatchExportService['type'][]
+                if (user?.is_impersonated || user?.is_staff) {
+                    services.push('HTTP')
+                }
+                return services
+            },
         ],
     })),
 ])

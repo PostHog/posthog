@@ -1,4 +1,6 @@
-import { AvailableFeature } from '~/types'
+import { BounceRatePageViewModeSetting } from 'scenes/settings/project/BounceRatePageViewMode'
+import { PersonsJoinMode } from 'scenes/settings/project/PersonsJoinMode'
+import { PersonsOnEvents } from 'scenes/settings/project/PersonsOnEvents'
 
 import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
@@ -14,6 +16,7 @@ import { GroupAnalyticsConfig } from './project/GroupAnalyticsConfig'
 import { HeatmapsSettings } from './project/HeatmapsSettings'
 import { IPAllowListInfo } from './project/IPAllowListInfo'
 import { IPCapture } from './project/IPCapture'
+import { ManagedReverseProxy } from './project/ManagedReverseProxy'
 import { PathCleaningFiltersConfig } from './project/PathCleaningFiltersConfig'
 import { PersonDisplayNameProperties } from './project/PersonDisplayNameProperties'
 import { ProjectAccessControl } from './project/ProjectAccessControl'
@@ -27,6 +30,7 @@ import {
     WebSnippet,
 } from './project/ProjectSettings'
 import {
+    NetworkCaptureSettings,
     ReplayAISettings,
     ReplayAuthorizedDomains,
     ReplayCostControl,
@@ -38,6 +42,7 @@ import { ProjectAccountFiltersSetting } from './project/TestAccountFiltersConfig
 import { WebhookIntegration } from './project/WebhookIntegration'
 import { SettingSection } from './types'
 import { ChangePassword } from './user/ChangePassword'
+import { HedgehogModeSettings } from './user/HedgehogModeSettings'
 import { OptOutCapture } from './user/OptOutCapture'
 import { PersonalAPIKeys } from './user/PersonalAPIKeys'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
@@ -120,6 +125,12 @@ export const SettingsMap: SettingSection[] = [
                 component: <ProjectAccountFiltersSetting />,
             },
             {
+                id: 'persons-on-events',
+                title: 'Person properties mode',
+                component: <PersonsOnEvents />,
+                flag: '!SETTINGS_PERSONS_ON_EVENTS_HIDDEN', // Setting hidden for Cloud orgs created since June 2024
+            },
+            {
                 id: 'correlation-analysis',
                 title: 'Correlation analysis exclusions',
                 component: <CorrelationConfig />,
@@ -144,6 +155,18 @@ export const SettingsMap: SettingSection[] = [
                 title: 'Group analytics',
                 component: <GroupAnalyticsConfig />,
             },
+            {
+                id: 'persons-join-mode',
+                title: 'Persons join mode',
+                component: <PersonsJoinMode />,
+                flag: 'SETTINGS_PERSONS_JOIN_MODE',
+            },
+            {
+                id: 'bounce-rate-page-view-mode',
+                title: 'Bounce rate page view mode',
+                component: <BounceRatePageViewModeSetting />,
+                flag: 'SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE',
+            },
         ],
     },
 
@@ -158,6 +181,11 @@ export const SettingsMap: SettingSection[] = [
                 component: <ReplayGeneral />,
             },
             {
+                id: 'replay-network',
+                title: 'Network capture',
+                component: <NetworkCaptureSettings />,
+            },
+            {
                 id: 'replay-authorized-domains',
                 title: 'Authorized domains for replay',
                 component: <ReplayAuthorizedDomains />,
@@ -166,12 +194,6 @@ export const SettingsMap: SettingSection[] = [
                 id: 'replay-ingestion',
                 title: 'Ingestion controls',
                 component: <ReplayCostControl />,
-                flag: 'SESSION_RECORDING_SAMPLING',
-                features: [
-                    AvailableFeature.SESSION_REPLAY_SAMPLING,
-                    AvailableFeature.REPLAY_FEATURE_FLAG_BASED_RECORDING,
-                    AvailableFeature.REPLAY_RECORDING_DURATION_MINIMUM,
-                ],
             },
             {
                 id: 'replay-ai-config',
@@ -224,7 +246,6 @@ export const SettingsMap: SettingSection[] = [
             {
                 id: 'integration-ip-allowlist',
                 title: 'Static IP addresses',
-                flag: 'IP_ALLOWLIST_SETTING',
                 component: <IPAllowListInfo />,
             },
         ],
@@ -315,6 +336,18 @@ export const SettingsMap: SettingSection[] = [
     },
     {
         level: 'organization',
+        id: 'organization-proxy',
+        title: 'Managed reverse proxy',
+        settings: [
+            {
+                id: 'organization-proxy',
+                title: 'Managed reverse proxies',
+                component: <ManagedReverseProxy />,
+            },
+        ],
+    },
+    {
+        level: 'organization',
         id: 'organization-danger-zone',
         title: 'Danger zone',
         settings: [
@@ -380,6 +413,11 @@ export const SettingsMap: SettingSection[] = [
                 id: 'optout',
                 title: 'Anonymize data collection',
                 component: <OptOutCapture />,
+            },
+            {
+                id: 'hedgehog-mode',
+                title: 'Hedgehog mode',
+                component: <HedgehogModeSettings />,
             },
         ],
     },

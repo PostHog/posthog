@@ -1,4 +1,5 @@
 from datetime import timedelta
+from posthog.hogql.constants import HogQLGlobalSettings, MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY
 from math import ceil
 from typing import Optional, Any
 
@@ -23,6 +24,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
+    CachedFunnelsQueryResponse,
     FunnelVizType,
     FunnelsQuery,
     FunnelsQueryResponse,
@@ -32,7 +34,8 @@ from posthog.schema import (
 
 class FunnelsQueryRunner(QueryRunner):
     query: FunnelsQuery
-    query_type = FunnelsQuery
+    response: FunnelsQueryResponse
+    cached_response: CachedFunnelsQueryResponse
     context: FunnelQueryContext
 
     def __init__(
@@ -93,6 +96,9 @@ class FunnelsQueryRunner(QueryRunner):
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
+            settings=HogQLGlobalSettings(
+                max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY
+            ),  # Make sure funnel queries never OOM
         )
 
         results = self.funnel_class._format_results(response.results)
@@ -110,9 +116,9 @@ class FunnelsQueryRunner(QueryRunner):
     def funnel_class(self):
         funnelVizType = self.context.funnelsFilter.funnelVizType
 
-        if funnelVizType == FunnelVizType.trends:
+        if funnelVizType == FunnelVizType.TRENDS:
             return FunnelTrends(context=self.context, **self.kwargs)
-        elif funnelVizType == FunnelVizType.time_to_convert:
+        elif funnelVizType == FunnelVizType.TIME_TO_CONVERT:
             return FunnelTimeToConvert(context=self.context)
         else:
             return self.funnel_order_class

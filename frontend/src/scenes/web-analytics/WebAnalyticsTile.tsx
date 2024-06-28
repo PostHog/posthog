@@ -17,9 +17,8 @@ import { ChartDisplayType, GraphPointPayload, InsightLogicProps, PropertyFilterT
 const PercentageCell: QueryContextColumnComponent = ({ value }) => {
     if (typeof value === 'number') {
         return <span>{`${(value * 100).toFixed(1)}%`}</span>
-    } else {
-        return null
     }
+    return null
 }
 
 const NumericCell: QueryContextColumnComponent = ({ value }) => {
@@ -38,6 +37,8 @@ const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
             return <>Path</>
         case WebStatsBreakdown.InitialPage:
             return <>Initial Path</>
+        case WebStatsBreakdown.ExitPage:
+            return <>Exit Path</>
         case WebStatsBreakdown.InitialChannelType:
             return <>Initial Channel Type</>
         case WebStatsBreakdown.InitialReferringDomain:
@@ -64,6 +65,8 @@ const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
             return <>Region</>
         case WebStatsBreakdown.City:
             return <>City</>
+        case WebStatsBreakdown.InitialUTMSourceMediumCampaign:
+            return <>Source / Medium / Campaign</>
         default:
             throw new UnexpectedNeverError(breakdownBy)
     }
@@ -113,33 +116,36 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
 
     if (typeof value === 'string') {
         return <>{value}</>
-    } else {
-        return null
     }
+    return null
 }
 
 export const webStatsBreakdownToPropertyName = (
     breakdownBy: WebStatsBreakdown
-): { key: string; type: PropertyFilterType.Person | PropertyFilterType.Event } | undefined => {
+):
+    | { key: string; type: PropertyFilterType.Person | PropertyFilterType.Event | PropertyFilterType.Session }
+    | undefined => {
     switch (breakdownBy) {
         case WebStatsBreakdown.Page:
             return { key: '$pathname', type: PropertyFilterType.Event }
         case WebStatsBreakdown.InitialPage:
-            return { key: '$initial_pathname', type: PropertyFilterType.Person }
+            return { key: '$entry_pathname', type: PropertyFilterType.Session }
+        case WebStatsBreakdown.ExitPage:
+            return { key: '$exit_pathname', type: PropertyFilterType.Session }
         case WebStatsBreakdown.InitialChannelType:
-            return undefined
+            return { key: '$channel_type', type: PropertyFilterType.Session }
         case WebStatsBreakdown.InitialReferringDomain:
-            return { key: '$initial_referring_domain', type: PropertyFilterType.Person }
+            return { key: '$entry_referring_domain', type: PropertyFilterType.Session }
         case WebStatsBreakdown.InitialUTMSource:
-            return { key: '$initial_utm_source', type: PropertyFilterType.Person }
+            return { key: '$entry_utm_source', type: PropertyFilterType.Session }
         case WebStatsBreakdown.InitialUTMCampaign:
-            return { key: '$initial_utm_campaign', type: PropertyFilterType.Person }
+            return { key: '$entry_utm_campaign', type: PropertyFilterType.Session }
         case WebStatsBreakdown.InitialUTMMedium:
-            return { key: '$initial_utm_medium', type: PropertyFilterType.Person }
+            return { key: '$entry_utm_medium', type: PropertyFilterType.Session }
         case WebStatsBreakdown.InitialUTMContent:
-            return { key: '$initial_utm_content', type: PropertyFilterType.Person }
+            return { key: '$entry_utm_content', type: PropertyFilterType.Session }
         case WebStatsBreakdown.InitialUTMTerm:
-            return { key: '$initial_utm_term', type: PropertyFilterType.Person }
+            return { key: '$entry_utm_term', type: PropertyFilterType.Session }
         case WebStatsBreakdown.Browser:
             return { key: '$browser', type: PropertyFilterType.Event }
         case WebStatsBreakdown.OS:
@@ -152,6 +158,8 @@ export const webStatsBreakdownToPropertyName = (
             return { key: '$geoip_subdivision_1_code', type: PropertyFilterType.Event }
         case WebStatsBreakdown.City:
             return { key: '$geoip_city_name', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.InitialUTMSourceMediumCampaign:
+            return undefined
         default:
             throw new UnexpectedNeverError(breakdownBy)
     }
@@ -284,7 +292,7 @@ export const WebStatsTrendTile = ({
     }, [onWorldMapClick, insightProps])
 
     return (
-        <div className="border rounded bg-bg-light flex-1">
+        <div className="border rounded bg-bg-light flex-1 flex flex-col">
             {showIntervalTile && (
                 <div className="flex flex-row items-center justify-end m-2 mr-4">
                     <div className="flex flex-row items-center">

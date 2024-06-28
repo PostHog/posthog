@@ -8,6 +8,8 @@ import { userLogic } from 'scenes/userLogic'
 
 import {
     BatchExportConfiguration,
+    HogFunctionTemplateType,
+    HogFunctionType,
     PipelineStage,
     PluginConfigTypeNew,
     PluginConfigWithPluginInfoNew,
@@ -16,9 +18,16 @@ import {
 } from '~/types'
 
 import type { pipelineDestinationsLogicType } from './destinationsLogicType'
-import { pipelineLogic } from './pipelineLogic'
-import { BatchExportDestination, convertToPipelineNode, Destination, PipelineBackend } from './types'
-import { captureBatchExportEvent, capturePluginEvent } from './utils'
+import { pipelineAccessLogic } from './pipelineAccessLogic'
+import {
+    BatchExportDestination,
+    convertToPipelineNode,
+    Destination,
+    FunctionDestination,
+    PipelineBackend,
+    WebhookDestination,
+} from './types'
+import { captureBatchExportEvent, capturePluginEvent, loadPluginsFromUrl } from './utils'
 
 export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
     path(['scenes', 'pipeline', 'destinationsLogic']),
@@ -27,29 +36,27 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             teamLogic,
             ['currentTeamId'],
             userLogic,
-            ['user'],
-            pipelineLogic,
-            ['canConfigurePlugins', 'canEnableNewDestinations'],
+            ['user', 'hasAvailableFeature'],
+            pipelineAccessLogic,
+            ['canEnableNewDestinations'],
         ],
     }),
     actions({
         toggleNode: (destination: Destination, enabled: boolean) => ({ destination, enabled }),
         deleteNode: (destination: Destination) => ({ destination }),
         deleteNodeBatchExport: (destination: BatchExportDestination) => ({ destination }),
+        deleteNodeHogFunction: (destination: FunctionDestination) => ({ destination }),
+        deleteNodeWebhook: (destination: WebhookDestination) => ({ destination }),
+
+        updatePluginConfig: (pluginConfig: PluginConfigTypeNew) => ({ pluginConfig }),
+        updateBatchExportConfig: (batchExportConfig: BatchExportConfiguration) => ({ batchExportConfig }),
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         plugins: [
             {} as Record<number, PluginType>,
             {
                 loadPlugins: async () => {
-                    const results = await api.loadPaginatedResults<PluginType>(
-                        `api/organizations/@current/pipeline_destinations`
-                    )
-                    const plugins: Record<number, PluginType> = {}
-                    for (const plugin of results) {
-                        plugins[plugin.id] = plugin
-                    }
-                    return plugins
+                    return loadPluginsFromUrl('api/organizations/@current/pipeline_destinations')
                 },
             },
         ],
@@ -83,6 +90,32 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                     })
                     return { ...pluginConfigs, [destination.id]: response }
                 },
+                updatePluginConfig: ({ pluginConfig }) => {
+                    return {
+                        ...values.pluginConfigs,
+                        [pluginConfig.id]: pluginConfig,
+                    }
+                },
+
+                deleteNodeWebhook: async ({ destination }) => {
+                    await deleteWithUndo({
+                        endpoint: `projects/${teamLogic.values.currentTeamId}/plugin_configs`,
+                        object: {
+                            id: destination.id,
+                            name: destination.name,
+                        },
+                        callback: (undo) => {
+                            if (undo) {
+                                actions.loadPluginConfigs()
+                            }
+                        },
+                    })
+
+                    const pluginConfigs = { ...values.pluginConfigs }
+                    delete pluginConfigs[destination.id]
+
+                    return pluginConfigs
+                },
             },
         ],
         batchExportConfigs: [
@@ -106,34 +139,101 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                 },
                 deleteNodeBatchExport: async ({ destination }) => {
                     await api.batchExports.delete(destination.id)
-                    return Object.fromEntries(
-                        Object.entries(values.batchExportConfigs).filter(([id]) => id !== destination.id)
-                    )
+
+                    const batchExportConfigs = { ...values.batchExportConfigs }
+                    delete batchExportConfigs[destination.id]
+
+                    return batchExportConfigs
+                },
+                updateBatchExportConfig: ({ batchExportConfig }) => {
+                    return { ...values.batchExportConfigs, [batchExportConfig.id]: batchExportConfig }
+                },
+            },
+        ],
+
+        hogFunctionTemplates: [
+            {} as Record<string, HogFunctionTemplateType>,
+            {
+                loadHogFunctionTemplates: async () => {
+                    const templates = await api.hogFunctions.listTemplates()
+                    return templates.results.reduce((acc, template) => {
+                        acc[template.id] = template
+                        return acc
+                    }, {} as Record<string, HogFunctionTemplateType>)
+                },
+            },
+        ],
+        hogFunctions: [
+            [] as HogFunctionType[],
+            {
+                loadHogFunctions: async () => {
+                    // TODO: Support pagination?
+                    return (await api.hogFunctions.list()).results
+                },
+
+                deleteNodeHogFunction: async ({ destination }) => {
+                    if (destination.backend !== PipelineBackend.HogFunction) {
+                        return values.hogFunctions
+                    }
+
+                    await deleteWithUndo({
+                        endpoint: `projects/${teamLogic.values.currentTeamId}/hog_functions`,
+                        object: {
+                            id: destination.hog_function.id,
+                            name: destination.name,
+                        },
+                        callback: (undo) => {
+                            if (undo) {
+                                actions.loadHogFunctions()
+                            }
+                        },
+                    })
+
+                    return values.hogFunctions.filter((hogFunction) => hogFunction.id !== destination.hog_function.id)
                 },
             },
         ],
     })),
     selectors({
         loading: [
-            (s) => [s.pluginsLoading, s.pluginConfigsLoading, s.batchExportConfigsLoading],
-            (pluginsLoading, pluginConfigsLoading, batchExportConfigsLoading) =>
-                pluginsLoading || pluginConfigsLoading || batchExportConfigsLoading,
+            (s) => [
+                s.pluginsLoading,
+                s.pluginConfigsLoading,
+                s.batchExportConfigsLoading,
+                s.hogFunctionTemplatesLoading,
+                s.hogFunctionsLoading,
+            ],
+            (
+                pluginsLoading,
+                pluginConfigsLoading,
+                batchExportConfigsLoading,
+                hogFunctionTemplatesLoading,
+                hogFunctionsLoading
+            ) =>
+                pluginsLoading ||
+                pluginConfigsLoading ||
+                batchExportConfigsLoading ||
+                hogFunctionTemplatesLoading ||
+                hogFunctionsLoading,
         ],
         destinations: [
-            (s) => [s.pluginConfigs, s.plugins, s.batchExportConfigs, s.user],
-            (pluginConfigs, plugins, batchExportConfigs, user): Destination[] => {
+            (s) => [s.pluginConfigs, s.plugins, s.batchExportConfigs, s.hogFunctions, s.user],
+            (pluginConfigs, plugins, batchExportConfigs, hogFunctions, user): Destination[] => {
                 // Migrations are shown only in impersonation mode, for us to be able to trigger them.
                 const rawBatchExports = Object.values(batchExportConfigs).filter(
                     (config) => config.destination.type !== 'HTTP' || user?.is_impersonated
                 )
-                const rawDestinations: (PluginConfigWithPluginInfoNew | BatchExportConfiguration)[] = Object.values(
-                    pluginConfigs
-                )
-                    .map<PluginConfigWithPluginInfoNew | BatchExportConfiguration>((pluginConfig) => ({
-                        ...pluginConfig,
-                        plugin_info: plugins[pluginConfig.plugin] || null,
-                    }))
-                    .concat(rawBatchExports)
+
+                const rawDestinations: (PluginConfigWithPluginInfoNew | BatchExportConfiguration | HogFunctionType)[] =
+                    Object.values(pluginConfigs)
+                        .map<PluginConfigWithPluginInfoNew | BatchExportConfiguration | HogFunctionType>(
+                            (pluginConfig) => ({
+                                ...pluginConfig,
+                                plugin_info: plugins[pluginConfig.plugin] || null,
+                            })
+                        )
+                        .concat(rawBatchExports)
+                        .concat(hogFunctions)
                 const convertedDestinations = rawDestinations.map((d) =>
                     convertToPipelineNode(d, PipelineStage.Destination)
                 )
@@ -148,34 +248,29 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             },
         ],
     }),
-    listeners(({ actions, asyncActions, values }) => ({
+    listeners(({ values, actions }) => ({
         toggleNode: ({ destination, enabled }) => {
-            if (!values.canConfigurePlugins) {
-                lemonToast.error("You don't have permission to enable or disable destinations")
-                return
-            }
             if (enabled && !values.canEnableNewDestinations) {
-                lemonToast.error('Data pipelines add-on is required for enabling new destinations')
+                lemonToast.error('Data pipelines add-on is required for enabling new destinations.')
                 return
             }
-            if (destination.backend === 'plugin') {
+            if (destination.backend === PipelineBackend.Plugin) {
                 actions.toggleNodeWebhook({ destination: destination, enabled: enabled })
             } else {
                 actions.toggleNodeBatchExport({ destination: destination, enabled: enabled })
             }
         },
-        deleteNode: async ({ destination }) => {
-            if (destination.backend === PipelineBackend.BatchExport) {
-                await asyncActions.deleteNodeBatchExport(destination)
-            } else {
-                await deleteWithUndo({
-                    endpoint: `projects/${teamLogic.values.currentTeamId}/plugin_configs`,
-                    object: {
-                        id: destination.id,
-                        name: destination.name,
-                    },
-                    callback: actions.loadPluginConfigs,
-                })
+        deleteNode: ({ destination }) => {
+            switch (destination.backend) {
+                case PipelineBackend.Plugin:
+                    actions.deleteNodeWebhook(destination)
+                    break
+                case PipelineBackend.BatchExport:
+                    actions.deleteNodeBatchExport(destination)
+                    break
+                case PipelineBackend.HogFunction:
+                    actions.deleteNodeHogFunction(destination)
+                    break
             }
         },
     })),
@@ -183,5 +278,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
         actions.loadPlugins()
         actions.loadPluginConfigs()
         actions.loadBatchExports()
+        actions.loadHogFunctionTemplates()
+        actions.loadHogFunctions()
     }),
 ])

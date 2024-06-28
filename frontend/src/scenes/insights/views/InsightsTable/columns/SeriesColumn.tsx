@@ -59,6 +59,6 @@ export function SeriesColumnItem({
 
 export const formatCompareLabel = (trendResult: TrendResult): string => {
     // label splitting ensures backwards compatibility for api results that don't contain the new compare_label
-    const labels = trendResult.label.split(' - ')
+    const labels = trendResult.label?.split(' - ')
     return capitalizeFirstLetter(trendResult.compare_label ?? labels?.[labels.length - 1] ?? 'current')
 }

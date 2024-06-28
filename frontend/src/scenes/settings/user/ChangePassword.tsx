@@ -7,7 +7,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { changePasswordLogic } from './changePasswordLogic'
 
 export function ChangePassword(): JSX.Element {
-    const { changePassword, isChangePasswordSubmitting } = useValues(changePasswordLogic)
+    const { validatedPassword, isChangePasswordSubmitting } = useValues(changePasswordLogic)
 
     return (
         <Form logic={changePasswordLogic} formKey="changePassword" enableFormOnSubmit className="space-y-4 max-w-160">
@@ -25,9 +25,7 @@ export function ChangePassword(): JSX.Element {
                 label={
                     <div className="flex flex-1 items-center justify-between">
                         <span>Password</span>
-                        <span className="w-20">
-                            <PasswordStrength password={changePassword.password} />
-                        </span>
+                        <PasswordStrength validatedPassword={validatedPassword} />
                     </div>
                 }
             >

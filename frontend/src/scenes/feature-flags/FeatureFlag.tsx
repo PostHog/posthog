@@ -708,9 +708,8 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
 function variantConcatWithPunctuation(phrases: string[]): string {
     if (phrases === null || phrases.length < 3) {
         return concatWithPunctuation(phrases)
-    } else {
-        return `${phrases[0]} and ${phrases.length - 1} more sets`
     }
+    return `${phrases[0]} and ${phrases.length - 1} more sets`
 }
 
 function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {

@@ -46,10 +46,9 @@ export interface EditorFiltersProps {
 }
 
 export function EditorFilters({ query, showing, embedded }: EditorFiltersProps): JSX.Element | null {
-    const { user } = useValues(userLogic)
-    const availableFeatures = user?.organization?.available_features || []
+    const { hasAvailableFeature } = useValues(userLogic)
 
-    const { insight, insightProps } = useValues(insightLogic)
+    const { insightProps } = useValues(insightLogic)
     const {
         isTrends,
         isFunnels,
@@ -74,7 +73,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         (isTrends && !NON_BREAKDOWN_DISPLAY_TYPES.includes(display || ChartDisplayType.ActionsLineGraph)) ||
         isStepsFunnel ||
         isTrendsFunnel
-    const hasPathsAdvanced = availableFeatures.includes(AvailableFeature.PATHS_ADVANCED)
+    const hasPathsAdvanced = hasAvailableFeature(AvailableFeature.PATHS_ADVANCED)
     const hasAttribution = isStepsFunnel
     const hasPathsHogQL = isPaths && pathsFilter?.includeEventTypes?.includes(PathType.HogQL)
 
@@ -291,7 +290,6 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                         <EditorFilterGroup
                             key={editorFilterGroup.title}
                             editorFilterGroup={editorFilterGroup}
-                            insight={insight}
                             insightProps={insightProps}
                             query={query}
                         />

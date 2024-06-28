@@ -1,6 +1,7 @@
 import json
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Optional, Any
+from unittest import mock
 from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -32,7 +33,32 @@ from posthog.test.base import (
 class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     # select all queries for snapshots
     def capture_select_queries(self):
-        return self.capture_queries(("INSERT INTO cohortpeople", "SELECT", "ALTER", "select", "DELETE"))
+        return self.capture_queries_startswith(("INSERT INTO cohortpeople", "SELECT", "ALTER", "select", "DELETE"))
+
+    def _get_cohort_activity(
+        self,
+        flag_id: Optional[int] = None,
+        team_id: Optional[int] = None,
+        expected_status: int = status.HTTP_200_OK,
+    ):
+        if team_id is None:
+            team_id = self.team.id
+
+        if flag_id:
+            url = f"/api/projects/{team_id}/cohorts/{flag_id}/activity"
+        else:
+            url = f"/api/projects/{team_id}/cohorts/activity"
+
+        activity = self.client.get(url)
+        self.assertEqual(activity.status_code, expected_status)
+        return activity.json()
+
+    def assert_cohort_activity(self, cohort_id: Optional[int], expected: list[dict]):
+        activity_response = self._get_cohort_activity(cohort_id)
+
+        activity: list[dict] = activity_response["results"]
+        self.maxDiff = None
+        assert activity == expected
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay", side_effect=calculate_cohort_ch)
@@ -75,7 +101,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
             },
         )
 
-        with self.capture_queries("INSERT INTO cohortpeople") as insert_statements:
+        with self.capture_queries_startswith("INSERT INTO cohortpeople") as insert_statements:
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/cohorts/{response.json()['id']}",
                 data={
@@ -281,6 +307,96 @@ email@example.org,
         self.assertEqual(response["results"][0]["name"], "whatever")
         self.assertEqual(response["results"][0]["created_by"]["id"], self.user.id)
 
+    def test_cohort_activity_log(self):
+        self.team.app_urls = ["http://somewebsite.com"]
+        self.team.save()
+        Person.objects.create(team=self.team, properties={"prop": 5})
+        Person.objects.create(team=self.team, properties={"prop": 6})
+
+        self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "whatever", "groups": [{"properties": {"prop": 5}}]},
+        )
+
+        cohort = Cohort.objects.filter(team=self.team).last()
+        assert cohort is not None
+
+        self.assert_cohort_activity(
+            cohort_id=cohort.pk,
+            expected=[
+                {
+                    "user": {"first_name": "", "email": "user1@posthog.com"},
+                    "activity": "created",
+                    "scope": "Cohort",
+                    "item_id": str(cohort.pk),
+                    "detail": {"changes": None, "trigger": None, "name": "whatever", "short_id": None, "type": None},
+                    "created_at": mock.ANY,
+                }
+            ],
+        )
+
+        self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.pk}",
+            data={"name": "woohoo", "groups": [{"properties": {"prop": 6}}]},
+        )
+        cohort.refresh_from_db()
+        assert cohort.name == "woohoo"
+
+        self.assert_cohort_activity(
+            cohort_id=cohort.pk,
+            expected=[
+                {
+                    "user": {"first_name": "", "email": "user1@posthog.com"},
+                    "activity": "updated",
+                    "scope": "Cohort",
+                    "item_id": str(cohort.pk),
+                    "detail": {
+                        "changes": [
+                            {
+                                "type": "Cohort",
+                                "action": "changed",
+                                "field": "name",
+                                "before": "whatever",
+                                "after": "woohoo",
+                            },
+                            {
+                                "type": "Cohort",
+                                "action": "changed",
+                                "field": "groups",
+                                "before": [
+                                    {
+                                        "days": None,
+                                        "count": None,
+                                        "label": None,
+                                        "end_date": None,
+                                        "event_id": None,
+                                        "action_id": None,
+                                        "properties": [{"key": "prop", "type": "person", "value": 5}],
+                                        "start_date": None,
+                                        "count_operator": None,
+                                    }
+                                ],
+                                "after": [{"properties": [{"key": "prop", "type": "person", "value": 6}]}],
+                            },
+                        ],
+                        "trigger": None,
+                        "name": "woohoo",
+                        "short_id": None,
+                        "type": None,
+                    },
+                    "created_at": mock.ANY,
+                },
+                {
+                    "user": {"first_name": "", "email": "user1@posthog.com"},
+                    "activity": "created",
+                    "scope": "Cohort",
+                    "item_id": str(cohort.pk),
+                    "detail": {"changes": None, "trigger": None, "name": "whatever", "short_id": None, "type": None},
+                    "created_at": mock.ANY,
+                },
+            ],
+        )
+
     def test_csv_export_new(self):
         # Test 100s of distinct_ids, we only want ~10
         Person.objects.create(
@@ -355,9 +471,7 @@ email@example.org,
         )
         self.assertEqual(len(response.json()["results"]), 1, response)
 
-    # TODO: Remove this when load-person-field-from-clickhouse feature flag is removed
-    @patch("posthog.api.person.posthoganalytics.feature_enabled", return_value=True)
-    def test_filter_by_cohort_prop_from_clickhouse(self, patch_feature_enabled):
+    def test_filter_by_cohort_prop_from_clickhouse(self):
         for i in range(5):
             _create_person(
                 team=self.team,
@@ -818,7 +932,7 @@ email@example.org,
                             "key": "$some_prop",
                             "value": "something",
                             "type": "person",
-                            "operator": PropertyOperator.exact,
+                            "operator": PropertyOperator.EXACT,
                         }
                     ],
                 },
@@ -848,7 +962,7 @@ email@example.org,
                             "key": "$some_prop",
                             "value": "something",
                             "type": "person",
-                            "operator": PropertyOperator.exact,
+                            "operator": PropertyOperator.EXACT,
                         }
                     ],
                 },

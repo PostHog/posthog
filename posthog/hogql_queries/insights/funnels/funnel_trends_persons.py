@@ -58,7 +58,7 @@ class FunnelTrendsActors(FunnelTrends):
                 ]
         return []
 
-    def actor_query(self) -> ast.SelectQuery:
+    def actor_query(self, *args) -> ast.SelectQuery:
         step_counts_query = self.get_step_counts_without_aggregation_query(
             specific_entrance_period_start=self.entrancePeriodStart
         )
@@ -87,5 +87,4 @@ class FunnelTrendsActors(FunnelTrends):
             select_from=select_from,
             order_by=order_by,
             where=where,
-            # SETTINGS max_ast_elements=1000000, max_expanded_ast_elements=1000000
         )

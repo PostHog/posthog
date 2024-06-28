@@ -1,7 +1,7 @@
 from typing import Any
 
 from django.conf import settings
-from rest_framework import exceptions, filters, serializers, viewsets
+from rest_framework import exceptions, filters, serializers, viewsets, response, request, status
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -11,7 +11,7 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.metadata import is_valid_view
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
-from posthog.warehouse.models import DataWarehouseSavedQuery
+from posthog.warehouse.models import DataWarehouseSavedQuery, DataWarehouseJoin
 
 
 class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
@@ -35,7 +35,19 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         team_id = self.context["team_id"]
         context = HogQLContext(team_id=team_id, database=create_hogql_database(team_id=team_id))
 
-        return serialize_fields(view.hogql_definition().fields, context)
+        fields = serialize_fields(view.hogql_definition().fields, context, view.name)
+        return [
+            SerializedField(
+                key=field.name,
+                name=field.name,
+                type=field.type,
+                schema_valid=field.schema_valid,
+                fields=field.fields,
+                table=field.table,
+                chain=field.chain,
+            )
+            for field in fields
+        ]
 
     def create(self, validated_data):
         validated_data["team_id"] = self.context["team_id"]
@@ -106,3 +118,11 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
 
     def safely_get_queryset(self, queryset):
         return queryset.prefetch_related("created_by").exclude(deleted=True).order_by(self.ordering)
+
+    def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        instance: DataWarehouseSavedQuery = self.get_object()
+        DataWarehouseJoin.objects.filter(source_table_name=instance.name).delete()
+        DataWarehouseJoin.objects.filter(joining_table_name=instance.name).delete()
+        self.perform_destroy(instance)
+
+        return response.Response(status=status.HTTP_204_NO_CONTENT)

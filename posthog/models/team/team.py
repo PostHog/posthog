@@ -2,6 +2,7 @@ import re
 from decimal import Decimal
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any, Optional
+from zoneinfo import ZoneInfo
 
 import posthoganalytics
 import pydantic
@@ -9,15 +10,14 @@ import pytz
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.validators import (
-    MinLengthValidator,
     MaxValueValidator,
+    MinLengthValidator,
     MinValueValidator,
 )
-from django.db import models, connection
+from django.db import connection, models, transaction
 from django.db.models import QuerySet
 from django.db.models.signals import post_delete, post_save
-from django.db import transaction
-from zoneinfo import ZoneInfo
+
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
@@ -35,8 +35,9 @@ from posthog.models.utils import (
 from posthog.settings.utils import get_list
 from posthog.utils import GenericEmails
 
+from ...hogql.modifiers import set_default_modifier_values
+from ...schema import HogQLQueryModifiers, PathCleaningFilter, PersonsOnEventsMode
 from .team_caching import get_team_in_cache, set_team_in_cache
-from ...schema import PathCleaningFilter, PersonsOnEventsMode
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -164,6 +165,10 @@ class WeekStartDay(models.IntegerChoices):
 
 
 class Team(UUIDClassicModel):
+    class Meta:
+        verbose_name = "team (soon to be environment)"
+        verbose_name_plural = "teams (soon to be environments)"
+
     organization: models.ForeignKey = models.ForeignKey(
         "posthog.Organization",
         on_delete=models.CASCADE,
@@ -252,6 +257,9 @@ class Team(UUIDClassicModel):
     # during feature releases.
     extra_settings: models.JSONField = models.JSONField(null=True, blank=True)
 
+    # Project level default HogQL query modifiers
+    modifiers: models.JSONField = models.JSONField(null=True, blank=True)
+
     # This is meant to be used as a stopgap until https://github.com/PostHog/meta/pull/39 gets implemented
     # Switches _most_ queries to using distinct_id as aggregator instead of person_id
     @property
@@ -286,33 +294,39 @@ class Team(UUIDClassicModel):
     objects: TeamManager = TeamManager()
 
     @property
+    def default_modifiers(self) -> dict:
+        modifiers = HogQLQueryModifiers()
+        set_default_modifier_values(modifiers, self)
+        return modifiers.model_dump()
+
+    @property
     def person_on_events_mode(self) -> PersonsOnEventsMode:
         if self._person_on_events_person_id_override_properties_on_events:
-            tag_queries(person_on_events_mode=PersonsOnEventsMode.person_id_override_properties_on_events)
-            return PersonsOnEventsMode.person_id_override_properties_on_events
+            tag_queries(person_on_events_mode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS)
+            return PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
 
         if self._person_on_events_person_id_no_override_properties_on_events:
             # also tag person_on_events_enabled for legacy compatibility
             tag_queries(
                 person_on_events_enabled=True,
-                person_on_events_mode=PersonsOnEventsMode.person_id_no_override_properties_on_events,
+                person_on_events_mode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
             )
-            return PersonsOnEventsMode.person_id_no_override_properties_on_events
+            return PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
 
         if self._person_on_events_person_id_override_properties_joined:
             tag_queries(
                 person_on_events_enabled=True,
-                person_on_events_mode=PersonsOnEventsMode.person_id_override_properties_joined,
+                person_on_events_mode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
             )
-            return PersonsOnEventsMode.person_id_override_properties_joined
+            return PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED
 
-        return PersonsOnEventsMode.disabled
+        return PersonsOnEventsMode.DISABLED
 
     # KLUDGE: DO NOT REFERENCE IN THE BACKEND!
     # Keeping this property for now only to be used by the frontend in certain cases
     @property
     def person_on_events_querying_enabled(self) -> bool:
-        return self.person_on_events_mode != PersonsOnEventsMode.disabled
+        return self.person_on_events_mode != PersonsOnEventsMode.DISABLED
 
     @property
     def _person_on_events_person_id_no_override_properties_on_events(self) -> bool:
@@ -466,15 +480,6 @@ def put_team_in_cache_on_save(sender, instance: Team, **kwargs):
 @mutable_receiver(post_delete, sender=Team)
 def delete_team_in_cache_on_delete(sender, instance: Team, **kwargs):
     set_team_in_cache(instance.api_token, None)
-
-
-def groups_on_events_querying_enabled():
-    """
-    Returns whether to allow querying groups columns on events.
-
-    Remove all usages of this when the feature is released to everyone.
-    """
-    return get_instance_setting("GROUPS_ON_EVENTS_ENABLED")
 
 
 def check_is_feature_available_for_team(team_id: int, feature_key: str, current_usage: Optional[int] = None):

@@ -1,9 +1,10 @@
 import { captureException } from '@sentry/react'
-import { kea, path, reducers } from 'kea'
+import { kea, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { ValidatedPasswordResult, validatePassword } from 'lib/components/PasswordStrength'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import type { passwordResetLogicType } from './passwordResetLogicType'
@@ -80,11 +81,7 @@ export const passwordResetLogic = kea<passwordResetLogicType>([
         passwordReset: {
             defaults: {} as unknown as PasswordResetForm,
             errors: ({ password, passwordConfirm }) => ({
-                password: !password
-                    ? 'Please enter your password to continue'
-                    : password.length < 8
-                    ? 'Password must be at least 8 characters'
-                    : undefined,
+                password: !password ? 'Please enter your password to continue' : values.validatedPassword.feedback,
                 passwordConfirm: !passwordConfirm
                     ? 'Please confirm your password to continue'
                     : password !== passwordConfirm
@@ -112,6 +109,14 @@ export const passwordResetLogic = kea<passwordResetLogicType>([
             },
         },
     })),
+    selectors({
+        validatedPassword: [
+            (s) => [s.passwordReset],
+            ({ password }): ValidatedPasswordResult => {
+                return validatePassword(password)
+            },
+        ],
+    }),
     urlToAction(({ actions }) => ({
         '/reset/:uuid/:token': ({ uuid, token }) => {
             if (token && uuid) {

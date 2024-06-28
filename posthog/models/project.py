@@ -3,6 +3,8 @@ from django.db import models
 from django.db import transaction
 from django.core.validators import MinLengthValidator
 
+from posthog.models.utils import sane_repr
+
 if TYPE_CHECKING:
     from .team import Team
 
@@ -41,3 +43,10 @@ class Project(models.Model):
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
 
     objects: ProjectManager = ProjectManager()
+
+    def __str__(self):
+        if self.name:
+            return self.name
+        return str(self.pk)
+
+    __repr__ = sane_repr("id", "name")

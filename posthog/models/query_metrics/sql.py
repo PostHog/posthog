@@ -1,41 +1,9 @@
 # Note: These tables are not (yet) created automatically, as they're considered experimental on cloud and exact schema is in flux.
 
-from posthog.clickhouse.dictionaries import dictionary_source_clickhouse
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, kafka_engine
 from posthog.clickhouse.table_engines import MergeTreeEngine
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
-
-CREATE_TEAM_EVENTS_LAST_MONTH_VIEW = (
-    lambda: f"""
-CREATE VIEW team_events_last_month_view ON CLUSTER '{CLICKHOUSE_CLUSTER}' AS
-SELECT team_id, count() AS event_count
-FROM events
-WHERE timestamp > now() - toIntervalMonth(1) AND timestamp < now()
-GROUP BY team_id
-ORDER BY event_count DESC
-"""
-)
-
-DROP_TEAM_EVENTS_LAST_MONTH_VIEW = lambda: f"DROP TABLE team_events_last_month_view ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
-
-CREATE_TEAM_EVENTS_LAST_MONTH_DICTIONARY = (
-    lambda: f"""
-CREATE DICTIONARY IF NOT EXISTS {CLICKHOUSE_DATABASE}.team_events_last_month_dictionary ON CLUSTER '{CLICKHOUSE_CLUSTER}'
-(
-    team_id UInt64,
-    event_count UInt64
-)
-PRIMARY KEY team_id
-{dictionary_source_clickhouse(table='team_events_last_month_view')}
-LAYOUT(complex_key_cache(size_in_cells 100000))
-Lifetime(86400)
-"""
-)
-
-DROP_TEAM_EVENTS_LAST_MONTH_DICTIONARY = lambda: (
-    f"DROP DICTIONARY team_events_last_month_dictionary ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
-)
 
 METRICS_TIME_TO_SEE_ENGINE = lambda: MergeTreeEngine("metrics_time_to_see_data", force_unique_zk_path=True)
 CREATE_METRICS_TIME_TO_SEE = (
@@ -232,33 +200,34 @@ WHERE JSONHas(log_comment, 'team_id')
 DROP_METRICS_QUERY_LOG = lambda: f"DROP TABLE metrics_query_log ON CLUSTER '{CLICKHOUSE_CLUSTER}' SYNC"
 DROP_METRICS_QUERY_LOG_MV = lambda: f"DROP TABLE metrics_query_log_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}' SYNC"
 
+# NOTE Tim May 2024: removed this as it was doing a bunch of queries. Should move this to schema migration if we want to keep it.
 # :KLUDGE: Temporary tooling to make (re)creating this schema easier
 # Invoke via `python manage.py shell <  posthog/models/query_metrics/sql.py`
-if __name__ == "django.core.management.commands.shell":
-    print("To drop query metrics schema:\n")  # noqa: T201
-    for drop_query in reversed(
-        [
-            DROP_TEAM_EVENTS_LAST_MONTH_VIEW,
-            DROP_TEAM_EVENTS_LAST_MONTH_DICTIONARY,
-            DROP_METRICS_TIME_TO_SEE_TABLE,
-            DROP_KAFKA_METRICS_TIME_TO_SEE,
-            DROP_METRICS_TIME_TO_SEE_MV,
-            DROP_METRICS_QUERY_LOG,
-            DROP_METRICS_QUERY_LOG_MV,
-        ]
-    ):
-        print(drop_query())  # noqa: T201
-        print()  # noqa: T201
+# if __name__ == "django.core.management.commands.shell":
+#     print("To drop query metrics schema:\n")  # noqa: T201
+#     for drop_query in reversed(
+#         [
+#             DROP_TEAM_EVENTS_LAST_MONTH_VIEW,
+#             DROP_TEAM_EVENTS_LAST_MONTH_DICTIONARY,
+#             DROP_METRICS_TIME_TO_SEE_TABLE,
+#             DROP_KAFKA_METRICS_TIME_TO_SEE,
+#             DROP_METRICS_TIME_TO_SEE_MV,
+#             DROP_METRICS_QUERY_LOG,
+#             DROP_METRICS_QUERY_LOG_MV,
+#         ]
+#     ):
+#         print(drop_query())  # noqa: T201
+#         print()  # noqa: T201
 
-    print("To create query metrics schema:\n")  # noqa: T201
-    for create_query in [
-        CREATE_TEAM_EVENTS_LAST_MONTH_VIEW,
-        CREATE_TEAM_EVENTS_LAST_MONTH_DICTIONARY,
-        CREATE_METRICS_TIME_TO_SEE,
-        CREATE_KAFKA_METRICS_TIME_TO_SEE,
-        CREATE_METRICS_TIME_TO_SEE_MV,
-        CREATE_METRICS_QUERY_LOG,
-        CREATE_METRICS_QUERY_LOG_MV,
-    ]:
-        print(create_query())  # noqa: T201
-        print()  # noqa: T201
+#     print("To create query metrics schema:\n")  # noqa: T201
+#     for create_query in [
+#         CREATE_TEAM_EVENTS_LAST_MONTH_VIEW,
+#         CREATE_TEAM_EVENTS_LAST_MONTH_DICTIONARY,
+#         CREATE_METRICS_TIME_TO_SEE,
+#         CREATE_KAFKA_METRICS_TIME_TO_SEE,
+#         CREATE_METRICS_TIME_TO_SEE_MV,
+#         CREATE_METRICS_QUERY_LOG,
+#         CREATE_METRICS_QUERY_LOG_MV,
+#     ]:
+#         print(create_query())  # noqa: T201
+#         print()  # noqa: T201

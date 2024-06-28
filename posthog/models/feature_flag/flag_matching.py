@@ -1,6 +1,6 @@
 import hashlib
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 import time
 import structlog
 from typing import Literal, Optional, Union, cast
@@ -67,7 +67,7 @@ ENTITY_EXISTS_PREFIX = "flag_entity_exists_"
 PERSON_KEY = "person"
 
 
-class FeatureFlagMatchReason(str, Enum):
+class FeatureFlagMatchReason(StrEnum):
     SUPER_CONDITION_VALUE = "super_condition_value"
     CONDITION_MATCH = "condition_match"
     NO_CONDITION_MATCH = "no_condition_match"
@@ -119,9 +119,9 @@ class FlagsMatcherCache:
                     team_id=self.team_id
                 )
                 return {row.group_type: row.group_type_index for row in group_type_mapping_rows}
-        except DatabaseError as err:
+        except DatabaseError:
             self.failed_to_fetch_flags = True
-            raise err
+            raise
 
     @cached_property
     def group_type_index_to_name(self) -> dict[GroupTypeIndex, GroupTypeName]:
@@ -596,14 +596,14 @@ class FeatureFlagMatcher:
                             assert len(group_query) == 1, f"Expected 1 group query result, got {len(group_query)}"
                             all_conditions = {**all_conditions, **group_query[0]}
                 return all_conditions
-        except DatabaseError as e:
+        except DatabaseError:
             self.failed_to_fetch_conditions = True
-            raise e
-        except Exception as e:
+            raise
+        except Exception:
             # Usually when a user somehow manages to create an invalid filter, usually via API.
             # In this case, don't put db down, just skip the flag.
             # Covers all cases like invalid JSON, invalid operator, invalid property name, invalid group input format, etc.
-            raise e
+            raise
 
     def hashed_identifier(self, feature_flag: FeatureFlag) -> Optional[str]:
         """
@@ -623,7 +623,7 @@ class FeatureFlagMatcher:
             # TODO: Don't use the cache if self.groups is empty, since that means no groups provided anyway
             # :TRICKY: If aggregating by groups
             group_type_name = self.cache.group_type_index_to_name.get(feature_flag.aggregation_group_type_index)
-            group_key = self.groups.get(group_type_name)  # type: ignore
+            group_key = self.groups.get(group_type_name)
             return group_key
 
     # This function takes a identifier and a feature flag key and returns a float between 0 and 1.
@@ -822,7 +822,7 @@ def get_all_feature_flags(
                     """
                     cursor.execute(
                         query,
-                        {"team_id": team_id, "distinct_ids": distinct_ids},  # type: ignore
+                        {"team_id": team_id, "distinct_ids": distinct_ids},
                     )
                     flags_with_no_overrides = [row[0] for row in cursor.fetchall()]
                     should_write_hash_key_override = len(flags_with_no_overrides) > 0
@@ -953,7 +953,7 @@ def set_feature_flag_hash_key_overrides(team_id: int, distinct_ids: list[str], h
                     query,
                     {
                         "team_id": team_id,
-                        "distinct_ids": distinct_ids,  # type: ignore
+                        "distinct_ids": distinct_ids,
                         "hash_key_override": hash_key_override,
                     },
                 )
@@ -969,7 +969,7 @@ def set_feature_flag_hash_key_overrides(team_id: int, distinct_ids: list[str], h
                 )
                 time.sleep(retry_delay)
             else:
-                raise e
+                raise
 
     return False
 

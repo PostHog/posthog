@@ -12,10 +12,10 @@ import {
 } from 'lib/api.mock'
 import { ResponseComposition, RestContext, RestRequest } from 'msw'
 
-import { getAvailableFeatures } from '~/mocks/features'
 import { SharingConfigurationType } from '~/types'
 
-import { billingJson } from './fixtures/_billing_v2'
+import { getAvailableProductFeatures } from './features'
+import { billingJson } from './fixtures/_billing'
 import { Mocks, MockSignature, mocksToHandlers } from './utils'
 
 export const EMPTY_PAGINATED_RESPONSE = { count: 0, results: [] as any[], next: null, previous: null }
@@ -77,7 +77,7 @@ export const defaultMocks: Mocks = {
         '/api/projects/:team_id/warehouse_tables/': EMPTY_PAGINATED_RESPONSE,
         '/api/organizations/@current/': (): MockSignature => [
             200,
-            { ...MOCK_DEFAULT_ORGANIZATION, available_features: getAvailableFeatures() },
+            { ...MOCK_DEFAULT_ORGANIZATION, available_product_features: getAvailableProductFeatures() },
         ],
         '/api/organizations/@current/roles/': EMPTY_PAGINATED_RESPONSE,
         '/api/organizations/@current/members/': toPaginatedResponse([
@@ -97,7 +97,10 @@ export const defaultMocks: Mocks = {
             200,
             {
                 ...MOCK_DEFAULT_USER,
-                organization: { ...MOCK_DEFAULT_ORGANIZATION, available_features: getAvailableFeatures() },
+                organization: {
+                    ...MOCK_DEFAULT_ORGANIZATION,
+                    available_product_features: getAvailableProductFeatures(),
+                },
             },
         ],
         '/api/projects/@current/': MOCK_DEFAULT_TEAM,
@@ -117,7 +120,7 @@ export const defaultMocks: Mocks = {
         'https://us.i.posthog.com/api/early_access_features': {
             earlyAccessFeatures: [],
         },
-        '/api/billing-v2/': {
+        '/api/billing/': {
             ...billingJson,
         },
     },

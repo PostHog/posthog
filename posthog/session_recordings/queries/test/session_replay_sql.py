@@ -94,7 +94,7 @@ def _sensible_last_timestamp(
             if isinstance(first_timestamp, str):
                 first_timestamp = parse(first_timestamp)
 
-            sensible_timestamp = (first_timestamp - relativedelta(seconds=3600)).isoformat()
+            sensible_timestamp = (first_timestamp + relativedelta(seconds=3600)).isoformat()
 
     return format_clickhouse_timestamp(cast_timestamp_or_now(sensible_timestamp))
 
@@ -105,7 +105,7 @@ def produce_replay_summary(
     distinct_id: Optional[str] = None,
     first_timestamp: Optional[str | datetime] = None,
     last_timestamp: Optional[str | datetime] = None,
-    first_url: Optional[str | None] = None,
+    first_url: Optional[str | None] = "https://not-provided-by-test.com",
     click_count: Optional[int] = None,
     keypress_count: Optional[int] = None,
     mouse_activity_count: Optional[int] = None,

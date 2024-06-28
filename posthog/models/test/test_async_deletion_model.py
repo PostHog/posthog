@@ -1,4 +1,5 @@
 from uuid import UUID, uuid4
+import datetime as dt
 
 from posthog.client import sync_execute
 from posthog.models import AsyncDeletion, DeletionType, Team, User
@@ -64,12 +65,15 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
 
     @snapshot_clickhouse_queries
     def test_mark_deletions_done_person(self):
+        base_datetime = dt.datetime(2024, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
+
         _create_event(
             event_uuid=uuid4(),
             event="event1",
             team=self.teams[0],
             distinct_id="1",
             person_id=uuid2,
+            _timestamp=base_datetime - dt.timedelta(days=1),
         )
         _create_event(
             event_uuid=uuid4(),
@@ -77,12 +81,81 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
             team=self.teams[1],
             distinct_id="1",
             person_id=uuid,
+            _timestamp=base_datetime - dt.timedelta(days=1),
         )
 
         deletion = AsyncDeletion.objects.create(
             deletion_type=DeletionType.Person,
             team_id=self.teams[0].pk,
             key=str(uuid),
+            created_by=self.user,
+        )
+        # Adjust `created_at` after creation to get around `auto_now_add`
+        deletion.created_at = base_datetime
+        deletion.save()
+
+        AsyncEventDeletion().mark_deletions_done()
+
+        deletion.refresh_from_db()
+        self.assertIsNotNone(deletion.delete_verified_at)
+
+    @snapshot_clickhouse_queries
+    def test_mark_deletions_done_person_when_not_done(self):
+        base_datetime = dt.datetime(2024, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
+
+        _create_event(
+            event_uuid=uuid4(),
+            event="event1",
+            team=self.teams[0],
+            distinct_id="1",
+            person_id=uuid,
+            _timestamp=base_datetime - dt.timedelta(days=1),
+        )
+
+        deletion = AsyncDeletion.objects.create(
+            deletion_type=DeletionType.Person,
+            team_id=self.teams[0].pk,
+            key=str(uuid),
+            created_by=self.user,
+        )
+        # Adjust `created_at` after creation to get around `auto_now_add`
+        deletion.created_at = base_datetime
+        deletion.save()
+
+        AsyncEventDeletion().mark_deletions_done()
+
+        deletion.refresh_from_db()
+        self.assertIsNone(deletion.delete_verified_at)
+
+    @snapshot_clickhouse_queries
+    def test_mark_deletions_done_groups(self):
+        _create_event(
+            event_uuid=uuid4(),
+            event="event1",
+            team=self.teams[0],
+            distinct_id="1",
+            properties={"$group_1": "foo"},
+        )
+        _create_event(
+            event_uuid=uuid4(),
+            event="event1",
+            team=self.teams[0],
+            distinct_id="1",
+            properties={"$group_0": "bar"},
+        )
+        _create_event(
+            event_uuid=uuid4(),
+            event="event1",
+            team=self.teams[1],
+            distinct_id="1",
+            properties={"$group_0": "foo"},
+        )
+
+        deletion = AsyncDeletion.objects.create(
+            deletion_type=DeletionType.Group,
+            team_id=self.teams[0].pk,
+            group_type_index=0,
+            key="foo",
             created_by=self.user,
         )
 
@@ -92,19 +165,20 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
         self.assertIsNotNone(deletion.delete_verified_at)
 
     @snapshot_clickhouse_queries
-    def test_mark_deletions_done_person_when_not_done(self):
+    def test_mark_deletions_done_groups_when_not_done(self):
         _create_event(
             event_uuid=uuid4(),
             event="event1",
             team=self.teams[0],
             distinct_id="1",
-            person_id=uuid,
+            properties={"$group_0": "foo"},
         )
 
         deletion = AsyncDeletion.objects.create(
-            deletion_type=DeletionType.Person,
+            deletion_type=DeletionType.Group,
             team_id=self.teams[0].pk,
-            key=str(uuid),
+            group_type_index=0,
+            key="foo",
             created_by=self.user,
         )
 
@@ -152,18 +226,92 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
 
     @snapshot_clickhouse_alter_queries
     def test_delete_person(self):
+        base_datetime = dt.datetime(2024, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
+
+        # Event for person, created before AsyncDeletion, so it should be deleted
         _create_event(
             event_uuid=uuid4(),
             event="event1",
             team=self.teams[0],
             distinct_id="1",
             person_id=uuid,
+            _timestamp=base_datetime - dt.timedelta(days=1),
         )
 
-        AsyncDeletion.objects.create(
+        # Event for person, created after AsyncDeletion, so it should be left behind
+        _create_event(
+            event_uuid=uuid4(),
+            event="event1",
+            team=self.teams[0],
+            distinct_id="1",
+            person_id=uuid,
+            _timestamp=base_datetime + dt.timedelta(days=1),
+        )
+
+        deletion = AsyncDeletion.objects.create(
             deletion_type=DeletionType.Person,
             team_id=self.teams[0].pk,
             key=str(uuid),
+            created_by=self.user,
+        )
+        # Adjust `created_at` after creation to get around `auto_now_add`
+        deletion.created_at = base_datetime
+        deletion.save()
+
+        AsyncEventDeletion().run()
+
+        self.assertRowCount(1)
+
+    @snapshot_clickhouse_alter_queries
+    def test_delete_person_unrelated(self):
+        base_datetime = dt.datetime(2024, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
+
+        _create_event(
+            event_uuid=uuid4(),
+            event="event1",
+            team=self.teams[0],
+            distinct_id="1",
+            person_id=uuid2,
+            _timestamp=base_datetime - dt.timedelta(days=1),
+        )
+        _create_event(
+            event_uuid=uuid4(),
+            event="event1",
+            team=self.teams[1],
+            distinct_id="1",
+            person_id=uuid,
+            _timestamp=base_datetime - dt.timedelta(days=1),
+        )
+
+        deletion = AsyncDeletion.objects.create(
+            deletion_type=DeletionType.Person,
+            team_id=self.teams[0].pk,
+            key=str(uuid),
+            created_by=self.user,
+        )
+        # Adjust `created_at` after creation to get around `auto_now_add`
+        deletion.created_at = base_datetime
+        deletion.save()
+
+        AsyncEventDeletion().run()
+
+        self.assertRowCount(2)
+
+    @snapshot_clickhouse_alter_queries
+    def test_delete_group(self):
+        _create_event(
+            event_uuid=uuid4(),
+            event="event1",
+            team=self.teams[0],
+            distinct_id="1",
+            properties={"$group_0": "foo"},
+        )
+
+        AsyncDeletion.objects.create(
+            deletion_type=DeletionType.Group,
+            team_id=self.teams[0].pk,
+            group_type_index=0,
+            key="foo",
             created_by=self.user,
         )
 
@@ -172,32 +320,40 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
         self.assertRowCount(0)
 
     @snapshot_clickhouse_alter_queries
-    def test_delete_person_unrelated(self):
+    def test_delete_group_unrelated(self):
         _create_event(
             event_uuid=uuid4(),
             event="event1",
             team=self.teams[0],
             distinct_id="1",
-            person_id=uuid2,
+            properties={"$group_1": "foo"},
+        )
+        _create_event(
+            event_uuid=uuid4(),
+            event="event1",
+            team=self.teams[0],
+            distinct_id="1",
+            properties={"$group_0": "bar"},
         )
         _create_event(
             event_uuid=uuid4(),
             event="event1",
             team=self.teams[1],
             distinct_id="1",
-            person_id=uuid,
+            properties={"$group_0": "foo"},
         )
 
         AsyncDeletion.objects.create(
-            deletion_type=DeletionType.Person,
+            deletion_type=DeletionType.Group,
             team_id=self.teams[0].pk,
-            key=str(uuid),
+            group_type_index=0,
+            key="foo",
             created_by=self.user,
         )
 
         AsyncEventDeletion().run()
 
-        self.assertRowCount(2)
+        self.assertRowCount(3)
 
     @snapshot_clickhouse_alter_queries
     def test_delete_auxilary_models_via_team(self):

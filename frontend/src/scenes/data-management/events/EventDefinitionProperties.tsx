@@ -16,7 +16,7 @@ import { DefinitionHeader } from './DefinitionHeader'
 export function EventDefinitionProperties({ definition }: { definition: EventDefinition }): JSX.Element {
     const { loadPropertiesForEvent } = useActions(eventDefinitionsTableLogic)
     const { eventPropertiesCacheMap, eventDefinitionPropertiesLoading } = useValues(eventDefinitionsTableLogic)
-    const { hasDashboardCollaboration } = useValues(organizationLogic)
+    const { hasTagging } = useValues(organizationLogic)
 
     useEffect(() => {
         loadPropertiesForEvent(definition)
@@ -43,7 +43,7 @@ export function EventDefinitionProperties({ definition }: { definition: EventDef
                 return <LemonTag type="muted">{_definition.property_type ?? '-'}</LemonTag>
             },
         },
-        ...(hasDashboardCollaboration
+        ...(hasTagging
             ? [
                   {
                       title: 'Tags',

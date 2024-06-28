@@ -1,6 +1,6 @@
 import './ViewLinkModal.scss'
 
-import { IconCollapse, IconExpand, IconTrash } from '@posthog/icons'
+import { IconCollapse, IconExpand } from '@posthog/icons'
 import {
     LemonButton,
     LemonDivider,
@@ -18,7 +18,7 @@ import { IconSwapHoriz } from 'lib/lemon-ui/icons'
 import { useState } from 'react'
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 
-import { DatabaseSchemaQueryResponseField, NodeKind } from '~/queries/schema'
+import { DatabaseSchemaField, NodeKind } from '~/queries/schema'
 
 export function ViewLinkModal(): JSX.Element {
     const { isJoinTableModalOpen } = useValues(viewLinkLogic)
@@ -184,7 +184,7 @@ export function ViewLinkForm(): JSX.Element {
                             </div>
                         </div>
                         <div className="mt-4 flex w-full">
-                            <CodeSnippet style={{ width: '100%' }} language={Language.SQL}>
+                            <CodeSnippet className="w-full" language={Language.SQL}>
                                 {sqlCodeSnippet}
                             </CodeSnippet>
                         </div>
@@ -232,7 +232,6 @@ const HogQLDropdown = ({
                     // eslint-disable-next-line react/forbid-dom-props
                     <div className="w-120" style={{ maxWidth: 'max(60vw, 20rem)' }}>
                         <HogQLEditor
-                            disablePersonProperties
                             value={hogQLValue}
                             metadataSource={{ kind: NodeKind.HogQLQuery, query: `SELECT * FROM ${tableName}` }}
                             onChange={(currentValue) => {
@@ -255,33 +254,14 @@ const HogQLDropdown = ({
     )
 }
 
-interface ViewLinkDeleteButtonProps {
-    table: string
-    column: string
-}
-
-export function ViewLinkDeleteButton({ table, column }: ViewLinkDeleteButtonProps): JSX.Element {
-    const { deleteViewLink } = useActions(viewLinkLogic)
-
-    return (
-        <LemonButton
-            icon={<IconTrash />}
-            onClick={() => deleteViewLink(table, column)}
-            tooltip="Remove view association"
-            tooltipPlacement="bottom-start"
-            size="small"
-        />
-    )
-}
-
 interface KeyLabelProps {
-    column: DatabaseSchemaQueryResponseField
+    column: DatabaseSchemaField
 }
 
 export function ViewLinkKeyLabel({ column }: KeyLabelProps): JSX.Element {
     return (
         <span>
-            {column.key}{' '}
+            {column.name}{' '}
             <LemonTag type="success" className="uppercase">
                 {column.type}
             </LemonTag>

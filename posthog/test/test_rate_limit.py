@@ -343,7 +343,7 @@ class TestUserAPI(APIBaseTest):
             "properties": {"distinct_id": 2, "token": self.team.api_token},
         }
         for _ in range(6):
-            response = self.client.get("/e/?data=%s" % quote(json.dumps(data)), HTTP_ORIGIN="https://localhost")
+            response = self.client.get("/e/?data={}".format(quote(json.dumps(data))), HTTP_ORIGIN="https://localhost")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         assert call("rate_limit_exceeded", tags=ANY) not in incr_mock.mock_calls
 

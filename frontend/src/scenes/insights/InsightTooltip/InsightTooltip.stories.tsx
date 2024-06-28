@@ -31,38 +31,6 @@ const data = {
             label: '$pageview',
             color: '#1d4aff',
             count: 1,
-            filter: {
-                breakdown_attribution_type: 'first_touch',
-                date_from: '-7d',
-                display: 'ActionsLineGraph',
-                events: [
-                    {
-                        id: '$pageview',
-                        type: 'events',
-                        order: 0,
-                        name: '$pageview',
-                        custom_name: null,
-                        math: 'dau',
-                        math_property: null,
-                        math_group_type_index: null,
-                        properties: {},
-                    },
-                    {
-                        id: 'filter added',
-                        type: 'events',
-                        order: 1,
-                        name: 'filter added',
-                        custom_name: null,
-                        math: null,
-                        math_property: null,
-                        math_group_type_index: null,
-                        properties: {},
-                    },
-                ],
-                insight: 'TRENDS',
-                interval: 'day',
-                smoothing_intervals: 1,
-            },
         },
         {
             id: 1,
@@ -83,38 +51,6 @@ const data = {
             label: 'filter added',
             color: '#621da6',
             count: 1,
-            filter: {
-                breakdown_attribution_type: 'first_touch',
-                date_from: '-7d',
-                display: 'ActionsLineGraph',
-                events: [
-                    {
-                        id: '$pageview',
-                        type: 'events',
-                        order: 0,
-                        name: '$pageview',
-                        custom_name: null,
-                        math: 'dau',
-                        math_property: null,
-                        math_group_type_index: null,
-                        properties: {},
-                    },
-                    {
-                        id: 'filter added',
-                        type: 'events',
-                        order: 1,
-                        name: 'filter added',
-                        custom_name: null,
-                        math: null,
-                        math_property: null,
-                        math_group_type_index: null,
-                        properties: {},
-                    },
-                ],
-                insight: 'TRENDS',
-                interval: 'day',
-                smoothing_intervals: 1,
-            },
         },
     ],
 }
@@ -147,7 +83,7 @@ Default.args = {}
 
 export const Columns: Story = BasicTemplate.bind({})
 Columns.args = {
-    entitiesAsColumnsOverride: true,
+    formula: true,
 }
 
 export function InWrapper(): JSX.Element {

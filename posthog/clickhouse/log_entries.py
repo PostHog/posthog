@@ -44,7 +44,7 @@ SETTINGS index_granularity=512
     cluster=CLICKHOUSE_CLUSTER,
     extra_fields=KAFKA_COLUMNS,
     engine=LOG_ENTRIES_TABLE_ENGINE(),
-    ttl_period=ttl_period("timestamp", LOG_ENTRIES_TTL_DAYS // 7),
+    ttl_period=ttl_period("timestamp", LOG_ENTRIES_TTL_DAYS, unit="DAY"),
 )
 
 KAFKA_LOG_ENTRIES_TABLE_SQL = lambda: LOG_ENTRIES_TABLE_BASE_SQL.format(

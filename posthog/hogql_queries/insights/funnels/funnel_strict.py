@@ -1,75 +1,43 @@
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql_queries.insights.funnels.base import FunnelBase
+from posthog.schema import BreakdownType
 
 
 class FunnelStrict(FunnelBase):
     def get_query(self):
         max_steps = self.context.max_steps
 
-        breakdown_exprs = self._get_breakdown_prop_expr()
+        if self.context.breakdown and self.context.breakdownType in [
+            BreakdownType.PERSON,
+            BreakdownType.EVENT,
+            BreakdownType.GROUP,
+        ]:
+            return self._breakdown_other_subquery()
 
         select: list[ast.Expr] = [
             *self._get_count_columns(max_steps),
             *self._get_step_time_avgs(max_steps),
             *self._get_step_time_median(max_steps),
-            *breakdown_exprs,
+            *self._get_breakdown_prop_expr(),
         ]
 
-        return ast.SelectQuery(
+        select_query = ast.SelectQuery(
             select=select,
             select_from=ast.JoinExpr(table=self.get_step_counts_query()),
-            group_by=[ast.Field(chain=["prop"])] if len(breakdown_exprs) > 0 else None,
+            group_by=self._get_breakdown_prop_expr(),
         )
+        return select_query
 
     def get_step_counts_query(self):
         max_steps = self.context.max_steps
-        breakdown_exprs = self._get_breakdown_prop_expr()
-        inner_timestamps, outer_timestamps = self._get_timestamp_selects()
-        person_and_group_properties = self._get_person_and_group_properties(aggregate=True)
-
-        group_by_columns: list[ast.Expr] = [
-            ast.Field(chain=["aggregation_target"]),
-            ast.Field(chain=["steps"]),
-            *breakdown_exprs,
-        ]
-
-        outer_select: list[ast.Expr] = [
-            *group_by_columns,
-            *self._get_step_time_avgs(max_steps, inner_query=True),
-            *self._get_step_time_median(max_steps, inner_query=True),
-            *self._get_matching_event_arrays(max_steps),
-            *breakdown_exprs,
-            *outer_timestamps,
-            *person_and_group_properties,
-        ]
-
-        max_steps_expr = parse_expr(
-            f"max(steps) over (PARTITION BY aggregation_target {self._get_breakdown_prop()}) as max_steps"
-        )
-
-        inner_select: list[ast.Expr] = [
-            *group_by_columns,
-            max_steps_expr,
-            *self._get_step_time_names(max_steps),
-            *self._get_matching_events(max_steps),
-            *breakdown_exprs,
-            *inner_timestamps,
-            *person_and_group_properties,
-        ]
-
-        return ast.SelectQuery(
-            select=outer_select,
-            select_from=ast.JoinExpr(
-                table=ast.SelectQuery(
-                    select=inner_select,
-                    select_from=ast.JoinExpr(table=self.get_step_counts_without_aggregation_query()),
-                )
-            ),
-            group_by=group_by_columns,
-            having=ast.CompareOperation(
-                left=ast.Field(chain=["steps"]), right=ast.Field(chain=["max_steps"]), op=ast.CompareOperationOp.Eq
-            ),
+        return self._get_step_counts_query(
+            outer_select=[
+                *self._get_matching_event_arrays(max_steps),
+            ],
+            inner_select=[
+                *self._get_matching_events(max_steps),
+            ],
         )
 
     def get_step_counts_without_aggregation_query(self):
@@ -113,14 +81,14 @@ class FunnelStrict(FunnelBase):
             else:
                 exprs.append(
                     parse_expr(
-                        f"min(latest_{i}) over (PARTITION by aggregation_target {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN {i} PRECEDING AND {i} PRECEDING) latest_{i}"
+                        f"min(latest_{i}) over (PARTITION by aggregation_target {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN {i} PRECEDING AND {i} PRECEDING) as latest_{i}"
                     )
                 )
 
                 for field in self.extra_event_fields_and_properties:
                     exprs.append(
                         parse_expr(
-                            f'min("{field}_{i}") over (PARTITION by aggregation_target {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN {i} PRECEDING AND {i} PRECEDING) "{field}_{i}"'
+                            f'min("{field}_{i}") over (PARTITION by aggregation_target {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN {i} PRECEDING AND {i} PRECEDING) as "{field}_{i}"'
                         )
                     )
 

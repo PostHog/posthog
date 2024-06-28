@@ -10,12 +10,12 @@ import { isHogQLQuery, trimQuotes } from '~/queries/utils'
 
 export interface ColumnMeta {
     title?: JSX.Element | string
-    width?: number
+    width?: string | number
     align?: 'left' | 'right' | 'center'
 }
 
 export function renderColumnMeta(key: string, query: DataTableNode, context?: QueryContext): ColumnMeta {
-    let width: number | undefined
+    let width: string | number | undefined
     let title: JSX.Element | string | undefined
     const queryFeatures = getQueryFeatures(query.source)
     let align: ColumnMeta['align']
@@ -24,6 +24,10 @@ export function renderColumnMeta(key: string, query: DataTableNode, context?: Qu
         title = key
         if (title.startsWith('`') && title.endsWith('`')) {
             title = title.substring(1, title.length - 1)
+        }
+        if (title.startsWith("tuple('__hx_tag', '")) {
+            const tagName = title.substring(19, title.indexOf("'", 19))
+            title = tagName === '__hx_obj' ? 'Object' : '<' + tagName + ' />'
         }
     } else if (key === 'timestamp') {
         title = 'Time'
@@ -64,6 +68,12 @@ export function renderColumnMeta(key: string, query: DataTableNode, context?: Qu
         )
     } else {
         title = queryFeatures.has(QueryFeature.selectAndOrderByColumns) ? extractExpressionComment(key) : key
+    }
+
+    const specifiedWidth = context?.columns?.[key]?.width
+
+    if (specifiedWidth) {
+        width = specifiedWidth
     }
 
     if (queryFeatures.has(QueryFeature.selectAndOrderByColumns) && !query.allowSorting) {

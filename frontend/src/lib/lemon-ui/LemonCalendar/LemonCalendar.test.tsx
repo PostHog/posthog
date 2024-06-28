@@ -193,7 +193,7 @@ describe('LemonCalendar', () => {
                     calls.push([unit, value])
                     return {}
                 }}
-                showTime
+                granularity="minute"
             />
         )
         const minutes = range(0, 60).map((num) => ['m', num])

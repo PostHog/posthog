@@ -191,9 +191,11 @@ class FOSSCohortQuery(EventQuery):
                         )
                     else:
                         return PropertyGroup(
-                            type=PropertyOperatorType.AND
-                            if property_group.type == PropertyOperatorType.OR
-                            else PropertyOperatorType.OR,
+                            type=(
+                                PropertyOperatorType.AND
+                                if property_group.type == PropertyOperatorType.OR
+                                else PropertyOperatorType.OR
+                            ),
                             values=[_unwrap(v, True) for v in cast(list[PropertyGroup], property_group.values)],
                         )
 
@@ -246,9 +248,11 @@ class FOSSCohortQuery(EventQuery):
                         return PropertyGroup(type=property_group.type, values=new_property_group_list)
                     else:
                         return PropertyGroup(
-                            type=PropertyOperatorType.AND
-                            if property_group.type == PropertyOperatorType.OR
-                            else PropertyOperatorType.OR,
+                            type=(
+                                PropertyOperatorType.AND
+                                if property_group.type == PropertyOperatorType.OR
+                                else PropertyOperatorType.OR
+                            ),
                             values=new_property_group_list,
                         )
 
@@ -306,7 +310,7 @@ class FOSSCohortQuery(EventQuery):
                 fields = f"{subq_alias}.person_id"
             elif prev_alias:  # can't join without a previous alias
                 if subq_alias == self.PERSON_TABLE_ALIAS and self.should_pushdown_persons:
-                    if self._person_on_events_mode == PersonsOnEventsMode.person_id_no_override_properties_on_events:
+                    if self._person_on_events_mode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
                         # when using person-on-events, instead of inner join, we filter inside
                         # the event query itself
                         continue
@@ -337,11 +341,11 @@ class FOSSCohortQuery(EventQuery):
         query, params = "", {}
         if self._should_join_behavioral_query:
             _fields = [
-                f"{self.DISTINCT_ID_TABLE_ALIAS if self._person_on_events_mode == PersonsOnEventsMode.disabled else self.EVENT_TABLE_ALIAS}.person_id AS person_id"
+                f"{self.DISTINCT_ID_TABLE_ALIAS if self._person_on_events_mode == PersonsOnEventsMode.DISABLED else self.EVENT_TABLE_ALIAS}.person_id AS person_id"
             ]
             _fields.extend(self._fields)
 
-            if self.should_pushdown_persons and self._person_on_events_mode != PersonsOnEventsMode.disabled:
+            if self.should_pushdown_persons and self._person_on_events_mode != PersonsOnEventsMode.DISABLED:
                 person_prop_query, person_prop_params = self._get_prop_groups(
                     self._inner_property_groups,
                     person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS,
@@ -557,7 +561,7 @@ class FOSSCohortQuery(EventQuery):
 
     def _determine_should_join_distinct_ids(self) -> None:
         self._should_join_distinct_ids = (
-            self._person_on_events_mode != PersonsOnEventsMode.person_id_no_override_properties_on_events
+            self._person_on_events_mode != PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
         )
 
     def _determine_should_join_persons(self) -> None:
@@ -626,8 +630,9 @@ class FOSSCohortQuery(EventQuery):
 
     def _add_action(self, action_id: int) -> None:
         action = Action.objects.get(id=action_id)
-        for step in action.steps.all():
-            self._events.append(step.event)
+        for step in action.steps:
+            if step.event:
+                self._events.append(step.event)
 
     def _add_event(self, event_id: str) -> None:
         self._events.append(event_id)

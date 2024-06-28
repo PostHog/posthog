@@ -11,7 +11,7 @@ HogQL Bytecode is a compact representation of a subset of the HogQL AST nodes. I
 1 and 2                # [_H, op.INTEGER, 2, op.INTEGER, 1, op.AND, 2]
 1 or 2                 # [_H, op.INTEGER, 2, op.INTEGER, 1, op.OR, 2]
 not true               # [_H, op.TRUE, op.NOT]
-properties.bla         # [_H, op.STRING, "bla", op.STRING, "properties", op.FIELD, 2]
+properties.bla         # [_H, op.STRING, "bla", op.STRING, "properties", op.GET_GLOBAL, 2]
 call('arg', 'another') # [_H, op.STRING, "another", op.STRING, "arg", op.CALL, "call", 2]
 1 = 2                  # [_H, op.INTEGER, 2, op.INTEGER, 1, op.EQ]
 'bla' !~ 'a'           # [_H, op.STRING, 'a', op.STRING, 'bla', op.NOT_REGEX]
@@ -77,7 +77,7 @@ def async_operation(*args):
         return db.queryInCohort(args[1], args[2])
     return False
 
-execute_bytecode(to_bytecode("'user_id' in cohort 2"), {}, async_operation)
+execute_bytecode(to_bytecode("'user_id' in cohort 2"), {}, async_operation).result
 ```
 
 ### Functions

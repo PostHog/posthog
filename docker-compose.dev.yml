@@ -79,10 +79,10 @@ services:
         depends_on:
             - kafka
 
-    object_storage:
+    objectstorage:
         extends:
             file: docker-compose.base.yml
-            service: object_storage
+            service: objectstorage
         ports:
             - '19000:19000'
             - '19001:19001'
@@ -94,6 +94,14 @@ services:
         ports:
             - '1080:1080'
             - '1025:1025'
+
+    webhook-tester:
+        image: tarampampam/webhook-tester:1.1.0
+        restart: on-failure
+        ports:
+            - '2080:2080'
+        environment:
+            - LISTEN_PORT=2080
 
     # Optional capture
     capture:
@@ -108,6 +116,17 @@ services:
         depends_on:
             - redis
             - kafka
+
+    livestream:
+        extends:
+            file: docker-compose.base.yml
+            service: livestream
+        environment:
+            - JWT.TOKEN=${SECRET_KEY}
+        ports:
+            - '8666:8080'
+        volumes:
+            - ./docker/livestream/configs-dev.yml:/configs/configs.yml
 
     # Temporal containers
     elasticsearch:

@@ -5,7 +5,7 @@ import { mswDecorator } from '~/mocks/browser'
 import { PerformanceEvent } from '~/types'
 
 const meta: Meta<typeof NetworkRequestTiming> = {
-    title: 'Components/NetworkRequestTiming',
+    title: 'Components/NetworkRequest/Timing',
     component: NetworkRequestTiming,
     decorators: [
         mswDecorator({

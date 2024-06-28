@@ -38,6 +38,7 @@ import {
     wireframeRadio,
     wireframeRadioGroup,
     wireframeRectangle,
+    wireframeScreenshot,
     wireframeSelect,
     wireframeStatusBar,
     wireframeText,
@@ -166,9 +167,8 @@ export const makeCustomEvent = (
             data: mutation,
             timestamp: mobileCustomEvent.timestamp,
         }
-    } else {
-        return mobileCustomEvent
     }
+    return mobileCustomEvent
 }
 
 export const makeMetaEvent = (
@@ -310,13 +310,14 @@ export function dataURIOrPNG(src: string): string {
 }
 
 function makeImageElement(
-    wireframe: wireframeImage,
+    wireframe: wireframeImage | wireframeScreenshot,
     children: serializedNodeWithId[],
     context: ConversionContext
 ): ConversionResult<serializedNodeWithId> | null {
     if (!wireframe.base64) {
         return makePlaceholderElement(wireframe, children, context)
     }
+
     const src = dataURIOrPNG(wireframe.base64)
     return {
         result: {
@@ -712,17 +713,16 @@ function makeProgressElement(
         }
     } else if (wireframe.style?.bar === 'rating') {
         return makeRatingBar(wireframe, children, context)
-    } else {
-        return {
-            result: {
-                type: NodeType.Element,
-                tagName: 'progress',
-                attributes: inputAttributes(wireframe),
-                id: wireframe.id,
-                childNodes: children,
-            },
-            context,
-        }
+    }
+    return {
+        result: {
+            type: NodeType.Element,
+            tagName: 'progress',
+            attributes: inputAttributes(wireframe),
+            id: wireframe.id,
+            childNodes: children,
+        },
+        context,
     }
 }
 
@@ -888,11 +888,10 @@ function makeInputElement(
 
     if ('label' in wireframe) {
         return makeLabelledInput(wireframe, theInputElement.result, theInputElement.context)
-    } else {
-        // when labelled no styles are needed, when un-labelled as here - we add the styling in.
-        ;(theInputElement.result as elementNode).attributes.style = makeStylesString(wireframe)
-        return theInputElement
     }
+    // when labelled no styles are needed, when un-labelled as here - we add the styling in.
+    ;(theInputElement.result as elementNode).attributes.style = makeStylesString(wireframe)
+    return theInputElement
 }
 
 function makeRectangleElement(
@@ -941,6 +940,7 @@ function chooseConverter<T extends wireframe>(
         placeholder: makePlaceholderElement as any,
         status_bar: makeStatusBar as any,
         navigation_bar: makeNavigationBar as any,
+        screenshot: makeImageElement as any,
     }
     return converterMapping[converterType]
 }
@@ -992,6 +992,10 @@ function isMobileIncrementalSnapshotEvent(x: unknown): x is MobileIncrementalSna
     return hasMutationSource && (hasAddedWireframe || hasUpdatedWireframe)
 }
 
+function chooseParentId(nodeType: MobileNodeType, providedParentId: number): number {
+    return nodeType === 'screenshot' ? BODY_ID : providedParentId
+}
+
 function makeIncrementalAdd(add: MobileNodeMutation, context: ConversionContext): addedNodeMutation[] | null {
     const converted = convertWireframe(add.wireframe, context)
 
@@ -1000,7 +1004,7 @@ function makeIncrementalAdd(add: MobileNodeMutation, context: ConversionContext)
     }
 
     const addition: addedNodeMutation = {
-        parentId: add.parentId,
+        parentId: chooseParentId(add.wireframe.type, add.parentId),
         nextId: null,
         node: converted.result,
     }
@@ -1009,9 +1013,8 @@ function makeIncrementalAdd(add: MobileNodeMutation, context: ConversionContext)
         const flattened = flattenMutationAdds(addition)
         flattened.forEach((x) => adds.push(x))
         return adds
-    } else {
-        return null
     }
+    return null
 }
 
 /**
@@ -1019,7 +1022,7 @@ function makeIncrementalAdd(add: MobileNodeMutation, context: ConversionContext)
  */
 function makeIncrementalRemoveForUpdate(update: MobileNodeMutation): removedNodeMutation {
     return {
-        parentId: update.parentId,
+        parentId: chooseParentId(update.wireframe.type, update.parentId),
         id: update.wireframe.id,
     }
 }
@@ -1105,10 +1108,9 @@ function dedupeMutations<T extends addedNodeMutation | removedNodeMutation>(muta
 
             if (seen.has(toCompare)) {
                 return false
-            } else {
-                seen.add(toCompare)
-                return true
             }
+            seen.add(toCompare)
+            return true
         })
         .reverse()
 }
@@ -1237,25 +1239,24 @@ function stripBarsFromWireframe(wireframe: wireframe): {
         return { wireframe: undefined, statusBar: wireframe, navBar: undefined }
     } else if (wireframe.type === 'navigation_bar') {
         return { wireframe: undefined, statusBar: undefined, navBar: wireframe }
-    } else {
-        let statusBar: wireframeStatusBar | undefined
-        let navBar: wireframeNavigationBar | undefined
-        const wireframeToReturn: wireframe | undefined = { ...wireframe }
-        wireframeToReturn.childWireframes = []
-        for (const child of wireframe.childWireframes || []) {
-            const {
-                wireframe: childWireframe,
-                statusBar: childStatusBar,
-                navBar: childNavBar,
-            } = stripBarsFromWireframe(child)
-            statusBar = statusBar || childStatusBar
-            navBar = navBar || childNavBar
-            if (childWireframe) {
-                wireframeToReturn.childWireframes.push(childWireframe)
-            }
-        }
-        return { wireframe: wireframeToReturn, statusBar, navBar }
     }
+    let statusBar: wireframeStatusBar | undefined
+    let navBar: wireframeNavigationBar | undefined
+    const wireframeToReturn: wireframe | undefined = { ...wireframe }
+    wireframeToReturn.childWireframes = []
+    for (const child of wireframe.childWireframes || []) {
+        const {
+            wireframe: childWireframe,
+            statusBar: childStatusBar,
+            navBar: childNavBar,
+        } = stripBarsFromWireframe(child)
+        statusBar = statusBar || childStatusBar
+        navBar = navBar || childNavBar
+        if (childWireframe) {
+            wireframeToReturn.childWireframes.push(childWireframe)
+        }
+    }
+    return { wireframe: wireframeToReturn, statusBar, navBar }
 }
 
 /**

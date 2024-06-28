@@ -5,6 +5,7 @@ from dlt.common.data_types.typing import TDataType
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DatabaseField,
+    DateDatabaseField,
     DateTimeDatabaseField,
     IntegerDatabaseField,
     StringDatabaseField,
@@ -12,7 +13,6 @@ from posthog.hogql.database.models import (
 )
 
 from posthog.warehouse.models import (
-    get_latest_run_if_exists,
     get_or_create_datawarehouse_credential,
     DataWarehouseTable,
     DataWarehouseCredential,
@@ -24,13 +24,12 @@ from posthog.warehouse.models import (
     aget_schema_by_id,
 )
 
-from posthog.temporal.data_imports.pipelines.schemas import PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 from clickhouse_driver.errors import ServerException
 from asgiref.sync import sync_to_async
-from posthog.utils import camel_to_snake_case
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
+from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 
 def dlt_to_hogql_type(dlt_type: TDataType | None) -> str:
@@ -57,7 +56,7 @@ def dlt_to_hogql_type(dlt_type: TDataType | None) -> str:
     elif dlt_type == "wei":
         raise Exception("DLT type 'wei' is not a supported column type")
     elif dlt_type == "date":
-        hogql_type = DateTimeDatabaseField
+        hogql_type = DateDatabaseField
     elif dlt_type == "time":
         hogql_type = DateTimeDatabaseField
     else:
@@ -96,7 +95,7 @@ async def validate_schema_and_update_table(
     team_id: int,
     schema_id: uuid.UUID,
     table_schema: TSchemaTables,
-    table_row_counts: dict[str, int],
+    row_count: int,
 ) -> None:
     """
 
@@ -114,7 +113,6 @@ async def validate_schema_and_update_table(
     logger = await bind_temporal_worker_logger(team_id=team_id)
 
     job: ExternalDataJob = await get_external_data_job(job_id=run_id)
-    last_successful_job: ExternalDataJob | None = await get_latest_run_if_exists(team_id, job.pipeline_id)
 
     credential: DataWarehouseCredential = await get_or_create_datawarehouse_credential(
         team_id=team_id,
@@ -126,15 +124,16 @@ async def validate_schema_and_update_table(
 
     _schema_id = external_data_schema.id
     _schema_name: str = external_data_schema.name
-    incremental = _schema_name in PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING[job.pipeline.source_type]
+    incremental = external_data_schema.is_incremental
 
     table_name = f"{job.pipeline.prefix or ''}{job.pipeline.source_type}_{_schema_name}".lower()
-    new_url_pattern = job.url_pattern_by_schema(camel_to_snake_case(_schema_name))
-
-    row_count = table_row_counts.get(_schema_name.lower(), 0)
+    normalized_schema_name = NamingConvention().normalize_identifier(_schema_name)
+    new_url_pattern = job.url_pattern_by_schema(normalized_schema_name)
 
     # Check
     try:
+        logger.info(f"Row count for {_schema_name} ({_schema_id}) are {row_count}")
+
         data = await validate_schema(
             credential=credential,
             table_name=table_name,
@@ -146,6 +145,7 @@ async def validate_schema_and_update_table(
         # create or update
         table_created: DataWarehouseTable | None = await get_table_by_schema_id(_schema_id, team_id)
         if table_created:
+            table_created.credential = data.get("credential")
             table_created.url_pattern = new_url_pattern
             if incremental:
                 table_created.row_count = await sync_to_async(table_created.get_count)()
@@ -156,10 +156,13 @@ async def validate_schema_and_update_table(
         if not table_created:
             table_created = await acreate_datawarehousetable(external_data_source_id=job.pipeline.id, **data)
 
+        assert isinstance(table_created, DataWarehouseTable) and table_created is not None
+
         for schema in table_schema.values():
             if schema.get("resource") == _schema_name:
                 schema_columns = schema.get("columns") or {}
-                db_columns: dict[str, str] = await sync_to_async(table_created.get_columns)()
+                raw_db_columns: dict[str, dict[str, str]] = await sync_to_async(table_created.get_columns)()
+                db_columns = {key: column.get("clickhouse", "") for key, column in raw_db_columns.items()}
 
                 columns = {}
                 for column_name, db_column_type in db_columns.items():
@@ -193,21 +196,28 @@ async def validate_schema_and_update_table(
                 f"Data Warehouse: No data for schema {_schema_name} for external data job {job.pk}",
                 exc_info=err,
             )
+        else:
+            logger.exception(
+                f"Data Warehouse: Unknown ServerException {job.pk}",
+                exc_info=err,
+            )
     except Exception as e:
         # TODO: handle other exceptions here
         logger.exception(
             f"Data Warehouse: Could not validate schema for external data job {job.pk}",
             exc_info=e,
         )
+        raise
 
-    if (
-        last_successful_job
-        and _schema_name not in PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING[job.pipeline.source_type]
-    ):
-        try:
-            last_successful_job.delete_data_in_bucket()
-        except Exception as e:
-            logger.exception(
-                f"Data Warehouse: Could not delete deprecated data source {last_successful_job.pk}",
-                exc_info=e,
-            )
+    # TODO: figure out data deletes - currently borked right now
+    # if (
+    #     last_successful_job
+    #     and _schema_name not in PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING[job.pipeline.source_type]
+    # ):
+    #     try:
+    #         last_successful_job.delete_data_in_bucket()
+    #     except Exception as e:
+    #         logger.exception(
+    #             f"Data Warehouse: Could not delete deprecated data source {last_successful_job.pk}",
+    #             exc_info=e,
+    #         )

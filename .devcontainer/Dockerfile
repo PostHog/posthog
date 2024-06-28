@@ -1,3 +1,7 @@
+# hadolint global ignore=DL3004
+
+# hadolint doesn't like changes to this file, but it is only used for local dev
+
 # Defines the environment you're dropped into with codespaces
 # I've take
 # https://github.com/microsoft/vscode-dev-containers/blob/main/containers/python-3/.devcontainer/Dockerfile
@@ -7,7 +11,7 @@
 # experience as rich as possible. Perhaps later down the line it might be worth
 # rolling our own
 #
-FROM mcr.microsoft.com/vscode/devcontainers/python:3.10-bullseye
+FROM mcr.microsoft.com/vscode/devcontainers/python:3.11-bullseye
 
 # Make sure all exit codes on pipes cause failures
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
@@ -45,7 +49,7 @@ RUN if [ "${NODE_VERSION}" != "none" ]; then su vscode -c "umask 0002 && . /usr/
 # install pnpm globally, this container doesn't expose a supported shell to the pnpm installer
 # so `RUN curl -fsSL https://get.pnpm.io/install.sh | sh -` fails
 # see https://github.com/pnpm/pnpm/issues/4495
-RUN npm install --global pnpm \
+RUN corepack enable && pnpm --version \
     && SHELL=bash pnpm setup \
     && source /root/.bashrc
 

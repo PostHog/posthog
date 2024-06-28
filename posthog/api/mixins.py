@@ -14,4 +14,4 @@ class PydanticModelMixin:
             return model.model_validate(data)
         except ValidationError as exc:
             capture_exception(exc)
-            raise ParseError("JSON parse error - %s" % str(exc))
+            raise ParseError("JSON parse error - {}".format(str(exc)))

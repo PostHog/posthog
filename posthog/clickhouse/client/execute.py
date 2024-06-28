@@ -88,6 +88,19 @@ def sync_execute(
         except ModuleNotFoundError:  # when we run plugin server tests it tries to run above, ignore
             pass
 
+    if workload == Workload.DEFAULT and (
+        # When someone uses an API key, always put their query to the offline cluster
+        get_query_tag_value("access_method") == "personal_api_key"
+        or
+        # Execute all celery tasks not directly set to be online on the offline cluster
+        get_query_tag_value("kind") == "celery"
+    ):
+        workload = Workload.OFFLINE
+
+    # Make sure we always have process_query_task on the online cluster
+    if get_query_tag_value("id") == "posthog.tasks.tasks.process_query_task":
+        workload = Workload.ONLINE
+
     with get_pool(workload, team_id, readonly).get_client() as client:
         start_time = perf_counter()
 
@@ -107,14 +120,14 @@ def sync_execute(
                 with_column_types=with_column_types,
                 query_id=query_id,
             )
-        except Exception as err:
-            err = wrap_query_error(err)
+        except Exception as e:
+            err = wrap_query_error(e)
             statsd.incr(
                 "clickhouse_sync_execution_failure",
                 tags={"failed": True, "reason": type(err).__name__},
             )
 
-            raise err
+            raise err from e
         finally:
             execution_time = perf_counter() - start_time
 

@@ -1,8 +1,8 @@
 import json
 import uuid
-from typing import cast, Optional, Any
+from typing import Any, Optional
 from unittest import mock
-from unittest.mock import MagicMock, call, patch, ANY
+from unittest.mock import ANY, MagicMock, call, patch
 
 from asgiref.sync import sync_to_async
 from django.core.cache import cache
@@ -13,9 +13,8 @@ from rest_framework import status
 from temporalio.service import RPCError
 
 from posthog.api.test.batch_exports.conftest import start_test_worker
-from posthog.temporal.common.schedule import describe_schedule
 from posthog.constants import AvailableFeature
-from posthog.models import EarlyAccessFeature, ActivityLog
+from posthog.models import ActivityLog, EarlyAccessFeature
 from posthog.models.async_deletion.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.dashboard import Dashboard
 from posthog.models.instance_setting import get_instance_setting
@@ -23,6 +22,7 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.team.team import get_team_in_cache
 from posthog.temporal.common.client import sync_connect
+from posthog.temporal.common.schedule import describe_schedule
 from posthog.test.base import APIBaseTest
 
 
@@ -32,12 +32,12 @@ class TestTeamAPI(APIBaseTest):
             team_id = self.team.pk
 
         starting_log_response = self.client.get(f"/api/projects/{team_id}/activity")
-        assert starting_log_response.status_code == 200
+        assert starting_log_response.status_code == 200, starting_log_response.json()
         assert starting_log_response.json()["results"] == expected
 
     def _assert_organization_activity_log(self, expected: list[dict]) -> None:
         starting_log_response = self.client.get(f"/api/organizations/{self.organization.pk}/activity")
-        assert starting_log_response.status_code == 200
+        assert starting_log_response.status_code == 200, starting_log_response.json()
         assert starting_log_response.json()["results"] == expected
 
     def _assert_activity_log_is_empty(self) -> None:
@@ -73,10 +73,6 @@ class TestTeamAPI(APIBaseTest):
             response_data["person_on_events_querying_enabled"],
             get_instance_setting("PERSON_ON_EVENTS_ENABLED") or get_instance_setting("PERSON_ON_EVENTS_V2_ENABLED"),
         )
-        self.assertEqual(
-            response_data["groups_on_events_querying_enabled"],
-            get_instance_setting("GROUPS_ON_EVENTS_ENABLED"),
-        )
 
         # TODO: These assertions will no longer make sense when we fully remove these attributes from the model
         self.assertNotIn("event_names", response_data)
@@ -95,7 +91,9 @@ class TestTeamAPI(APIBaseTest):
 
     @patch("posthog.api.team.get_geoip_properties")
     def test_ip_location_is_used_for_new_project_week_day_start(self, get_geoip_properties_mock: MagicMock):
-        self.organization.available_features = cast(list[str], [AvailableFeature.ORGANIZATIONS_PROJECTS])
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": AvailableFeature.ORGANIZATIONS_PROJECTS}
+        ]
         self.organization.save()
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
@@ -502,30 +500,6 @@ class TestTeamAPI(APIBaseTest):
         response = self.client.get("/api/projects/@current/")
         response_data = response.json()
         self.assertEqual(response_data["primary_dashboard"], None)
-
-    def test_update_timezone_remove_cache(self):
-        # Seed cache with some insights
-        self.client.post(
-            f"/api/projects/{self.team.id}/insights/",
-            data={"filters": {"events": json.dumps([{"id": "user signed up"}])}},
-        )
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/insights/",
-            data={"filters": {"events": json.dumps([{"id": "$pageview"}])}},
-        ).json()
-        self.client.get(
-            f"/api/projects/{self.team.id}/insights/trend/",
-            data={"events": json.dumps([{"id": "$pageview"}])},
-        )
-        self.client.get(
-            f"/api/projects/{self.team.id}/insights/trend/",
-            data={"events": json.dumps([{"id": "user signed up"}])},
-        )
-
-        self.assertEqual(cache.get(response["filters_hash"])["result"][0]["count"], 0)
-        self.client.patch(f"/api/projects/{self.team.id}/", {"timezone": "US/Pacific"})
-        # Verify cache was deleted
-        self.assertEqual(cache.get(response["filters_hash"]), None)
 
     def test_is_generating_demo_data(self):
         cache_key = f"is_generating_demo_data_{self.team.pk}"

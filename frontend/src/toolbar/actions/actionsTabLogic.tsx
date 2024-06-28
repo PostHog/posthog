@@ -195,10 +195,9 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
             (editingSelector, actionForm): string | null => {
                 if (editingSelector === null) {
                     return null
-                } else {
-                    const selector = actionForm.steps?.[editingSelector].selector
-                    return selector || null
                 }
+                const selector = actionForm.steps?.[editingSelector].selector
+                return selector || null
             },
         ],
         elementsChainBeingEdited: [
@@ -206,9 +205,8 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
             (editingSelector, elementChains): ElementType[] => {
                 if (editingSelector === null) {
                     return []
-                } else {
-                    return elementChains[editingSelector] || []
                 }
+                return elementChains[editingSelector] || []
             },
         ],
         selectedAction: [

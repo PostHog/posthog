@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta
 
+from freezegun import freeze_time
+
 from posthog.constants import INSIGHT_FUNNELS, FunnelVizType
 from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors
 from posthog.session_recordings.queries.test.session_replay_sql import (
@@ -28,6 +30,7 @@ filters = {
 }
 
 
+@freeze_time("2021-05-01")
 class TestFunnelTrendsPersons(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_funnel_trend_persons_returns_recordings(self):
@@ -65,9 +68,9 @@ class TestFunnelTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         results = get_actors(
             {"funnel_to_step": 1, **filters},
             self.team,
-            funnelTrendsDropOff=False,
-            funnelTrendsEntrancePeriodStart="2021-05-01 00:00:00",
-            includeRecordings=True,
+            funnel_trends_drop_off=False,
+            funnel_trends_entrance_period_start="2021-05-01 00:00:00",
+            include_recordings=True,
         )
 
         # self.assertEqual([person[0]["id"] for person in results], [persons["user_one"].uuid])
@@ -115,9 +118,9 @@ class TestFunnelTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         results = get_actors(
             filters,
             self.team,
-            funnelTrendsDropOff=False,
-            funnelTrendsEntrancePeriodStart="2021-05-01 00:00:00",
-            includeRecordings=True,
+            funnel_trends_drop_off=False,
+            funnel_trends_entrance_period_start="2021-05-01 00:00:00",
+            include_recordings=True,
         )
 
         # self.assertEqual([person[0]["id"] for person in results], [persons["user_one"].uuid])
@@ -154,9 +157,9 @@ class TestFunnelTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         results = get_actors(
             filters,
             self.team,
-            funnelTrendsDropOff=True,
-            funnelTrendsEntrancePeriodStart="2021-05-01 00:00:00",
-            includeRecordings=True,
+            funnel_trends_drop_off=True,
+            funnel_trends_entrance_period_start="2021-05-01 00:00:00",
+            include_recordings=True,
         )
 
         # self.assertEqual([person[0]["id"] for person in results], [persons["user_one"].uuid])

@@ -13,9 +13,11 @@ import { ReactNode } from 'react'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
 import { PercentStackViewFilter } from 'scenes/insights/EditorFilters/PercentStackViewFilter'
+import { ScalePicker } from 'scenes/insights/EditorFilters/ScalePicker'
 import { ShowLegendFilter } from 'scenes/insights/EditorFilters/ShowLegendFilter'
 import { ValueOnSeriesFilter } from 'scenes/insights/EditorFilters/ValueOnSeriesFilter'
 import { InsightDateFilter } from 'scenes/insights/filters/InsightDateFilter'
+import { RetentionMeanCheckbox } from 'scenes/insights/filters/RetentionMeanCheckbox'
 import { RetentionReferencePicker } from 'scenes/insights/filters/RetentionReferencePicker'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -47,6 +49,8 @@ export function InsightDisplayConfig(): JSX.Element {
         supportsValueOnSeries,
         showPercentStackView,
         supportsPercentStackView,
+        yAxisScaleType,
+        isNonTimeSeriesDisplay,
     } = useValues(insightVizDataLogic(insightProps))
     const { isTrendsFunnel, isStepsFunnel, isTimeToConvertFunnel, isEmptyFunnel } = useValues(
         funnelDataLogic(insightProps)
@@ -58,12 +62,9 @@ export function InsightDisplayConfig(): JSX.Element {
         isLifecycle ||
         ((isTrends || isStickiness) && !(display && NON_TIME_SERIES_DISPLAY_TYPES.includes(display)))
     const showSmoothing =
-        isTrends &&
-        !breakdownFilter?.breakdown_type &&
-        !trendsFilter?.compare &&
-        (!display || display === ChartDisplayType.ActionsLineGraph)
+        isTrends && !breakdownFilter?.breakdown_type && (!display || display === ChartDisplayType.ActionsLineGraph)
 
-    const { showValueOnSeries, mightContainFractionalNumbers } = useValues(trendsDataLogic(insightProps))
+    const { showValuesOnSeries, mightContainFractionalNumbers } = useValues(trendsDataLogic(insightProps))
 
     const advancedOptions: LemonMenuItems = [
         ...(supportsValueOnSeries || supportsPercentStackView || hasLegend
@@ -86,6 +87,14 @@ export function InsightDisplayConfig(): JSX.Element {
                   },
               ]
             : []),
+        ...(!isNonTimeSeriesDisplay && isTrends
+            ? [
+                  {
+                      title: 'Y-axis scale',
+                      items: [{ label: () => <ScalePicker /> }],
+                  },
+              ]
+            : []),
         ...(mightContainFractionalNumbers && isTrends
             ? [
                   {
@@ -96,7 +105,7 @@ export function InsightDisplayConfig(): JSX.Element {
             : []),
     ]
     const advancedOptionsCount: number =
-        (supportsValueOnSeries && showValueOnSeries ? 1 : 0) +
+        (supportsValueOnSeries && showValuesOnSeries ? 1 : 0) +
         (showPercentStackView ? 1 : 0) +
         (!showPercentStackView &&
         isTrends &&
@@ -104,7 +113,8 @@ export function InsightDisplayConfig(): JSX.Element {
         trendsFilter.aggregationAxisFormat !== 'numeric'
             ? 1
             : 0) +
-        (hasLegend && showLegend ? 1 : 0)
+        (hasLegend && showLegend ? 1 : 0) +
+        (!!yAxisScaleType && yAxisScaleType !== 'linear' ? 1 : 0)
 
     return (
         <div
@@ -134,6 +144,7 @@ export function InsightDisplayConfig(): JSX.Element {
                     <ConfigFilter>
                         <RetentionDatePicker />
                         <RetentionReferencePicker />
+                        <RetentionMeanCheckbox />
                     </ConfigFilter>
                 )}
 

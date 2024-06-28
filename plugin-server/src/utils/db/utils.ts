@@ -52,7 +52,7 @@ export function timeoutGuard(
 }
 
 // when changing this set, be sure to update the frontend as well (taxonomy.tsx (eventToPersonProperties))
-const eventToPersonProperties = new Set([
+export const eventToPersonProperties = new Set([
     // mobile params
     '$app_build',
     '$app_name',
@@ -89,6 +89,9 @@ const eventToPersonProperties = new Set([
     'igshid', // instagram
     'ttclid', // tiktok
 ])
+export const initialEventToPersonProperties = new Set(
+    Array.from(eventToPersonProperties, (key) => `$initial_${key.replace('$', '')}`)
+)
 
 /** If we get new UTM params, make sure we set those  **/
 export function personInitialAndUTMProperties(properties: Properties): Properties {
@@ -182,6 +185,10 @@ export function sanitizeJsonbValue(value: any): any {
     } else {
         return value
     }
+}
+
+export function sanitizeString(value: string) {
+    return value.replace(/\u0000/g, '\uFFFD')
 }
 
 export const surrogatesSubstitutedCounter = new Counter({

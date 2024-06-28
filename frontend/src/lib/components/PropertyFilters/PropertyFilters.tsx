@@ -6,7 +6,7 @@ import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/T
 import React, { useEffect, useState } from 'react'
 import { LogicalRowDivider } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
 
-import { AnyDataNode, DatabaseSchemaQueryResponseField } from '~/queries/schema'
+import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema'
 import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
 
 import { FilterRow } from './components/FilterRow'
@@ -24,7 +24,7 @@ interface PropertyFiltersProps {
     metadataSource?: AnyDataNode
     showNestedArrow?: boolean
     eventNames?: string[]
-    schemaColumns?: DatabaseSchemaQueryResponseField[]
+    schemaColumns?: DatabaseSchemaField[]
     logicalRowDivider?: boolean
     orFiltering?: boolean
     propertyGroupType?: FilterLogicalOperator | null
@@ -37,6 +37,7 @@ interface PropertyFiltersProps {
     errorMessages?: JSX.Element[] | null
     propertyAllowList?: { [key in TaxonomicFilterGroupType]?: string[] }
     allowRelativeDateOptions?: boolean
+    disabledReason?: string
 }
 
 export function PropertyFilters({
@@ -63,10 +64,11 @@ export function PropertyFilters({
     errorMessages = null,
     propertyAllowList,
     allowRelativeDateOptions,
+    disabledReason = undefined,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey, sendAllKeyUpdates }
     const { filters, filtersWithNew } = useValues(propertyFilterLogic(logicProps))
-    const { remove, setFilters } = useActions(propertyFilterLogic(logicProps))
+    const { remove, setFilters, setFilter } = useActions(propertyFilterLogic(logicProps))
     const [allowOpenOnInsert, setAllowOpenOnInsert] = useState<boolean>(false)
 
     // Update the logic's internal filters when the props change
@@ -86,7 +88,7 @@ export function PropertyFilters({
                     <>&#8627;</>
                 </div>
             )}
-            <div className="PropertyFilters__content">
+            <div className="PropertyFilters__content max-w-full">
                 <BindLogic logic={propertyFilterLogic} props={logicProps}>
                     {(allowNew ? filtersWithNew : filters).map((item: AnyPropertyFilter, index: number) => {
                         return (
@@ -111,6 +113,8 @@ export function PropertyFilters({
                                             key={index}
                                             pageKey={pageKey}
                                             index={index}
+                                            filters={filters}
+                                            setFilter={setFilter}
                                             onComplete={onComplete}
                                             orFiltering={orFiltering}
                                             taxonomicGroupTypes={taxonomicGroupTypes}
@@ -128,6 +132,7 @@ export function PropertyFilters({
                                     )}
                                     errorMessage={errorMessages && errorMessages[index]}
                                     openOnInsert={allowOpenOnInsert && openOnInsert}
+                                    disabledReason={disabledReason}
                                 />
                             </React.Fragment>
                         )

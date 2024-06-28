@@ -1,4 +1,3 @@
-from datetime import timedelta
 from typing import cast
 
 from posthog.hogql import ast
@@ -6,12 +5,17 @@ from posthog.hogql_queries.insights.lifecycle_query_runner import LifecycleQuery
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.schema import InsightActorsQueryOptions, InsightActorsQueryOptionsResponse
+from posthog.schema import (
+    InsightActorsQueryOptions,
+    InsightActorsQueryOptionsResponse,
+    CachedInsightActorsQueryOptionsResponse,
+)
 
 
 class InsightActorsQueryOptionsRunner(QueryRunner):
     query: InsightActorsQueryOptions
-    query_type = InsightActorsQueryOptions
+    response: InsightActorsQueryOptionsResponse
+    cached_response: CachedInsightActorsQueryOptionsResponse
 
     @cached_property
     def source_runner(self) -> QueryRunner:
@@ -29,9 +33,3 @@ class InsightActorsQueryOptionsRunner(QueryRunner):
             return lifecycle_runner.to_actors_query_options()
 
         return InsightActorsQueryOptionsResponse(day=None, status=None, interval=None, breakdown=None, series=None)
-
-    def _is_stale(self, cached_result_package):
-        return True
-
-    def _refresh_frequency(self):
-        return timedelta(minutes=1)

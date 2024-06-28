@@ -5,11 +5,9 @@ import { beforeUnload, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
-import { uuid } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { actionsModel } from '~/models/actionsModel'
@@ -19,21 +17,22 @@ import { ActionStepType, ActionType } from '~/types'
 import type { actionEditLogicType } from './actionEditLogicType'
 import { actionLogic } from './actionLogic'
 
-export type NewActionType = Partial<ActionType> &
-    Pick<ActionType, 'name' | 'post_to_slack' | 'slack_message_format' | 'steps'>
-export type ActionEditType = ActionType | NewActionType
-
 export interface SetActionProps {
     merge?: boolean
 }
 
 export interface ActionEditLogicProps {
     id?: number
-    action: ActionEditType
+    action?: ActionType | null
+}
+
+export const DEFAULT_ACTION_STEP: ActionStepType = {
+    event: '$pageview',
+    href_matching: 'contains',
 }
 
 export const actionEditLogic = kea<actionEditLogicType>([
-    path(['scenes', 'actions', 'actionEditLogic']),
+    path((key) => ['scenes', 'actions', 'actionEditLogic', key]),
     props({} as ActionEditLogicProps),
     key((props) => props.id || 'new'),
     connect({
@@ -48,7 +47,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
         values: [sceneLogic, ['activeScene']],
     }),
     actions({
-        setAction: (action: Partial<ActionEditType>, options: SetActionProps = { merge: true }) => ({
+        setAction: (action: Partial<ActionType>, options: SetActionProps = { merge: true }) => ({
             action,
             options,
         }),
@@ -63,91 +62,104 @@ export const actionEditLogic = kea<actionEditLogicType>([
                 setCreateNew: (_, { createNew }) => createNew,
             },
         ],
-        wasDeleted: [
-            false,
-            {
-                deleteAction: () => true,
-            },
-        ],
     }),
 
     forms(({ actions, props }) => ({
         action: {
-            defaults: { ...props.action } as ActionEditType,
-            submit: (action) => {
-                actions.saveAction(action)
+            defaults:
+                props.action ??
+                ({
+                    name: '',
+                    steps: [DEFAULT_ACTION_STEP],
+                } as ActionType),
+
+            submit: async (updatedAction, breakpoint) => {
+                let action: ActionType
+                try {
+                    if (updatedAction.id) {
+                        action = await api.actions.update(updatedAction.id, updatedAction)
+                    } else {
+                        action = await api.actions.create(updatedAction)
+                    }
+                    breakpoint()
+                } catch (response: any) {
+                    if (response.code === 'unique') {
+                        // Below works because `detail` in the format:
+                        // `This project already has an action with this name, ID ${errorActionId}`
+                        const dupeId = response.detail.split(' ').pop()
+
+                        lemonToast.error(
+                            <>
+                                Action with this name already exists.{' '}
+                                <Link to={urls.action(dupeId)} target="_blank">
+                                    Edit it here
+                                </Link>
+                            </>
+                        )
+
+                        return { ...updatedAction }
+                    }
+                    throw response
+                }
+
+                lemonToast.success(`Action saved`)
+                actions.resetAction(updatedAction)
+                if (!props.id) {
+                    router.actions.push(urls.action(action.id))
+                } else {
+                    const id = parseInt(props.id.toString()) // props.id can be a string
+                    const logic = actionLogic.findMounted(id)
+                    logic?.actions.loadActionSuccess(action)
+                }
+
+                // reload actions so they are immediately available throughout the app
+                actions.loadEventDefinitions()
+                actions.loadActions()
+                actions.loadTags() // reload tags in case new tags are being saved
+                return action
             },
         },
     })),
 
-    loaders(({ props, values, actions }) => ({
+    loaders(({ props, values }) => ({
         action: [
-            { ...props.action } as ActionEditType,
+            { ...props.action } as ActionType,
             {
                 setAction: ({ action, options: { merge } }) =>
-                    (merge ? { ...values.action, ...action } : action) as ActionEditType,
-                saveAction: async (updatedAction: ActionEditType, breakpoint) => {
-                    let action: ActionType
-
-                    try {
-                        if (updatedAction.id) {
-                            action = await api.actions.update(updatedAction.id, updatedAction)
-                        } else {
-                            action = await api.actions.create(updatedAction)
-                        }
-                        breakpoint()
-                    } catch (response: any) {
-                        if (response.code === 'unique') {
-                            // Below works because `detail` in the format:
-                            // `This project already has an action with this name, ID ${errorActionId}`
-                            const dupeId = response.detail.split(' ').pop()
-
-                            lemonToast.error(
-                                <>
-                                    Action with this name already exists. <Link to={urls.action(dupeId)}>Edit it</Link>
-                                </>
-                            )
-
-                            return { ...updatedAction }
-                        }
-                        throw response
-                    }
-
-                    lemonToast.success(`Action saved`)
-                    if (!props.id) {
-                        router.actions.push(urls.action(action.id))
-                    } else {
-                        const id = parseInt(props.id.toString()) // props.id can be a string
-                        const logic = actionLogic.findMounted(id)
-                        logic?.actions.loadActionSuccess(action)
-                    }
-
-                    // reload actions so they are immediately available throughout the app
-                    actions.loadEventDefinitions()
-                    actions.loadActions()
-                    actions.loadTags() // reload tags in case new tags are being saved
-                    return action
-                },
+                    (merge ? { ...values.action, ...action } : action) as ActionType,
             },
         ],
     })),
 
     listeners(({ values, actions }) => ({
         deleteAction: async () => {
-            await deleteWithUndo({
-                endpoint: api.actions.determineDeleteEndpoint(),
-                object: values.action,
-                callback: () => {
-                    router.actions.push(urls.actions())
-                    actions.loadActions()
-                },
-            })
+            const actionId = values.action.id
+            if (!actionId) {
+                return
+            }
+            try {
+                await deleteWithUndo({
+                    endpoint: api.actions.determineDeleteEndpoint(),
+                    object: values.action,
+                    callback: (undo: boolean) => {
+                        if (undo) {
+                            router.actions.push(urls.action(actionId))
+                        } else {
+                            actions.resetAction()
+                            router.actions.push(urls.actions())
+                            actions.loadActions()
+                        }
+                    },
+                })
+            } catch (e: any) {
+                lemonToast.error(`Error deleting action: ${e.detail}`)
+            }
         },
     })),
 
     afterMount(({ actions, props }) => {
         if (!props.id) {
-            actions.setAction({ name: '', steps: [{ isNew: uuid() }] }, { merge: false })
+            actions.setActionValue('steps', [{ ...DEFAULT_ACTION_STEP }])
         }
     }),
 
@@ -166,10 +178,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
                     actions.setAction(
                         {
                             ...actionToCopy,
-                            steps: actionToCopy.steps.map((s: ActionStepType) => {
-                                const { id: _id, ...step } = s
-                                return { ...step, isNew: uuid() }
-                            }),
+                            steps: actionToCopy.steps,
                             name: `${actionToCopy.name} (copy)`,
                         },
                         { merge: false }
@@ -181,8 +190,11 @@ export const actionEditLogic = kea<actionEditLogicType>([
         },
     })),
 
-    beforeUnload(({ values }) => ({
-        enabled: () => values.activeScene !== Scene.Action && values.actionChanged && !values.wasDeleted,
-        message: `Leave action?\nChanges you made will be discarded.`,
+    beforeUnload(({ actions, values }) => ({
+        enabled: () => values.actionChanged,
+        message: 'Leave action?\nChanges you made will be discarded.',
+        onConfirm: () => {
+            actions.resetAction()
+        },
     })),
 ])

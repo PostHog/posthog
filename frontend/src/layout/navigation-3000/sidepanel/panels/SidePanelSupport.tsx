@@ -51,7 +51,7 @@ const PRODUCTS = [
     },
     {
         name: 'A/B testing',
-        slug: 'ab-testing',
+        slug: 'experiments',
         icon: <IconFlask className="text-purple h-5 w-5" />,
     },
     {
@@ -71,13 +71,7 @@ const Section = ({ title, children }: { title: string; children: React.ReactNode
 }
 
 const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element => {
-    const { billing } = useValues(billingLogic)
-
-    // TODO(@zach): remove after updated plans w/ support levels are shipped
-    const supportResponseTimes = {
-        [AvailableFeature.EMAIL_SUPPORT]: '24 hours',
-        [AvailableFeature.PRIORITY_SUPPORT]: '12 hours',
-    }
+    const { supportPlans, hasSupportAddonPlan } = useValues(billingLogic)
 
     return (
         <Section title="Email an engineer">
@@ -90,30 +84,27 @@ const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element =
                         <Link to={urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])}>Explore options</Link>
                     </div>
                 </div>
-                {billing?.products
-                    ?.find((product) => product.type == ProductKey.PLATFORM_AND_SUPPORT)
-                    ?.plans?.map((plan) => (
+                {supportPlans?.map((plan) => {
+                    // If they have an addon plan, only show the addon plan
+                    const currentPlan = plan.current_plan && (!hasSupportAddonPlan || plan.plan_key?.includes('addon'))
+                    return (
                         <React.Fragment key={`support-panel-${plan.plan_key}`}>
-                            <div className={plan.current_plan ? 'font-bold' : undefined}>
+                            <div className={currentPlan ? 'font-bold' : undefined}>
                                 {plan.name}
-                                {plan.current_plan && (
+                                {currentPlan && (
                                     <>
                                         {' '}
                                         <span className="font-normal opacity-60 text-sm">(your plan)</span>
                                     </>
                                 )}
                             </div>
-                            <div className={plan.current_plan ? 'font-bold' : undefined}>
+                            <div className={currentPlan ? 'font-bold' : undefined}>
                                 {/* TODO(@zach): remove fallback after updated plans w/ support levels are shipped */}
-                                {plan.features.find((f) => f.key == AvailableFeature.SUPPORT_RESPONSE_TIME)?.note ??
-                                    (plan.features.some((f) => f.key == AvailableFeature.PRIORITY_SUPPORT)
-                                        ? supportResponseTimes[AvailableFeature.PRIORITY_SUPPORT]
-                                        : plan.features.some((f) => f.key == AvailableFeature.EMAIL_SUPPORT)
-                                        ? supportResponseTimes[AvailableFeature.EMAIL_SUPPORT]
-                                        : 'Community support only')}
+                                {plan.features.find((f) => f.key == AvailableFeature.SUPPORT_RESPONSE_TIME)?.note}
                             </div>
                         </React.Fragment>
-                    ))}
+                    )
+                })}
             </div>
             <SupportForm />
             <LemonButton
@@ -145,7 +136,7 @@ export const SidePanelSupport = (): JSX.Element => {
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
     const { openEmailForm, closeEmailForm } = useActions(supportLogic)
     const { isEmailFormOpen } = useValues(supportLogic)
-    const { preflight } = useValues(preflightLogic)
+    const { preflight, isCloud } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
     const region = preflight?.region
     const { status } = useValues(sidePanelStatusLogic)
@@ -177,12 +168,12 @@ export const SidePanelSupport = (): JSX.Element => {
                                             >
                                                 <div className="flex items-center gap-1.5">
                                                     {product.icon}
-                                                    <span className="text-default opacity-75 group-hover:opacity-100">
+                                                    <span className="text-text-3000 opacity-75 group-hover:opacity-100">
                                                         {product.name}
                                                     </span>
                                                 </div>
                                                 <div>
-                                                    <IconChevronDown className="text-default h-6 w-6 opacity-60 -rotate-90 group-hover:opacity-90" />
+                                                    <IconChevronDown className="text-text-3000 h-6 w-6 opacity-60 -rotate-90 group-hover:opacity-90" />
                                                 </div>
                                             </Link>
                                         </li>
@@ -212,22 +203,25 @@ export const SidePanelSupport = (): JSX.Element => {
                                 </Section>
                             ) : null}
 
-                            <Section title="Contact us">
-                                <p>Can't find what you need in the docs?</p>
-                                <LemonButton
-                                    type="primary"
-                                    fullWidth
-                                    center
-                                    onClick={() => openEmailForm()}
-                                    targetBlank
-                                    className="mt-2"
-                                >
-                                    Email an engineer
-                                </LemonButton>
-                            </Section>
+                            {/* only allow opening tickets on our Cloud instances */}
+                            {isCloud ? (
+                                <Section title="Contact us">
+                                    <p>Can't find what you need in the docs?</p>
+                                    <LemonButton
+                                        type="primary"
+                                        fullWidth
+                                        center
+                                        onClick={() => openEmailForm()}
+                                        targetBlank
+                                        className="mt-2"
+                                    >
+                                        Email an engineer
+                                    </LemonButton>
+                                </Section>
+                            ) : null}
                             <Section title="Ask the community">
                                 <p>
-                                    Questions about features, how to's, or use cases? There are thousands of discussions
+                                    Questions about features, how-tos, or use cases? There are thousands of discussions
                                     in our community forums.{' '}
                                     <Link to="https://posthog.com/questions">Ask a question</Link>
                                 </p>

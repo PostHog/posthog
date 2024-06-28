@@ -4,14 +4,18 @@ import socket
 import urllib.parse
 from enum import Enum, auto
 from ipaddress import ip_address
+from requests.adapters import HTTPAdapter
 from typing import Literal, Optional, Union
+
+from rest_framework.fields import Field
+from urllib3 import HTTPSConnectionPool, HTTPConnectionPool, PoolManager
 from uuid import UUID
 
 import structlog
 from django.core.exceptions import RequestDataTooBig
 from django.db.models import QuerySet
 from prometheus_client import Counter
-from rest_framework import request, status
+from rest_framework import request, status, serializers
 from rest_framework.exceptions import ValidationError
 from statshog.defaults.django import statsd
 
@@ -30,6 +34,14 @@ logger = structlog.get_logger(__name__)
 class PaginationMode(Enum):
     next = auto()
     previous = auto()
+
+
+# This overrides a change in DRF 3.15 that alters our behavior. If the user passes an empty argument,
+# the new version keeps it as null vs coalescing it to the default.
+# Don't add this to new classes
+class ClassicBehaviorBooleanFieldSerializer(serializers.BooleanField):
+    def __init__(self, **kwargs):
+        Field.__init__(self, allow_null=True, required=False, **kwargs)
 
 
 def get_target_entity(filter: Union[Filter, StickinessFilter]) -> Entity:
@@ -329,3 +341,46 @@ def raise_if_user_provided_url_unsafe(url: str):
     for _, _, _, _, sockaddr in addrinfo:
         if ip_address(sockaddr[0]).is_private:  # Prevent addressing internal services
             raise ValueError("Internal hostname")
+
+
+def raise_if_connected_to_private_ip(conn):
+    """Raise if the HTTPConnection / HTTPSConnection we are given points to a private IP."""
+    if not getattr(conn, "sock", None):  # Force the connection open to check the remote IP
+        conn.connect()
+    addr = ip_address(conn.sock.getpeername()[0])
+    if addr.is_private:
+        raise ValueError("Internal IP")
+
+
+class PublicIPOnlyHTTPConnectionPool(HTTPConnectionPool):
+    def _validate_conn(self, conn):
+        raise_if_connected_to_private_ip(conn)
+        super()._validate_conn(conn)
+
+
+class PublicIPOnlyHTTPSConnectionPool(HTTPSConnectionPool):
+    def _validate_conn(self, conn):
+        raise_if_connected_to_private_ip(conn)
+        super()._validate_conn(conn)
+
+
+class PublicIPOnlyHttpAdapter(HTTPAdapter):
+    """Transport adapter that enforces that we only connect to public IPs
+
+    Due to the lack of a hook after DNS resolution, we override the connection pool classes
+    to check the remote IP after we connect to it, but before we send the request.
+
+    Intended as a second line of defense after raise_if_user_provided_url_unsafe.
+    """
+
+    def init_poolmanager(self, connections, maxsize, block=False, **pool_kwargs):
+        self.poolmanager = PoolManager(
+            num_pools=connections,
+            maxsize=maxsize,
+            block=block,
+            **pool_kwargs,
+        )
+        self.poolmanager.pool_classes_by_scheme = {
+            "http": PublicIPOnlyHTTPConnectionPool,
+            "https": PublicIPOnlyHTTPSConnectionPool,
+        }

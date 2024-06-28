@@ -14,6 +14,7 @@ import { IngestionConsumer } from '../kafka-queue'
 import { eventDroppedCounter, latestOffsetTimestampGauge } from '../metrics'
 import {
     ingestEventBatchingBatchCountSummary,
+    ingestEventBatchingDistinctIdBatchLengthSummary,
     ingestEventBatchingInputLengthSummary,
     ingestEventEachBatchKafkaAckWait,
     ingestionOverflowingMessagesTotal,
@@ -123,6 +124,10 @@ export async function eachBatchParallelIngestion(
 
         ingestEventBatchingInputLengthSummary.observe(messages.length)
         ingestEventBatchingBatchCountSummary.observe(splitBatch.toProcess.length)
+        splitBatch.toProcess.forEach((b) => {
+            ingestEventBatchingDistinctIdBatchLengthSummary.observe(b.length)
+        })
+
         prepareSpan.finish()
 
         const processingPromises: Array<Promise<void>> = []
@@ -163,7 +168,6 @@ export async function eachBatchParallelIngestion(
                 // Process every message sequentially, stash promises to await on later
                 for (const { message, pluginEvent } of currentBatch) {
                     try {
-                        pluginEvent.distinct_id = pluginEvent.distinct_id.replaceAll('\u0000', '')
                         const result = (await retryIfRetriable(async () => {
                             const runner = new EventPipelineRunner(queue.pluginsServer, pluginEvent)
                             return await runner.runEventPipeline(pluginEvent)

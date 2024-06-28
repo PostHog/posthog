@@ -35,19 +35,21 @@ export function Timestamp(): JSX.Element {
 
     return (
         <LemonButton data-attr="recording-timestamp" onClick={rotateTimestampFormat} active>
-            <span className="text-center whitespace-nowrap">
+            <span className="text-center whitespace-nowrap font-mono">
                 {timestampFormat === TimestampFormat.Relative ? (
                     <>
                         {colonDelimitedDuration(startTimeSeconds, fixedUnits)} /{' '}
                         {colonDelimitedDuration(endTimeSeconds, fixedUnits)}
                     </>
                 ) : currentTimestamp ? (
-                    <>
-                        {dayjs(currentTimestamp).tz('UTC').format('DD/MM/YYYY, HH:mm:ss')}{' '}
-                        {timestampFormat === TimestampFormat.UTC
+                    `${(timestampFormat === TimestampFormat.UTC
+                        ? dayjs(currentTimestamp).tz('UTC')
+                        : dayjs(currentTimestamp)
+                    ).format('DD/MM/YYYY, HH:mm:ss')} ${
+                        timestampFormat === TimestampFormat.UTC
                             ? 'UTC'
-                            : shortTimeZone(undefined, dayjs(currentTimestamp).toDate())}
-                    </>
+                            : shortTimeZone(undefined, dayjs(currentTimestamp).toDate())
+                    }`
                 ) : (
                     '--/--/----, 00:00:00'
                 )}
@@ -92,7 +94,7 @@ export function SeekSkip({ direction }: { direction: 'forward' | 'backward' }): 
             <LemonButton
                 data-attr={`seek-skip-${direction}`}
                 size="small"
-                onClick={() => (direction === 'forward' ? seekForward : seekBackward())}
+                onClick={() => (direction === 'forward' ? seekForward() : seekBackward())}
             >
                 <div className="PlayerControlSeekIcon">
                     <span className="PlayerControlSeekIcon__seconds">{jumpTimeSeconds}</span>

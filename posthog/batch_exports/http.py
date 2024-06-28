@@ -5,7 +5,7 @@ import posthoganalytics
 import structlog
 from django.db import transaction
 from django.utils.timezone import now
-from rest_framework import request, response, serializers, viewsets
+from rest_framework import filters, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import (
     NotAuthenticated,
@@ -39,6 +39,7 @@ from posthog.hogql import ast, errors
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
+from posthog.hogql.visitor import clone_expr
 from posthog.models import (
     BatchExport,
     BatchExportDestination,
@@ -52,7 +53,7 @@ from posthog.utils import relative_date_parse
 logger = structlog.get_logger(__name__)
 
 
-def validate_date_input(date_input: Any) -> dt.datetime:
+def validate_date_input(date_input: Any, team: Team | None = None) -> dt.datetime:
     """Parse any datetime input as a proper dt.datetime.
 
     Args:
@@ -72,6 +73,15 @@ def validate_date_input(date_input: Any) -> dt.datetime:
         parsed = dt.datetime.fromisoformat(date_input.replace("Z", "+00:00"))
     except (TypeError, ValueError):
         raise ValidationError(f"Input {date_input} is not a valid ISO formatted datetime.")
+
+    if parsed.tzinfo is None:
+        if team:
+            parsed = parsed.replace(tzinfo=team.timezone_info).astimezone(dt.UTC)
+        else:
+            parsed = parsed.replace(tzinfo=dt.UTC)
+    else:
+        parsed = parsed.astimezone(dt.UTC)
+
     return parsed
 
 
@@ -86,7 +96,6 @@ class BatchExportRunSerializer(serializers.ModelSerializer):
 
 
 class RunsCursorPagination(CursorPagination):
-    ordering = "-created_at"
     page_size = 100
 
 
@@ -96,18 +105,30 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSe
     serializer_class = BatchExportRunSerializer
     pagination_class = RunsCursorPagination
     filter_rewrite_rules = {"team_id": "batch_export__team_id"}
+    filter_backends = [filters.OrderingFilter]
+    ordering_fields = ["created_at", "data_interval_start"]
+    ordering = "-created_at"
 
     def safely_get_queryset(self, queryset):
-        after = self.request.GET.get("after", "-7d")
+        after = self.request.GET.get("after", None)
         before = self.request.GET.get("before", None)
-        after_datetime = relative_date_parse(after, self.team.timezone_info)
-        before_datetime = relative_date_parse(before, self.team.timezone_info) if before else now()
-        date_range = (after_datetime, before_datetime)
+        start = self.request.GET.get("start", None)
+        end = self.request.GET.get("end", None)
+        ordering = self.request.GET.get("ordering", None)
+
+        # If we're ordering by data_interval_start, we need to filter by that otherwise we're ordering by created_at
+        if ordering == "data_interval_start" or ordering == "-data_interval_start":
+            start_timestamp = relative_date_parse(start if start else "-7d", self.team.timezone_info)
+            end_timestamp = relative_date_parse(end, self.team.timezone_info) if end else now()
+            queryset = queryset.filter(data_interval_start__gte=start_timestamp, data_interval_end__lte=end_timestamp)
+        else:
+            after_datetime = relative_date_parse(after if after else "-7d", self.team.timezone_info)
+            before_datetime = relative_date_parse(before, self.team.timezone_info) if before else now()
+            date_range = (after_datetime, before_datetime)
+            queryset = queryset.filter(created_at__range=date_range)
 
         queryset = queryset.filter(batch_export_id=self.kwargs["parent_lookup_batch_export_id"])
-        queryset = queryset.filter(created_at__range=date_range)
-
-        return queryset.order_by("-created_at")
+        return queryset
 
 
 class BatchExportDestinationSerializer(serializers.ModelSerializer):
@@ -178,6 +199,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
             "id",
             "team_id",
             "name",
+            "model",
             "destination",
             "interval",
             "paused",
@@ -231,13 +253,21 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
     def serialize_hogql_query_to_batch_export_schema(self, hogql_query: ast.SelectQuery) -> BatchExportSchema:
         """Return a batch export schema from a HogQL query ast."""
-        context = HogQLContext(
-            team_id=self.context["team_id"],
-            enable_select_queries=True,
-            limit_top_select=False,
-        )
-
         try:
+            # Print the query in ClickHouse dialect to catch unresolved field errors, and discard the result
+            context = HogQLContext(
+                team_id=self.context["team_id"],
+                enable_select_queries=True,
+                limit_top_select=False,
+            )
+            print_prepared_ast(clone_expr(hogql_query), context=context, dialect="clickhouse")
+
+            # Recreate the context
+            context = HogQLContext(
+                team_id=self.context["team_id"],
+                enable_select_queries=True,
+                limit_top_select=False,
+            )
             batch_export_schema: BatchExportsSchema = {
                 "fields": [],
                 "values": {},
@@ -337,8 +367,8 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if start_at_input is None or end_at_input is None:
             raise ValidationError("Both 'start_at' and 'end_at' must be specified")
 
-        start_at = validate_date_input(start_at_input)
-        end_at = validate_date_input(end_at_input)
+        start_at = validate_date_input(start_at_input, request.user.current_team)
+        end_at = validate_date_input(end_at_input, request.user.current_team)
 
         if start_at >= end_at:
             raise ValidationError("The initial backfill datetime 'start_at' happens after 'end_at'")

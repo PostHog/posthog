@@ -3,7 +3,6 @@ import './InsightCard.scss'
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
 import { Resizeable } from 'lib/components/Cards/CardMeta'
-import { QueriesUnsupportedHere } from 'lib/components/Cards/InsightCard/QueriesUnsupportedHere'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import React, { useState } from 'react'
@@ -28,11 +27,12 @@ import { Paths } from 'scenes/paths/Paths'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { ActionsHorizontalBar, ActionsLineGraph, ActionsPie } from 'scenes/trends/viz'
 
+import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { insightVizDataCollectionId, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
-import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
+import { getCachedResults, getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { Query } from '~/queries/Query/Query'
 import { InsightQueryNode } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
@@ -133,6 +133,8 @@ export interface InsightCardProps extends Resizeable, React.HTMLAttributes<HTMLD
     loadingQueued?: boolean
     /** Whether the insight is loading. */
     loading?: boolean
+    /** Whether the insight likely showing stale data. */
+    stale?: boolean
     /** Whether an error occurred on the server. */
     apiErrored?: boolean
     /** Whether the card should be highlighted with a blue border. */
@@ -158,6 +160,7 @@ export interface InsightCardProps extends Resizeable, React.HTMLAttributes<HTMLD
     placement: DashboardPlacement | 'SavedInsightGrid'
     /** Priority for loading the insight, lower is earlier. */
     loadPriority?: number
+    doNotLoad?: boolean
 }
 
 function VizComponentFallback(): JSX.Element {
@@ -165,7 +168,7 @@ function VizComponentFallback(): JSX.Element {
 }
 
 export interface FilterBasedCardContentProps
-    extends Pick<InsightCardProps, 'insight' | 'loading' | 'apiErrored' | 'timedOut' | 'style'> {
+    extends Pick<InsightCardProps, 'insight' | 'loading' | 'apiErrored' | 'timedOut' | 'style' | 'stale'> {
     insightProps: InsightLogicProps
     tooFewFunnelSteps?: boolean
     validationError?: string | null
@@ -186,6 +189,7 @@ export function FilterBasedCardContent({
     tooFewFunnelSteps,
     validationError,
     context,
+    stale,
 }: FilterBasedCardContentProps): JSX.Element {
     const displayedType = getDisplayedType(insight.filters)
     const VizComponent = displayMap[displayedType]?.element || VizComponentFallback
@@ -211,6 +215,7 @@ export function FilterBasedCardContent({
                         : undefined
                 }
             >
+                {stale && !loading && <SpinnerOverlay mode="editing" />}
                 {loading && <SpinnerOverlay />}
                 {tooFewFunnelSteps ? (
                     <FunnelSingleStepState actionable={false} />
@@ -219,7 +224,7 @@ export function FilterBasedCardContent({
                 ) : empty ? (
                     <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
                 ) : !loading && timedOut ? (
-                    <InsightTimeoutState isLoading={false} insightProps={{ dashboardItemId: undefined }} />
+                    <InsightTimeoutState />
                 ) : apiErrored && !loading ? (
                     <InsightErrorState query={query} excludeDetail />
                 ) : (
@@ -232,11 +237,12 @@ export function FilterBasedCardContent({
 
 function InsightCardInternal(
     {
-        insight,
+        insight: legacyInsight,
         dashboardId,
         ribbonColor,
         loadingQueued,
         loading,
+        stale,
         apiErrored,
         timedOut,
         highlighted,
@@ -256,44 +262,31 @@ function InsightCardInternal(
         moreButtons,
         placement,
         loadPriority,
+        doNotLoad,
         ...divProps
     }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
 ): JSX.Element {
+    const insight = getQueryBasedInsightModel(legacyInsight)
     const { theme } = useValues(themeLogic)
     const insightLogicProps: InsightLogicProps = {
         dashboardItemId: insight.short_id,
         dashboardId: dashboardId,
-        cachedInsight: insight,
+        cachedInsight: legacyInsight, // TODO: use query based insight here
         loadPriority,
+        doNotLoad,
     }
 
     const { insightLoading } = useValues(insightLogic(insightLogicProps))
-    const { insightDataLoading } = useValues(insightDataLogic(insightLogicProps))
+    const { insightDataLoading, useQueryDashboardCards } = useValues(insightDataLogic(insightLogicProps))
     const { hasFunnelResults } = useValues(funnelDataLogic(insightLogicProps))
     const { isFunnelWithEnoughSteps, validationError } = useValues(insightVizDataLogic(insightLogicProps))
 
-    let tooFewFunnelSteps = false
-    let empty = false
-    if (insight.filters.insight === InsightType.FUNNELS) {
-        if (!isFunnelWithEnoughSteps) {
-            tooFewFunnelSteps = true
-        }
-        if (!hasFunnelResults) {
-            empty = true
-        }
-    }
     if (insightLoading || insightDataLoading) {
         loading = true
     }
 
     const [areDetailsShown, setAreDetailsShown] = useState(false)
-
-    const canMakeQueryAPICalls =
-        placement === 'SavedInsightGrid' ||
-        [DashboardPlacement.Dashboard, DashboardPlacement.ProjectHomepage, DashboardPlacement.FeatureFlag].includes(
-            placement
-        )
 
     return (
         <div
@@ -304,65 +297,69 @@ function InsightCardInternal(
             style={{ ...(divProps?.style ?? {}), ...(theme?.boxStyle ?? {}) }}
             ref={ref}
         >
-            <BindLogic logic={insightLogic} props={insightLogicProps}>
-                <InsightMeta
-                    insight={insight}
-                    ribbonColor={ribbonColor}
-                    dashboardId={dashboardId}
-                    updateColor={updateColor}
-                    removeFromDashboard={removeFromDashboard}
-                    deleteWithUndo={deleteWithUndo}
-                    refresh={refresh}
-                    loading={loadingQueued || loading}
-                    rename={rename}
-                    duplicate={duplicate}
-                    moveToDashboard={moveToDashboard}
-                    areDetailsShown={areDetailsShown}
-                    setAreDetailsShown={setAreDetailsShown}
-                    showEditingControls={showEditingControls}
-                    showDetailsControls={showDetailsControls}
-                    moreButtons={moreButtons}
-                />
-                {insight.query ? (
-                    <div className="InsightCard__viz">
-                        {insight.result ? (
-                            <Query query={insight.query} cachedResults={insight.result} readOnly />
-                        ) : canMakeQueryAPICalls ? (
-                            <Query query={insight.query} readOnly />
-                        ) : (
-                            <QueriesUnsupportedHere />
-                        )}
-                    </div>
-                ) : insight.filters?.insight ? (
-                    <FilterBasedCardContent
+            <ErrorBoundary>
+                <BindLogic logic={insightLogic} props={insightLogicProps}>
+                    <InsightMeta
                         insight={insight}
-                        insightProps={insightLogicProps}
-                        loading={loading}
-                        apiErrored={apiErrored}
-                        timedOut={timedOut}
-                        empty={empty}
-                        tooFewFunnelSteps={tooFewFunnelSteps}
-                        validationError={validationError}
+                        ribbonColor={ribbonColor}
+                        dashboardId={dashboardId}
+                        updateColor={updateColor}
+                        removeFromDashboard={removeFromDashboard}
+                        deleteWithUndo={deleteWithUndo}
+                        refresh={refresh}
+                        loading={loadingQueued || loading}
+                        rename={rename}
+                        duplicate={duplicate}
+                        moveToDashboard={moveToDashboard}
+                        areDetailsShown={areDetailsShown}
                         setAreDetailsShown={setAreDetailsShown}
+                        showEditingControls={showEditingControls}
+                        showDetailsControls={showDetailsControls}
+                        moreButtons={moreButtons}
                     />
-                ) : (
-                    <div className="flex justify-between items-center h-full">
-                        <InsightErrorState
-                            query={insight.query}
-                            excludeDetail
-                            title="Missing 'filters.insight' property, can't display insight"
+                    {legacyInsight.query || useQueryDashboardCards ? (
+                        <div className="InsightCard__viz">
+                            <Query
+                                query={insight.query}
+                                cachedResults={legacyInsight}
+                                context={{
+                                    insightProps: insightLogicProps,
+                                }}
+                                stale={stale}
+                                readOnly
+                                embedded
+                            />
+                        </div>
+                    ) : (
+                        <FilterBasedCardContent
+                            insight={legacyInsight}
+                            insightProps={insightLogicProps}
+                            loading={loading}
+                            stale={stale}
+                            setAreDetailsShown={setAreDetailsShown}
+                            apiErrored={apiErrored}
+                            timedOut={timedOut}
+                            empty={
+                                legacyInsight.filters.insight === InsightType.FUNNELS &&
+                                !hasFunnelResults &&
+                                !apiErrored
+                            }
+                            tooFewFunnelSteps={
+                                legacyInsight.filters.insight === InsightType.FUNNELS && !isFunnelWithEnoughSteps
+                            }
+                            validationError={validationError}
                         />
-                    </div>
+                    )}
+                </BindLogic>
+                {showResizeHandles && (
+                    <>
+                        {canResizeWidth ? <ResizeHandle1D orientation="vertical" /> : null}
+                        <ResizeHandle1D orientation="horizontal" />
+                        {canResizeWidth ? <ResizeHandle2D /> : null}
+                    </>
                 )}
-            </BindLogic>
-            {showResizeHandles && (
-                <>
-                    {canResizeWidth ? <ResizeHandle1D orientation="vertical" /> : null}
-                    <ResizeHandle1D orientation="horizontal" />
-                    {canResizeWidth ? <ResizeHandle2D /> : null}
-                </>
-            )}
-            {children /* Extras, such as resize handles */}
+                {children /* Extras, such as resize handles */}
+            </ErrorBoundary>
         </div>
     )
 }

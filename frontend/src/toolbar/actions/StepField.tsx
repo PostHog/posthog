@@ -9,7 +9,6 @@ import { URL_MATCHING_HINTS } from 'scenes/actions/hints'
 
 import { SelectorCount } from '~/toolbar/actions/SelectorCount'
 import { ActionStepForm } from '~/toolbar/types'
-import { StringMatching } from '~/types'
 
 interface StepFieldProps {
     item: 'href' | 'text' | 'selector' | 'url'
@@ -25,12 +24,12 @@ function hrefSelector(step: ActionStepForm): string | null {
     // see https://developer.mozilla.org/en-US/docs/Web/CSS/Attribute_selectors#links
     const matchOperator = {
         // Link whose value is exactly step.href.
-        [StringMatching.Exact]: '=',
+        ['exact']: '=',
         // Links with step.href anywhere in the URL
-        [StringMatching.Contains]: '*=',
+        ['contains']: '*=',
         // CSS selector can't match on regex
-        [StringMatching.Regex]: null,
-    }[step.href_matching || StringMatching.Exact]
+        ['regex']: null,
+    }[step.href_matching || 'exact']
 
     if (!matchOperator) {
         return null
@@ -58,7 +57,7 @@ export function StepField({ step, item, label, caption }: StepFieldProps): JSX.E
                         {({ value, onChange }) => {
                             // match defaults in the data management section
                             if (value === undefined || value === null) {
-                                item === 'url' ? (value = StringMatching.Contains) : (value = StringMatching.Exact)
+                                item === 'url' ? (value = 'contains') : (value = 'exact')
                             }
 
                             return (
@@ -67,9 +66,9 @@ export function StepField({ step, item, label, caption }: StepFieldProps): JSX.E
                                     className={clsx('mb-1', !selected && 'opacity-50')}
                                     size="small"
                                     options={[
-                                        { value: StringMatching.Exact, label: 'Exact' },
-                                        { value: StringMatching.Regex, label: 'Regex' },
-                                        { value: StringMatching.Contains, label: 'Contains' },
+                                        { value: 'exact', label: 'Exact' },
+                                        { value: 'regex', label: 'Regex' },
+                                        { value: 'contains', label: 'Contains' },
                                     ]}
                                     value={value}
                                     onChange={onChange}

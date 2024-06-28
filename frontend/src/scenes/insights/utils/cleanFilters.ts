@@ -53,7 +53,9 @@ export function getDefaultEvent(): Entity {
 }
 
 export const isStepsUndefined = (filters: FunnelsFilterType): boolean =>
-    typeof filters.events === 'undefined' && (typeof filters.actions === 'undefined' || filters.actions.length === 0)
+    typeof filters.events === 'undefined' &&
+    (typeof filters.actions === 'undefined' || filters.actions.length === 0) &&
+    (typeof filters.data_warehouse === 'undefined' || filters.data_warehouse.length === 0)
 
 const findFirstNumber = (candidates: (number | undefined)[]): number | undefined =>
     candidates.find((s) => typeof s === 'number')
@@ -251,7 +253,6 @@ export function autocorrectInterval(filters: Partial<AnyFilterType>): IntervalTy
         return 'day'
     }
 
-    // @ts-expect-error - Old legacy interval support
     const minute_disabled = filters.interval === 'minute'
     const hour_disabled = disableHourFor[filters.date_from || 'other'] && filters.interval === 'hour'
 
@@ -294,6 +295,7 @@ export function cleanFilters(
             breakdowns: filters.breakdowns,
             breakdown_type: filters.breakdown_type,
             retention_reference: filters.retention_reference,
+            show_mean: filters.show_mean,
             total_intervals: Math.min(Math.max(filters.total_intervals ?? 11, 0), 100),
             ...(filters.aggregation_group_type_index != undefined
                 ? { aggregation_group_type_index: filters.aggregation_group_type_index }
@@ -417,6 +419,7 @@ export function cleanFilters(
             ...(isTrendsFilter(filters) && filters?.show_percent_stack_view
                 ? { show_percent_stack_view: filters.show_percent_stack_view }
                 : {}),
+            y_axis_scale_type: isTrendsFilter(filters) ? filters.y_axis_scale_type : undefined,
             ...commonFilters,
         }
 
@@ -463,6 +466,7 @@ export function cleanFilters(
 
         if (filters.date_from === 'all' || isLifecycleFilter(filters)) {
             trendLikeFilter['compare'] = false
+            trendLikeFilter['compare_to'] = undefined
         }
 
         if (trendLikeFilter.interval && trendLikeFilter.smoothing_intervals) {

@@ -1,5 +1,5 @@
 from datetime import datetime, date
-from typing import Any, List  # noqa: UP035
+from typing import Any, List, Literal  # noqa: UP035
 
 from rest_framework import viewsets, request, response, serializers, status
 
@@ -56,7 +56,7 @@ class HeatmapsRequestSerializer(serializers.Serializer):
     viewport_width_max = serializers.IntegerField(required=False)
     type = serializers.CharField(required=False, default="click")
     date_from = serializers.CharField(required=False, default="-7d")
-    date_to = serializers.DateField(required=False)
+    date_to = serializers.CharField(required=False)
     url_exact = serializers.CharField(required=False)
     url_pattern = serializers.CharField(required=False)
     aggregation = serializers.ChoiceField(
@@ -66,7 +66,7 @@ class HeatmapsRequestSerializer(serializers.Serializer):
         default="total_count",
     )
 
-    def validate_date_from(self, value) -> date:
+    def validate_date(self, value, label: Literal["date_from", "date_to"]) -> date:
         try:
             if isinstance(value, str):
                 parsed_date, _, _ = relative_date_parse_with_delta_mapping(value, self.context["team"].timezone_info)
@@ -76,9 +76,40 @@ class HeatmapsRequestSerializer(serializers.Serializer):
             if isinstance(value, date):
                 return value
             else:
-                raise serializers.ValidationError("Invalid date_from provided: {}".format(value))
+                raise serializers.ValidationError(f"Invalid {label} provided: {value}")
         except Exception:
-            raise serializers.ValidationError("Error parsing provided date_from: {}".format(value))
+            raise serializers.ValidationError(f"Error parsing provided {label}: {value}")
+
+    def validate_date_from(self, value) -> date:
+        return self.validate_date(value, "date_from")
+
+    def validate_date_to(self, value) -> date:
+        return self.validate_date(value, "date_to")
+
+    def validate_url_pattern(self, value: str | None) -> str | None:
+        if value is None:
+            return None
+
+        validated_value = value
+
+        # we insist on the pattern being anchored
+        if not value.startswith("^"):
+            validated_value = f"^{value}"
+        if not value.endswith("$"):
+            validated_value = f"{validated_value}$"
+
+        # KLUDGE: we allow API callers to send something that isn't really `re2` syntax used in match()
+        # KLUDGE: so if it has * but not .* then we expect at least one character to match, so we use .+ instead
+        # KLUDGE: this means we don't support valid regex since we can't support matching aaaaa with a*
+        # KLUDGE: but you could send a+ and it would match aaaaa
+        validated_value = "".join(
+            [
+                f".+" if c == "*" and i > 0 and validated_value[i - 1] != "." else c
+                for i, c in enumerate(validated_value)
+            ]
+        )
+
+        return validated_value
 
     def validate(self, values) -> dict:
         url_exact = values.get("url_exact", None)

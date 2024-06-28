@@ -1,5 +1,5 @@
 import posthogEE from '@posthog/ee/exports'
-import { EventType, eventWithTime } from '@rrweb/types'
+import { customEvent, EventType, eventWithTime } from '@rrweb/types'
 import { captureException } from '@sentry/react'
 import {
     actions,
@@ -38,6 +38,7 @@ import {
     RecordingSnapshot,
     SessionPlayerData,
     SessionRecordingId,
+    SessionRecordingSnapshotParams,
     SessionRecordingSnapshotSource,
     SessionRecordingSnapshotSourceResponse,
     SessionRecordingType,
@@ -272,8 +273,15 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         persistRecording: true,
         maybePersistRecording: true,
         pollRealtimeSnapshots: true,
+        setTrackedWindow: (windowId: string | null) => ({ windowId }),
     }),
     reducers(() => ({
+        trackedWindow: [
+            null as string | null,
+            {
+                setTrackedWindow: (_, { windowId }) => windowId,
+            },
+        ],
         filters: [
             {} as Partial<RecordingEventsFilters>,
             {
@@ -336,7 +344,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             null as SessionRecordingSnapshotSource[] | null,
             {
                 loadSnapshotSources: async () => {
-                    const response = await api.recordings.listSnapshots(props.sessionRecordingId)
+                    const response = await api.recordings.listSnapshotSources(props.sessionRecordingId)
                     return response.sources ?? []
                 },
             },
@@ -345,9 +353,17 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             null as SessionRecordingSnapshotSourceResponse | null,
             {
                 loadSnapshotsForSource: async ({ source }, breakpoint) => {
-                    const params = {
-                        source: source.source,
-                        blob_key: source.blob_key,
+                    let params: SessionRecordingSnapshotParams
+
+                    if (source.source === SnapshotSourceType.blob) {
+                        if (!source.blob_key) {
+                            throw new Error('Missing key')
+                        }
+                        params = { blob_key: source.blob_key, source: 'blob' }
+                    } else if (source.source === SnapshotSourceType.realtime) {
+                        params = { source: 'realtime', version: '2024-04-30' }
+                    } else {
+                        throw new Error(`Unsupported source: ${source.source}`)
                     }
 
                     const snapshotLoadingStartTime = performance.now()
@@ -358,21 +374,13 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
                     await breakpoint(1)
 
-                    if (source.source === SnapshotSourceType.blob && !source.blob_key) {
-                        throw new Error('Missing key')
-                    }
-
-                    const blobResponseType = source.source === SnapshotSourceType.blob
-
-                    const response = blobResponseType
-                        ? await api.recordings.getBlobSnapshots(props.sessionRecordingId, params).catch((e) => {
-                              if (source.source === 'realtime' && e.status === 404) {
-                                  // Realtime source is not always available so a 404 is expected
-                                  return []
-                              }
-                              throw e
-                          })
-                        : (await api.recordings.listSnapshots(props.sessionRecordingId, params)).snapshots ?? []
+                    const response = await api.recordings.getSnapshots(props.sessionRecordingId, params).catch((e) => {
+                        if (source.source === 'realtime' && e.status === 404) {
+                            // Realtime source is not always available so a 404 is expected
+                            return []
+                        }
+                        throw e
+                    })
 
                     const { transformed, untransformed } = await processEncodedResponse(
                         response,
@@ -697,6 +705,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 return !cache.realTimePollingTimeoutID && (snapshotSourcesLoading || snapshotsForSourceLoading)
             },
         ],
+
         snapshotsLoaded: [(s) => [s.snapshotSources], (snapshotSources): boolean => !!snapshotSources],
 
         fullyLoaded: [
@@ -739,9 +748,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
 
         segments: [
-            (s) => [s.snapshots, s.start, s.end],
-            (snapshots, start, end): RecordingSegment[] => {
-                return createSegments(snapshots || [], start, end)
+            (s) => [s.snapshots, s.start, s.end, s.trackedWindow],
+            (snapshots, start, end, trackedWindow): RecordingSegment[] => {
+                return createSegments(snapshots || [], start, end, trackedWindow)
             },
         ],
 
@@ -773,6 +782,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 return deduplicateSnapshots(allSnapshots)
             },
         ],
+
         untransformedSnapshots: [
             (s) => [s.snapshotSources, s.snapshotsBySource],
             (sources, snapshotsBySource): RecordingSnapshot[] => {
@@ -794,9 +804,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
 
         snapshotsInvalid: [
-            (s, p) => [s.snapshotsByWindowId, s.fullyLoaded, p.sessionRecordingId],
-            (snapshotsByWindowId, fullyLoaded, sessionRecordingId): boolean => {
-                if (!fullyLoaded) {
+            (s, p) => [s.snapshotsByWindowId, s.fullyLoaded, s.start, p.sessionRecordingId],
+            (snapshotsByWindowId, fullyLoaded, start, sessionRecordingId): boolean => {
+                if (!fullyLoaded || !start) {
                     return false
                 }
 
@@ -825,7 +835,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     })
                 }
 
-                return everyWindowMissingFullSnapshot
+                const minutesSinceRecording = dayjs().diff(start, 'minute')
+
+                return everyWindowMissingFullSnapshot && minutesSinceRecording <= 5
             },
         ],
 
@@ -869,6 +881,13 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         snapshots: exportUntransformedMobileSnapshotData ? untransformedSnapshots : snapshots,
                     },
                 })
+            },
+        ],
+
+        customRRWebEvents: [
+            (s) => [s.snapshots],
+            (snapshots): customEvent[] => {
+                return snapshots.filter((snapshot) => snapshot.type === EventType.Custom).map((x) => x as customEvent)
             },
         ],
     })),

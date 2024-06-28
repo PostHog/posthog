@@ -91,6 +91,8 @@ describe('EventPipelineRunner', () => {
 
     beforeEach(() => {
         hub = {
+            kafkaProducer: { queueMessage: jest.fn() },
+            teamManager: { fetchTeam: jest.fn(() => {}) },
             db: {
                 kafkaProducer: { queueMessage: jest.fn() },
                 fetchPerson: jest.fn(),

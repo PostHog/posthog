@@ -18,6 +18,8 @@ export interface QueryContext {
     rowProps?: (record: unknown) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>
     /** chart-specific rendering context **/
     chartRenderingMetadata?: ChartRenderingMetadata
+    /** Whether queries should always be refreshed. */
+    alwaysRefresh?: boolean
 }
 
 /** Pass custom rendering metadata to specific kinds of charts **/
@@ -47,4 +49,5 @@ interface QueryContextColumn {
     renderTitle?: QueryContextColumnTitleComponent
     render?: QueryContextColumnComponent
     align?: 'left' | 'right' | 'center' // default is left
+    width?: string
 }

@@ -1,6 +1,6 @@
 from django.conf import settings
 
-from posthog.clickhouse.kafka_engine import kafka_engine
+from posthog.clickhouse.kafka_engine import kafka_engine, ttl_period
 from posthog.clickhouse.table_engines import (
     Distributed,
     ReplicationScheme,
@@ -86,6 +86,7 @@ HEATMAPS_TABLE_SQL = lambda: (
     -- we'll almost never query this by session id
     -- so from least to most cardinality that's
     ORDER BY (type, team_id,  toDate(timestamp), current_url, viewport_width)
+    {ttl_period}
 -- I am purposefully not setting index granularity
 -- the default is 8192, and we will be loading a lot of data
 -- per query, we tend to copy this 512 around the place but
@@ -95,6 +96,7 @@ HEATMAPS_TABLE_SQL = lambda: (
     table_name=HEATMAPS_DATA_TABLE(),
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=HEATMAPS_DATA_TABLE_ENGINE(),
+    ttl_period=ttl_period("timestamp", 90, unit="DAY"),
 )
 
 KAFKA_HEATMAPS_TABLE_SQL = lambda: KAFKA_HEATMAPS_TABLE_BASE_SQL.format(
@@ -163,4 +165,8 @@ DROP_HEATMAPS_TABLE_SQL = lambda: (
 
 TRUNCATE_HEATMAPS_TABLE_SQL = lambda: (
     f"TRUNCATE TABLE IF EXISTS {HEATMAPS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
+)
+
+ALTER_TABLE_ADD_TTL_PERIOD = lambda: (
+    f"ALTER TABLE {HEATMAPS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' MODIFY {ttl_period('timestamp', 90, unit='DAY')}"
 )

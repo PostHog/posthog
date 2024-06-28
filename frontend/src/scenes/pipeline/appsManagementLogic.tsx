@@ -9,9 +9,9 @@ import { userLogic } from 'scenes/userLogic'
 import { PluginInstallationType, PluginType } from '~/types'
 
 import type { appsManagementLogicType } from './appsManagementLogicType'
-import { pipelineLogic } from './pipelineLogic'
+import { pipelineAccessLogic } from './pipelineAccessLogic'
 import { getInitialCode, SourcePluginKind } from './sourceAppInitialCode'
-import { GLOBAL_PLUGINS, loadPaginatedResults } from './utils'
+import { GLOBAL_PLUGINS, loadPluginsFromUrl } from './utils'
 
 function capturePluginEvent(event: string, plugin: PluginType, type: PluginInstallationType): void {
     posthog.capture(event, {
@@ -31,7 +31,7 @@ export interface PluginUpdateStatusType {
 export const appsManagementLogic = kea<appsManagementLogicType>([
     path(['scenes', 'pipeline', 'appsManagementLogic']),
     connect({
-        values: [userLogic, ['user'], pipelineLogic, ['canGloballyManagePlugins']],
+        values: [userLogic, ['user'], pipelineAccessLogic, ['canGloballyManagePlugins']],
     }),
     actions({
         setPluginUrl: (pluginUrl: string) => ({ pluginUrl }),
@@ -54,12 +54,7 @@ export const appsManagementLogic = kea<appsManagementLogicType>([
             {} as Record<number, PluginType>,
             {
                 loadPlugins: async () => {
-                    const results: PluginType[] = await loadPaginatedResults('api/organizations/@current/plugins')
-                    const plugins: Record<string, PluginType> = {}
-                    for (const plugin of results) {
-                        plugins[plugin.id] = plugin
-                    }
-                    return plugins
+                    return loadPluginsFromUrl('api/organizations/@current/plugins')
                 },
                 installPlugin: async ({ pluginType, url }) => {
                     if (!values.canInstallPlugins) {

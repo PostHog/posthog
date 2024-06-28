@@ -137,7 +137,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         RUSTY_HOOK_ROLLOUT_PERCENTAGE: 0,
         RUSTY_HOOK_URL: '',
         CAPTURE_CONFIG_REDIS_HOST: null,
-        LAZY_PERSON_CREATION_TEAMS: '',
 
         STARTUP_PROFILE_DURATION_SECONDS: 300, // 5 minutes
         STARTUP_PROFILE_CPU: false,
@@ -170,6 +169,17 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_OVERFLOW_ENABLED: false,
         SESSION_RECORDING_OVERFLOW_BUCKET_REPLENISH_RATE: 5_000_000, // 5MB/second uncompressed, sustained
         SESSION_RECORDING_OVERFLOW_BUCKET_CAPACITY: 200_000_000, // 200MB burst
+        SESSION_RECORDING_OVERFLOW_MIN_PER_BATCH: 1_000_000, // All sessions consume at least 1MB/batch, to penalise poor batching
+
+        // CDP
+        CDP_WATCHER_OBSERVATION_PERIOD: 10000,
+        CDP_WATCHER_DISABLED_PERIOD: 1000 * 60 * 10,
+        CDP_WATCHER_MAX_RECORDED_STATES: 10,
+        CDP_WATCHER_MAX_RECORDED_RATINGS: 10,
+        CDP_WATCHER_MAX_ALLOWED_TEMPORARY_DISABLED: 3,
+        CDP_WATCHER_MIN_OBSERVATIONS: 3,
+        CDP_WATCHER_OVERFLOW_RATING_THRESHOLD: 0.8,
+        CDP_WATCHER_DISABLED_RATING_THRESHOLD: 0.5,
     }
 }
 

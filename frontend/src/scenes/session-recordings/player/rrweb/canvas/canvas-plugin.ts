@@ -92,8 +92,10 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
             return
         }
 
-        target.width = source.clientWidth
-        target.height = source.clientHeight
+        if (source) {
+            target.width = source.clientWidth
+            target.height = source.clientHeight
+        }
 
         await canvasMutation({
             event: e,
@@ -112,7 +114,21 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
 
         const img = containers.get(data.id)
         if (img) {
-            img.src = target.toDataURL('image/jpeg', 0.5)
+            target.toBlob(
+                (blob) => {
+                    if (blob) {
+                        img.style.width = 'initial'
+                        img.style.height = 'initial'
+
+                        const url = URL.createObjectURL(blob)
+                        // no longer need to read the blob so it's revoked
+                        img.onload = () => URL.revokeObjectURL(url)
+                        img.src = url
+                    }
+                },
+                'image/jpeg',
+                0.5
+            )
         }
     }
 

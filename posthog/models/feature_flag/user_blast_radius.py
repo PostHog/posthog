@@ -8,6 +8,7 @@ from posthog.models.filters import Filter
 from posthog.models.property import GroupTypeIndex
 from posthog.models.team.team import Team
 from posthog.queries.base import relative_date_parse_for_feature_flag_matching
+from posthog.clickhouse.client.connection import Workload
 
 
 def replace_proxy_properties(team: Team, feature_flag_condition: dict):
@@ -58,6 +59,7 @@ def get_user_blast_radius(
                 )
             """,
                 groups_query_params,
+                workload=Workload.OFFLINE,  # These queries can be massive, and don't block creation of feature flags
             )[0][0]
         else:
             total_affected_count = team.groups_seen_so_far(group_type_index)

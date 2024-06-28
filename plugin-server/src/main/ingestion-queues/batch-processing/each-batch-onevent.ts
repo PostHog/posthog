@@ -1,7 +1,7 @@
 import { EachBatchPayload } from 'kafkajs'
 
-import { PluginConfig, PluginMethod, RawClickHouseEvent } from '../../../types'
-import { convertToIngestionEvent, convertToPostHogEvent } from '../../../utils/event'
+import { PostIngestionEvent, RawClickHouseEvent } from '../../../types'
+import { convertToPostIngestionEvent } from '../../../utils/event'
 import {
     processComposeWebhookStep,
     processOnEventStep,
@@ -14,18 +14,7 @@ import { eachBatchHandlerHelper } from './each-batch-webhooks'
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
 
-export async function handleOnEventPlugins(
-    pluginConfigs: PluginConfig[],
-    clickHouseEvent: RawClickHouseEvent,
-    queue: KafkaJSIngestionConsumer
-): Promise<void> {
-    // Elements parsing can be extremely slow, so we skip it for some plugins
-    // # SKIP_ELEMENTS_PARSING_PLUGINS
-    const skipElementsChain = pluginConfigs.every((pluginConfig) =>
-        queue.pluginsServer.pluginConfigsToSkipElementsParsing?.(pluginConfig.plugin_id)
-    )
-
-    const event = convertToIngestionEvent(clickHouseEvent, skipElementsChain)
+export async function handleOnEventPlugins(event: PostIngestionEvent, queue: KafkaJSIngestionConsumer): Promise<void> {
     await runInstrumentedFunction({
         func: () => processOnEventStep(queue.pluginsServer, event),
         statsKey: `kafka_queue.process_async_handlers_on_event`,
@@ -38,10 +27,9 @@ export async function handleOnEventPlugins(
 }
 
 export async function handleComposeWebhookPlugins(
-    clickHouseEvent: RawClickHouseEvent,
+    event: PostIngestionEvent,
     queue: KafkaJSIngestionConsumer
 ): Promise<void> {
-    const event = convertToPostHogEvent(clickHouseEvent)
     await runInstrumentedFunction({
         func: () => processComposeWebhookStep(queue.pluginsServer, event),
         statsKey: `kafka_queue.process_async_handlers_on_event`,
@@ -49,7 +37,7 @@ export async function handleComposeWebhookPlugins(
         timeoutContext: () => ({
             event: JSON.stringify(event),
         }),
-        teamId: event.team_id,
+        teamId: event.teamId,
     })
 }
 
@@ -59,12 +47,8 @@ export async function eachMessageAppsOnEventHandlers(
 ): Promise<void> {
     const pluginConfigs = queue.pluginsServer.pluginConfigsPerTeam.get(clickHouseEvent.team_id)
     if (pluginConfigs) {
-        // Split between onEvent and composeWebhook plugins
-        const onEventPlugins = pluginConfigs.filter((pluginConfig) => pluginConfig.method === PluginMethod.onEvent)
-        await Promise.all([
-            handleOnEventPlugins(onEventPlugins, clickHouseEvent, queue),
-            handleComposeWebhookPlugins(clickHouseEvent, queue),
-        ])
+        const event = convertToPostIngestionEvent(clickHouseEvent)
+        await Promise.all([handleOnEventPlugins(event, queue), handleComposeWebhookPlugins(event, queue)])
     } else {
         eventDroppedCounter
             .labels({

@@ -14,7 +14,6 @@ import {
     ActionFilter,
     AnyPartialFilterType,
     BreakdownKeyType,
-    BreakdownType,
     ChartDisplayType,
     CohortType,
     EntityFilter,
@@ -123,7 +122,7 @@ export function extractObjectDiffKeys(
 }
 
 export async function getInsightId(shortId: InsightShortId): Promise<number | undefined> {
-    const insightId = insightLogic.findMounted({ dashboardItemId: shortId })?.values?.insight?.id
+    const insightId = insightLogic.findMounted({ dashboardItemId: shortId })?.values?.queryBasedInsight?.id
 
     return insightId
         ? insightId
@@ -207,38 +206,47 @@ export function isNullBreakdown(breakdown_value: string | number | null | undefi
     )
 }
 
+function isValidJsonArray(maybeJson: string): boolean {
+    try {
+        const json = JSON.parse(maybeJson)
+        return Array.isArray(json)
+    } catch {
+        return false
+    }
+}
+
 export function formatBreakdownLabel(
-    cohorts: CohortType[] | undefined,
-    formatPropertyValueForDisplay: FormatPropertyValueForDisplayFunction | undefined,
     breakdown_value: BreakdownKeyType | undefined,
-    breakdown: BreakdownKeyType | undefined,
-    breakdown_type: BreakdownType | null | undefined,
-    isHistogram?: boolean
+    breakdownFilter: BreakdownFilter | null | undefined,
+    cohorts: CohortType[] | undefined,
+    formatPropertyValueForDisplay: FormatPropertyValueForDisplayFunction | undefined
 ): string {
-    if (isHistogram && typeof breakdown_value === 'string') {
+    if (
+        breakdownFilter?.breakdown_histogram_bin_count != null &&
+        typeof breakdown_value === 'string' &&
+        breakdown_value.length > 0 &&
+        isValidJsonArray(breakdown_value)
+    ) {
         // replace nan with null
         const bucketValues = breakdown_value.replace(/\bnan\b/g, 'null')
         const [bucketStart, bucketEnd] = JSON.parse(bucketValues)
         const formattedBucketStart = formatBreakdownLabel(
-            cohorts,
-            formatPropertyValueForDisplay,
             bucketStart,
-            breakdown,
-            breakdown_type
+            breakdownFilter,
+            cohorts,
+            formatPropertyValueForDisplay
         )
         const formattedBucketEnd = formatBreakdownLabel(
-            cohorts,
-            formatPropertyValueForDisplay,
             bucketEnd,
-            breakdown,
-            breakdown_type
+            breakdownFilter,
+            cohorts,
+            formatPropertyValueForDisplay
         )
         if (formattedBucketStart === formattedBucketEnd) {
             return formattedBucketStart
         }
         return `${formattedBucketStart} – ${formattedBucketEnd}`
-    }
-    if (breakdown_type === 'cohort') {
+    } else if (breakdownFilter?.breakdown_type === 'cohort') {
         // :TRICKY: Different endpoints represent the all users cohort breakdown differently
         if (breakdown_value === 0 || breakdown_value === 'all') {
             return 'All Users'
@@ -250,7 +258,7 @@ export function formatBreakdownLabel(
             : isNullBreakdown(breakdown_value)
             ? BREAKDOWN_NULL_DISPLAY
             : formatPropertyValueForDisplay
-            ? formatPropertyValueForDisplay(breakdown, breakdown_value)?.toString() ?? 'None'
+            ? formatPropertyValueForDisplay(breakdownFilter?.breakdown, breakdown_value)?.toString() ?? 'None'
             : String(breakdown_value)
     } else if (typeof breakdown_value == 'string') {
         return isOtherBreakdown(breakdown_value) || breakdown_value === 'nan'
@@ -260,21 +268,17 @@ export function formatBreakdownLabel(
             : breakdown_value
     } else if (Array.isArray(breakdown_value)) {
         return breakdown_value
-            .map((v) =>
-                formatBreakdownLabel(cohorts, formatPropertyValueForDisplay, v, breakdown, breakdown_type, isHistogram)
-            )
+            .map((v) => formatBreakdownLabel(v, breakdownFilter, cohorts, formatPropertyValueForDisplay))
             .join('::')
-    } else {
-        return ''
     }
+    return ''
 }
 
 export function formatBreakdownType(breakdownFilter: BreakdownFilter): string {
     if (breakdownFilter.breakdown_type === 'cohort') {
         return 'Cohort'
-    } else {
-        return breakdownFilter?.breakdown?.toString() || 'Breakdown Value'
     }
+    return breakdownFilter?.breakdown?.toString() || 'Breakdown Value'
 }
 
 export function sortDates(dates: Array<string | null>): Array<string | null> {
@@ -290,7 +294,7 @@ export function getResponseBytes(apiResponse: Response): number {
     return parseInt(apiResponse.headers.get('Content-Length') ?? '0')
 }
 
-export const insightTypeURL = (bi_viz_flag: boolean): Record<InsightType, string> => ({
+export const insightTypeURL = {
     TRENDS: urls.insightNew({ insight: InsightType.TRENDS }),
     STICKINESS: urls.insightNew({ insight: InsightType.STICKINESS }),
     LIFECYCLE: urls.insightNew({ insight: InsightType.LIFECYCLE }),
@@ -298,12 +302,9 @@ export const insightTypeURL = (bi_viz_flag: boolean): Record<InsightType, string
     RETENTION: urls.insightNew({ insight: InsightType.RETENTION }),
     PATHS: urls.insightNew({ insight: InsightType.PATHS }),
     JSON: urls.insightNew(undefined, undefined, JSON.stringify(examples.EventsTableFull)),
-    SQL: urls.insightNew(
-        undefined,
-        undefined,
-        JSON.stringify(bi_viz_flag ? examples.DataVisualization : examples.HogQLTable)
-    ),
-})
+    HOG: urls.insightNew(undefined, undefined, JSON.stringify(examples.Hoggonacci)),
+    SQL: urls.insightNew(undefined, undefined, JSON.stringify(examples.DataVisualization)),
+}
 
 /** Combines a list of words, separating with the correct punctuation. For example: [a, b, c, d] -> "a, b, c, and d"  */
 export function concatWithPunctuation(phrases: string[]): string {
@@ -313,9 +314,8 @@ export function concatWithPunctuation(phrases: string[]): string {
         return phrases[0]
     } else if (phrases.length === 2) {
         return `${phrases[0]} and ${phrases[1]}`
-    } else {
-        return `${phrases.slice(0, phrases.length - 1).join(', ')}, and ${phrases[phrases.length - 1]}`
     }
+    return `${phrases.slice(0, phrases.length - 1).join(', ')}, and ${phrases[phrases.length - 1]}`
 }
 
 export function insightUrlForEvent(event: Pick<EventType, 'event' | 'properties'>): string | undefined {

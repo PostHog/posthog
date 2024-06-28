@@ -34,7 +34,6 @@ jobs:
                         # code completely
                         - 'ee/**'
                         - 'posthog/**'
-                        - 'hogvm/**'
                         - 'bin/*'
                         - frontend/**/*
                         - requirements.txt
@@ -114,9 +113,7 @@ jobs:
 
             - name: Install pnpm
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
-              uses: pnpm/action-setup@v2
-              with:
-                  version: 8.x.x
+              uses: pnpm/action-setup@v4
 
             - name: Set up Node.js
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
@@ -194,6 +191,7 @@ jobs:
                   OBJECT_STORAGE_SECRET_ACCESS_KEY=object_storage_root_password
                   GITHUB_ACTION_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
                   CELERY_METRICS_PORT=8999
+                  CLOUD_DEPLOYMENT=1
                   EOT
 
             - name: Start PostHog
@@ -218,7 +216,7 @@ jobs:
               # this action might be abandoned - but v1 doesn't point to latest of v1 (which it should)
               # so pointing to v1.1.0 to remove warnings about node version with v1
               # todo check https://github.com/iFaxity/wait-on-action/releases for new releases
-              uses: iFaxity/wait-on-action@v1.1.0
+              uses: iFaxity/wait-on-action@v1.2.1
               timeout-minutes: 3
               with:
                   verbose: true

@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -15,6 +16,7 @@ const Insight123 = '123' as InsightShortId
 describe('insightDataLogic', () => {
     let theInsightDataLogic: ReturnType<typeof insightDataLogic.build>
     let theInsightLogic: ReturnType<typeof insightLogic.build>
+    let theFeatureFlagLogic: ReturnType<typeof featureFlagLogic.build>
 
     beforeEach(() => {
         useMocks({
@@ -23,18 +25,19 @@ describe('insightDataLogic', () => {
             },
         })
         initKeaTests()
+
+        const props = { dashboardItemId: Insight123 }
+        theFeatureFlagLogic = featureFlagLogic()
+        theFeatureFlagLogic.mount()
+
+        theInsightDataLogic = insightDataLogic(props)
+        theInsightDataLogic.mount()
+
+        theInsightLogic = insightLogic(props)
+        theInsightLogic.mount()
     })
 
     describe('reacts when the insight changes', () => {
-        const props = { dashboardItemId: Insight123 }
-        beforeEach(() => {
-            theInsightDataLogic = insightDataLogic(props)
-            theInsightDataLogic.mount()
-
-            theInsightLogic = insightLogic(props)
-            theInsightLogic.mount()
-        })
-
         it('sets query when present', async () => {
             const q = {
                 kind: NodeKind.DataTableNode,

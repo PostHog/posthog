@@ -6,7 +6,6 @@ import uuid
 from string import Template
 
 import pyarrow as pa
-from asgiref.sync import sync_to_async
 from django.conf import settings
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
@@ -14,130 +13,176 @@ from temporalio.common import RetryPolicy
 from posthog.batch_exports.models import BatchExportBackfill, BatchExportRun
 from posthog.batch_exports.service import (
     BatchExportField,
-    count_failed_batch_export_runs,
-    create_batch_export_backfill,
-    create_batch_export_run,
-    pause_batch_export,
-    update_batch_export_backfill_status,
-    update_batch_export_run,
+    BatchExportModel,
+    BatchExportSchema,
+    acount_failed_batch_export_runs,
+    acreate_batch_export_backfill,
+    acreate_batch_export_run,
+    apause_batch_export,
+    aupdate_batch_export_backfill_status,
+    aupdate_batch_export_run,
+    cancel_running_batch_export_backfill,
+    running_backfills_for_batch_export,
 )
 from posthog.temporal.batch_exports.metrics import (
     get_export_finished_metric,
     get_export_started_metric,
 )
-from posthog.temporal.common.clickhouse import ClickHouseClient, get_client
+from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 
-SELECT_QUERY_TEMPLATE = Template(
-    """
-    SELECT
-    $distinct
-    $fields
-    FROM events
-    WHERE
-        COALESCE(inserted_at, _timestamp) >= toDateTime64({data_interval_start}, 6, 'UTC')
-        AND COALESCE(inserted_at, _timestamp) < toDateTime64({data_interval_end}, 6, 'UTC')
-        AND team_id = {team_id}
-        $timestamp
-        $exclude_events
-        $include_events
-    $order_by
-    $format
-    """
-)
+BytesGenerator = collections.abc.Generator[bytes, None, None]
+RecordsGenerator = collections.abc.Generator[pa.RecordBatch, None, None]
 
-TIMESTAMP_PREDICATES = """
--- These 'timestamp' checks are a heuristic to exploit the sort key.
--- Ideally, we need a schema that serves our needs, i.e. with a sort key on the _timestamp field used for batch exports.
--- As a side-effect, this heuristic will discard historical loads older than a day.
-AND timestamp >= toDateTime64({data_interval_start}, 6, 'UTC') - INTERVAL 4 DAY
-AND timestamp < toDateTime64({data_interval_end}, 6, 'UTC') + INTERVAL 1 DAY
+AsyncBytesGenerator = collections.abc.AsyncGenerator[bytes, None]
+AsyncRecordsGenerator = collections.abc.AsyncGenerator[pa.RecordBatch, None]
+
+SELECT_FROM_PERSONS_VIEW = """
+SELECT *
+FROM
+    persons_batch_export(
+        team_id={team_id},
+        interval_start={interval_start},
+        interval_end={interval_end}
+    )
+FORMAT ArrowStream
 """
 
-
-async def get_rows_count(
-    client: ClickHouseClient,
-    team_id: int,
-    interval_start: str,
-    interval_end: str,
-    exclude_events: collections.abc.Iterable[str] | None = None,
-    include_events: collections.abc.Iterable[str] | None = None,
-) -> int:
-    """Return a count of rows to be batch exported."""
-    data_interval_start_ch = dt.datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
-    data_interval_end_ch = dt.datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
-
-    if exclude_events:
-        exclude_events_statement = "AND event NOT IN {exclude_events}"
-        events_to_exclude_tuple = tuple(exclude_events)
-    else:
-        exclude_events_statement = ""
-        events_to_exclude_tuple = ()
-
-    if include_events:
-        include_events_statement = "AND event IN {include_events}"
-        events_to_include_tuple = tuple(include_events)
-    else:
-        include_events_statement = ""
-        events_to_include_tuple = ()
-
-    timestamp_predicates = TIMESTAMP_PREDICATES
-    if str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
-        timestamp_predicates = ""
-
-    query = SELECT_QUERY_TEMPLATE.substitute(
-        fields="count(DISTINCT event, cityHash64(distinct_id), cityHash64(uuid)) as count",
-        order_by="",
-        format="",
-        distinct="",
-        timestamp=timestamp_predicates,
-        exclude_events=exclude_events_statement,
-        include_events=include_events_statement,
+SELECT_FROM_EVENTS_VIEW = Template("""
+SELECT
+    $fields
+FROM
+    events_batch_export(
+        team_id={team_id},
+        lookback_days={lookback_days},
+        interval_start={interval_start},
+        interval_end={interval_end},
+        include_events={include_events}::Array(String),
+        exclude_events={exclude_events}::Array(String)
     )
+FORMAT ArrowStream
+""")
 
-    count = await client.read_query(
-        query,
-        query_parameters={
-            "team_id": team_id,
-            "data_interval_start": data_interval_start_ch,
-            "data_interval_end": data_interval_end_ch,
-            "exclude_events": events_to_exclude_tuple,
-            "include_events": events_to_include_tuple,
-        },
+SELECT_FROM_EVENTS_VIEW_UNBOUNDED = Template("""
+SELECT
+    $fields
+FROM
+    events_batch_export_unbounded(
+        team_id={team_id},
+        lookback_days={lookback_days},
+        interval_start={interval_start},
+        interval_end={interval_end},
+        include_events={include_events}::Array(String),
+        exclude_events={exclude_events}::Array(String)
     )
+FORMAT ArrowStream
+""")
 
-    if count is None or len(count) == 0:
-        raise ValueError("Unexpected result from ClickHouse: `None` returned for count query")
-
-    return int(count)
+SELECT_FROM_EVENTS_VIEW_BACKFILL = Template("""
+SELECT
+    $fields
+FROM
+    events_batch_export_backfill(
+        team_id={team_id},
+        interval_start={interval_start},
+        interval_end={interval_end},
+        include_events={include_events}::Array(String),
+        exclude_events={exclude_events}::Array(String)
+    )
+FORMAT ArrowStream
+""")
 
 
 def default_fields() -> list[BatchExportField]:
     """Return list of default batch export Fields."""
     return [
-        BatchExportField(expression="toString(uuid)", alias="uuid"),
+        BatchExportField(expression="uuid", alias="uuid"),
         BatchExportField(expression="team_id", alias="team_id"),
         BatchExportField(expression="timestamp", alias="timestamp"),
-        BatchExportField(expression="COALESCE(inserted_at, _timestamp)", alias="_inserted_at"),
+        BatchExportField(expression="_inserted_at", alias="_inserted_at"),
         BatchExportField(expression="created_at", alias="created_at"),
         BatchExportField(expression="event", alias="event"),
-        BatchExportField(expression="nullIf(properties, '')", alias="properties"),
-        BatchExportField(expression="toString(distinct_id)", alias="distinct_id"),
-        BatchExportField(expression="nullIf(JSONExtractString(properties, '$set'), '')", alias="set"),
+        BatchExportField(expression="properties", alias="properties"),
+        BatchExportField(expression="distinct_id", alias="distinct_id"),
+        BatchExportField(expression="set", alias="set"),
         BatchExportField(
-            expression="nullIf(JSONExtractString(properties, '$set_once'), '')",
+            expression="set_once",
             alias="set_once",
         ),
     ]
 
 
-BytesGenerator = collections.abc.Generator[bytes, None, None]
-RecordsGenerator = collections.abc.Generator[pa.RecordBatch, None, None]
+async def iter_model_records(
+    client: ClickHouseClient,
+    model: BatchExportModel | BatchExportSchema | None,
+    team_id: int,
+    is_backfill: bool,
+    destination_default_fields: list[BatchExportField] | None = None,
+    **parameters,
+) -> AsyncRecordsGenerator:
+    if destination_default_fields is None:
+        batch_export_default_fields = default_fields()
+    else:
+        batch_export_default_fields = destination_default_fields
 
-# Spoiler: We'll use these ones later 8)
-# AsyncBytesGenerator = collections.abc.AsyncGenerator[bytes, None]
-# AsyncRecordsGenerator = collections.abc.AsyncGenerator[pa.RecordBatch, None]
+    if isinstance(model, BatchExportModel):
+        async for record in iter_records_from_model_view(
+            client=client,
+            model_name=model.name,
+            team_id=team_id,
+            is_backfill=is_backfill,
+            fields=model.schema["fields"] if model.schema is not None else batch_export_default_fields,
+            extra_query_parameters=model.schema["values"] if model.schema is not None else None,
+            **parameters,
+        ):
+            yield record
+
+    else:
+        for record in iter_records(
+            client,
+            team_id=team_id,
+            is_backfill=is_backfill,
+            fields=model["fields"] if model is not None else batch_export_default_fields,
+            extra_query_parameters=model["values"] if model is not None else None,
+            **parameters,
+        ):
+            yield record
+
+
+async def iter_records_from_model_view(
+    client: ClickHouseClient,
+    model_name: str,
+    is_backfill: bool,
+    team_id: int,
+    interval_start: str,
+    interval_end: str,
+    **parameters,
+) -> AsyncRecordsGenerator:
+    if model_name == "persons":
+        view = SELECT_FROM_PERSONS_VIEW
+    else:
+        # TODO: Let this model be exported by `astream_query_as_arrow`.
+        # Just to reduce risk, I don't want to change the function that runs 100% of the exports
+        # without battle testing it first.
+        # There are already changes going out to the queries themselves that will impact events in a
+        # positive way. So, we can come back later and drop this block.
+        for record_batch in iter_records(
+            client,
+            team_id=team_id,
+            is_backfill=is_backfill,
+            interval_start=interval_start,
+            interval_end=interval_end,
+            **parameters,
+        ):
+            yield record_batch
+        return
+
+    parameters["team_id"] = team_id
+    parameters["interval_start"] = dt.datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
+    parameters["interval_end"] = dt.datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
+    async for record_batch in client.astream_query_as_arrow(view, query_parameters=parameters):
+        yield record_batch
 
 
 def iter_records(
@@ -149,6 +194,7 @@ def iter_records(
     include_events: collections.abc.Iterable[str] | None = None,
     fields: list[BatchExportField] | None = None,
     extra_query_parameters: dict[str, typing.Any] | None = None,
+    is_backfill: bool = False,
 ) -> RecordsGenerator:
     """Iterate over Arrow batch records for a batch export.
 
@@ -170,48 +216,42 @@ def iter_records(
     data_interval_end_ch = dt.datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
 
     if exclude_events:
-        exclude_events_statement = "AND event NOT IN {exclude_events}"
-        events_to_exclude_tuple = tuple(exclude_events)
+        events_to_exclude_array = list(exclude_events)
     else:
-        exclude_events_statement = ""
-        events_to_exclude_tuple = ()
+        events_to_exclude_array = []
 
     if include_events:
-        include_events_statement = "AND event IN {include_events}"
-        events_to_include_tuple = tuple(include_events)
+        events_to_include_array = list(include_events)
     else:
-        include_events_statement = ""
-        events_to_include_tuple = ()
-
-    timestamp_predicates = TIMESTAMP_PREDICATES
-    if str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
-        timestamp_predicates = ""
+        events_to_include_array = []
 
     if fields is None:
         query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in default_fields())
     else:
         if "_inserted_at" not in [field["alias"] for field in fields]:
-            control_fields = [BatchExportField(expression="COALESCE(inserted_at, _timestamp)", alias="_inserted_at")]
+            control_fields = [BatchExportField(expression="_inserted_at", alias="_inserted_at")]
         else:
             control_fields = []
 
         query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields + control_fields)
 
-    query = SELECT_QUERY_TEMPLATE.substitute(
-        fields=query_fields,
-        order_by="ORDER BY COALESCE(inserted_at, _timestamp)",
-        format="FORMAT ArrowStream",
-        distinct="DISTINCT ON (event, cityHash64(distinct_id), cityHash64(uuid))",
-        timestamp=timestamp_predicates,
-        exclude_events=exclude_events_statement,
-        include_events=include_events_statement,
-    )
+    lookback_days = 4
+    if str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
+        query = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
+    elif is_backfill:
+        query = SELECT_FROM_EVENTS_VIEW_BACKFILL
+    else:
+        query = SELECT_FROM_EVENTS_VIEW
+        lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS)
+
+    query_str = query.substitute(fields=query_fields)
     base_query_parameters = {
         "team_id": team_id,
-        "data_interval_start": data_interval_start_ch,
-        "data_interval_end": data_interval_end_ch,
-        "exclude_events": events_to_exclude_tuple,
-        "include_events": events_to_include_tuple,
+        "interval_start": data_interval_start_ch,
+        "interval_end": data_interval_end_ch,
+        "exclude_events": events_to_exclude_array,
+        "include_events": events_to_include_array,
+        "lookback_days": lookback_days,
     }
 
     if extra_query_parameters is not None:
@@ -219,7 +259,7 @@ def iter_records(
     else:
         query_parameters = base_query_parameters
 
-    yield from client.stream_query_as_arrow(query, query_parameters=query_parameters)
+    yield from client.stream_query_as_arrow(query_str, query_parameters=query_parameters)
 
 
 def get_data_interval(interval: str, data_interval_end: str | None) -> tuple[dt.datetime, dt.datetime]:
@@ -302,14 +342,14 @@ class StartBatchExportRunInputs:
     data_interval_end: str
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
+    is_backfill: bool = False
 
 
-RecordsTotalCount = int
 BatchExportRunId = str
 
 
 @activity.defn
-async def start_batch_export_run(inputs: StartBatchExportRunInputs) -> tuple[BatchExportRunId, RecordsTotalCount]:
+async def start_batch_export_run(inputs: StartBatchExportRunInputs) -> BatchExportRunId:
     """Activity that creates an BatchExportRun and returns the count of records to export.
 
     Intended to be used in all export workflows, usually at the start, to create a model
@@ -325,45 +365,14 @@ async def start_batch_export_run(inputs: StartBatchExportRunInputs) -> tuple[Bat
         inputs.data_interval_end,
     )
 
-    async with get_client(team_id=inputs.team_id) as client:
-        if not await client.is_alive():
-            raise ConnectionError("Cannot establish connection to ClickHouse")
-
-        count = await get_rows_count(
-            client=client,
-            team_id=inputs.team_id,
-            interval_start=inputs.data_interval_start,
-            interval_end=inputs.data_interval_end,
-            exclude_events=inputs.exclude_events,
-            include_events=inputs.include_events,
-        )
-
-    if count > 0:
-        logger.info(
-            "Batch export for range %s - %s will export %s rows",
-            inputs.data_interval_start,
-            inputs.data_interval_end,
-            count,
-        )
-    else:
-        logger.info(
-            "Batch export for range %s - %s has no rows to export",
-            inputs.data_interval_start,
-            inputs.data_interval_end,
-        )
-
-    # 'sync_to_async' type hints are fixed in asgiref>=3.4.1
-    # But one of our dependencies is pinned to asgiref==3.3.2.
-    # Remove these comments once we upgrade.
-    run = await sync_to_async(create_batch_export_run)(
+    run = await acreate_batch_export_run(
         batch_export_id=uuid.UUID(inputs.batch_export_id),
         data_interval_start=inputs.data_interval_start,
         data_interval_end=inputs.data_interval_end,
         status=BatchExportRun.Status.STARTING,
-        records_total_count=count,
     )
 
-    return str(run.id), count
+    return str(run.id)
 
 
 @dataclasses.dataclass
@@ -414,7 +423,7 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
         for key, value in dataclasses.asdict(inputs).items()
         if key not in not_model_params and value is not None
     }
-    batch_export_run = await sync_to_async(update_batch_export_run)(
+    batch_export_run = await aupdate_batch_export_run(
         run_id=uuid.UUID(inputs.id),
         finished_at=dt.datetime.now(),
         **update_params,
@@ -433,25 +442,44 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
         except Exception:
             logger.exception("Failure email notification could not be sent")
 
+        is_over_failure_threshold = await check_if_over_failure_threshold(
+            inputs.batch_export_id,
+            check_window=inputs.failure_check_window,
+            failure_threshold=inputs.failure_threshold,
+        )
+
+        if not is_over_failure_threshold:
+            return
+
         try:
-            was_paused = await pause_batch_export_if_over_failure_threshold(
-                inputs.batch_export_id,
-                check_window=inputs.failure_check_window,
-                failure_threshold=inputs.failure_threshold,
-            )
+            was_paused = await pause_batch_export_over_failure_threshold(inputs.batch_export_id)
         except Exception:
             # Pausing could error if the underlying schedule is deleted.
             # Our application logic should prevent that, but I want to log it in case it ever happens
             # as that would indicate a bug.
             logger.exception("Batch export could not be automatically paused")
-            was_paused = False
+        else:
+            if was_paused:
+                logger.warning(
+                    "Batch export was automatically paused due to exceeding failure threshold and exhausting "
+                    "all automated retries."
+                    "The batch export can be unpaused after addressing any errors."
+                )
 
-        if was_paused:
-            logger.warning(
-                "Batch export was automatically paused due to exceeding failure threshold and exhausting "
-                "all automated retries."
-                "The batch export can be manually unpaused after addressing any errors."
+        try:
+            total_cancelled = await cancel_running_backfills(
+                inputs.batch_export_id,
             )
+        except Exception:
+            logger.exception("Ongoing backfills could not be automatically cancelled")
+        else:
+            if total_cancelled > 0:
+                logger.warning(
+                    f"{total_cancelled} ongoing batch export backfill{'s' if total_cancelled > 1 else ''} "
+                    f"{'were' if total_cancelled > 1 else 'was'} cancelled due to exceeding failure threshold "
+                    " and exhausting all automated retries."
+                    "The backfill can be triggered again after addressing any errors."
+                )
 
     elif batch_export_run.status == BatchExportRun.Status.CANCELLED:
         logger.warning("Batch export was cancelled")
@@ -464,10 +492,8 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
         )
 
 
-async def pause_batch_export_if_over_failure_threshold(
-    batch_export_id: str, check_window: int, failure_threshold: int = 10
-) -> bool:
-    """Pause a batch export if it exceeds failure threshold.
+async def check_if_over_failure_threshold(batch_export_id: str, check_window: int, failure_threshold: int):
+    """Check if a given batch export is over failure threshold.
 
     A 'check_window' was added to account for batch exports that have a history of failures but have some
     occassional successes in the middle. This is relevant particularly for low-volume exports:
@@ -476,11 +502,6 @@ async def pause_batch_export_if_over_failure_threshold(
 
     Keep in mind that if 'check_window' is less than 'failure_threshold', there is no point in even counting,
     so we raise an exception.
-
-    We check if the count of failed runs in the last 'check_window' runs exceeds 'failure_threshold'. This means
-    that 'pause_batch_export_if_over_failure_threshold' should only be called when handling a failed run,
-    otherwise we could be pausing a batch export that is just now recovering (as old failed runs in 'check_window'
-    contribute to exceeding 'failure_threshold').
 
     Arguments:
         batch_export_id: The ID of the batch export to check and pause.
@@ -497,11 +518,22 @@ async def pause_batch_export_if_over_failure_threshold(
     if check_window < failure_threshold:
         raise ValueError("'failure_threshold' cannot be higher than 'check_window'")
 
-    count = await sync_to_async(count_failed_batch_export_runs)(uuid.UUID(batch_export_id), last_n=check_window)
+    count = await acount_failed_batch_export_runs(uuid.UUID(batch_export_id), last_n=check_window)
 
     if count < failure_threshold:
         return False
+    return True
 
+
+async def pause_batch_export_over_failure_threshold(batch_export_id: str) -> bool:
+    """Pause a batch export once it exceeds failure threshold.
+
+    Arguments:
+        batch_export_id: The ID of the batch export to check and pause.
+
+    Returns:
+        A bool indicating if the batch export was paused or not.
+    """
     client = await connect(
         settings.TEMPORAL_HOST,
         settings.TEMPORAL_PORT,
@@ -511,10 +543,41 @@ async def pause_batch_export_if_over_failure_threshold(
         settings.TEMPORAL_CLIENT_KEY,
     )
 
-    await sync_to_async(pause_batch_export)(
+    was_paused = await apause_batch_export(
         client, batch_export_id=batch_export_id, note="Paused due to exceeding failure threshold"
     )
-    return True
+
+    return was_paused
+
+
+async def cancel_running_backfills(batch_export_id: str) -> int:
+    """Cancel any running batch export backfills.
+
+    This is intended to be called once a batch export failure threshold has been exceeded.
+
+    Arguments:
+        batch_export_id: The ID of the batch export whose backfills will be cancelled.
+
+    Returns:
+        The number of cancelled backfills, if any.
+    """
+    client = await connect(
+        settings.TEMPORAL_HOST,
+        settings.TEMPORAL_PORT,
+        settings.TEMPORAL_NAMESPACE,
+        settings.TEMPORAL_CLIENT_ROOT_CA,
+        settings.TEMPORAL_CLIENT_CERT,
+        settings.TEMPORAL_CLIENT_KEY,
+    )
+
+    total_cancelled = 0
+
+    async for backfill in running_backfills_for_batch_export(uuid.UUID(batch_export_id)):
+        await cancel_running_batch_export_backfill(client, backfill)
+
+        total_cancelled += 1
+
+    return total_cancelled
 
 
 @dataclasses.dataclass
@@ -539,10 +602,7 @@ async def create_batch_export_backfill_model(inputs: CreateBatchExportBackfillIn
         inputs.start_at,
         inputs.end_at,
     )
-    # 'sync_to_async' type hints are fixed in asgiref>=3.4.1
-    # But one of our dependencies is pinned to asgiref==3.3.2.
-    # Remove these comments once we upgrade.
-    run = await sync_to_async(create_batch_export_backfill)(
+    run = await acreate_batch_export_backfill(
         batch_export_id=uuid.UUID(inputs.batch_export_id),
         start_at=inputs.start_at,
         end_at=inputs.end_at,
@@ -564,9 +624,7 @@ class UpdateBatchExportBackfillStatusInputs:
 @activity.defn
 async def update_batch_export_backfill_model_status(inputs: UpdateBatchExportBackfillStatusInputs) -> None:
     """Activity that updates the status of an BatchExportRun."""
-    backfill = await sync_to_async(update_batch_export_backfill_status)(
-        backfill_id=uuid.UUID(inputs.id), status=inputs.status
-    )
+    backfill = await aupdate_batch_export_backfill_status(backfill_id=uuid.UUID(inputs.id), status=inputs.status)
     logger = await bind_temporal_worker_logger(team_id=backfill.team_id)
 
     if backfill.status in (BatchExportBackfill.Status.FAILED, BatchExportBackfill.Status.FAILED_RETRYABLE):

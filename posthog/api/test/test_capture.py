@@ -13,12 +13,12 @@ import string
 import structlog
 import zlib
 from datetime import datetime, timedelta
-from datetime import timezone as tz
+from datetime import UTC
 from django.http import HttpResponse
 from django.test.client import MULTIPART_CONTENT, Client
 from django.utils import timezone
 from freezegun import freeze_time
-from kafka.errors import KafkaError
+from kafka.errors import KafkaError, MessageSizeTooLargeError, KafkaTimeoutError
 from kafka.producer.future import FutureProduceResult, FutureRecordMetadata
 from kafka.structs import TopicPartition
 from parameterized import parameterized
@@ -226,6 +226,40 @@ class TestCapture(BaseTest):
 
         return event
 
+    # snapshot events are processed and altered during capture processing
+    def _make_processed_recording_event(
+        self,
+        event_data: dict | list[dict] | None = None,
+        session_id="abc123",
+        window_id="def456",
+        distinct_id="ghi789",
+        timestamp=1658516991883,
+        snapshot_bytes=60,
+    ) -> dict[str, Any]:
+        if event_data is None:
+            # event_data is an array of RRWeb events
+            event_data = [{"type": 3, "data": {"source": 1}}, {"type": 3, "data": {"source": 2}}]
+
+        if isinstance(event_data, dict):
+            event_data = [event_data]
+
+        return {
+            "event": "$snapshot_items",
+            "properties": {
+                # estimate of the size of the event data
+                "$snapshot_bytes": snapshot_bytes,
+                "$snapshot_items": event_data,
+                "$session_id": session_id,
+                "$window_id": window_id,
+                # snapshot events have the distinct id in the properties
+                # as well as at the top-level
+                "distinct_id": distinct_id,
+                "$snapshot_source": "web",
+            },
+            "timestamp": timestamp,
+            "distinct_id": distinct_id,
+        }
+
     def _send_august_2023_version_session_recording_event(
         self,
         number_of_events: int = 1,
@@ -295,7 +329,7 @@ class TestCapture(BaseTest):
             }
             with self.assertNumQueries(0):  # Capture does not hit PG anymore
                 self.client.get(
-                    "/e/?data=%s" % quote(self._to_json(data)),
+                    "/e/?data={}".format(quote(self._to_json(data))),
                     HTTP_ORIGIN="https://localhost",
                 )
 
@@ -384,7 +418,7 @@ class TestCapture(BaseTest):
         }
         with self.assertNumQueries(0):  # Capture does not hit PG anymore
             response = self.client.get(
-                "/e/?data=%s" % quote(self._to_json(data)),
+                "/e/?data={}".format(quote(self._to_json(data))),
                 HTTP_ORIGIN="https://localhost",
             )
 
@@ -407,6 +441,88 @@ class TestCapture(BaseTest):
     def test_capture_snapshot_event(self, _kafka_produce: MagicMock) -> None:
         response = self._send_august_2023_version_session_recording_event()
         assert response.status_code == 200
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_capture_snapshot_event_too_large(self, kafka_produce: MagicMock) -> None:
+        mock_future = MagicMock()
+
+        mock_future.get.side_effect = [
+            MessageSizeTooLargeError("Message size too large"),
+            None,
+        ]
+
+        # kafka_produce return this future, so that when capture calls `.get` on it, we can control the behavior
+        kafka_produce.return_value = mock_future
+
+        response = self._send_august_2023_version_session_recording_event(
+            event_data=[
+                {"type": 2, "data": {"lots": "of data"}, "$window_id": "the window id", "timestamp": 1234567890}
+            ]
+        )
+        assert response.status_code == 200
+
+        expected_data = self._make_processed_recording_event(
+            snapshot_bytes=0,
+            event_data=[
+                {
+                    "type": 5,
+                    "data": {"tag": "Message too large"},
+                    "timestamp": 1234567890,
+                    "$window_id": "the window id",
+                }
+            ],
+        )
+        assert {
+            "distinct_id": expected_data["distinct_id"],
+            "ip": "127.0.0.1",
+            "site_url": "http://testserver",
+            "data": expected_data,
+            "token": self.team.api_token,
+            "uuid": ANY,
+            "sent_at": "",
+            "now": ANY,
+        } == self._to_arguments(kafka_produce)
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_capture_snapshot_no_distinct_id(self, _kafka_produce: MagicMock) -> None:
+        response = self._send_august_2023_version_session_recording_event(
+            event_data=[
+                {"type": 2, "data": {"lots": "of data"}, "$window_id": "the window id", "timestamp": 1234567890}
+            ],
+            distinct_id=None,
+        )
+        assert response.status_code == 400
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_replay_capture_kafka_timeout_error(self, kafka_produce: MagicMock) -> None:
+        kafka_produce.side_effect = [
+            KafkaTimeoutError(),
+            None,  # Return None for successful calls
+        ]
+
+        response = self._send_august_2023_version_session_recording_event(
+            event_data=[
+                {"type": 2, "data": {"lots": "of data"}, "$window_id": "the window id", "timestamp": 1234567890}
+            ],
+        )
+
+        # signal the timeout so that the client retries
+        assert response.status_code == 504
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_replay_capture_kafka_timeout_error_on_several_retries(self, kafka_produce: MagicMock) -> None:
+        kafka_produce.side_effect = KafkaTimeoutError()
+
+        response = self._send_august_2023_version_session_recording_event(
+            event_data=[
+                {"type": 2, "data": {"lots": "of data"}, "$window_id": "the window id", "timestamp": 1234567890}
+            ],
+            # the JS SDK advertises its retry count in the URL
+            query_params="retry_count=3",
+        )
+
+        # signal that the client should not retry, we don't want endless retries for unprocessable entries
+        assert response.status_code == 400
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_capture_snapshot_event_from_android(self, _kafka_produce: MagicMock) -> None:
@@ -453,7 +569,7 @@ class TestCapture(BaseTest):
         }
         with self.assertNumQueries(0):
             response = self.client.get(
-                "/e/?data=%s" % quote(self._to_json(data)),
+                "/e/?data={}".format(quote(self._to_json(data))),
                 HTTP_ORIGIN="https://localhost",
             )
         self.assertEqual(response.get("access-control-allow-origin"), "https://localhost")
@@ -521,7 +637,7 @@ class TestCapture(BaseTest):
             },
         }
 
-        response = self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost")
+        response = self.client.get("/e/?data={}".format(quote(self._to_json(data))), HTTP_ORIGIN="https://localhost")
         self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
@@ -532,7 +648,7 @@ class TestCapture(BaseTest):
         }
 
         self.client.get(
-            "/e/?data=%s" % quote(self._to_json(data)),
+            "/e/?data={}".format(quote(self._to_json(data))),
             HTTP_X_FORWARDED_FOR="1.2.3.4",
             HTTP_ORIGIN="https://localhost",
         )
@@ -555,7 +671,7 @@ class TestCapture(BaseTest):
         }
 
         self.client.get(
-            "/e/?data=%s" % quote(self._to_json(data)),
+            "/e/?data={}".format(quote(self._to_json(data))),
             HTTP_X_FORWARDED_FOR="2345:0425:2CA1:0000:0000:0567:5673:23b5",
             HTTP_ORIGIN="https://localhost",
         )
@@ -579,7 +695,7 @@ class TestCapture(BaseTest):
         }
 
         self.client.get(
-            "/e/?data=%s" % quote(self._to_json(data)),
+            "/e/?data={}".format(quote(self._to_json(data))),
             HTTP_X_FORWARDED_FOR="1.2.3.4:5555",
             HTTP_ORIGIN="https://localhost",
         )
@@ -624,7 +740,7 @@ class TestCapture(BaseTest):
         }
         with freeze_time(timezone.now()):
             self.client.get(
-                "/e/?data=%s" % quote(self._to_json(data)),
+                "/e/?data={}".format(quote(self._to_json(data))),
                 HTTP_ORIGIN="https://localhost",
             )
 
@@ -658,7 +774,7 @@ class TestCapture(BaseTest):
         }
         with freeze_time(timezone.now()):
             self.client.get(
-                "/e/?data=%s" % quote(self._to_json(data)),
+                "/e/?data={}".format(quote(self._to_json(data))),
                 HTTP_ORIGIN="https://localhost",
             )
 
@@ -692,6 +808,46 @@ class TestCapture(BaseTest):
         )
 
         self.assertEqual(kafka_produce.call_count, 2)
+
+        validate_response(openapi_spec, response)
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_null_event_in_batch(self, kafka_produce):
+        response = self.client.post(
+            "/batch/",
+            data={
+                "data": json.dumps(
+                    [
+                        {
+                            "event": "beep",
+                            "properties": {
+                                "distinct_id": "eeee",
+                                "token": self.team.api_token,
+                            },
+                        },
+                        None,
+                        {
+                            "event": "boop",
+                            "properties": {
+                                "distinct_id": "aaaa",
+                                "token": self.team.api_token,
+                            },
+                        },
+                    ]
+                ),
+                "api_key": self.team.api_token,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            self.validation_error_response(
+                "Invalid payload: some events are null",
+                code="invalid_payload",
+            ),
+        )
+        self.assertEqual(kafka_produce.call_count, 0)
 
         validate_response(openapi_spec, response)
 
@@ -1165,16 +1321,17 @@ class TestCapture(BaseTest):
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_engage(self, kafka_produce):
         self.client.get(
-            "/engage/?data=%s"
-            % quote(
-                self._to_json(
-                    {
-                        "$set": {"$os": "Mac OS X"},
-                        "$token": "token123",
-                        "$distinct_id": 3,
-                        "$device_id": "16fd4afae9b2d8-0fce8fe900d42b-39637c0e-7e9000-16fd4afae9c395",
-                        "$user_id": 3,
-                    }
+            "/engage/?data={}".format(
+                quote(
+                    self._to_json(
+                        {
+                            "$set": {"$os": "Mac OS X"},
+                            "$token": "token123",
+                            "$distinct_id": 3,
+                            "$device_id": "16fd4afae9b2d8-0fce8fe900d42b-39637c0e-7e9000-16fd4afae9c395",
+                            "$user_id": 3,
+                        }
+                    )
                 )
             ),
             content_type="application/json",
@@ -1264,7 +1421,7 @@ class TestCapture(BaseTest):
         # right time sent as sent_at to process_event
 
         sent_at = datetime.fromisoformat(arguments["sent_at"])
-        self.assertEqual(sent_at.tzinfo, tz.utc)
+        self.assertEqual(sent_at.tzinfo, UTC)
 
         timediff = sent_at.timestamp() - tomorrow_sent_at.timestamp()
         self.assertLess(abs(timediff), 1)
@@ -1523,6 +1680,10 @@ class TestCapture(BaseTest):
             (
                 "gcp",
                 ["x-cloud-trace-context"],
+            ),
+            (
+                "highlight",
+                ["x-highlight-request"],
             ),
         ]
     )

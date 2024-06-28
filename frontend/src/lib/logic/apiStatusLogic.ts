@@ -9,6 +9,7 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
     actions({
         onApiResponse: (response?: Response, error?: any) => ({ response, error }),
         setInternetConnectionIssue: (issue: boolean) => ({ issue }),
+        setTimeSensitiveAuthenticationRequired: (required: boolean) => ({ required }),
     }),
 
     reducers({
@@ -16,6 +17,13 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
             false,
             {
                 setInternetConnectionIssue: (_, { issue }) => issue,
+            },
+        ],
+
+        timeSensitiveAuthenticationRequired: [
+            false,
+            {
+                setTimeSensitiveAuthenticationRequired: (_, { required }) => required,
             },
         ],
     }),
@@ -31,6 +39,17 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
 
             if (response?.ok && values.internetConnectionIssue) {
                 actions.setInternetConnectionIssue(false)
+            }
+
+            try {
+                if (response?.status === 403) {
+                    const data = await response?.json()
+                    if (data.detail === 'This action requires you to be recently authenticated.') {
+                        actions.setTimeSensitiveAuthenticationRequired(true)
+                    }
+                }
+            } catch (e) {
+                // Pass
             }
 
             if (response?.status === 401) {

@@ -20,7 +20,7 @@ import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { getEventNamesForAction } from 'lib/utils'
 import { useState } from 'react'
-import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/external/dataWarehouseSceneLogic'
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { isAllEventsEntityFilter } from 'scenes/insights/utils'
@@ -53,7 +53,7 @@ import { LocalFilter } from '../entityFilterLogic'
 import { entityFilterLogicType } from '../entityFilterLogicType'
 
 const DragHandle = (props: DraggableSyntheticListeners | undefined): JSX.Element => (
-    <span className="ActionFilterRowDragHandle" {...props}>
+    <span className="ActionFilterRowDragHandle" key="drag-handle" {...props}>
         <SortableDragIcon />
     </span>
 )
@@ -72,9 +72,8 @@ const getValue = (
         return 'All events'
     } else if (filter.type === 'actions') {
         return typeof value === 'string' ? parseInt(value) : value || undefined
-    } else {
-        return value === null ? null : value || undefined
     }
+    return value === null ? null : value || undefined
 }
 
 export interface ActionFilterRowProps {
@@ -158,7 +157,7 @@ export function ActionFilterRow({
     } = useActions(logic)
     const { actions } = useValues(actionsModel)
     const { mathDefinitions } = useValues(mathsLogic)
-    const { externalTablesMap } = useValues(dataWarehouseSceneLogic)
+    const { dataWarehouseTablesMap } = useValues(databaseTableListLogic)
 
     const [isHogQLDropdownVisible, setIsHogQLDropdownVisible] = useState(false)
 
@@ -394,7 +393,9 @@ export function ActionFilterRow({
                                                 ]}
                                                 schemaColumns={
                                                     filter.type == TaxonomicFilterGroupType.DataWarehouse && filter.name
-                                                        ? externalTablesMap[filter.name]?.columns
+                                                        ? Object.values(
+                                                              dataWarehouseTablesMap[filter.name]?.fields ?? []
+                                                          )
                                                         : []
                                                 }
                                                 value={mathProperty}
@@ -448,7 +449,6 @@ export function ActionFilterRow({
                                                     // eslint-disable-next-line react/forbid-dom-props
                                                     <div className="w-120" style={{ maxWidth: 'max(60vw, 20rem)' }}>
                                                         <HogQLEditor
-                                                            disablePersonProperties
                                                             value={mathHogQL}
                                                             onChange={(currentValue) => {
                                                                 onMathHogQLSelect(index, currentValue)
@@ -500,7 +500,7 @@ export function ActionFilterRow({
                         }
                         schemaColumns={
                             filter.type == TaxonomicFilterGroupType.DataWarehouse && filter.name
-                                ? externalTablesMap[filter.name]?.columns
+                                ? Object.values(dataWarehouseTablesMap[filter.name]?.fields ?? [])
                                 : []
                         }
                     />

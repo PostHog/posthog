@@ -37,7 +37,7 @@ export function PluginImage({
 
     return pluginType === 'source' ? (
         <IconTerminal
-            className="plugin-image shrink-0"
+            className="plugin-image shrink-0 ml-0"
             style={{
                 fontSize: pixelSize,
             }}

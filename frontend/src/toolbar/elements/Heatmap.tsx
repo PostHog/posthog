@@ -11,7 +11,7 @@ function HeatmapMouseInfo({
 }: {
     heatmapJsRef: MutableRefObject<HeatmapJS<'value', 'x', 'y'> | undefined>
 }): JSX.Element | null {
-    const { shiftPressed, heatmapFilters } = useValues(heatmapLogic)
+    const { shiftPressed, heatmapTooltipLabel } = useValues(heatmapLogic)
 
     const mousePosition = useMousePosition()
     const value = heatmapJsRef.current?.getValueAt(mousePosition)
@@ -41,7 +41,7 @@ function HeatmapMouseInfo({
                 }}
             >
                 <span className="font-semibold whitespace-nowrap">
-                    {value} {heatmapFilters.type + 's'}
+                    {value} {heatmapTooltipLabel}
                 </span>
             </div>
         </div>
@@ -69,6 +69,11 @@ export function Heatmap(): JSX.Element | null {
         }
     }, [heatmapColorPalette])
 
+    const heatmapConfig = {
+        minOpacity: 0,
+        maxOpacity: 0.8,
+    }
+
     const updateHeatmapData = useCallback((): void => {
         try {
             heatmapsJsRef.current?.setData(heatmapJsData)
@@ -84,6 +89,7 @@ export function Heatmap(): JSX.Element | null {
         }
 
         heatmapsJsRef.current = heatmapsJs.create({
+            ...heatmapConfig,
             container,
             gradient: heatmapJSColorGradient,
         })
@@ -101,6 +107,7 @@ export function Heatmap(): JSX.Element | null {
         }
 
         heatmapsJsRef.current?.configure({
+            ...heatmapConfig,
             container: heatmapsJsContainerRef.current,
             gradient: heatmapJSColorGradient,
         })

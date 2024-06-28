@@ -72,7 +72,7 @@ class StickinessFilter(
         else:
             data = {"insight": INSIGHT_STICKINESS}
         super().__init__(data, request, **kwargs)
-        team: Optional["Team"] = kwargs.get("team", None)
+        team: Optional[Team] = kwargs.get("team", None)
         if not team:
             raise ValidationError("Team must be provided to stickiness filter")
         self.team = team

@@ -26,6 +26,7 @@ export class OverflowManager {
     constructor(
         burstCapacity: number,
         replenishRate: number,
+        private minPerCall: number,
         private cooldownSeconds: number,
         private redisKey: string,
         private redisClient: Redis
@@ -44,7 +45,7 @@ export class OverflowManager {
             // Cooldown state, return early
             return
         }
-        if (this.limiter.consume(key, quantity, now)) {
+        if (this.limiter.consume(key, Math.max(this.minPerCall, quantity), now)) {
             // Not triggering overflow, return early
             return
         }

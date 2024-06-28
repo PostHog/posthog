@@ -67,6 +67,7 @@ DATERANGE_MAP = {
     "month": datetime.timedelta(days=31),
 }
 ANONYMOUS_REGEX = r"^([a-z0-9]+\-){4}([a-z0-9]+)$"
+UUID_REGEX = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 
 DEFAULT_DATE_FROM_DAYS = 7
 
@@ -80,6 +81,7 @@ __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file
 def format_label_date(date: datetime.datetime, interval: str = "default") -> str:
     date_formats = {
         "default": "%-d-%b-%Y",
+        "minute": "%-d-%b-%Y %H:%M",
         "hour": "%-d-%b-%Y %H:%M",
         "month": "%b %Y",
     }
@@ -195,14 +197,23 @@ def relative_date_parse_with_delta_mapping(
             parsed_dt = parsed_dt.astimezone(timezone_info)
         return parsed_dt, None, None
 
-    regex = r"\-?(?P<number>[0-9]+)?(?P<type>[a-z])(?P<position>Start|End)?"
+    regex = r"\-?(?P<number>[0-9]+)?(?P<type>[a-zA-Z])(?P<position>Start|End)?"
     match = re.search(regex, input)
     parsed_dt = (now or dt.datetime.now()).astimezone(timezone_info)
     delta_mapping: dict[str, int] = {}
     if not match:
         return parsed_dt, delta_mapping, None
-    if match.group("type") == "h":
-        delta_mapping["hours"] = int(match.group("number"))
+    elif match.group("type") == "h":
+        if match.group("number"):
+            delta_mapping["hours"] = int(match.group("number"))
+        if match.group("position") == "Start":
+            delta_mapping["minute"] = 0
+            delta_mapping["second"] = 0
+            delta_mapping["microsecond"] = 0
+        elif match.group("position") == "End":
+            delta_mapping["minute"] = 59
+            delta_mapping["second"] = 59
+            delta_mapping["microsecond"] = 999999
     elif match.group("type") == "d":
         if match.group("number"):
             delta_mapping["days"] = int(match.group("number"))
@@ -543,12 +554,13 @@ def get_compare_period_dates(
 ) -> tuple[datetime.datetime, datetime.datetime]:
     diff = date_to - date_from
     new_date_from = date_from - diff
+    new_date_to = date_from
     if interval == "hour":
         # Align previous period time range with that of the current period, so that results are comparable day-by-day
         # (since variations based on time of day are major)
         new_date_from = new_date_from.replace(hour=date_from.hour, minute=0, second=0, microsecond=0)
         new_date_to = (new_date_from + diff).replace(minute=59, second=59, microsecond=999999)
-    else:
+    elif interval != "minute":
         # Align previous period time range to day boundaries
         new_date_from = new_date_from.replace(hour=0, minute=0, second=0, microsecond=0)
         # Handle date_from = -7d, -14d etc. specially
@@ -610,7 +622,7 @@ def decompress(data: Any, compression: str):
         try:
             data = gzip.decompress(data)
         except (EOFError, OSError, zlib.error) as error:
-            raise RequestParsingError("Failed to decompress data. %s" % (str(error)))
+            raise RequestParsingError("Failed to decompress data. {}".format(str(error)))
 
     if compression == "lz64":
         KLUDGES_COUNTER.labels(kludge="lz64_compression").inc()
@@ -648,9 +660,9 @@ def decompress(data: Any, compression: str):
                 return fallback
             except Exception as inner:
                 # re-trying with compression set didn't succeed, throw original error
-                raise RequestParsingError("Invalid JSON: %s" % (str(error_main))) from inner
+                raise RequestParsingError("Invalid JSON: {}".format(str(error_main))) from inner
         else:
-            raise RequestParsingError("Invalid JSON: %s" % (str(error_main)))
+            raise RequestParsingError("Invalid JSON: {}".format(str(error_main)))
 
     # TODO: data can also be an array, function assumes it's either None or a dictionary.
     return data
@@ -1001,15 +1013,43 @@ def get_available_timezones_with_offsets() -> dict[str, float]:
     return result
 
 
-def refresh_requested_by_client(request: Request) -> bool:
-    return _request_has_key_set("refresh", request)
+def refresh_requested_by_client(request: Request) -> bool | str:
+    return _request_has_key_set(
+        "refresh",
+        request,
+        allowed_values=[
+            "async",
+            "blocking",
+            "force_async",
+            "force_blocking",
+            "force_cache",
+            "lazy_async",
+        ],
+    )
 
 
-def _request_has_key_set(key: str, request: Request) -> bool:
+def cache_requested_by_client(request: Request) -> bool | str:
+    return _request_has_key_set("use_cache", request)
+
+
+def _request_has_key_set(key: str, request: Request, allowed_values: Optional[list[str]] = None) -> bool | str:
     query_param = request.query_params.get(key)
     data_value = request.data.get(key)
 
-    return (query_param is not None and (query_param == "" or query_param.lower() == "true")) or data_value is True
+    value = query_param if query_param is not None else data_value
+
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value
+    if str(value).lower() in ["true", "1", "yes", ""]:  # "" means it's set but no value
+        return True
+    if str(value).lower() in ["false", "0", "no"]:
+        return False
+    if allowed_values and value in allowed_values:
+        assert isinstance(value, str)
+        return value
+    return False
 
 
 def str_to_bool(value: Any) -> bool:
@@ -1249,12 +1289,12 @@ async def wait_for_parallel_celery_group(task: Any, expires: Optional[datetime.d
     default_expires = datetime.timedelta(minutes=5)
 
     if not expires:
-        expires = datetime.datetime.now(tz=datetime.timezone.utc) + default_expires
+        expires = datetime.datetime.now(tz=datetime.UTC) + default_expires
 
     sleep_generator = sleep_time_generator()
 
     while not task.ready():
-        if datetime.datetime.now(tz=datetime.timezone.utc) > expires:
+        if datetime.datetime.now(tz=datetime.UTC) > expires:
             child_states = []
             child: AsyncResult
             children = task.children or []
@@ -1346,3 +1386,12 @@ def multisort(xs: list, specs: tuple[tuple[str, bool], ...]):
     for key, reverse in reversed(specs):
         xs.sort(key=itemgetter(key), reverse=reverse)
     return xs
+
+
+def get_from_dict_or_attr(obj: Any, key: str):
+    if isinstance(obj, dict):
+        return obj.get(key, None)
+    elif hasattr(obj, key):
+        return getattr(obj, key, None)
+    else:
+        raise AttributeError(f"Object {obj} has no key {key}")

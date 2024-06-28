@@ -6,13 +6,16 @@ import { EventsNode, EventsQuery, HogQLQuery } from '~/queries/schema'
 import { isHogQLQuery } from '~/queries/utils'
 import { AnyPropertyFilter } from '~/types'
 
-interface EventPropertyFiltersProps {
-    query: EventsNode | EventsQuery | HogQLQuery
-    setQuery?: (query: EventsNode | EventsQuery | HogQLQuery) => void
+interface EventPropertyFiltersProps<Q extends EventsNode | EventsQuery | HogQLQuery> {
+    query: Q
+    setQuery?: (query: Q) => void
 }
 
 let uniqueNode = 0
-export function EventPropertyFilters({ query, setQuery }: EventPropertyFiltersProps): JSX.Element {
+export function EventPropertyFilters<Q extends EventsNode | EventsQuery | HogQLQuery>({
+    query,
+    setQuery,
+}: EventPropertyFiltersProps<Q>): JSX.Element {
     const [id] = useState(() => uniqueNode++)
 
     const properties = isHogQLQuery(query) ? query.filters?.properties : query.properties

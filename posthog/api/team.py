@@ -1,32 +1,28 @@
 import json
 from functools import cached_property
 from typing import Any, Optional, cast
+from datetime import timedelta
 
 from django.core.cache import cache
 from django.shortcuts import get_object_or_404
 from loginas.utils import is_impersonated_session
-from rest_framework import (
-    exceptions,
-    request,
-    response,
-    serializers,
-    viewsets,
-)
+from posthog.jwt import PosthogJwtAudience, encode_jwt
 from rest_framework.permissions import BasePermission, IsAuthenticated
+from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.decorators import action
+
 from posthog.api.geoip import get_geoip_properties
 from posthog.api.routing import TeamAndOrgViewSetMixin
-
 from posthog.api.shared import TeamBasicSerializer
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.models import InsightCachingState, Team, User
 from posthog.models.activity_logging.activity_log import (
-    log_activity,
-    Detail,
     Change,
-    load_activity,
+    Detail,
     dict_changes_between,
+    load_activity,
+    log_activity,
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
@@ -34,9 +30,9 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import APIScopeObjectOrNotSupported
 from posthog.models.signals import mute_selected_signals
-from posthog.models.team.team import groups_on_events_querying_enabled, set_team_in_cache
+from posthog.models.team.team import set_team_in_cache
 from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data
-from posthog.models.utils import generate_random_token_project, UUIDT
+from posthog.models.utils import UUIDT, generate_random_token_project
 from posthog.permissions import (
     CREATE_METHODS,
     APIScopePermission,
@@ -118,7 +114,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin):
     effective_membership_level = serializers.SerializerMethodField()
     has_group_types = serializers.SerializerMethodField()
-    groups_on_events_querying_enabled = serializers.SerializerMethodField()
+    live_events_token = serializers.SerializerMethodField()
 
     class Meta:
         model = Team
@@ -162,12 +158,14 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "live_events_columns",
             "recording_domains",
             "person_on_events_querying_enabled",
-            "groups_on_events_querying_enabled",
             "inject_web_apps",
             "extra_settings",
+            "modifiers",
+            "default_modifiers",
             "has_completed_onboarding_for",
             "surveys_opt_in",
             "heatmaps_opt_in",
+            "live_events_token",
         )
         read_only_fields = (
             "id",
@@ -179,8 +177,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "ingested_event",
             "effective_membership_level",
             "has_group_types",
+            "default_modifiers",
             "person_on_events_querying_enabled",
-            "groups_on_events_querying_enabled",
+            "live_events_token",
         )
 
     def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:
@@ -189,8 +188,12 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     def get_has_group_types(self, team: Team) -> bool:
         return GroupTypeMapping.objects.filter(team=team).exists()
 
-    def get_groups_on_events_querying_enabled(self, team: Team) -> bool:
-        return groups_on_events_querying_enabled()
+    def get_live_events_token(self, team: Team) -> Optional[str]:
+        return encode_jwt(
+            {"team_id": team.id, "api_token": team.api_token},
+            timedelta(days=7),
+            PosthogJwtAudience.LIVESTREAM,
+        )
 
     def validate_session_recording_linked_flag(self, value) -> dict | None:
         if value is None:
@@ -334,16 +337,21 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         return team
 
-    def _handle_timezone_update(self, team: Team) -> None:
-        # :KLUDGE: This is incorrect as it doesn't wipe caches not currently linked to insights. Fix this some day!
+    def _clear_team_insight_caching_states(self, team: Team) -> None:
+        # TODO: Remove this method:
+        # 1. It only clear the cache for saved insights, queries not linked to one are being ignored here
+        # 2. We should anyway 100% be relying on cache keys being different for materially different queries, instead of
+        #    on remembering to call this method when project settings change. We probably already are in the clear here!
         hashes = InsightCachingState.objects.filter(team=team).values_list("cache_key", flat=True)
         cache.delete_many(hashes)
 
     def update(self, instance: Team, validated_data: dict[str, Any]) -> Team:
         before_update = instance.__dict__.copy()
 
-        if "timezone" in validated_data and validated_data["timezone"] != instance.timezone:
-            self._handle_timezone_update(instance)
+        if ("timezone" in validated_data and validated_data["timezone"] != instance.timezone) or (
+            "modifiers" in validated_data and validated_data["modifiers"] != instance.modifiers
+        ):
+            self._clear_team_insight_caching_states(instance)
 
         if (
             "session_replay_config" in validated_data

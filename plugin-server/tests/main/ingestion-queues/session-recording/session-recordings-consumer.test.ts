@@ -9,6 +9,7 @@ import { defaultConfig } from '../../../../src/config/config'
 import { SessionRecordingIngester } from '../../../../src/main/ingestion-queues/session-recording/session-recordings-consumer'
 import { Hub, PluginsServerConfig, Team } from '../../../../src/types'
 import { createHub } from '../../../../src/utils/db/hub'
+import { deleteKeysWithPrefix } from '../../../helpers/redis'
 import { getFirstTeam, resetTestDatabase } from '../../../helpers/sql'
 import { createIncomingRecordingMessage, createKafkaMessage, createTP } from './fixtures'
 
@@ -21,20 +22,14 @@ const config: PluginsServerConfig = {
     SESSION_RECORDING_OVERFLOW_ENABLED: true,
     SESSION_RECORDING_OVERFLOW_BUCKET_CAPACITY: 1_000_000, // 1MB burst
     SESSION_RECORDING_OVERFLOW_BUCKET_REPLENISH_RATE: 1_000, // 1kB/s replenish
+    SESSION_RECORDING_OVERFLOW_MIN_PER_BATCH: 1,
     SESSION_RECORDING_REDIS_PREFIX,
 }
 
 const noop = () => undefined
 
-async function deleteKeysWithPrefix(hub: Hub) {
-    const redisClient = await hub.redisPool.acquire()
-    const keys = await redisClient.keys(`${SESSION_RECORDING_REDIS_PREFIX}*`)
-    const pipeline = redisClient.pipeline()
-    keys.forEach(function (key) {
-        pipeline.del(key)
-    })
-    await pipeline.exec()
-    await hub.redisPool.release(redisClient)
+async function deleteKeys(hub: Hub) {
+    await deleteKeysWithPrefix(hub.redisPool, SESSION_RECORDING_REDIS_PREFIX)
 }
 
 const mockConsumer = {
@@ -114,8 +109,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
         teamToken = team.api_token
         redisConn = await hub.redisPool.acquire(0)
         await redisConn.del(CAPTURE_OVERFLOW_REDIS_KEY)
-
-        await deleteKeysWithPrefix(hub)
+        await deleteKeys(hub)
 
         ingester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage, consumeOverflow, redisConn)
         await ingester.start()
@@ -127,7 +121,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
         jest.setTimeout(10000)
         await redisConn.del(CAPTURE_OVERFLOW_REDIS_KEY)
         await hub.redisPool.release(redisConn)
-        await deleteKeysWithPrefix(hub)
+        await deleteKeys(hub)
         await closeHub()
     })
 
@@ -597,7 +591,9 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
         describe(
             'overflow detection',
             consumeOverflow
-                ? () => {} // Skip these tests when running with consumeOverflow (it's disabled)
+                ? () => {
+                      return // Skip these tests when running with consumeOverflow (it's disabled)
+                  }
                 : () => {
                       const ingestBurst = async (count: number, size_bytes: number, timestamp_delta: number) => {
                           const first_timestamp = Date.now() - 2 * timestamp_delta * count

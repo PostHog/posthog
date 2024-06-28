@@ -5,10 +5,10 @@ from freezegun import freeze_time
 from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
-from posthog.hogql_queries.query_runner import CachedQueryResponse
 from posthog.models import Person, Team
 from posthog.models.organization import Organization
 from posthog.schema import (
+    CachedEventsQueryResponse,
     EventsQuery,
     EventPropertyFilter,
     PropertyOperator,
@@ -86,7 +86,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
             runner = EventsQueryRunner(query=query, team=self.team)
             response = runner.run()
-            assert isinstance(response, CachedQueryResponse)
+            assert isinstance(response, CachedEventsQueryResponse)
             results = response.results
             return results
 
@@ -97,8 +97,8 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             EventPropertyFilter(
                 type="event",
                 key="boolean_field",
-                operator=PropertyOperator.is_not_set,
-                value=PropertyOperator.is_not_set,
+                operator=PropertyOperator.IS_NOT_SET,
+                value=PropertyOperator.IS_NOT_SET,
             )
         )
 
@@ -111,8 +111,8 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             EventPropertyFilter(
                 type="event",
                 key="boolean_field",
-                operator=PropertyOperator.is_set,
-                value=PropertyOperator.is_set,
+                operator=PropertyOperator.IS_SET,
+                value=PropertyOperator.IS_SET,
             )
         )
 

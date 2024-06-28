@@ -40,6 +40,14 @@ class PersonPropertiesMode(Enum):
     """
 
 
+def alias_poe_mode_for_legacy(persons_on_events_mode: PersonsOnEventsMode) -> PersonsOnEventsMode:
+    if persons_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED:
+        # PERSON_ID_OVERRIDE_PROPERTIES_JOINED is not implemented in legacy insights
+        # It's functionally the same as DISABLED, just slower - hence aliasing to DISABLED
+        return PersonsOnEventsMode.DISABLED
+    return persons_on_events_mode
+
+
 EARLIEST_TIMESTAMP = "2015-01-01"
 
 GET_EARLIEST_TIMESTAMP_SQL = """
@@ -163,10 +171,13 @@ def correct_result_for_sampling(
 
     # We don't adjust results for sampling if:
     # - There's no sampling_factor specified i.e. the query isn't sampled
+    # - The value is not a number (should not happen, but being defensive, especially against HogQL aggregation)
     # - The query performs a math operation other than 'sum' because statistical math operations
     # on sampled data yield results in the correct format
-    if (not sampling_factor) or (
-        entity_math is not None and entity_math != "sum" and entity_math in ALL_SUPPORTED_MATH_FUNCTIONS
+    if (
+        not sampling_factor
+        or not isinstance(value, int | float)
+        or (entity_math is not None and entity_math != "sum" and entity_math in ALL_SUPPORTED_MATH_FUNCTIONS)
     ):
         return value
 
@@ -175,10 +186,13 @@ def correct_result_for_sampling(
 
 
 def get_person_properties_mode(team: Team) -> PersonPropertiesMode:
-    if team.person_on_events_mode == PersonsOnEventsMode.disabled:
+    if alias_poe_mode_for_legacy(team.person_on_events_mode) == PersonsOnEventsMode.DISABLED:
         return PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN
 
-    if team.person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events:
+    if (
+        alias_poe_mode_for_legacy(team.person_on_events_mode)
+        == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+    ):
         return PersonPropertiesMode.DIRECT_ON_EVENTS_WITH_POE_V2
 
     return PersonPropertiesMode.DIRECT_ON_EVENTS

@@ -28,8 +28,8 @@ import {
 } from 'scenes/insights/views/LineGraph/LineGraph'
 import { createTooltipData } from 'scenes/insights/views/LineGraph/tooltip-data'
 
-import { areObjectValuesEmpty } from '~/lib/utils'
 import { groupsModel } from '~/models/groupsModel'
+import { BreakdownFilter } from '~/queries/schema'
 import { GraphType } from '~/types'
 
 let timer: NodeJS.Timeout | null = null
@@ -53,20 +53,22 @@ function getPercentageForDataPoint(context: Context): number {
 }
 
 export interface PieChartProps extends LineGraphProps {
+    breakdownFilter?: BreakdownFilter | null | undefined
     showLabelOnSeries?: boolean | null
     disableHoverOffset?: boolean | null
 }
 
 export function PieChart({
     datasets: _datasets,
-    hiddenLegendKeys,
+    hiddenLegendIndexes,
     labels,
     type,
     onClick,
     ['data-attr']: dataAttr,
     trendsFilter,
+    breakdownFilter,
     formula,
-    showValueOnSeries,
+    showValuesOnSeries,
     showLabelOnSeries,
     supportsPercentStackView,
     showPercentStackView,
@@ -99,9 +101,9 @@ export function PieChart({
     // Build chart
     useEffect(() => {
         // Hide intentionally hidden keys
-        if (!areObjectValuesEmpty(hiddenLegendKeys)) {
+        if (hiddenLegendIndexes && hiddenLegendIndexes.length > 0) {
             // If series are nested (for ActionsHorizontalBar and Pie), filter out the series by index
-            datasets = filterNestedDataset(hiddenLegendKeys, datasets)
+            datasets = filterNestedDataset(hiddenLegendIndexes, datasets)
         }
 
         const processedDatasets = datasets.map((dataset) => dataset as ChartDataset<'pie'>)
@@ -145,7 +147,7 @@ export function PieChart({
                         },
                         display: (context) => {
                             const percentage = getPercentageForDataPoint(context)
-                            const showValueForSeries = showValueOnSeries !== false && context.dataset.data.length > 1 // show if true or unset
+                            const showValueForSeries = showValuesOnSeries !== false && context.dataset.data.length > 1 // show if true or unset
                             return (showValueForSeries || showLabelOnSeries) && percentage > 5 ? 'auto' : false
                         },
                         padding: (context) => {
@@ -216,6 +218,7 @@ export function PieChart({
                                 tooltipRoot.render(
                                     <InsightTooltip
                                         seriesData={seriesData}
+                                        breakdownFilter={breakdownFilter}
                                         hideColorCol={!!tooltipConfig?.hideColorCol}
                                         showHeader={false}
                                         renderSeries={(value: React.ReactNode, datum: SeriesDatum) => {
@@ -270,7 +273,7 @@ export function PieChart({
             } as ChartOptions<'pie'>,
         })
         return () => newChart.destroy()
-    }, [datasets, hiddenLegendKeys])
+    }, [datasets, hiddenLegendIndexes])
 
     return (
         <div className="absolute w-full h-full" data-attr={dataAttr}>

@@ -1,4 +1,4 @@
-import { IconFastForward, IconPause, IconPlay, IconSearch } from '@posthog/icons'
+import { IconFastForward, IconPause, IconPlay } from '@posthog/icons'
 import { LemonMenu, LemonSwitch } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -13,17 +13,12 @@ import {
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { SessionPlayerState } from '~/types'
 
+import { PlayerMetaLinks } from '../PlayerMetaLinks'
 import { playerSettingsLogic } from '../playerSettingsLogic'
 import { SeekSkip, Timestamp } from './PlayerControllerTime'
 import { Seekbar } from './Seekbar'
 
-export function PlayerController({
-    inspectorExpanded,
-    toggleInspectorExpanded,
-}: {
-    inspectorExpanded: boolean
-    toggleInspectorExpanded: () => void
-}): JSX.Element {
+export function PlayerController({ linkIconsOnly }: { linkIconsOnly: boolean }): JSX.Element {
     const { playingState, isFullScreen, endReached } = useValues(sessionRecordingPlayerLogic)
     const { togglePlayPause, setIsFullScreen } = useActions(sessionRecordingPlayerLogic)
 
@@ -96,17 +91,7 @@ export function PlayerController({
                     </div>
                 </div>
 
-                {!inspectorExpanded && (
-                    <LemonButton
-                        type="primary"
-                        status="alt"
-                        size="small"
-                        onClick={toggleInspectorExpanded}
-                        icon={<IconSearch />}
-                    >
-                        Inspector
-                    </LemonButton>
-                )}
+                <PlayerMetaLinks iconsOnly={linkIconsOnly} />
             </div>
         </div>
     )

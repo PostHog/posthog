@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import { userLogic } from 'scenes/userLogic'
 
 import { useAvailableFeatures } from '~/mocks/features'
 import { useMocks } from '~/mocks/jest'
@@ -9,6 +10,7 @@ import { isSecureURL, verifiedDomainsLogic } from './verifiedDomainsLogic'
 
 describe('verifiedDomainsLogic', () => {
     let logic: ReturnType<typeof verifiedDomainsLogic.build>
+    let userlogic: ReturnType<typeof userLogic.build>
 
     beforeEach(() => {
         useAvailableFeatures([AvailableFeature.SSO_ENFORCEMENT, AvailableFeature.SAML])
@@ -54,6 +56,8 @@ describe('verifiedDomainsLogic', () => {
         })
         initKeaTests()
         logic = verifiedDomainsLogic()
+        userlogic = userLogic()
+        userlogic.mount()
         logic.mount()
     })
 
@@ -81,6 +85,7 @@ describe('verifiedDomainsLogic', () => {
 
     describe('values', () => {
         it('has proper defaults', async () => {
+            await expectLogic(userlogic).toFinishAllListeners()
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values).toMatchSnapshot()
         })

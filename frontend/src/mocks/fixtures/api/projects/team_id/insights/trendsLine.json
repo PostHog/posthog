@@ -4,22 +4,79 @@
     "name": "",
     "derived_name": "Pageview count",
     "filters": {
-        "display": "ActionsLineGraph",
         "events": [
             {
                 "id": "$pageview",
+                "math": "total",
                 "type": "events",
                 "order": 0,
-                "name": "$pageview",
-                "custom_name": null,
-                "math": null,
-                "math_property": null,
-                "math_group_type_index": null,
-                "properties": {}
+                "properties": [
+                    {
+                        "key": "from_invite",
+                        "type": "event",
+                        "value": ["false"],
+                        "operator": "exact"
+                    },
+                    {
+                        "key": "$referrer",
+                        "type": "event",
+                        "value": "is_not_set",
+                        "operator": "is_not_set"
+                    }
+                ],
+                "custom_name": "Pageviews"
             }
         ],
+        "display": "ActionsLineGraph",
         "insight": "TRENDS",
-        "interval": "day"
+        "interval": "week",
+        "date_from": "-8w",
+        "properties": {
+            "type": "AND",
+            "values": [
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$current_url",
+                            "type": "event",
+                            "value": ["https://hedgebox.net/signup/"],
+                            "operator": "exact"
+                        },
+                        {
+                            "key": "$geoip_country_code",
+                            "type": "event",
+                            "value": ["PY"],
+                            "operator": "exact"
+                        }
+                    ]
+                },
+                {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "key": "$browser",
+                            "type": "event",
+                            "value": "XX",
+                            "operator": "icontains"
+                        },
+                        {
+                            "key": "$session_duration",
+                            "type": "session",
+                            "value": 3,
+                            "operator": "exact"
+                        },
+                        {
+                            "key": "selector",
+                            "type": "element",
+                            "value": ["href"],
+                            "operator": "exact"
+                        }
+                    ]
+                }
+            ]
+        },
+        "entity_type": "events"
     },
     "filters_hash": "cache_42127776c1709f7c4209cea8925faefd",
     "order": null,

@@ -36,16 +36,14 @@ import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
-import { summarizeInsight } from 'scenes/insights/summarizeInsight'
+import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { overlayForNewInsightMenu } from 'scenes/saved-insights/newInsightsMenu'
 import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
 import { SceneExport } from 'scenes/sceneTypes'
-import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
 
-import { cohortsModel } from '~/models/cohortsModel'
-import { groupsModel } from '~/models/groupsModel'
+import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { NodeKind } from '~/queries/schema'
 import { isInsightVizNode } from '~/queries/utils'
 import { ActivityScope, InsightModel, InsightType, LayoutView, SavedInsightsTabs } from '~/types'
@@ -79,7 +77,7 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
     },
     [InsightType.RETENTION]: {
         name: 'Retention',
-        description: 'See how many users return on subsequent days after an intial action.',
+        description: 'See how many users return on subsequent days after an initial action.',
         icon: IconRetention,
         inMenu: true,
     },
@@ -111,6 +109,12 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
         name: 'Custom',
         description: 'Save components powered by our JSON query language.',
         icon: IconBrackets,
+        inMenu: true,
+    },
+    [InsightType.HOG]: {
+        name: 'Hog',
+        description: 'Use Hog to query your data.',
+        icon: IconHogQL,
         inMenu: true,
     },
 }
@@ -314,6 +318,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconTrends,
         inMenu: true,
     },
+    [NodeKind.HogQuery]: {
+        name: 'Hog',
+        description: 'Hog query',
+        icon: IconHogQL,
+        inMenu: true,
+    },
 }
 
 export const INSIGHT_TYPE_OPTIONS: LemonSelectOptions<string> = [
@@ -407,11 +417,9 @@ export function SavedInsights(): JSX.Element {
     const { loadInsights, updateFavoritedInsight, renameInsight, duplicateInsight, setSavedInsightsFilters } =
         useActions(savedInsightsLogic)
     const { insights, count, insightsLoading, filters, sorting, pagination } = useValues(savedInsightsLogic)
-    const { hasDashboardCollaboration } = useValues(organizationLogic)
+    const { hasTagging } = useValues(organizationLogic)
     const { currentTeamId } = useValues(teamLogic)
-    const { aggregationLabel } = useValues(groupsModel)
-    const { cohortsById } = useValues(cohortsModel)
-    const { mathDefinitions } = useValues(mathsLogic)
+    const summarizeInsight = useSummarizeInsight()
 
     const { tab, layoutView, page } = filters
 
@@ -430,22 +438,15 @@ export function SavedInsights(): JSX.Element {
             title: 'Name',
             dataIndex: 'name',
             key: 'name',
-            render: function renderName(name: string, insight) {
+            render: function renderName(name: string, legacyInsight) {
+                const insight = getQueryBasedInsightModel(legacyInsight)
                 return (
                     <>
                         <LemonTableLink
                             to={urls.insightView(insight.short_id)}
                             title={
                                 <>
-                                    {name || (
-                                        <i>
-                                            {summarizeInsight(insight.query, insight.filters, {
-                                                aggregationLabel,
-                                                cohortsById,
-                                                mathDefinitions,
-                                            })}
-                                        </i>
-                                    )}
+                                    {name || <i>{summarizeInsight(insight.query)}</i>}
 
                                     <LemonButton
                                         className="ml-1"
@@ -465,13 +466,13 @@ export function SavedInsights(): JSX.Element {
                                     />
                                 </>
                             }
-                            description={hasDashboardCollaboration ? insight.description : undefined}
+                            description={insight.description}
                         />
                     </>
                 )
             },
         },
-        ...(hasDashboardCollaboration
+        ...(hasTagging
             ? [
                   {
                       title: 'Tags',

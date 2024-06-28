@@ -5,7 +5,6 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
 from posthog.schema import BaseMathType, ChartDisplayType, EventsNode, ActionsNode, DataWarehouseNode
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.hogql_queries.insights.data_warehouse_mixin import DataWarehouseInsightQueryMixin
 
 
@@ -55,7 +54,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
     series: Union[EventsNode, ActionsNode, DataWarehouseNode]
     chart_display_type: ChartDisplayType
     query_date_range: QueryDateRange
-    should_aggregate_values: bool
+    is_total_value: bool
 
     def __init__(
         self,
@@ -63,26 +62,19 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         series: Union[EventsNode, ActionsNode, DataWarehouseNode],
         chart_display_type: ChartDisplayType,
         query_date_range: QueryDateRange,
-        should_aggregate_values: bool,
+        is_total_value: bool,
     ) -> None:
         self.team = team
         self.series = series
         self.chart_display_type = chart_display_type
         self.query_date_range = query_date_range
-        self.should_aggregate_values = should_aggregate_values
-
-    @cached_property
-    def _id_field(self) -> ast.Expr:
-        if isinstance(self.series, DataWarehouseNode):
-            return ast.Field(chain=["e", self.series.id_field])
-
-        return ast.Field(chain=["e", "uuid"])
+        self.is_total_value = is_total_value
 
     def select_aggregation(self) -> ast.Expr:
         if self.series.math == "hogql" and self.series.math_hogql is not None:
             return parse_expr(self.series.math_hogql)
         elif self.series.math == "total":
-            return parse_expr("count({id_field})", placeholders={"id_field": self._id_field})
+            return parse_expr("count()")
         elif self.series.math == "dau":
             actor = "e.distinct_id" if self.team.aggregate_users_by_distinct_id else "e.person_id"
             return parse_expr(f"count(DISTINCT {actor})")
@@ -112,9 +104,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             elif self.series.math == "p99":
                 return self._math_quantile(0.99, None)
 
-        return parse_expr(
-            "count({id_field})", placeholders={"id_field": self._id_field}
-        )  # All "count per actor" get replaced during query orchestration
+        return parse_expr("count()")  # All "count per actor" get replaced during query orchestration
 
     def actor_id(self) -> ast.Expr:
         if self.series.math == "unique_group" and self.series.math_group_type_index is not None:
@@ -142,6 +132,9 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             "p95_count_per_actor",
             "p99_count_per_actor",
         ]
+
+    def is_active_users_math(self):
+        return self.series.math in ["weekly_active", "monthly_active"]
 
     def _math_func(self, method: str, override_chain: Optional[list[str | int]]) -> ast.Call:
         if override_chain is not None:
@@ -205,7 +198,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 placeholders={"inner_query": inner_query},
             )
 
-            if not self.should_aggregate_values:
+            if not self.is_total_value:
                 query.select.append(ast.Field(chain=["day_start"]))
 
             return query
@@ -232,7 +225,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             ),
         )
 
-        if self.should_aggregate_values:
+        if self.is_total_value:
             query.select = [
                 ast.Alias(
                     alias="total", expr=ast.Call(name="count", distinct=True, args=[ast.Field(chain=["actor_id"])])
@@ -278,7 +271,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 },
             )
 
-            if not self.should_aggregate_values:
+            if not self.is_total_value:
                 query.select.append(ast.Field(chain=["day_start"]))
                 query.group_by = [ast.Field(chain=["day_start"])]
 
@@ -312,7 +305,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             ),
         )
 
-        if self.should_aggregate_values:
+        if self.is_total_value:
             query.select = [ast.Field(chain=["d", "timestamp"]), ast.Field(chain=["actor_id"])]
             query.group_by.append(ast.Field(chain=["actor_id"]))
 
@@ -323,8 +316,8 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
     ) -> ast.SelectQuery | ast.SelectUnionQuery:
         date_from_with_lookback = "{date_from} - {inclusive_lookback}"
         if self.chart_display_type in NON_TIME_SERIES_DISPLAY_TYPES and self.series.math in (
-            BaseMathType.weekly_active,
-            BaseMathType.monthly_active,
+            BaseMathType.WEEKLY_ACTIVE,
+            BaseMathType.MONTHLY_ACTIVE,
         ):
             # TRICKY: On total value (non-time-series) insights, WAU/MAU math is simply meaningless.
             # There's no intuitive way to define the semantics of such a combination, so what we do is just turn it
@@ -361,24 +354,25 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             )
 
             query = parse_select(
-                """
+                (
+                    """
                     SELECT
-                        count({id_field}) AS total
+                        count() AS total
                     FROM {table} AS e
                     WHERE {events_where_clause}
                     GROUP BY {person_field}
                 """
-                if isinstance(self.series, DataWarehouseNode)
-                else """
+                    if isinstance(self.series, DataWarehouseNode)
+                    else """
                     SELECT
-                        count({id_field}) AS total
+                        count() AS total
                     FROM events AS e
                     SAMPLE {sample}
                     WHERE {events_where_clause}
                     GROUP BY {person_field}
-                """,
+                """
+                ),
                 placeholders={
-                    "id_field": self._id_field,
                     "table": self._table_expr,
                     "events_where_clause": where_clause_combined,
                     "sample": sample_value,
@@ -388,7 +382,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 },
             )
 
-            if not self.should_aggregate_values:
+            if not self.is_total_value:
                 query.select.append(day_start)
                 query.group_by.append(ast.Field(chain=["day_start"]))
 

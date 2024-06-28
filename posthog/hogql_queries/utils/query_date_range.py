@@ -1,22 +1,23 @@
 import re
 from datetime import datetime, timedelta
 from functools import cached_property
-from typing import Literal, Optional
+from typing import cast, Literal, Optional
 from zoneinfo import ZoneInfo
 
-from dateutil.parser import parse
 from dateutil.relativedelta import relativedelta
 
 from posthog.hogql.errors import ImpossibleASTError
 from posthog.hogql.parser import ast
 from posthog.models.team import Team, WeekStartDay
 from posthog.queries.util import get_earliest_timestamp, get_trunc_func_ch
-from posthog.schema import DateRange, IntervalType
+from posthog.schema import DateRange, InsightDateRange, IntervalType
 from posthog.utils import (
     DEFAULT_DATE_FROM_DAYS,
     relative_date_parse,
     relative_date_parse_with_delta_mapping,
 )
+
+IntervalLiteral = Literal["minute", "hour", "day", "week", "month"]
 
 
 # Originally similar to posthog/queries/query_date_range.py but rewritten to be used in HogQL queries
@@ -24,23 +25,23 @@ class QueryDateRange:
     """Translation of the raw `date_from` and `date_to` filter values to datetimes."""
 
     _team: Team
-    _date_range: Optional[DateRange]
+    _date_range: Optional[InsightDateRange | DateRange]
     _interval: Optional[IntervalType]
     _now_without_timezone: datetime
 
     def __init__(
         self,
-        date_range: Optional[DateRange],
+        date_range: Optional[InsightDateRange | DateRange],
         team: Team,
         interval: Optional[IntervalType],
         now: datetime,
     ) -> None:
         self._team = team
         self._date_range = date_range
-        self._interval = interval or IntervalType.day
+        self._interval = interval or IntervalType.DAY
         self._now_without_timezone = now
 
-        if not isinstance(self._interval, IntervalType) or re.match(r"[^a-z]", self._interval.name):
+        if not isinstance(self._interval, IntervalType) or re.match(r"[^a-z]", "DAY", re.IGNORECASE):
             raise ValueError(f"Invalid interval: {interval}")
 
     def date_to(self) -> datetime:
@@ -58,10 +59,13 @@ class QueryDateRange:
         if not self._date_range or not self._date_range.explicitDate:
             is_relative = not self._date_range or not self._date_range.date_to or delta_mapping is not None
 
-            if not self.is_hourly:
+            if self.interval_name not in ("hour", "minute"):
                 date_to = date_to.replace(hour=23, minute=59, second=59, microsecond=999999)
             elif is_relative:
-                date_to = date_to.replace(minute=59, second=59, microsecond=999999)
+                if self.interval_name == "hour":
+                    date_to = date_to.replace(minute=59, second=59, microsecond=999999)
+                else:
+                    date_to = date_to.replace(second=59, microsecond=999999)
 
         return date_to
 
@@ -78,7 +82,8 @@ class QueryDateRange:
                 self._team.timezone_info,
                 now=self.now_with_timezone,
                 # this makes sure we truncate date_from to the start of the day, when looking at last N days by hour
-                always_truncate=True,
+                # when we look at graphs by minute (last hour or last three hours), don't truncate
+                always_truncate=self.interval_name != "minute",
             )
         else:
             date_from = self.now_with_timezone.replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(
@@ -108,18 +113,30 @@ class QueryDateRange:
         return self.previous_period_date_from.strftime("%Y-%m-%d %H:%M:%S")
 
     @cached_property
-    def is_hourly(self) -> bool:
-        return self.interval_name == "hour"
-
-    @cached_property
     def interval_type(self) -> IntervalType:
-        return self._interval or IntervalType.day
+        return self._interval or IntervalType.DAY
 
     @cached_property
-    def interval_name(self) -> Literal["hour", "day", "week", "month"]:
-        return self.interval_type.name
+    def interval_name(self) -> IntervalLiteral:
+        return cast(IntervalLiteral, self.interval_type.name.lower())
+
+    @cached_property
+    def is_hourly(self) -> bool:
+        if self._interval is None:
+            return False
+
+        return self._interval == IntervalType.HOUR
+
+    @cached_property
+    def explicit(self) -> bool:
+        if self._date_range is None or self._date_range.explicitDate is None:
+            return False
+
+        return self._date_range.explicitDate
 
     def align_with_interval(self, start: datetime) -> datetime:
+        if self.interval_name == "minute":
+            return start.replace(second=0, microsecond=0)
         if self.interval_name == "hour":
             return start.replace(minute=0, second=0, microsecond=0)
         elif self.interval_name == "day":
@@ -140,6 +157,7 @@ class QueryDateRange:
             weeks=1 if self.interval_name == "week" else 0,
             months=1 if self.interval_name == "month" else 0,
             hours=1 if self.interval_name == "hour" else 0,
+            minutes=1 if self.interval_name == "minute" else 0,
         )
 
     def all_values(self) -> list[datetime]:
@@ -211,20 +229,17 @@ class QueryDateRange:
 
         is_delta_hours = delta_mapping.get("hours", None) is not None
 
-        if interval == IntervalType.hour:
+        if interval in (IntervalType.HOUR, IntervalType.MINUTE):
             return False
-        elif interval == IntervalType.day:
+        elif interval == IntervalType.DAY:
             if is_delta_hours:
                 return False
-            else:
-                return True
-        elif interval == IntervalType.week or interval == IntervalType.month:
-            return True
-
         return True
 
     def date_to_start_of_interval_hogql(self, date: ast.Expr) -> ast.Call:
         match self.interval_name:
+            case "minute":
+                return ast.Call(name="toStartOfMinute", args=[date])
             case "hour":
                 return ast.Call(name="toStartOfHour", args=[date])
             case "day":
@@ -264,16 +279,11 @@ class QueryDateRange:
             ),
         }
 
-    def interval_bounds_from_str(self, time_frame: str) -> tuple[datetime, datetime]:
-        date_from = parse(time_frame, tzinfos={None: self._team.timezone_info})
-        date_to = date_from + self.interval_relativedelta()
-        return date_from, date_to
-
 
 class QueryDateRangeWithIntervals(QueryDateRange):
     def __init__(
         self,
-        date_range: Optional[DateRange],
+        date_range: Optional[InsightDateRange],
         total_intervals: int,
         team: Team,
         interval: Optional[IntervalType],
@@ -285,6 +295,7 @@ class QueryDateRangeWithIntervals(QueryDateRange):
     @staticmethod
     def determine_time_delta(total_intervals: int, period: str) -> timedelta:
         period_map = {
+            "minute": timedelta(minutes=1),
             "hour": timedelta(hours=1),
             "day": timedelta(days=1),
             "week": timedelta(weeks=1),
@@ -299,15 +310,15 @@ class QueryDateRangeWithIntervals(QueryDateRange):
     def date_from(self) -> datetime:
         delta = self.determine_time_delta(self.total_intervals, self._interval.name)
 
-        if self._interval == IntervalType.hour:
+        if self._interval in (IntervalType.HOUR, IntervalType.MINUTE):
             return self.date_to() - delta
-        elif self._interval == IntervalType.week:
+        elif self._interval == IntervalType.WEEK:
             date_from = self.date_to() - delta
             week_start_alignment_days = date_from.isoweekday() % 7
             if self._team.week_start_day == WeekStartDay.MONDAY:
                 week_start_alignment_days = date_from.weekday()
             return date_from - timedelta(days=week_start_alignment_days)
-        elif self._interval == IntervalType.month:
+        elif self._interval == IntervalType.MONTH:
             return self.date_to().replace(day=1, hour=0, minute=0, second=0, microsecond=0) - delta
         else:
             date_to = self.date_to().replace(hour=0, minute=0, second=0, microsecond=0)
@@ -317,7 +328,9 @@ class QueryDateRangeWithIntervals(QueryDateRange):
         delta = self.determine_time_delta(1, self._interval.name)
         date_to = super().date_to() + delta
 
-        if self.is_hourly:
+        if self.interval_name == "minute":
+            return date_to.replace(second=0, microsecond=0)
+        if self.interval_name == "hour":
             return date_to.replace(minute=0, second=0, microsecond=0)
         return date_to.replace(hour=0, minute=0, second=0, microsecond=0)
 
