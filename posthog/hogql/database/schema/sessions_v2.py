@@ -50,9 +50,9 @@ RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "initial_referring_domain": DatabaseField(name="initial_referring_domain"),
     "initial_gclid": DatabaseField(name="initial_gclid"),
     "initial_gad_source": DatabaseField(name="initial_gad_source"),
-    "pageview_count": IntegerDatabaseField(name="pageview_count"),
-    "autocapture_count": IntegerDatabaseField(name="autocapture_count"),
-    "screen_count": IntegerDatabaseField(name="screen_count"),
+    "pageview_uniq": IntegerDatabaseField(name="pageview_uniq"),
+    "autocapture_uniq": IntegerDatabaseField(name="autocapture_uniq"),
+    "screen_uniq": IntegerDatabaseField(name="screen_uniq"),
     "last_external_click_url": StringDatabaseField(name="last_external_click_url"),
     "first_lcp": FloatDatabaseField(name="first_lcp", nullable=True),
 }

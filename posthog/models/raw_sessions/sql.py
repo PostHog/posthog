@@ -23,7 +23,7 @@ DROP_RAW_SESSION_TABLE_SQL = (
     lambda: f"DROP TABLE IF EXISTS {RAW_SESSIONS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
 )
 DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL = (
-    lambda: f"DROP MATERIALISED VIEW IF EXISTS {TABLE_BASE_NAME}_mv ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
+    lambda: f"DROP TABLE IF EXISTS {TABLE_BASE_NAME}_mv ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
 )
 DROP_RAW_SESSION_VIEW_SQL = (
     lambda: f"DROP VIEW IF EXISTS {TABLE_BASE_NAME}_v ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
@@ -90,16 +90,10 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
 
     -- Count pageview, autocapture, and screen events for providing totals.
-    -- It's unclear if we can use the counts as they are not idempotent, and we had a bug on EU where events were
-    -- double-counted, so the counts were wrong. To get around this, also keep track of the unique uuids. This will be
-    -- slower and more expensive to store, but will be correct even if events are double-counted, so can be used to
-    -- verify correctness and as a backup. Ideally we will be able to delete the uniq columns in the future when we're
-    -- satisfied that counts are accurate.
-    pageview_count SimpleAggregateFunction(sum, Int64),
+    -- We use uniq on the event UUIDs so that inserting events can be idempotent. This is important as especially on EU
+    -- we don't reliably receive events exactly once.
     pageview_uniq AggregateFunction(uniq, Nullable(UUID)),
-    autocapture_count SimpleAggregateFunction(sum, Int64),
     autocapture_uniq AggregateFunction(uniq, Nullable(UUID)),
-    screen_count SimpleAggregateFunction(sum, Int64),
     screen_uniq AggregateFunction(uniq, Nullable(UUID)),
 
     -- replay
@@ -220,11 +214,8 @@ SELECT
     initializeAggregation('argMinState', {ttclid}, timestamp) as initial_ttclid,
 
     -- counts
-    if(event='$pageview', 1, 0) as pageview_count,
     initializeAggregation('uniqState', if(event='$pageview', uuid, NULL)) as pageview_uniq,
-    if(event='$autocapture', 1, 0) as autocapture_count,
     initializeAggregation('uniqState', if(event='autocapture', uuid, NULL)) as autocapture_uniq,
-    if(event='$screen', 1, 0) as screen_count,
     initializeAggregation('uniqState', if(event='screen', uuid, NULL)) as screen_uniq,
 
     -- replay
@@ -330,11 +321,8 @@ SELECT
     argMinState({ttclid}, timestamp) as initial_ttclid,
 
     -- count
-    sumIf(1, event='$pageview') as pageview_count,
     uniqState(if(event='$pageview', uuid, NULL)) as pageview_uniq,
-    sumIf(1, event='$autocapture') as autocapture_count,
     uniqState(if(event='$autocapture', uuid, NULL)) as autocapture_uniq,
-    sumIf(1, event='$screen') as screen_count,
     uniqState(if(event='$screen', uuid, NULL)) as screen_uniq,
 
     -- replay
@@ -499,11 +487,8 @@ SELECT
     argMinMerge(initial_ttclid) as initial_ttclid,
 
     -- counts
-    sum(pageview_count) as pageview_count,
     uniqMerge(pageview_uniq) as pageview_uniq,
-    sum(autocapture_count) as autocapture_count,
     uniqMerge(autocapture_uniq) as autocapture_uniq,
-    sum(screen_count) as screen_count,
     uniqMerge(screen_uniq) as screen_uniq,
 
     -- replay
