@@ -287,7 +287,7 @@ export function formatBreakdownLabel(
             : breakdown_value
     } else if (Array.isArray(breakdown_value)) {
         return breakdown_value
-            .map((v) => formatBreakdownLabel(v, breakdownFilter, cohorts, formatPropertyValueForDisplay))
+            .map((v, index) => formatBreakdownLabel(v, breakdownFilter, cohorts, formatPropertyValueForDisplay, index))
             .join('::')
     }
     return ''
