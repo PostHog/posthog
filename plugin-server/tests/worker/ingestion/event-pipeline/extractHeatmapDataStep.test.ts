@@ -216,7 +216,6 @@ describe('extractHeatmapDataStep()', () => {
     it('drops if the associated team has explicit opt out', async () => {
         runner.hub.teamManager.fetchTeam = jest.fn(() => Promise.resolve({ heatmaps_opt_in: false }))
         const response = await extractHeatmapDataStep(runner, event)
-        const response = await extractHeatmapDataStep(runner, event)
         expect(response[0]).toEqual(event)
         expect(response[0].properties.$heatmap_data).toBeUndefined()
         expect(response[1]).toHaveLength(0)
