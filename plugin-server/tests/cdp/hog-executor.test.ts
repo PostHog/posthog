@@ -8,15 +8,10 @@ import {
     HogFunctionLogEntry,
     HogFunctionType,
 } from '../../src/cdp/types'
-import { defaultConfig } from '../../src/config/config'
-import { PluginsServerConfig, TimestampFormat } from '../../src/types'
+import { TimestampFormat } from '../../src/types'
 import { castTimestampOrNow } from '../../src/utils/utils'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './examples'
 import { createHogExecutionGlobals, createHogFunction, insertHogFunction as _insertHogFunction } from './fixtures'
-
-const config: PluginsServerConfig = {
-    ...defaultConfig,
-}
 
 const simulateMockFetchAsyncResponse = (result: HogFunctionInvocationResult): HogFunctionInvocationAsyncResponse => {
     return {
@@ -43,12 +38,13 @@ describe('Hog Executor', () => {
     const mockFunctionManager = {
         reloadAllHogFunctions: jest.fn(),
         getTeamHogFunctions: jest.fn(),
+        getTeamHogFunction: jest.fn(),
     }
 
     beforeEach(() => {
         jest.useFakeTimers()
         jest.setSystemTime(new Date('2024-06-07T12:00:00.000Z').getTime())
-        executor = new HogExecutor(config, mockFunctionManager as any as HogFunctionManager)
+        executor = new HogExecutor(mockFunctionManager as any as HogFunctionManager)
     })
 
     describe('general event processing', () => {
@@ -61,13 +57,15 @@ describe('Hog Executor', () => {
                 ...HOG_FILTERS_EXAMPLES.no_filters,
             })
 
-            mockFunctionManager.getTeamHogFunctions.mockReturnValue({
-                [hogFunction.id]: hogFunction,
-            })
+            mockFunctionManager.getTeamHogFunctions.mockReturnValue([hogFunction])
+            mockFunctionManager.getTeamHogFunction.mockReturnValue(hogFunction)
         })
 
         it('can parse incoming messages correctly', () => {
-            const results = executor.executeMatchingFunctions(createHogExecutionGlobals())
+            const globals = createHogExecutionGlobals()
+            const results = executor
+                .findMatchingFunctions(createHogExecutionGlobals())
+                .functions.map((x) => executor.executeFunction(globals, x) as HogFunctionInvocationResult)
             expect(results).toHaveLength(1)
             expect(results[0]).toMatchObject({
                 id: expect.any(String),
@@ -76,7 +74,10 @@ describe('Hog Executor', () => {
         })
 
         it('collects logs from the function', () => {
-            const results = executor.executeMatchingFunctions(createHogExecutionGlobals())
+            const globals = createHogExecutionGlobals()
+            const results = executor
+                .findMatchingFunctions(createHogExecutionGlobals())
+                .functions.map((x) => executor.executeFunction(globals, x) as HogFunctionInvocationResult)
             expect(results[0].logs).toMatchObject([
                 {
                     team_id: 1,
@@ -108,7 +109,10 @@ describe('Hog Executor', () => {
         })
 
         it('queues up an async function call', () => {
-            const results = executor.executeMatchingFunctions(createHogExecutionGlobals())
+            const globals = createHogExecutionGlobals()
+            const results = executor
+                .findMatchingFunctions(createHogExecutionGlobals())
+                .functions.map((x) => executor.executeFunction(globals, x) as HogFunctionInvocationResult)
             expect(results[0]).toMatchObject({
                 id: results[0].id,
                 globals: {
@@ -164,7 +168,10 @@ describe('Hog Executor', () => {
 
         it('executes the full function in a loop', () => {
             const logs: HogFunctionLogEntry[] = []
-            const results = executor.executeMatchingFunctions(createHogExecutionGlobals())
+            const globals = createHogExecutionGlobals()
+            const results = executor
+                .findMatchingFunctions(createHogExecutionGlobals())
+                .functions.map((x) => executor.executeFunction(globals, x) as HogFunctionInvocationResult)
             const splicedLogs = results[0].logs.splice(0, 100)
             logs.push(...splicedLogs)
 
@@ -191,14 +198,14 @@ describe('Hog Executor', () => {
                 ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
             })
 
-            mockFunctionManager.getTeamHogFunctions.mockReturnValue({
-                [fn.id]: fn,
-            })
+            mockFunctionManager.getTeamHogFunctions.mockReturnValue([fn])
 
-            const resultsShouldntMatch = executor.executeMatchingFunctions(createHogExecutionGlobals())
-            expect(resultsShouldntMatch).toHaveLength(0)
+            const resultsShouldntMatch = executor.findMatchingFunctions(createHogExecutionGlobals())
+            expect(resultsShouldntMatch.functions).toHaveLength(0)
+            expect(resultsShouldntMatch.total).toBe(1)
+            expect(resultsShouldntMatch.matching).toBe(0)
 
-            const resultsShouldMatch = executor.executeMatchingFunctions(
+            const resultsShouldMatch = executor.findMatchingFunctions(
                 createHogExecutionGlobals({
                     event: {
                         name: '$pageview',
@@ -208,7 +215,9 @@ describe('Hog Executor', () => {
                     } as any,
                 })
             )
-            expect(resultsShouldMatch).toHaveLength(1)
+            expect(resultsShouldMatch.functions).toHaveLength(1)
+            expect(resultsShouldMatch.total).toBe(1)
+            expect(resultsShouldMatch.matching).toBe(1)
         })
     })
 
@@ -220,12 +229,13 @@ describe('Hog Executor', () => {
                 ...HOG_FILTERS_EXAMPLES.no_filters,
             })
 
-            mockFunctionManager.getTeamHogFunctions.mockReturnValue({
-                [fn.id]: fn,
-            })
+            mockFunctionManager.getTeamHogFunctions.mockReturnValue([fn])
 
             // Simulate the recusive loop
-            const results = executor.executeMatchingFunctions(createHogExecutionGlobals())
+            const globals = createHogExecutionGlobals()
+            const results = executor
+                .findMatchingFunctions(createHogExecutionGlobals())
+                .functions.map((x) => executor.executeFunction(globals, x) as HogFunctionInvocationResult)
             expect(results).toHaveLength(1)
 
             // Run the result one time simulating a successful fetch
@@ -240,6 +250,46 @@ describe('Hog Executor', () => {
             expect(asyncResult2.finished).toBe(false)
             expect(asyncResult2.error).toEqual('Function exceeded maximum async steps')
             expect(asyncResult2.logs.map((log) => log.message)).toEqual(['Function exceeded maximum async steps'])
+        })
+    })
+
+    describe('slow functions', () => {
+        beforeEach(() => {
+            // We need to use real timers for this test as the timeout is based on real time
+            jest.useRealTimers()
+        })
+        it('limits the execution time and exits appropriately', () => {
+            const fn = createHogFunction({
+                ...HOG_EXAMPLES.malicious_function,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+
+            mockFunctionManager.getTeamHogFunctions.mockReturnValue([fn])
+
+            const globals = createHogExecutionGlobals()
+            const results = executor
+                .findMatchingFunctions(createHogExecutionGlobals())
+                .functions.map((x) => executor.executeFunction(globals, x) as HogFunctionInvocationResult)
+            expect(results).toHaveLength(1)
+            expect(results[0].error).toContain('Execution timed out after 0.1 seconds. Performed ')
+
+            expect(results[0].logs.map((log) => log.message)).toEqual([
+                'Executing function',
+                'I AM FIBONACCI',
+                'I AM FIBONACCI',
+                'I AM FIBONACCI',
+                'I AM FIBONACCI',
+                'I AM FIBONACCI',
+                'I AM FIBONACCI',
+                'I AM FIBONACCI',
+                'I AM FIBONACCI',
+                'I AM FIBONACCI',
+                'Function exceeded maximum log entries. No more logs will be collected.',
+                expect.stringContaining(
+                    'Error executing function: Error: Execution timed out after 0.1 seconds. Performed'
+                ),
+            ])
         })
     })
 })

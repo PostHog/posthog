@@ -396,6 +396,7 @@ ORDER BY "context.columns.visitors" DESC,
             WebStatsBreakdown.INITIAL_UTM_CONTENT,
             WebStatsBreakdown.INITIAL_PAGE,
             WebStatsBreakdown.EXIT_PAGE,
+            WebStatsBreakdown.INITIAL_UTM_SOURCE_MEDIUM_CAMPAIGN,
         }
 
     def _session_properties(self) -> ast.Expr:
@@ -466,6 +467,10 @@ ORDER BY "context.columns.visitors" DESC,
                 return ast.Field(chain=["session", "$entry_utm_content"])
             case WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
                 return ast.Field(chain=["session", "$channel_type"])
+            case WebStatsBreakdown.INITIAL_UTM_SOURCE_MEDIUM_CAMPAIGN:
+                return parse_expr(
+                    "concatWithSeparator(' / ', coalesce(nullIf(session.$entry_utm_source, ''), nullIf(session.$entry_referring_domain, ''), '(null)'), coalesce(nullIf(session.$entry_utm_medium, ''), '(null)'), coalesce(nullIf(session.$entry_utm_campaign, ''), '(null)'))"
+                )
             case WebStatsBreakdown.BROWSER:
                 return ast.Field(chain=["properties", "$browser"])
             case WebStatsBreakdown.OS:

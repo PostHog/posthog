@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import Enum, StrEnum
 from typing import Any, Literal, Optional, Union
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel
@@ -20,7 +20,7 @@ class MathGroupTypeIndex(float, Enum):
     NUMBER_4 = 4
 
 
-class AggregationAxisFormat(str, Enum):
+class AggregationAxisFormat(StrEnum):
     NUMERIC = "numeric"
     DURATION = "duration"
     DURATION_MS = "duration_ms"
@@ -28,7 +28,7 @@ class AggregationAxisFormat(str, Enum):
     PERCENTAGE_SCALED = "percentage_scaled"
 
 
-class Kind(str, Enum):
+class Kind(StrEnum):
     METHOD = "Method"
     FUNCTION = "Function"
     CONSTRUCTOR = "Constructor"
@@ -87,7 +87,7 @@ class AutocompleteCompletionItem(BaseModel):
     )
 
 
-class BaseMathType(str, Enum):
+class BaseMathType(StrEnum):
     TOTAL = "total"
     DAU = "dau"
     WEEKLY_ACTIVE = "weekly_active"
@@ -95,14 +95,14 @@ class BaseMathType(str, Enum):
     UNIQUE_SESSION = "unique_session"
 
 
-class BreakdownAttributionType(str, Enum):
+class BreakdownAttributionType(StrEnum):
     FIRST_TOUCH = "first_touch"
     LAST_TOUCH = "last_touch"
     ALL_EVENTS = "all_events"
     STEP = "step"
 
 
-class BreakdownType(str, Enum):
+class BreakdownType(StrEnum):
     COHORT = "cohort"
     PERSON = "person"
     EVENT = "event"
@@ -164,7 +164,7 @@ class ChartAxis(BaseModel):
     column: str
 
 
-class ChartDisplayType(str, Enum):
+class ChartDisplayType(StrEnum):
     ACTIONS_LINE_GRAPH = "ActionsLineGraph"
     ACTIONS_BAR = "ActionsBar"
     ACTIONS_AREA_GRAPH = "ActionsAreaGraph"
@@ -205,7 +205,7 @@ class CompareFilter(BaseModel):
     compare_to: Optional[str] = None
 
 
-class CountPerActorMathType(str, Enum):
+class CountPerActorMathType(StrEnum):
     AVG_COUNT_PER_ACTOR = "avg_count_per_actor"
     MIN_COUNT_PER_ACTOR = "min_count_per_actor"
     MAX_COUNT_PER_ACTOR = "max_count_per_actor"
@@ -255,14 +255,14 @@ class DatabaseSchemaSource(BaseModel):
     status: str
 
 
-class Type(str, Enum):
+class Type(StrEnum):
     POSTHOG = "posthog"
     DATA_WAREHOUSE = "data_warehouse"
     VIEW = "view"
     BATCH_EXPORT = "batch_export"
 
 
-class DatabaseSerializedFieldType(str, Enum):
+class DatabaseSerializedFieldType(StrEnum):
     INTEGER = "integer"
     FLOAT = "float"
     STRING = "string"
@@ -301,13 +301,13 @@ class Day(RootModel[int]):
     root: int
 
 
-class DurationType(str, Enum):
+class DurationType(StrEnum):
     DURATION = "duration"
     ACTIVE_SECONDS = "active_seconds"
     INACTIVE_SECONDS = "inactive_seconds"
 
 
-class Key(str, Enum):
+class Key(StrEnum):
     TAG_NAME = "tag_name"
     TEXT = "text"
     HREF = "href"
@@ -336,14 +336,14 @@ class EmptyPropertyFilter(BaseModel):
     )
 
 
-class EntityType(str, Enum):
+class EntityType(StrEnum):
     ACTIONS = "actions"
     EVENTS = "events"
     DATA_WAREHOUSE = "data_warehouse"
     NEW_ENTITY = "new_entity"
 
 
-class ErrorTrackingOrder(str, Enum):
+class ErrorTrackingOrder(StrEnum):
     LAST_SEEN = "last_seen"
     FIRST_SEEN = "first_seen"
     UNIQUE_OCCURRENCES = "unique_occurrences"
@@ -360,7 +360,7 @@ class EventDefinition(BaseModel):
     properties: dict[str, Any]
 
 
-class CorrelationType(str, Enum):
+class CorrelationType(StrEnum):
     SUCCESS = "success"
     FAILURE = "failure"
 
@@ -418,12 +418,12 @@ class EventsQueryPersonColumn(BaseModel):
     uuid: str
 
 
-class FilterLogicalOperator(str, Enum):
+class FilterLogicalOperator(StrEnum):
     AND_ = "AND"
     OR_ = "OR"
 
 
-class FunnelConversionWindowTimeUnit(str, Enum):
+class FunnelConversionWindowTimeUnit(StrEnum):
     SECOND = "second"
     MINUTE = "minute"
     HOUR = "hour"
@@ -440,7 +440,7 @@ class FunnelCorrelationResult(BaseModel):
     skewed: bool
 
 
-class FunnelCorrelationResultsType(str, Enum):
+class FunnelCorrelationResultsType(StrEnum):
     EVENTS = "events"
     PROPERTIES = "properties"
     EVENT_WITH_PROPERTIES = "event_with_properties"
@@ -468,18 +468,18 @@ class FunnelExclusionSteps(BaseModel):
     funnelToStep: int
 
 
-class FunnelLayout(str, Enum):
+class FunnelLayout(StrEnum):
     HORIZONTAL = "horizontal"
     VERTICAL = "vertical"
 
 
-class FunnelPathType(str, Enum):
+class FunnelPathType(StrEnum):
     FUNNEL_PATH_BEFORE_STEP = "funnel_path_before_step"
     FUNNEL_PATH_BETWEEN_STEPS = "funnel_path_between_steps"
     FUNNEL_PATH_AFTER_STEP = "funnel_path_after_step"
 
 
-class FunnelStepReference(str, Enum):
+class FunnelStepReference(StrEnum):
     TOTAL = "total"
     PREVIOUS = "previous"
 
@@ -492,7 +492,7 @@ class FunnelTimeToConvertResults(BaseModel):
     bins: list[list[int]]
 
 
-class FunnelVizType(str, Enum):
+class FunnelVizType(StrEnum):
     STEPS = "steps"
     TIME_TO_CONVERT = "time_to_convert"
     TRENDS = "trends"
@@ -516,44 +516,44 @@ class HogQLNotice(BaseModel):
     start: Optional[int] = None
 
 
-class BounceRatePageViewMode(str, Enum):
+class BounceRatePageViewMode(StrEnum):
     COUNT_PAGEVIEWS = "count_pageviews"
     UNIQ_URLS = "uniq_urls"
 
 
-class InCohortVia(str, Enum):
+class InCohortVia(StrEnum):
     AUTO = "auto"
     LEFTJOIN = "leftjoin"
     SUBQUERY = "subquery"
     LEFTJOIN_CONJOINED = "leftjoin_conjoined"
 
 
-class MaterializationMode(str, Enum):
+class MaterializationMode(StrEnum):
     AUTO = "auto"
     LEGACY_NULL_AS_STRING = "legacy_null_as_string"
     LEGACY_NULL_AS_NULL = "legacy_null_as_null"
     DISABLED = "disabled"
 
 
-class PersonsArgMaxVersion(str, Enum):
+class PersonsArgMaxVersion(StrEnum):
     AUTO = "auto"
     V1 = "v1"
     V2 = "v2"
 
 
-class PersonsJoinMode(str, Enum):
+class PersonsJoinMode(StrEnum):
     INNER = "inner"
     LEFT = "left"
 
 
-class PersonsOnEventsMode(str, Enum):
+class PersonsOnEventsMode(StrEnum):
     DISABLED = "disabled"
     PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS = "person_id_no_override_properties_on_events"
     PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS = "person_id_override_properties_on_events"
     PERSON_ID_OVERRIDE_PROPERTIES_JOINED = "person_id_override_properties_joined"
 
 
-class SessionTableVersion(str, Enum):
+class SessionTableVersion(StrEnum):
     AUTO = "auto"
     V1 = "v1"
     V2 = "v2"
@@ -586,7 +586,7 @@ class HogQueryResponse(BaseModel):
     stdout: Optional[str] = None
 
 
-class Compare(str, Enum):
+class Compare(StrEnum):
     CURRENT = "current"
     PREVIOUS = "previous"
 
@@ -626,7 +626,7 @@ class InsightDateRange(BaseModel):
     )
 
 
-class InsightFilterProperty(str, Enum):
+class InsightFilterProperty(StrEnum):
     TRENDS_FILTER = "trendsFilter"
     FUNNELS_FILTER = "funnelsFilter"
     RETENTION_FILTER = "retentionFilter"
@@ -635,7 +635,7 @@ class InsightFilterProperty(str, Enum):
     LIFECYCLE_FILTER = "lifecycleFilter"
 
 
-class InsightNodeKind(str, Enum):
+class InsightNodeKind(StrEnum):
     TRENDS_QUERY = "TrendsQuery"
     FUNNELS_QUERY = "FunnelsQuery"
     RETENTION_QUERY = "RetentionQuery"
@@ -644,7 +644,7 @@ class InsightNodeKind(str, Enum):
     LIFECYCLE_QUERY = "LifecycleQuery"
 
 
-class InsightType(str, Enum):
+class InsightType(StrEnum):
     TRENDS = "TRENDS"
     STICKINESS = "STICKINESS"
     LIFECYCLE = "LIFECYCLE"
@@ -656,7 +656,7 @@ class InsightType(str, Enum):
     HOG = "HOG"
 
 
-class IntervalType(str, Enum):
+class IntervalType(StrEnum):
     MINUTE = "minute"
     HOUR = "hour"
     DAY = "day"
@@ -664,14 +664,14 @@ class IntervalType(str, Enum):
     MONTH = "month"
 
 
-class LifecycleToggle(str, Enum):
+class LifecycleToggle(StrEnum):
     NEW = "new"
     RESURRECTING = "resurrecting"
     RETURNING = "returning"
     DORMANT = "dormant"
 
 
-class NodeKind(str, Enum):
+class NodeKind(StrEnum):
     EVENTS_NODE = "EventsNode"
     ACTIONS_NODE = "ActionsNode"
     DATA_WAREHOUSE_NODE = "DataWarehouseNode"
@@ -716,7 +716,7 @@ class PathCleaningFilter(BaseModel):
     regex: Optional[str] = None
 
 
-class PathType(str, Enum):
+class PathType(StrEnum):
     FIELD_PAGEVIEW = "$pageview"
     FIELD_SCREEN = "$screen"
     CUSTOM_EVENT = "custom_event"
@@ -765,7 +765,7 @@ class PathsFilterLegacy(BaseModel):
     step_limit: Optional[int] = None
 
 
-class PropertyFilterType(str, Enum):
+class PropertyFilterType(StrEnum):
     META = "meta"
     EVENT = "event"
     PERSON = "person"
@@ -780,7 +780,7 @@ class PropertyFilterType(str, Enum):
     DATA_WAREHOUSE_PERSON_PROPERTY = "data_warehouse_person_property"
 
 
-class PropertyMathType(str, Enum):
+class PropertyMathType(StrEnum):
     AVG = "avg"
     SUM = "sum"
     MIN = "min"
@@ -791,7 +791,7 @@ class PropertyMathType(str, Enum):
     P99 = "p99"
 
 
-class PropertyOperator(str, Enum):
+class PropertyOperator(StrEnum):
     EXACT = "exact"
     IS_NOT = "is_not"
     ICONTAINS = "icontains"
@@ -874,6 +874,7 @@ class QueryStatus(BaseModel):
     error_message: Optional[str] = None
     expiration_time: Optional[AwareDatetime] = None
     id: str
+    labels: Optional[list[str]] = None
     query_async: Literal[True] = Field(default=True, description="ONLY async queries use QueryStatus.")
     query_progress: Optional[ClickhouseQueryProgress] = None
     results: Optional[Any] = None
@@ -908,7 +909,7 @@ class RecordingPropertyFilter(BaseModel):
     value: Optional[Union[str, float, list[Union[str, float]]]] = None
 
 
-class Kind1(str, Enum):
+class Kind1(StrEnum):
     ACTIONS_NODE = "ActionsNode"
     EVENTS_NODE = "EventsNode"
 
@@ -926,19 +927,19 @@ class RetentionEntity(BaseModel):
     uuid: Optional[str] = None
 
 
-class RetentionReference(str, Enum):
+class RetentionReference(StrEnum):
     TOTAL = "total"
     PREVIOUS = "previous"
 
 
-class RetentionPeriod(str, Enum):
+class RetentionPeriod(StrEnum):
     HOUR = "Hour"
     DAY = "Day"
     WEEK = "Week"
     MONTH = "Month"
 
 
-class RetentionType(str, Enum):
+class RetentionType(StrEnum):
     RETENTION_RECURRING = "retention_recurring"
     RETENTION_FIRST_TIME = "retention_first_time"
 
@@ -969,7 +970,7 @@ class SessionPropertyFilter(BaseModel):
     value: Optional[Union[str, float, list[Union[str, float]]]] = None
 
 
-class StepOrderValue(str, Enum):
+class StepOrderValue(StrEnum):
     STRICT = "strict"
     UNORDERED = "unordered"
     ORDERED = "ordered"
@@ -1100,6 +1101,11 @@ class TimelineEntry(BaseModel):
     sessionId: Optional[str] = Field(default=None, description="Session ID. None means out-of-session events")
 
 
+class YAxisScaleType(StrEnum):
+    LOG10 = "log10"
+    LINEAR = "linear"
+
+
 class TrendsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1117,6 +1123,7 @@ class TrendsFilter(BaseModel):
     showPercentStackView: Optional[bool] = False
     showValuesOnSeries: Optional[bool] = False
     smoothingIntervals: Optional[int] = 1
+    yAxisScaleType: Optional[YAxisScaleType] = None
 
 
 class TrendsFilterLegacy(BaseModel):
@@ -1138,6 +1145,7 @@ class TrendsFilterLegacy(BaseModel):
     show_percent_stack_view: Optional[bool] = None
     show_values_on_series: Optional[bool] = None
     smoothing_intervals: Optional[float] = None
+    y_axis_scale_type: Optional[YAxisScaleType] = None
 
 
 class TrendsQueryResponse(BaseModel):
@@ -1183,7 +1191,7 @@ class VizSpecificOptions(BaseModel):
     RETENTION: Optional[RETENTION] = None
 
 
-class Kind2(str, Enum):
+class Kind2(StrEnum):
     UNIT = "unit"
     DURATION_S = "duration_s"
     PERCENTAGE = "percentage"
@@ -1230,7 +1238,7 @@ class WebOverviewQueryResponse(BaseModel):
     )
 
 
-class WebStatsBreakdown(str, Enum):
+class WebStatsBreakdown(StrEnum):
     PAGE = "Page"
     INITIAL_PAGE = "InitialPage"
     EXIT_PAGE = "ExitPage"
@@ -1241,6 +1249,7 @@ class WebStatsBreakdown(str, Enum):
     INITIAL_UTM_MEDIUM = "InitialUTMMedium"
     INITIAL_UTM_TERM = "InitialUTMTerm"
     INITIAL_UTM_CONTENT = "InitialUTMContent"
+    INITIAL_UTM_SOURCE_MEDIUM_CAMPAIGN = "InitialUTMSourceMediumCampaign"
     BROWSER = "Browser"
     OS = "OS"
     DEVICE_TYPE = "DeviceType"
@@ -3289,6 +3298,30 @@ class HogQLFilters(BaseModel):
     ] = None
 
 
+class HogQLMetadata(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    debug: Optional[bool] = Field(
+        default=None, description="Enable more verbose output, usually run from the /debug page"
+    )
+    expr: Optional[str] = Field(default=None, description="HogQL expression to validate")
+    exprSource: Optional[str] = Field(
+        default=None,
+        description='Query within which "expr" and "template" are validated. Defaults to "select * from events"',
+    )
+    filters: Optional[HogQLFilters] = Field(default=None, description="Extra filters applied to query via {filters}")
+    kind: Literal["HogQLMetadata"] = "HogQLMetadata"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    program: Optional[str] = Field(default=None, description="Hog program to validate")
+    response: Optional[HogQLMetadataResponse] = None
+    select: Optional[str] = Field(default=None, description="Select query to validate")
+    table: Optional[str] = Field(default=None, description="Table to validate the expression against")
+    template: Optional[str] = Field(default=None, description="Template string to validate")
+
+
 class HogQLQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4394,6 +4427,48 @@ class ActorsQuery(BaseModel):
     source: Optional[Union[InsightActorsQuery, FunnelsActorsQuery, FunnelCorrelationActorsQuery, HogQLQuery]] = None
 
 
+class AnyDataNode(
+    RootModel[
+        Union[
+            EventsNode,
+            ActionsNode,
+            PersonsNode,
+            TimeToSeeDataSessionsQuery,
+            EventsQuery,
+            ActorsQuery,
+            InsightActorsQuery,
+            InsightActorsQueryOptions,
+            SessionsTimelineQuery,
+            HogQuery,
+            HogQLQuery,
+            HogQLMetadata,
+            HogQLAutocomplete,
+            WebOverviewQuery,
+            WebStatsTableQuery,
+            WebTopClicksQuery,
+        ]
+    ]
+):
+    root: Union[
+        EventsNode,
+        ActionsNode,
+        PersonsNode,
+        TimeToSeeDataSessionsQuery,
+        EventsQuery,
+        ActorsQuery,
+        InsightActorsQuery,
+        InsightActorsQueryOptions,
+        SessionsTimelineQuery,
+        HogQuery,
+        HogQLQuery,
+        HogQLMetadata,
+        HogQLAutocomplete,
+        WebOverviewQuery,
+        WebStatsTableQuery,
+        WebTopClicksQuery,
+    ]
+
+
 class DataTableNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4452,108 +4527,6 @@ class DataTableNode(BaseModel):
         WebStatsTableQuery,
         WebTopClicksQuery,
     ] = Field(..., description="Source of the events")
-
-
-class HogQLMetadata(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    debug: Optional[bool] = Field(
-        default=None, description="Enable more verbose output, usually run from the /debug page"
-    )
-    expr: Optional[str] = Field(default=None, description="HogQL expression to validate")
-    exprSource: Optional[
-        Union[
-            EventsNode,
-            ActionsNode,
-            PersonsNode,
-            TimeToSeeDataSessionsQuery,
-            EventsQuery,
-            ActorsQuery,
-            InsightActorsQuery,
-            InsightActorsQueryOptions,
-            SessionsTimelineQuery,
-            HogQuery,
-            HogQLQuery,
-            HogQLMetadata,
-            HogQLAutocomplete,
-            WebOverviewQuery,
-            WebStatsTableQuery,
-            WebTopClicksQuery,
-        ]
-    ] = Field(
-        default=None,
-        description='Query within which "expr" and "template" are validated. Defaults to "select * from events"',
-    )
-    filters: Optional[HogQLFilters] = Field(default=None, description="Extra filters applied to query via {filters}")
-    kind: Literal["HogQLMetadata"] = "HogQLMetadata"
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    program: Optional[str] = Field(default=None, description="Hog program to validate")
-    response: Optional[HogQLMetadataResponse] = None
-    select: Optional[str] = Field(default=None, description="Select query to validate")
-    table: Optional[str] = Field(default=None, description="Table to validate the expression against")
-    template: Optional[str] = Field(default=None, description="Template string to validate")
-
-
-class QueryRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    async_: Optional[bool] = Field(
-        default=None,
-        alias="async",
-        description=(
-            "(Experimental) Whether to run the query asynchronously. Defaults to False. If True, the `id` of the query"
-            " can be used to check the status and to cancel it."
-        ),
-        examples=[True],
-    )
-    client_query_id: Optional[str] = Field(
-        default=None, description="Client provided query ID. Can be used to retrieve the status or cancel the query."
-    )
-    query: Union[
-        EventsNode,
-        ActionsNode,
-        PersonsNode,
-        DataWarehouseNode,
-        TimeToSeeDataSessionsQuery,
-        EventsQuery,
-        ActorsQuery,
-        InsightActorsQuery,
-        InsightActorsQueryOptions,
-        SessionsTimelineQuery,
-        HogQuery,
-        HogQLQuery,
-        HogQLMetadata,
-        HogQLAutocomplete,
-        WebOverviewQuery,
-        WebStatsTableQuery,
-        WebTopClicksQuery,
-        DataVisualizationNode,
-        DataTableNode,
-        SavedInsightNode,
-        InsightVizNode,
-        TrendsQuery,
-        FunnelsQuery,
-        RetentionQuery,
-        PathsQuery,
-        StickinessQuery,
-        LifecycleQuery,
-        FunnelCorrelationQuery,
-        DatabaseSchemaQuery,
-    ] = Field(
-        ...,
-        description=(
-            "Submit a JSON string representing a query for PostHog data analysis, for example a HogQL query.\n\nExample"
-            ' payload:\n\n```\n\n{"query": {"kind": "HogQLQuery", "query": "select * from events limit'
-            ' 100"}}\n\n```\n\nFor more details on HogQL queries, see the [PostHog HogQL'
-            " documentation](/docs/hogql#api-access)."
-        ),
-        discriminator="kind",
-    )
-    refresh: Optional[Union[bool, str]] = None
 
 
 class QuerySchemaRoot(
@@ -4624,5 +4597,63 @@ class QuerySchemaRoot(
     ] = Field(..., discriminator="kind")
 
 
+class QueryRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    async_: Optional[bool] = Field(
+        default=None,
+        alias="async",
+        description=(
+            "(Experimental) Whether to run the query asynchronously. Defaults to False. If True, the `id` of the query"
+            " can be used to check the status and to cancel it."
+        ),
+        examples=[True],
+    )
+    client_query_id: Optional[str] = Field(
+        default=None, description="Client provided query ID. Can be used to retrieve the status or cancel the query."
+    )
+    query: Union[
+        EventsNode,
+        ActionsNode,
+        PersonsNode,
+        DataWarehouseNode,
+        TimeToSeeDataSessionsQuery,
+        EventsQuery,
+        ActorsQuery,
+        InsightActorsQuery,
+        InsightActorsQueryOptions,
+        SessionsTimelineQuery,
+        HogQuery,
+        HogQLQuery,
+        HogQLMetadata,
+        HogQLAutocomplete,
+        WebOverviewQuery,
+        WebStatsTableQuery,
+        WebTopClicksQuery,
+        DataVisualizationNode,
+        DataTableNode,
+        SavedInsightNode,
+        InsightVizNode,
+        TrendsQuery,
+        FunnelsQuery,
+        RetentionQuery,
+        PathsQuery,
+        StickinessQuery,
+        LifecycleQuery,
+        FunnelCorrelationQuery,
+        DatabaseSchemaQuery,
+    ] = Field(
+        ...,
+        description=(
+            "Submit a JSON string representing a query for PostHog data analysis, for example a HogQL query.\n\nExample"
+            ' payload:\n\n```\n\n{"query": {"kind": "HogQLQuery", "query": "select * from events limit'
+            ' 100"}}\n\n```\n\nFor more details on HogQL queries, see the [PostHog HogQL'
+            " documentation](/docs/hogql#api-access)."
+        ),
+        discriminator="kind",
+    )
+    refresh: Optional[Union[bool, str]] = None
+
+
 PropertyGroupFilterValue.model_rebuild()
-QueryRequest.model_rebuild()

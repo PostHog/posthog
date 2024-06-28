@@ -228,8 +228,10 @@ def ingestion_lag() -> None:
         pass
 
 
-@shared_task(ignore_result=True)
+@shared_task(ignore_result=True, queue=CeleryQueue.SESSION_REPLAY_GENERAL.value)
 def invalid_web_replays() -> None:
+    logger.info("[invalid web replays] running task")
+
     from posthog.client import sync_execute
 
     # ultimately I want to observe values by team id, but at the moment that would be lots of series, let's reduce the value first
@@ -277,7 +279,7 @@ def invalid_web_replays() -> None:
                 count = results[0][i]
                 gauge.set(count)
     except Exception as e:
-        logger.error("Failed to run invalid web replays task", error=e, inc_exc_info=True)
+        logger.exception("Failed to run invalid web replays task", error=e, inc_exc_info=True)
 
 
 KNOWN_CELERY_TASK_IDENTIFIERS = {
@@ -615,7 +617,7 @@ def poll_query_performance(last_known_run_time_ns: int) -> None:
 
         poll_query_performance_nontask()
     except Exception as e:
-        logger.error("Poll query performance failed", error=e)
+        logger.exception("Poll query performance failed", error=e)
 
     elapsed_ns = time.time_ns() - start_time_ns
     if elapsed_ns > Polling.TIME_BETWEEN_RUNS_NANOSECONDS:
@@ -645,7 +647,7 @@ def start_poll_query_performance() -> None:
             poll_query_performance.delay(last_run_start_time_ns)
 
     except Exception as e:
-        logger.error("Restarting poll query performance because of an error", error=e)
+        logger.exception("Restarting poll query performance because of an error", error=e)
         poll_query_performance.delay(last_run_start_time_ns)
 
 
@@ -920,3 +922,13 @@ def calculate_replay_error_clusters() -> None:
         pass
     except Exception as e:
         logger.error("Failed to calculate replay error clusters", error=e, exc_info=True)
+
+
+@shared_task(ignore_result=True)
+def calculate_external_data_rows_synced() -> None:
+    try:
+        from posthog.tasks.warehouse import capture_external_data_rows_synced
+    except ImportError:
+        pass
+    else:
+        capture_external_data_rows_synced()

@@ -16,10 +16,14 @@ import { editor, editor as importedEditor, IDisposable } from 'monaco-editor'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { DataNode } from '~/queries/schema'
 
 export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> {
     queryKey?: string
     autocompleteContext?: string
+    onPressCmdEnter?: (value: string) => void
+    autoFocus?: boolean
+    metadataSource?: DataNode
 }
 let codeEditorIndex = 0
 
@@ -37,13 +41,13 @@ function initEditor(
     if (editorProps?.language === 'hog') {
         if (!monaco.languages.getLanguages().some(({ id }) => id === 'hog')) {
             monaco.languages.register({ id: 'hog', extensions: ['.hog'], mimetypes: ['application/hog'] })
-            monaco.languages.setLanguageConfiguration('hog', hog.conf)
-            monaco.languages.setMonarchTokensProvider('hog', hog.language)
+            monaco.languages.setLanguageConfiguration('hog', hog.conf())
+            monaco.languages.setMonarchTokensProvider('hog', hog.language())
             monaco.languages.registerCodeActionProvider('hog', hogQLMetadataProvider())
         }
     }
-    if (editorProps?.language === 'hogQL' || editorProps?.language === 'hogExpr') {
-        const language: 'hogQL' | 'hogExpr' = editorProps.language
+    if (editorProps?.language === 'hogQL' || editorProps?.language === 'hogQLExpr') {
+        const language: 'hogQL' | 'hogQLExpr' = editorProps.language
         if (!monaco.languages.getLanguages().some(({ id }) => id === language)) {
             monaco.languages.register(
                 language === 'hogQL'
@@ -57,8 +61,8 @@ function initEditor(
                           mimetypes: ['application/hogql+expr'],
                       }
             )
-            monaco.languages.setLanguageConfiguration(language, hogQL.conf)
-            monaco.languages.setMonarchTokensProvider(language, hogQL.language)
+            monaco.languages.setLanguageConfiguration(language, hogQL.conf())
+            monaco.languages.setMonarchTokensProvider(language, hogQL.language())
             monaco.languages.registerCompletionItemProvider(language, hogQLAutocompleteProvider(language))
             monaco.languages.registerCodeActionProvider(language, hogQLMetadataProvider())
         }
@@ -69,8 +73,8 @@ function initEditor(
                 id: 'hogTemplate',
                 mimetypes: ['application/hog+template'],
             })
-            monaco.languages.setLanguageConfiguration('hogTemplate', hogTemplate.conf)
-            monaco.languages.setMonarchTokensProvider('hogTemplate', hogTemplate.language)
+            monaco.languages.setLanguageConfiguration('hogTemplate', hogTemplate.conf())
+            monaco.languages.setMonarchTokensProvider('hogTemplate', hogTemplate.language())
             monaco.languages.registerCompletionItemProvider('hogTemplate', hogQLAutocompleteProvider('hogTemplate'))
             monaco.languages.registerCodeActionProvider('hogTemplate', hogQLMetadataProvider())
         }
@@ -105,7 +109,16 @@ function initEditor(
     }
 }
 
-export function CodeEditor({ queryKey, options, onMount, value, ...editorProps }: CodeEditorProps): JSX.Element {
+export function CodeEditor({
+    queryKey,
+    options,
+    onMount,
+    value,
+    onPressCmdEnter,
+    autoFocus,
+    metadataSource,
+    ...editorProps
+}: CodeEditorProps): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
     const scrollbarRendering = !inStorybookTestRunner() ? 'auto' : 'hidden'
     const [monacoAndEditor, setMonacoAndEditor] = useState(
@@ -118,6 +131,7 @@ export function CodeEditor({ queryKey, options, onMount, value, ...editorProps }
         key: queryKey ?? `new/${realKey}`,
         query: value ?? '',
         language: editorProps.language,
+        metadataSource: metadataSource,
         monaco: monaco,
         editor: editor,
     })
@@ -177,12 +191,33 @@ export function CodeEditor({ queryKey, options, onMount, value, ...editorProps }
                 },
             }}
             value={value}
-            {...editorProps}
             onMount={(editor, monaco) => {
                 setMonacoAndEditor([monaco, editor])
                 initEditor(monaco, editor, editorProps, options ?? {}, builtCodeEditorLogic)
+                if (onPressCmdEnter) {
+                    monacoDisposables.current.push(
+                        editor.addAction({
+                            id: 'saveAndRunPostHog',
+                            label: 'Save and run query',
+                            keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter],
+                            run: () => onPressCmdEnter(editor.getValue()),
+                        })
+                    )
+                }
+                if (autoFocus) {
+                    editor.focus()
+                    const model = editor.getModel()
+                    if (model) {
+                        editor.setPosition({
+                            column: model.getLineContent(model.getLineCount()).length + 1,
+                            lineNumber: model.getLineCount(),
+                        })
+                    }
+                }
+
                 onMount?.(editor, monaco)
             }}
+            {...editorProps}
         />
     )
 }

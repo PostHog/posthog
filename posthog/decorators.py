@@ -1,4 +1,4 @@
-from enum import Enum
+from enum import StrEnum
 from functools import wraps
 from typing import Any, TypeVar, Union, cast
 from collections.abc import Callable
@@ -17,7 +17,7 @@ from posthog.utils import refresh_requested_by_client
 from .utils import generate_cache_key, get_safe_cache
 
 
-class CacheType(str, Enum):
+class CacheType(StrEnum):
     TRENDS = "Trends"
     FUNNEL = "Funnel"
     RETENTION = "Retention"

@@ -41,9 +41,7 @@ def assert_records_match_events(records, events):
                 key in ("timestamp", "_inserted_at", "created_at")
                 and expected.get(key.removeprefix("_"), None) is not None
             ):
-                assert value == dt.datetime.fromisoformat(expected[key.removeprefix("_")]).replace(
-                    tzinfo=dt.timezone.utc
-                ), msg
+                assert value == dt.datetime.fromisoformat(expected[key.removeprefix("_")]).replace(tzinfo=dt.UTC), msg
             elif isinstance(expected[key], dict):
                 assert value == json.dumps(expected[key]), msg
             else:
@@ -289,7 +287,7 @@ async def test_iter_records_with_single_field_and_alias(clickhouse_client, field
 
         if isinstance(result, dt.datetime):
             # Event generation function returns datetimes as strings.
-            expected_value = dt.datetime.fromisoformat(expected_value).replace(tzinfo=dt.timezone.utc)
+            expected_value = dt.datetime.fromisoformat(expected_value).replace(tzinfo=dt.UTC)
 
         assert result == expected_value
 
@@ -388,16 +386,16 @@ async def test_iter_records_uses_extra_query_parameters(clickhouse_client):
             "hour",
             "2023-08-01T00:00:00+00:00",
             (
-                dt.datetime(2023, 7, 31, 23, 0, 0, tzinfo=dt.timezone.utc),
-                dt.datetime(2023, 8, 1, 0, 0, 0, tzinfo=dt.timezone.utc),
+                dt.datetime(2023, 7, 31, 23, 0, 0, tzinfo=dt.UTC),
+                dt.datetime(2023, 8, 1, 0, 0, 0, tzinfo=dt.UTC),
             ),
         ),
         (
             "day",
             "2023-08-01T00:00:00+00:00",
             (
-                dt.datetime(2023, 7, 31, 0, 0, 0, tzinfo=dt.timezone.utc),
-                dt.datetime(2023, 8, 1, 0, 0, 0, tzinfo=dt.timezone.utc),
+                dt.datetime(2023, 7, 31, 0, 0, 0, tzinfo=dt.UTC),
+                dt.datetime(2023, 8, 1, 0, 0, 0, tzinfo=dt.UTC),
             ),
         ),
     ],
