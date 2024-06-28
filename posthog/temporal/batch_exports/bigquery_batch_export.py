@@ -214,7 +214,7 @@ class BigQueryClient(bigquery.Client):
         for n, field in enumerate(merge_key):
             if n > 0:
                 merge_condition += " AND "
-            merge_condition += f"final.{field.name} = stage.{field.name}"
+            merge_condition += f"final.`{field.name}` = stage.`{field.name}`"
 
         update_clause = ""
         values = ""
@@ -225,9 +225,9 @@ class BigQueryClient(bigquery.Client):
                 values += ", "
                 field_names += ", "
 
-            update_clause += f"final.{field.name} = stage.{field.name}"
-            field_names += field.name
-            values += f"stage.{field.name}"
+            update_clause += f"final.`{field.name}` = stage.`{field.name}`"
+            field_names += f"`{field.name}`"
+            values += f"stage.`{field.name}`"
 
         merge_query = f"""
         MERGE `{final_table.full_table_id.replace(":", ".", 1)}` final
