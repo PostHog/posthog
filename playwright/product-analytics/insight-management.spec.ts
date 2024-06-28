@@ -5,7 +5,7 @@ import { InsightType } from '~/types'
 
 import { SettingsPage } from '../settingsPage'
 import { ToastObject } from '../shared/toastObject'
-import { getLemonSwitchValue, setLemonSwitchValue } from '../utils'
+import { getLemonSwitchValue } from '../utils'
 import { InsightPage } from './insightPage'
 
 test('can create insight', async ({ page }) => {
@@ -111,7 +111,30 @@ test("can't save unchanged insight", async ({ page }) => {
     await expect(insight.saveButton).toBeDisabled()
 })
 
-test('requires confirmation to navigate away from changed insight', async ({ page }) => {
+test('requires confirmation to navigate away from changed insight (dismissed)', async ({ page }) => {
+    let dialogMessage = null
+    page.on('dialog', async (dialog) => {
+        dialogMessage = dialog.message()
+        await dialog.dismiss()
+    })
+    const insight = await new InsightPage(page).createNew()
+
+    // add an autocapture series
+    await insight.edit()
+    // :FIXME: Reload shouldn't be necessary to trigger the confirmation dialog
+    await page.reload()
+    await insight.waitForDetailsTable()
+    // END FIXME
+    await insight.addEntityButton.click()
+    await insight.secondEntity.click()
+    await page.getByText('Autocapture').click()
+
+    await page.getByRole('link', { name: 'Home' }).click()
+    expect(dialogMessage).toContain('Leave insight?')
+    await expect(page).toHaveURL(/\/insights\/(\w+)\/edit$/)
+})
+
+test('requires confirmation to navigate away from changed insight (accepted)', async ({ page }) => {
     let dialogMessage = null
     page.on('dialog', async (dialog) => {
         dialogMessage = dialog.message()
@@ -131,6 +154,7 @@ test('requires confirmation to navigate away from changed insight', async ({ pag
 
     await page.getByRole('link', { name: 'Home' }).click()
     expect(dialogMessage).toContain('Leave insight?')
+    await expect(page).toHaveURL(/\/project\/(\d+)$/)
 })
 
 test("doesn't require confirmation to navigate away from unchanged insight", async ({ page }) => {
