@@ -137,6 +137,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         RUSTY_HOOK_ROLLOUT_PERCENTAGE: 0,
         RUSTY_HOOK_URL: '',
         CAPTURE_CONFIG_REDIS_HOST: null,
+        HEATMAPS_PROCESSING_ENABLED: true,
 
         STARTUP_PROFILE_DURATION_SECONDS: 300, // 5 minutes
         STARTUP_PROFILE_CPU: false,

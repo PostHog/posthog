@@ -29,17 +29,19 @@ export function extractHeatmapDataStep(
     let acks: Promise<void>[] = []
 
     try {
-        const heatmapEvents = extractScrollDepthHeatmapData(event) ?? []
+        if (runner.hub.HEATMAPS_PROCESSING_ENABLED) {
+            const heatmapEvents = extractScrollDepthHeatmapData(event) ?? []
 
-        // eslint-disable-next-line @typescript-eslint/no-floating-promises
-        acks = heatmapEvents.map((rawEvent) => {
-            return runner.hub.kafkaProducer.produce({
-                topic: runner.hub.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
-                key: eventUuid,
-                value: Buffer.from(JSON.stringify(rawEvent)),
-                waitForAck: true,
+            // eslint-disable-next-line @typescript-eslint/no-floating-promises
+            acks = heatmapEvents.map((rawEvent) => {
+                return runner.hub.kafkaProducer.produce({
+                    topic: runner.hub.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
+                    key: eventUuid,
+                    value: Buffer.from(JSON.stringify(rawEvent)),
+                    waitForAck: true,
+                })
             })
-        })
+        }
     } catch (e) {
         acks.push(
             captureIngestionWarning(runner.hub.kafkaProducer, teamId, 'invalid_heatmap_data', {

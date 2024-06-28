@@ -130,12 +130,22 @@ describe('extractHeatmapDataStep()', () => {
         event = cloneObject(preIngestionEvent)
         runner = {
             hub: {
+                HEATMAPS_PROCESSING_ENABLED: true,
                 kafkaProducer: {
                     produce: jest.fn((e) => Promise.resolve(e)),
                 },
             },
             nextStep: (...args: any[]) => args,
         }
+    })
+
+    it('drops the $heatmap_data if processing disabled', async () => {
+        runner.hub.HEATMAPS_PROCESSING_ENABLED = false
+        const response = await extractHeatmapDataStep(runner, event)
+        expect(response[0]).toEqual(event)
+        expect(response[0].properties.$heatmap_data).toBeUndefined() // Should still be removed from event
+        expect(response[1]).toHaveLength(0)
+        expect(runner.hub.kafkaProducer.produce).toBeCalledTimes(0) // No message to kafka
     })
 
     it('parses and ingests correct $heatmap_data', async () => {
