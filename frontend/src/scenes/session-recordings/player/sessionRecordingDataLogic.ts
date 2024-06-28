@@ -1,5 +1,5 @@
 import posthogEE from '@posthog/ee/exports'
-import { EventType, eventWithTime } from '@rrweb/types'
+import { customEvent, EventType, eventWithTime } from '@rrweb/types'
 import { captureException } from '@sentry/react'
 import {
     actions,
@@ -886,8 +886,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
         customRRWebEvents: [
             (s) => [s.snapshots],
-            (snapshots): eventWithTime[] => {
-                return snapshots.filter((snapshot) => snapshot.type === EventType.Custom)
+            (snapshots): customEvent[] => {
+                return snapshots.filter((snapshot) => snapshot.type === EventType.Custom).map((x) => x as customEvent)
             },
         ],
     })),

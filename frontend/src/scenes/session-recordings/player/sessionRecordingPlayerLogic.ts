@@ -179,7 +179,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setIsFullScreen: (isFullScreen: boolean) => ({ isFullScreen }),
         skipPlayerForward: (rrWebPlayerTime: number, skip: number) => ({ rrWebPlayerTime, skip }),
         incrementClickCount: true,
-        // the error is emitted from code we don't control in rrweb so we can't guarantee it's really an Error
+        // the error is emitted from code we don't control in rrweb, so we can't guarantee it's really an Error
         playerErrorSeen: (error: any) => ({ error }),
         fingerprintReported: (fingerprint: string) => ({ fingerprint }),
     }),
@@ -470,7 +470,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         messageTooLargeWarnings: [
             (s) => [s.customRRWebEvents],
             (customRRWebEvents) => {
-                return customRRWebEvents.filter((event) => event.data.payload.tag === 'Message too large')
+                return customRRWebEvents.filter((event) => event.data.tag === 'Message too large')
             },
         ],
     }),
