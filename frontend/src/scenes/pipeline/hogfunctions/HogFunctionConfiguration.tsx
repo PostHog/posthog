@@ -24,21 +24,15 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 import { groupsModel } from '~/models/groupsModel'
 import { EntityTypes } from '~/types'
 
+import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
 import { HogFunctionIconEditable } from './HogFunctionIcon'
 import { HogFunctionInputs } from './HogFunctionInputs'
 import { HogFunctionStatusIndicator } from './HogFunctionStatusIndicator'
 import { HogFunctionTest, HogFunctionTestPlaceholder } from './HogFunctionTest'
-import { pipelineHogFunctionConfigurationLogic } from './pipelineHogFunctionConfigurationLogic'
 
-export function PipelineHogFunctionConfiguration({
-    templateId,
-    id,
-}: {
-    templateId?: string
-    id?: string
-}): JSX.Element {
+export function HogFunctionConfiguration({ templateId, id }: { templateId?: string; id?: string }): JSX.Element {
     const logicProps = { templateId, id }
-    const logic = pipelineHogFunctionConfigurationLogic(logicProps)
+    const logic = hogFunctionConfigurationLogic(logicProps)
     const {
         isConfigurationSubmitting,
         configurationChanged,
@@ -116,7 +110,7 @@ export function PipelineHogFunctionConfiguration({
 
     return (
         <div className="space-y-3">
-            <BindLogic logic={pipelineHogFunctionConfigurationLogic} props={logicProps}>
+            <BindLogic logic={hogFunctionConfigurationLogic} props={logicProps}>
                 <PageHeader
                     buttons={
                         <>
@@ -127,7 +121,7 @@ export function PipelineHogFunctionConfiguration({
                 />
 
                 <Form
-                    logic={pipelineHogFunctionConfigurationLogic}
+                    logic={hogFunctionConfigurationLogic}
                     props={logicProps}
                     formKey="configuration"
                     className="space-y-3"
