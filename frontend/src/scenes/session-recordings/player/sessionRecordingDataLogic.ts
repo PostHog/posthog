@@ -835,9 +835,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     })
                 }
 
-                const minutesSinceRecording = dayjs().diff(start, 'minute')
-
-                return everyWindowMissingFullSnapshot && minutesSinceRecording <= 5
+                return everyWindowMissingFullSnapshot
             },
         ],
 
