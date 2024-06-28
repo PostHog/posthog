@@ -883,6 +883,13 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 })
             },
         ],
+
+        customRRWebEvents: [
+            (s) => [s.snapshots],
+            (snapshots): eventWithTime[] => {
+                return snapshots.filter((snapshot) => snapshot.type === EventType.Custom)
+            },
+        ],
     })),
     afterMount(({ cache }) => {
         resetTimingsCache(cache)

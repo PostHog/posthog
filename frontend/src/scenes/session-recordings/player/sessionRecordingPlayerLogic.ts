@@ -107,6 +107,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'sessionPlayerMetaData',
                 'sessionPlayerMetaDataLoading',
                 'createExportJSON',
+                'customRRWebEvents',
             ],
             playerSettingsLogic,
             ['speed', 'skipInactivitySetting'],
@@ -463,6 +464,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     }
                     return null
                 }
+            },
+        ],
+
+        messageTooLargeWarnings: [
+            (s) => [s.customRRWebEvents],
+            (customRRWebEvents) => {
+                return customRRWebEvents.filter((event) => event.data.payload.tag === 'Message too large')
             },
         ],
     }),
