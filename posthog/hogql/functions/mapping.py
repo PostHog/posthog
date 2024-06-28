@@ -931,6 +931,7 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "kurtPopIf": HogQLFunctionMeta("kurtPopIf", 2, 2, aggregate=True),
     "uniq": HogQLFunctionMeta("uniq", 1, None, aggregate=True),
     "uniqIf": HogQLFunctionMeta("uniqIf", 2, None, aggregate=True),
+    "uniqMerge": HogQLFunctionMeta("uniqMerge", 1, None, aggregate=True),
     "uniqExact": HogQLFunctionMeta("uniqExact", 1, None, aggregate=True),
     "uniqExactIf": HogQLFunctionMeta("uniqExactIf", 2, None, aggregate=True),
     # "uniqCombined": HogQLFunctionMeta("uniqCombined", 1, 1, aggregate=True),
