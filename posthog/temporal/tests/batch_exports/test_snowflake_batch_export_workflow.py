@@ -981,8 +981,8 @@ async def test_insert_into_snowflake_activity_inserts_data_into_snowflake_table(
     that they appear in the expected Snowflake table. This function runs against a real Snowflake
     instance, so the environment should be populated with the necessary credentials.
     """
-    data_interval_start = dt.datetime(2023, 4, 20, 14, 0, 0, tzinfo=dt.timezone.utc)
-    data_interval_end = dt.datetime(2023, 4, 25, 15, 0, 0, tzinfo=dt.timezone.utc)
+    data_interval_start = dt.datetime(2023, 4, 20, 14, 0, 0, tzinfo=dt.UTC)
+    data_interval_end = dt.datetime(2023, 4, 25, 15, 0, 0, tzinfo=dt.UTC)
 
     team_id = random.randint(1, 1000000)
     await generate_test_events_in_clickhouse(
