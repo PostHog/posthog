@@ -3,6 +3,7 @@ import { urls } from 'scenes/urls'
 
 import { InsightType } from '~/types'
 
+import { Navigation } from '../shared/navigation'
 import { InsightPage } from './insightPage'
 
 const typeTestCases: { type: InsightType; selector: string }[] = [
@@ -66,4 +67,24 @@ test('can navigate to insight by query', async ({ page }) => {
     await insight.waitForDetailsTable()
     const labels = await insight.detailsLabels.allInnerTexts()
     expect(labels).toEqual(['Autocapture'])
+})
+
+test('can open event explorer as an insight', async ({ page }) => {
+    const navigation = new Navigation(page)
+    await navigation.openHome()
+
+    await navigation.openMenuItem('activity')
+    await page.getByTestId('data-table-export-menu').click()
+    await page.getByTestId('open-json-editor-button').click()
+
+    await expect(page.getByTestId('insight-json-tab')).toHaveCount(1)
+})
+
+test('does not show the json tab usually', async ({ page }) => {
+    const navigation = new Navigation(page)
+    await navigation.openHome()
+
+    await navigation.openMenuItem('savedinsights')
+
+    await expect(page.getByTestId('insight-json-tab')).toHaveCount(0)
 })

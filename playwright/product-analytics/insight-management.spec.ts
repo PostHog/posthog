@@ -4,13 +4,13 @@ import { urls } from 'scenes/urls'
 import { InsightType } from '~/types'
 
 import { SettingsPage } from '../settingsPage'
-import { ToastObject } from '../shared/toastObject'
+import { Toast } from '../shared/toast'
 import { getLemonSwitchValue } from '../utils'
 import { InsightPage } from './insightPage'
 
 test('can create insight', async ({ page }) => {
     const insight = new InsightPage(page)
-    const toast = new ToastObject(page)
+    const toast = new Toast(page)
 
     // name field displays 'Unnamed' before save
     await page.goto(urls.insightNew())
@@ -52,7 +52,7 @@ test('can edit insight query', async ({ page }) => {
 
 test('can edit insight metadata', async ({ page }) => {
     const insight = await new InsightPage(page).createNew()
-    const toast = new ToastObject(page)
+    const toast = new Toast(page)
 
     await insight.editName('new name')
 
@@ -68,7 +68,7 @@ test('can edit insight metadata', async ({ page }) => {
 
 test('can undo insight metadata edit', async ({ page }) => {
     const insight = await new InsightPage(page).createNew(InsightType.TRENDS, 'old name')
-    const toast = new ToastObject(page)
+    const toast = new Toast(page)
 
     await insight.editName('new name')
     await toast.undo()

@@ -1,6 +1,6 @@
 import { Locator, Page } from '@playwright/test'
 
-export class ToastObject {
+export class Toast {
     readonly page: Page
     readonly container: Locator
     readonly undoButton: Locator
