@@ -53,13 +53,13 @@ export class AsyncFunctionExecutor {
         const headers = fetchOptions.headers || {
             'Content-Type': 'application/json',
         }
-        const body = fetchOptions.body || {}
+        const body = fetchOptions.body
 
         const webhook: Webhook = {
             url,
             method: method,
             headers: headers,
-            body: typeof body === 'string' ? body : JSON.stringify(body, undefined, 4),
+            body: body ? (typeof body === 'string' ? body : JSON.stringify(body, undefined, 4)) : undefined,
         }
 
         const success = false
