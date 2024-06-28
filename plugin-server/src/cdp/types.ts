@@ -168,6 +168,7 @@ export type HogFunctionInvocationResult = HogFunctionInvocation & {
         args: any[]
         vmState: VMState
     }
+    capturedPostHogEvents?: HogFunctionCapturedEvent[]
 }
 
 export type HogFunctionInvocationAsyncResponse = HogFunctionInvocationResult & {
@@ -242,4 +243,12 @@ export type HogFunctionMessageToProduce = {
     topic: string
     value: CdpOverflowMessage | HogFunctionLogEntrySerialized | HogFunctionInvocationAsyncResponse
     key: string
+}
+
+export type HogFunctionCapturedEvent = {
+    team_id: number
+    event: string
+    distinct_id: string
+    timestamp: DateTime
+    properties: Record<string, any>
 }

@@ -154,6 +154,22 @@ abstract class CdpConsumerBase {
                             })
                         })
 
+                        // PostHog capture events
+                        const capturedEvents = result.capturedPostHogEvents
+                        delete result.capturedPostHogEvents
+
+                        capturedEvents?.forEach((x) => {
+                            status.info('🔁', `Capturing event (TODO)`, {
+                                event: x,
+                            })
+                            // // Convert timestamps to ISO strings
+                            // this.messagesToProduce.push({
+                            //     topic: KAFKA_LOG_ENTRIES,
+                            //     value: sanitized,
+                            //     key: sanitized.instance_id,
+                            // })
+                        })
+
                         if (result.asyncFunctionRequest) {
                             const res = await this.asyncFunctionExecutor.execute(result)
 
