@@ -24,9 +24,9 @@ import { useEffect, useMemo, useState } from 'react'
 import { groupsModel } from '~/models/groupsModel'
 import { HogFunctionInputSchemaType } from '~/types'
 
+import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
 import { HogFunctionInputIntegration } from './integrations/HogFunctionInputIntegration'
 import { HogFunctionInputIntegrationField } from './integrations/HogFunctionInputIntegrationField'
-import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
 
 export type HogFunctionInputProps = {
     schema: HogFunctionInputSchemaType

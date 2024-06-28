@@ -6,8 +6,8 @@ import { tryJsonParse } from 'lib/utils'
 
 import { LogEntry } from '~/types'
 
-import type { hogFunctionTestLogicType } from './hogFunctionTestLogicType'
 import { hogFunctionConfigurationLogic, sanitizeConfiguration } from './hogFunctionConfigurationLogic'
+import type { hogFunctionTestLogicType } from './hogFunctionTestLogicType'
 import { createExampleEvent } from './utils/event-conversion'
 
 export interface HogFunctionTestLogicProps {
