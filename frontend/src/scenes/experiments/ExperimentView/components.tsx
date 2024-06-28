@@ -9,6 +9,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { dayjs } from 'lib/dayjs'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { useEffect, useState } from 'react'
 import { urls } from 'scenes/urls'
 
@@ -33,7 +34,7 @@ export function VariantTag({ variantKey }: { variantKey: string }): JSX.Element 
                     backgroundColor: getExperimentInsightColour(getIndexForVariant(experimentResults, variantKey)),
                 }}
             />
-            <span className="font-semibold">{variantKey}</span>
+            <span className="font-semibold">{capitalizeFirstLetter(variantKey)}</span>
         </span>
     )
 }
