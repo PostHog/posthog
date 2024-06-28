@@ -44,3 +44,4 @@ export const KAFKA_LOG_ENTRIES = `${prefix}log_entries${suffix}`
 
 // CDP topics
 export const KAFKA_CDP_FUNCTION_CALLBACKS = `${prefix}cdp_function_callbacks${suffix}`
+export const KAFKA_CDP_FUNCTION_OVERFLOW = `${prefix}cdp_function_overflow${suffix}`
