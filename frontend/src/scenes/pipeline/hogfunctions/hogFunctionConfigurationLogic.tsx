@@ -377,13 +377,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             if (hogFunction && props.templateId) {
                 // Catch all for any scenario where we need to redirect away from the template to the actual hog function
                 router.actions.replace(
-                    urls.pipelineNode(
-                        PipelineStage.Destination,
-                        `hog-${hogFunction.id}`,
-                        PipelineNodeTab.Configuration
-                    ),
-                    undefined,
-                    {}
+                    urls.pipelineNode(PipelineStage.Destination, `hog-${hogFunction.id}`, PipelineNodeTab.Configuration)
                 )
             }
         },
