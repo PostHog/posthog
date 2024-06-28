@@ -18,9 +18,9 @@ import {
     PluginConfigTypeNew,
 } from '~/types'
 
-import type { pipelineHogFunctionConfigurationLogicType } from './pipelineHogFunctionConfigurationLogicType'
+import type { hogFunctionConfigurationLogicType } from './hogFunctionConfigurationLogicType'
 
-export interface PipelineHogFunctionConfigurationLogicProps {
+export interface HogFunctionConfigurationLogicProps {
     templateId?: string
     id?: string
 }
@@ -98,12 +98,12 @@ export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFu
     return payload
 }
 
-export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConfigurationLogicType>([
-    props({} as PipelineHogFunctionConfigurationLogicProps),
-    key(({ id, templateId }: PipelineHogFunctionConfigurationLogicProps) => {
+export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicType>([
+    props({} as HogFunctionConfigurationLogicProps),
+    key(({ id, templateId }: HogFunctionConfigurationLogicProps) => {
         return id ?? templateId ?? 'new'
     }),
-    path((id) => ['scenes', 'pipeline', 'pipelineHogFunctionConfigurationLogic', id]),
+    path((id) => ['scenes', 'pipeline', 'hogFunctionConfigurationLogic', id]),
     actions({
         setShowSource: (showSource: boolean) => ({ showSource }),
         resetForm: (configuration?: HogFunctionConfigurationType) => ({ configuration }),
@@ -296,18 +296,6 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
             })
         },
 
-        submitConfigurationSuccess: ({ configuration }) => {
-            if (!props.id) {
-                router.actions.replace(
-                    urls.pipelineNode(
-                        PipelineStage.Destination,
-                        `hog-${configuration.id}`,
-                        PipelineNodeTab.Configuration
-                    )
-                )
-            }
-        },
-
         duplicate: async () => {
             if (values.hogFunction) {
                 const newConfig = {
@@ -382,6 +370,21 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
                 router.actions.replace(router.values.location.pathname, undefined, {
                     configuration,
                 })
+            }
+        },
+
+        hogFunction: (hogFunction) => {
+            if (hogFunction && props.templateId) {
+                // Catch all for any scenario where we need to redirect away from the template to the actual hog function
+                router.actions.replace(
+                    urls.pipelineNode(
+                        PipelineStage.Destination,
+                        `hog-${hogFunction.id}`,
+                        PipelineNodeTab.Configuration
+                    ),
+                    undefined,
+                    {}
+                )
             }
         },
     })),

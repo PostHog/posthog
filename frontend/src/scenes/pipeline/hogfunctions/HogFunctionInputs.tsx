@@ -26,7 +26,7 @@ import { HogFunctionInputSchemaType } from '~/types'
 
 import { HogFunctionInputIntegration } from './integrations/HogFunctionInputIntegration'
 import { HogFunctionInputIntegrationField } from './integrations/HogFunctionInputIntegrationField'
-import { pipelineHogFunctionConfigurationLogic } from './pipelineHogFunctionConfigurationLogic'
+import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
 
 export type HogFunctionInputProps = {
     schema: HogFunctionInputSchemaType
@@ -390,8 +390,8 @@ function HogFunctionInputSchemaControls({ value, onChange, onDone }: HogFunction
 
 export function HogFunctionInputWithSchema({ schema }: HogFunctionInputWithSchemaProps): JSX.Element {
     const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: schema.key })
-    const { showSource, configuration } = useValues(pipelineHogFunctionConfigurationLogic)
-    const { setConfigurationValue } = useActions(pipelineHogFunctionConfigurationLogic)
+    const { showSource, configuration } = useValues(hogFunctionConfigurationLogic)
+    const { setConfigurationValue } = useActions(hogFunctionConfigurationLogic)
     const [editing, setEditing] = useState(showSource)
 
     const value = configuration.inputs?.[schema.key]
@@ -483,8 +483,8 @@ export function HogFunctionInputWithSchema({ schema }: HogFunctionInputWithSchem
 }
 
 export function HogFunctionInputs(): JSX.Element {
-    const { showSource, configuration } = useValues(pipelineHogFunctionConfigurationLogic)
-    const { setConfigurationValue } = useActions(pipelineHogFunctionConfigurationLogic)
+    const { showSource, configuration } = useValues(hogFunctionConfigurationLogic)
+    const { setConfigurationValue } = useActions(hogFunctionConfigurationLogic)
 
     if (!configuration?.inputs_schema?.length) {
         return <span className="italic text-muted-alt">This function does not require any input variables.</span>
