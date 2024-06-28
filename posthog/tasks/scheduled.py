@@ -223,7 +223,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="process scheduled changes",
     )
 
-    add_periodic_task_with_expiry(sender, 15, replay_count_metrics.s(), name="replay_count_metrics")
+    add_periodic_task_with_expiry(sender, 3600, replay_count_metrics.s(), name="replay_count_metrics")
 
     if clear_clickhouse_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON):
         sender.add_periodic_task(
