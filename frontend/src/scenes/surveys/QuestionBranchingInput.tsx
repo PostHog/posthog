@@ -46,7 +46,7 @@ export function QuestionBranchingInput({
                             setQuestionBranchingType(questionIndex, type, specificQuestionIndex)
                         }
 
-                        if (survey.appearance?.shuffleQuestions) {
+                        if (survey.appearance && survey.appearance.shuffleQuestions) {
                             LemonDialog.open({
                                 title: 'Your survey has question shuffling enabled',
                                 description: (

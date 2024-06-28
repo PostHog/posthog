@@ -374,7 +374,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                     <LemonInput
                         value={
                             question.buttonText === undefined
-                                ? survey.appearance?.submitButtonText
+                                ? survey.appearance?.submitButtonText ?? 'Submit'
                                 : question.buttonText
                         }
                     />
