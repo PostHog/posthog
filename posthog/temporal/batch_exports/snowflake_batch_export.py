@@ -536,6 +536,9 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
         set_status_to_running_task(run_id=inputs.run_id, logger=logger),
         get_client(team_id=inputs.team_id) as client,
     ):
+        if not await client.is_alive():
+            raise ConnectionError("Cannot establish connection to ClickHouse")
+
         should_resume, details = await should_resume_from_activity_heartbeat(
             activity, SnowflakeHeartbeatDetails, logger
         )
