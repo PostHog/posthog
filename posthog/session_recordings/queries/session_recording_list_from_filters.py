@@ -181,7 +181,7 @@ class SessionRecordingListFromFilters:
         optional_exprs: list[ast.Expr] = []
 
         # if in PoE mode then we should be pushing person property queries into here
-        events_sub_query = EventsSubQuery(self._team, self._filter, self.ttl_days).get_query()
+        events_sub_query = EventsSubQuery(self._team, self._filter).get_query_for_session_id_matching()
         if events_sub_query:
             optional_exprs.append(
                 ast.CompareOperation(
@@ -193,7 +193,7 @@ class SessionRecordingListFromFilters:
 
         # we want to avoid a join to persons since we don't ever need to select from them,
         # so we create our own persons sub query here
-        # if PoE mode is on then this will be handled in the events subquery and we don't need to do anything here
+        # if PoE mode is on then this will be handled in the events subquery, and we don't need to do anything here
         person_subquery = PersonsPropertiesSubQuery(self._team, self._filter, self.ttl_days).get_query()
         if person_subquery:
             optional_exprs.append(
@@ -429,12 +429,14 @@ class PersonsIdCompareOperation:
 class EventsSubQuery:
     _team: Team
     _filter: SessionRecordingsFilter
-    _ttl_days: int
 
-    def __init__(self, team: Team, filter: SessionRecordingsFilter, ttl_days: int):
+    @property
+    def ttl_days(self):
+        return ttl_days(self._team)
+
+    def __init__(self, team: Team, filter: SessionRecordingsFilter):
         self._team = team
         self._filter = filter
-        self._ttl_days = ttl_days
 
     @cached_property
     def _event_predicates(self):
@@ -459,7 +461,7 @@ class EventsSubQuery:
 
         return event_exprs, list(event_names)
 
-    def get_query(self) -> ast.SelectQuery | ast.SelectUnionQuery | None:
+    def get_query_for_session_id_matching(self) -> ast.SelectQuery | ast.SelectUnionQuery | None:
         use_poe = poe_is_active(self._team) and self.person_properties
         if self._filter.entities or self.event_properties or use_poe:
             return ast.SelectQuery(
@@ -482,7 +484,7 @@ class EventsSubQuery:
             ast.CompareOperation(
                 op=ast.CompareOperationOp.GtEq,
                 left=ast.Field(chain=["timestamp"]),
-                right=ast.Constant(value=datetime.now() - timedelta(days=self._ttl_days)),
+                right=ast.Constant(value=datetime.now() - timedelta(days=self.ttl_days)),
             ),
             ast.CompareOperation(
                 op=ast.CompareOperationOp.LtEq,
