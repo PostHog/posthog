@@ -2606,7 +2606,7 @@ export interface Survey {
             }[]
         } | null
     } | null
-    appearance: SurveyAppearance
+    appearance: SurveyAppearance | null
     questions: (BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion)[]
     created_at: string
     created_by: UserBasicType | null
