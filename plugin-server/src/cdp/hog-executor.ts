@@ -297,6 +297,9 @@ export class HogExecutor {
                             }
                             addLog(result, 'info', message)
                         },
+                        postHogCapture: (event) => {
+                            throw new Error('postHogCapture is not supported in the HogVM')
+                        },
                     },
                 })
             } catch (e) {
