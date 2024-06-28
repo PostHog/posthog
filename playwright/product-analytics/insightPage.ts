@@ -45,7 +45,7 @@ export class InsightPage {
         this.moreButton = page.getByTestId('more-button')
         this.toggleEditorButton = page.getByTestId('show-insight-source')
 
-        this.editor = this.page.locator('.monaco-editor')
+        this.editor = this.page.getByTestId('query-editor').locator('.monaco-editor')
         this.updateSourceButton = page.getByRole('button', { name: 'Update and run' })
     }
 

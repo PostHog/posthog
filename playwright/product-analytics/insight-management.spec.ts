@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, logger } from '@playwright/test'
 import { urls } from 'scenes/urls'
 
 import { InsightType } from '~/types'
@@ -122,19 +122,14 @@ test(' requires confirmation to navigate away from changed insight', async ({ pa
     await insight.secondEntity.click()
     await page.getByText('Autocapture').click()
 
-    await page.getByRole('link', { name: 'Home' }).click()
-
-    // page.on('dialog', (dialog) => {
-    //     expect(dialog.message).toEqual('a')
-    //     dialog.dismiss()
-    // })
     let dialogMessage = null
     page.on('dialog', async (dialog) => {
         dialogMessage = dialog.message()
-        await dialog.accept() // Accept the dialog to continue the test
+        await dialog.accept()
     })
 
-    expect(dialogMessage).toEqual('s')
+    await page.getByRole('link', { name: 'Home' }).click()
+    expect(dialogMessage).toContain('Leave insight?')
 
     await expect(insight.saveButton).toBeDisabled()
 })
