@@ -44,6 +44,7 @@ function initEditor(
             monaco.languages.register({ id: 'hog', extensions: ['.hog'], mimetypes: ['application/hog'] })
             monaco.languages.setLanguageConfiguration('hog', hog.conf())
             monaco.languages.setMonarchTokensProvider('hog', hog.language())
+            monaco.languages.registerCompletionItemProvider('hog', hogQLAutocompleteProvider(HogLanguage.hog))
             monaco.languages.registerCodeActionProvider('hog', hogQLMetadataProvider())
         }
     }
