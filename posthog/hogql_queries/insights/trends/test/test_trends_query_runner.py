@@ -361,6 +361,10 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([1, 0, 1, 3, 1, 0, 2, 0, 1, 0, 1], response.results[0]["data"])
         self.assertEqual([0, 0, 1, 1, 3, 0, 0, 1, 0, 0, 0], response.results[1]["data"])
 
+        # Check the timings
+        i, timing = next(((i, timing) for i, timing in enumerate(response.timings) if "series_" in timing.k))
+        assert response.timings[i - 1].k in timing.k
+
     def test_formula(self):
         self._create_test_events()
 
