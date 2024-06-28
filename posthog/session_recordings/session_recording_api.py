@@ -39,10 +39,10 @@ from posthog.session_recordings.models.session_recording_event import (
 
 from posthog.session_recordings.queries.session_recording_list_from_replay_summary import (
     SessionRecordingListFromReplaySummary,
-    SessionIdEventsQuery,
 )
 from posthog.session_recordings.queries.session_recording_list_from_filters import (
     SessionRecordingListFromFilters,
+    EventsSubQuery,
 )
 from posthog.session_recordings.queries.session_recording_properties import (
     SessionRecordingProperties,
@@ -302,8 +302,21 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 "Must specify at least one event or action filter",
             )
 
-        matching_events: list[str] = SessionIdEventsQuery(filter=filter, team=self.team).matching_events()
-        return JsonResponse(data={"results": matching_events})
+        distinct_id = str(cast(User, request.user).distinct_id)
+        modifiers = safely_read_modifiers_overrides(distinct_id, self.team)
+        matching_events_query_response = EventsSubQuery(
+            filter=filter, team=self.team, hogql_query_modifiers=modifiers
+        ).get_event_ids_for_session()
+
+        response = JsonResponse(data={"results": matching_events_query_response.results})
+
+        response.headers["Server-Timing"] = ", ".join(
+            f"{key};dur={round(duration, ndigits=2)}"
+            for key, duration in _generate_timings(
+                matching_events_query_response.timings, ServerTimingsGathered()
+            ).items()
+        )
+        return response
 
     # Returns metadata about the recording
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
