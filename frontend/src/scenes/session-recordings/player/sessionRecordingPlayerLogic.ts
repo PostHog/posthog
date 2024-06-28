@@ -109,6 +109,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'sessionPlayerMetaDataLoading',
                 'createExportJSON',
                 'customRRWebEvents',
+                'fullyLoaded',
             ],
             playerSettingsLogic,
             ['speed', 'skipInactivitySetting'],
@@ -1007,7 +1008,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
         },
         messageTooLargeWarnings: (next) => {
-            if (next.length > 0) {
+            if (values.fullyLoaded && next.length > 0) {
                 posthog.capture('replayer message too large warning seen', {
                     recordingBeingViewed: values.sessionRecordingId,
                 })
