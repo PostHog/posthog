@@ -1000,8 +1000,8 @@ async def test_insert_into_snowflake_activity_inserts_data_into_snowflake_table(
     that they appear in the expected Snowflake table. This function runs against a real Snowflake
     instance, so the environment should be populated with the necessary credentials.
     """
-    data_interval_start = dt.datetime(2023, 4, 20, 14, 0, 0, tzinfo=dt.UTC)
-    data_interval_end = dt.datetime(2023, 4, 25, 15, 0, 0, tzinfo=dt.UTC)
+    if isinstance(model, BatchExportModel) and model.name == "persons" and exclude_events is not None:
+        pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
 
     batch_export_schema: BatchExportSchema | None = None
     batch_export_model: BatchExportModel | None = None
@@ -1040,7 +1040,7 @@ async def test_insert_into_snowflake_activity_inserts_data_into_snowflake_table(
 @SKIP_IF_MISSING_REQUIRED_ENV_VARS
 @pytest.mark.parametrize("interval", ["hour", "day"], indirect=True)
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
-@pytest.mark.parametrize("batch_export_schema", TEST_MODELS)
+@pytest.mark.parametrize("model", TEST_MODELS)
 async def test_snowflake_export_workflow(
     clickhouse_client,
     snowflake_cursor,
@@ -1048,41 +1048,25 @@ async def test_snowflake_export_workflow(
     snowflake_batch_export,
     ateam,
     exclude_events,
-    batch_export_schema,
+    model: BatchExportModel | BatchExportSchema | None,
+    generate_test_data,
+    data_interval_start,
+    data_interval_end,
 ):
     """Test Redshift Export Workflow end-to-end.
 
     The workflow should update the batch export run status to completed and produce the expected
     records to the provided Redshift instance.
     """
-    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
-    data_interval_start = data_interval_end - snowflake_batch_export.interval_time_delta
+    if isinstance(model, BatchExportModel) and model.name == "persons" and exclude_events is not None:
+        pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
 
-    await generate_test_events_in_clickhouse(
-        client=clickhouse_client,
-        team_id=ateam.pk,
-        start_time=data_interval_start,
-        end_time=data_interval_end,
-        count=100,
-        count_outside_range=10,
-        count_other_team=10,
-        duplicate=True,
-        properties={"$browser": "Chrome", "$os": "Mac OS X"},
-        person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
-    )
-
-    if exclude_events:
-        for event_name in exclude_events:
-            await generate_test_events_in_clickhouse(
-                client=clickhouse_client,
-                team_id=ateam.pk,
-                start_time=data_interval_start,
-                end_time=data_interval_end,
-                count=5,
-                count_outside_range=0,
-                count_other_team=0,
-                event_name=event_name,
-            )
+    batch_export_schema: BatchExportSchema | None = None
+    batch_export_model: BatchExportModel | None = None
+    if isinstance(model, BatchExportModel):
+        batch_export_model = model
+    elif model is not None:
+        batch_export_schema = model
 
     workflow_id = str(uuid4())
     inputs = SnowflakeBatchExportInputs(
@@ -1091,6 +1075,7 @@ async def test_snowflake_export_workflow(
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
         batch_export_schema=batch_export_schema,
+        batch_export_model=batch_export_model,
         **snowflake_batch_export.destination.config,
     )
 
@@ -1112,7 +1097,7 @@ async def test_snowflake_export_workflow(
                 id=workflow_id,
                 task_queue=settings.TEMPORAL_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=1),
-                execution_timeout=dt.timedelta(seconds=10),
+                execution_timeout=dt.timedelta(minutes=2),
             )
 
     runs = await afetch_batch_export_runs(batch_export_id=snowflake_batch_export.id)
@@ -1121,22 +1106,23 @@ async def test_snowflake_export_workflow(
     run = runs[0]
     assert run.status == "Completed"
 
-    assert_clickhouse_records_in_snowflake(
+    await assert_clickhouse_records_in_snowflake(
         snowflake_cursor=snowflake_cursor,
         clickhouse_client=clickhouse_client,
-        team_id=ateam.pk,
         table_name=snowflake_batch_export.destination.config["table_name"],
+        team_id=ateam.pk,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
-        batch_export_schema=batch_export_schema,
         exclude_events=exclude_events,
+        batch_export_model=model,
+        sort_key="person_id" if batch_export_model is not None and batch_export_model.name == "persons" else "event",
     )
 
 
 @SKIP_IF_MISSING_REQUIRED_ENV_VARS
 @pytest.mark.parametrize("interval", ["hour", "day"], indirect=True)
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
-@pytest.mark.parametrize("batch_export_schema", TEST_MODELS)
+@pytest.mark.parametrize("model", TEST_MODELS)
 async def test_snowflake_export_workflow_with_many_files(
     clickhouse_client,
     snowflake_cursor,
@@ -1144,7 +1130,10 @@ async def test_snowflake_export_workflow_with_many_files(
     snowflake_batch_export,
     ateam,
     exclude_events,
-    batch_export_schema,
+    model: BatchExportModel | BatchExportSchema | None,
+    generate_test_data,
+    data_interval_start,
+    data_interval_end,
 ):
     """Test Snowflake Export Workflow end-to-end with multiple file uploads.
 
@@ -1153,21 +1142,15 @@ async def test_snowflake_export_workflow_with_many_files(
     means we are uploading one file at a time, which is very innefficient. For this reason, this test
     can take longer, so we keep the event count low and bump the Workflow timeout.
     """
-    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
-    data_interval_start = data_interval_end - snowflake_batch_export.interval_time_delta
+    if isinstance(model, BatchExportModel) and model.name == "persons" and exclude_events is not None:
+        pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
 
-    await generate_test_events_in_clickhouse(
-        client=clickhouse_client,
-        team_id=ateam.pk,
-        start_time=data_interval_start,
-        end_time=data_interval_end,
-        count=10,
-        count_outside_range=10,
-        count_other_team=10,
-        duplicate=True,
-        properties={"$browser": "Chrome", "$os": "Mac OS X"},
-        person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
-    )
+    batch_export_schema: BatchExportSchema | None = None
+    batch_export_model: BatchExportModel | None = None
+    if isinstance(model, BatchExportModel):
+        batch_export_model = model
+    elif model is not None:
+        batch_export_schema = model
 
     workflow_id = str(uuid4())
     inputs = SnowflakeBatchExportInputs(
@@ -1176,6 +1159,7 @@ async def test_snowflake_export_workflow_with_many_files(
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
         batch_export_schema=batch_export_schema,
+        batch_export_model=batch_export_model,
         **snowflake_batch_export.destination.config,
     )
 
@@ -1207,15 +1191,16 @@ async def test_snowflake_export_workflow_with_many_files(
     run = runs[0]
     assert run.status == "Completed"
 
-    assert_clickhouse_records_in_snowflake(
+    await assert_clickhouse_records_in_snowflake(
         snowflake_cursor=snowflake_cursor,
         clickhouse_client=clickhouse_client,
-        team_id=ateam.pk,
         table_name=snowflake_batch_export.destination.config["table_name"],
+        team_id=ateam.pk,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
-        batch_export_schema=batch_export_schema,
         exclude_events=exclude_events,
+        batch_export_model=model,
+        sort_key="person_id" if batch_export_model is not None and batch_export_model.name == "persons" else "event",
     )
 
 
@@ -1345,13 +1330,14 @@ async def test_insert_into_snowflake_activity_heartbeats(
     # It's not guaranteed we will heartbeat right after every file.
     assert len(captured_details) > 0
 
-    assert_clickhouse_records_in_snowflake(
+    await assert_clickhouse_records_in_snowflake(
         snowflake_cursor=snowflake_cursor,
         clickhouse_client=clickhouse_client,
         table_name=table_name,
         team_id=ateam.pk,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
+        sort_key="event",
     )
 
 
