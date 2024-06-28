@@ -184,9 +184,14 @@ class BigQueryClient(bigquery.Client):
         exists_ok: bool = True,
         not_found_ok: bool = True,
         delete: bool = True,
+        create: bool = True,
     ) -> collections.abc.AsyncGenerator[bigquery.Table, None]:
         """Manage a table in BigQuery by ensure it exists while in context."""
-        table = await self.acreate_table(project_id, dataset_id, table_id, table_schema, exists_ok)
+        if create is True:
+            table = await self.acreate_table(project_id, dataset_id, table_id, table_schema, exists_ok)
+        else:
+            fully_qualified_name = f"{project_id}.{dataset_id}.{table_id}"
+            table = bigquery.Table(fully_qualified_name, schema=table_schema)
 
         try:
             yield table
@@ -398,21 +403,24 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
         requires_merge = (
             isinstance(inputs.batch_export_model, BatchExportModel) and inputs.batch_export_model.name == "persons"
         )
+        stage_table_name = f"stage_{inputs.table_id}" if requires_merge else inputs.table_id
 
         with bigquery_client(inputs) as bq_client:
             async with (
                 bq_client.managed_table(
                     inputs.project_id,
                     inputs.dataset_id,
-                    f"{inputs.table_id}",
+                    inputs.table_id,
                     schema,
                     delete=False,
                 ) as bigquery_table,
                 bq_client.managed_table(
                     inputs.project_id,
                     inputs.dataset_id,
-                    f"stage_{inputs.table_id}",
+                    stage_table_name,
                     schema,
+                    create=requires_merge,
+                    delete=requires_merge,
                 ) as bigquery_stage_table,
             ):
 
