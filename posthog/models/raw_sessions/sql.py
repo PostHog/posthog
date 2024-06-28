@@ -103,7 +103,10 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     screen_uniq AggregateFunction(uniq, Nullable(UUID)),
 
     -- replay
-    maybe_has_session_replay SimpleAggregateFunction(max, Bool) -- will be written False to by the events table mv and True to by the replay table mv
+    maybe_has_session_replay SimpleAggregateFunction(max, Bool), -- will be written False to by the events table mv and True to by the replay table mv
+
+    -- web vitals
+    first_lcp AggregateFunction(argMin, Nullable(Float64), DateTime64(6, 'UTC'))
 ) ENGINE = {engine}
 """
 
@@ -156,6 +159,10 @@ def source_string_column(column_name: str) -> str:
 
 def source_int_column(column_name: str) -> str:
     return f"JSONExtractInt(properties, '{column_name}')"
+
+
+def source_float_column(column_name: str) -> str:
+    return f"accurateCastOrNull(JSONExtractString(properties, '{column_name}'), 'Float64')"
 
 
 RAW_SESSION_TABLE_BACKFILL_SELECT_SQL = (
@@ -221,7 +228,10 @@ SELECT
     initializeAggregation('uniqState', if(event='screen', uuid, NULL)) as screen_uniq,
 
     -- replay
-    false as maybe_has_session_replay
+    false as maybe_has_session_replay,
+
+    -- web vitals
+    initializeAggregation('argMinState', {lcp}, timestamp) as first_lcp,
 FROM {database}.sharded_events
 WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7
 """.format(
@@ -260,6 +270,7 @@ WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')),
         mc_cid=source_string_column("mc_cid"),
         igshid=source_string_column("igshid"),
         ttclid=source_string_column("ttclid"),
+        lcp=source_float_column("$web_vitals_LCP_value"),
     )
 )
 
@@ -327,7 +338,10 @@ SELECT
     uniqState(if(event='$screen', uuid, NULL)) as screen_uniq,
 
     -- replay
-    false as maybe_has_session_replay
+    false as maybe_has_session_replay,
+
+    -- web vitals
+    argMinState({lcp}, timestamp) as first_lcp
 FROM {database}.sharded_events
 WHERE and(
     bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7, -- has a session id and is valid uuidv7
@@ -374,6 +388,7 @@ GROUP BY
         mc_cid=source_string_column("mc_cid"),
         igshid=source_string_column("igshid"),
         ttclid=source_string_column("ttclid"),
+        lcp=source_float_column("$web_vitals_LCP_value"),
         INGEST_FROM_DATE=INGEST_FROM_DATE,
     )
 )
@@ -483,6 +498,7 @@ SELECT
     argMinMerge(initial_igshid) as initial_igshid,
     argMinMerge(initial_ttclid) as initial_ttclid,
 
+    -- counts
     sum(pageview_count) as pageview_count,
     uniqMerge(pageview_uniq) as pageview_uniq,
     sum(autocapture_count) as autocapture_count,
@@ -490,7 +506,11 @@ SELECT
     sum(screen_count) as screen_count,
     uniqMerge(screen_uniq) as screen_uniq,
 
-    max(maybe_has_session_replay) as maybe_has_session_replay
+    -- replay
+    max(maybe_has_session_replay) as maybe_has_session_replay,
+
+    -- web vitals
+    argMinMerge(first_lcp) as first_lcp
 FROM {TABLE_BASE_NAME}
 GROUP BY
     team_id,

@@ -335,6 +335,55 @@ class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
         [row1] = response.results or []
         self.assertEqual(row1, ("https://example.com/2",))
 
+    def test_lcp(self):
+        s1 = str(uuid7())
+        s2 = str(uuid7())
+
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="d1",
+            properties={
+                "$session_id": s1,
+            },
+        )
+        _create_event(
+            event="$web_vitals",
+            team=self.team,
+            distinct_id="d1",
+            properties={"$session_id": s1, "$web_vitals_LCP_value": "12.34"},
+        )
+        _create_event(
+            event="$web_vitals",
+            team=self.team,
+            distinct_id="d1",
+            properties={"$session_id": s1, "$web_vitals_LCP_value": "56.78"},
+        )
+
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="d2",
+            properties={"$session_id": s2},
+        )
+
+        # check that we use the first value for a session, or null if there weren't any
+        response_1 = self.__execute(
+            parse_select(
+                "select $first_lcp from sessions order by $first_lcp",
+                placeholders={"session_id": ast.Constant(value=s1)},
+            ),
+        )
+        self.assertEqual(response_1.results, [(12.34,), (None,)])
+
+        # check that sessions with no lcp do not count towards the avg
+        response_2 = self.__execute(
+            parse_select(
+                "select avg($first_lcp) from sessions",
+            ),
+        )
+        self.assertEqual(response_2.results, [(12.34,)])
+
 
 class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
     def test_all(self):

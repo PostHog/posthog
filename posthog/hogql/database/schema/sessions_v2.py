@@ -54,6 +54,7 @@ RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "autocapture_count": IntegerDatabaseField(name="autocapture_count"),
     "screen_count": IntegerDatabaseField(name="screen_count"),
     "last_external_click_url": StringDatabaseField(name="last_external_click_url"),
+    "first_lcp": FloatDatabaseField(name="first_lcp", nullable=True),
 }
 
 LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
@@ -87,8 +88,9 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "duration": IntegerDatabaseField(
         name="duration"
     ),  # alias of $session_duration, deprecated but included for backwards compatibility
-    "$is_bounce": BooleanDatabaseField(name="$is_bounce"),
+    "$is_bounce": BooleanDatabaseField(name="$is_bounce", nullable=True),
     "$last_external_click_url": StringDatabaseField(name="$last_external_click_url"),
+    "$first_lcp": FloatDatabaseField(name="first_lcp", nullable=True),
 }
 
 
@@ -131,7 +133,7 @@ def select_from_sessions_table_v2(
     if "session_id_v7" not in requested_fields:
         requested_fields = {**requested_fields, "session_id_v7": ["session_id_v7"]}
 
-    def arg_min_merge_field(field_name: str) -> ast.Call:
+    def arg_min_merge_nullable_string_field(field_name: str) -> ast.Call:
         return ast.Call(
             name="nullIf",
             args=[
@@ -140,7 +142,7 @@ def select_from_sessions_table_v2(
             ],
         )
 
-    def arg_max_merge_field(field_name: str) -> ast.Call:
+    def arg_max_merge_nullable_string_field(field_name: str) -> ast.Call:
         return ast.Call(
             name="nullIf",
             args=[
@@ -148,6 +150,9 @@ def select_from_sessions_table_v2(
                 ast.Constant(value="null"),
             ],
         )
+
+    def arg_min_merge_field(field_name: str) -> ast.Call:
+        return ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, field_name])])
 
     aggregate_fields: dict[str, ast.Expr] = {
         "session_id": ast.Call(
@@ -173,7 +178,7 @@ def select_from_sessions_table_v2(
                 )
             ],
         ),  # try not to use this, prefer to use session_id_v7
-        "distinct_id": arg_max_merge_field("distinct_id"),
+        "distinct_id": arg_max_merge_nullable_string_field("distinct_id"),
         "$start_timestamp": ast.Call(name="min", args=[ast.Field(chain=[table_name, "min_timestamp"])]),
         "$end_timestamp": ast.Call(name="max", args=[ast.Field(chain=[table_name, "max_timestamp"])]),
         "$urls": ast.Call(
@@ -185,20 +190,21 @@ def select_from_sessions_table_v2(
                 )
             ],
         ),
-        "$entry_current_url": arg_min_merge_field("entry_url"),
-        "$end_current_url": arg_max_merge_field("end_url"),
-        "$entry_utm_source": arg_min_merge_field("initial_utm_source"),
-        "$entry_utm_campaign": arg_min_merge_field("initial_utm_campaign"),
-        "$entry_utm_medium": arg_min_merge_field("initial_utm_medium"),
-        "$entry_utm_term": arg_min_merge_field("initial_utm_term"),
-        "$entry_utm_content": arg_min_merge_field("initial_utm_content"),
-        "$entry_referring_domain": arg_min_merge_field("initial_referring_domain"),
-        "$entry_gclid": arg_min_merge_field("initial_gclid"),
-        "$entry_gad_source": arg_min_merge_field("initial_gad_source"),
+        "$entry_current_url": arg_min_merge_nullable_string_field("entry_url"),
+        "$end_current_url": arg_max_merge_nullable_string_field("end_url"),
+        "$entry_utm_source": arg_min_merge_nullable_string_field("initial_utm_source"),
+        "$entry_utm_campaign": arg_min_merge_nullable_string_field("initial_utm_campaign"),
+        "$entry_utm_medium": arg_min_merge_nullable_string_field("initial_utm_medium"),
+        "$entry_utm_term": arg_min_merge_nullable_string_field("initial_utm_term"),
+        "$entry_utm_content": arg_min_merge_nullable_string_field("initial_utm_content"),
+        "$entry_referring_domain": arg_min_merge_nullable_string_field("initial_referring_domain"),
+        "$entry_gclid": arg_min_merge_nullable_string_field("initial_gclid"),
+        "$entry_gad_source": arg_min_merge_nullable_string_field("initial_gad_source"),
         "$pageview_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "pageview_count"])]),
         "$screen_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "screen_count"])]),
         "$autocapture_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "autocapture_count"])]),
-        "$last_external_click_url": arg_max_merge_field("last_external_click_url"),
+        "$last_external_click_url": arg_max_merge_nullable_string_field("last_external_click_url"),
+        "$first_lcp": arg_min_merge_field("first_lcp"),
     }
     # Alias
     aggregate_fields["id"] = aggregate_fields["session_id"]
