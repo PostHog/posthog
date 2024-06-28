@@ -209,19 +209,12 @@ posthog/hogql/resolver.py:0: error: Incompatible types in assignment (expression
 posthog/hogql/resolver.py:0: error: Argument 1 to "append" of "list" has incompatible type "BaseTableType | SelectUnionQueryType | SelectQueryType | SelectQueryAliasType | SelectViewType | None"; expected "SelectQueryType | SelectUnionQueryType"  [arg-type]
 posthog/hogql/resolver.py:0: error: Incompatible types in assignment (expression has type "Expr", variable has type "JoinExpr | None")  [assignment]
 posthog/hogql/resolver.py:0: error: Incompatible types in assignment (expression has type "Expr", variable has type "SampleExpr | None")  [assignment]
-posthog/hogql/resolver.py:0: error: Argument 2 to "convert_hogqlx_tag" has incompatible type "int | None"; expected "int"  [arg-type]
 posthog/hogql/resolver.py:0: error: Statement is unreachable  [unreachable]
 posthog/hogql/resolver.py:0: error: Item "None" of "Type | None" has no attribute "resolve_constant_type"  [union-attr]
 posthog/hogql/resolver.py:0: error: Item "None" of "Type | None" has no attribute "resolve_constant_type"  [union-attr]
 posthog/hogql/resolver.py:0: error: Item "None" of "Type | None" has no attribute "resolve_constant_type"  [union-attr]
 posthog/demo/matrix/taxonomy_inference.py:0: error: Name "timezone.datetime" is not defined  [name-defined]
-posthog/hogql/transforms/lazy_tables.py:0: error: Incompatible default for argument "context" (default has type "None", argument has type "HogQLContext")  [assignment]
-posthog/hogql/transforms/lazy_tables.py:0: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
-posthog/hogql/transforms/lazy_tables.py:0: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
 posthog/hogql/transforms/lazy_tables.py:0: error: Incompatible types in assignment (expression has type "dict[Never, Never]", variable has type "list[ConstraintOverride]")  [assignment]
-posthog/hogql/transforms/lazy_tables.py:0: error: Incompatible default for argument "context" (default has type "None", argument has type "HogQLContext")  [assignment]
-posthog/hogql/transforms/lazy_tables.py:0: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
-posthog/hogql/transforms/lazy_tables.py:0: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
 posthog/hogql/transforms/lazy_tables.py:0: error: Non-overlapping equality check (left operand type: "TableType", right operand type: "LazyTableType")  [comparison-overlap]
 posthog/hogql/transforms/lazy_tables.py:0: error: Non-overlapping equality check (left operand type: "TableType", right operand type: "LazyTableType")  [comparison-overlap]
 posthog/hogql/transforms/lazy_tables.py:0: error: Name "chain" already defined on line 0  [no-redef]

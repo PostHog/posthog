@@ -46,7 +46,7 @@ class TestWarehouse(APIBaseTest):
     @patch("posthog.tasks.warehouse.get_ph_client")
     @patch(
         "posthog.tasks.warehouse.DEFAULT_DATE_TIME",
-        datetime.datetime(2023, 11, 7, 0, 0, 0, tzinfo=datetime.timezone.utc),
+        datetime.datetime(2023, 11, 7, 0, 0, 0, tzinfo=datetime.UTC),
     )
     @freeze_time("2023-11-07")
     def test_capture_workspace_rows_synced_by_team_month_cutoff(self, mock_get_ph_client: MagicMock) -> None:
@@ -73,7 +73,8 @@ class TestWarehouse(APIBaseTest):
 
         assert mock_ph_client.capture.call_count == 1
         mock_ph_client.capture.assert_called_with(
-            "external data sync job",
+            self.team.pk,
+            "$data_sync_job_completed",
             {
                 "team_id": self.team.pk,
                 "workspace_id": self.team.external_data_workspace_id,
@@ -86,13 +87,13 @@ class TestWarehouse(APIBaseTest):
         self.team.refresh_from_db()
         self.assertEqual(
             self.team.external_data_workspace_last_synced_at,
-            datetime.datetime(2023, 11, 7, 16, 50, 49, tzinfo=datetime.timezone.utc),
+            datetime.datetime(2023, 11, 7, 16, 50, 49, tzinfo=datetime.UTC),
         )
 
     @patch("posthog.tasks.warehouse.get_ph_client")
     @patch(
         "posthog.tasks.warehouse.DEFAULT_DATE_TIME",
-        datetime.datetime(2023, 11, 7, 0, 0, 0, tzinfo=datetime.timezone.utc),
+        datetime.datetime(2023, 11, 7, 0, 0, 0, tzinfo=datetime.UTC),
     )
     @freeze_time("2023-11-07")
     def test_capture_workspace_rows_synced_by_team_month_cutoff_field_set(self, mock_get_ph_client: MagicMock) -> None:
@@ -100,7 +101,7 @@ class TestWarehouse(APIBaseTest):
         mock_get_ph_client.return_value = mock_ph_client
 
         self.team.external_data_workspace_last_synced_at = datetime.datetime(
-            2023, 10, 30, 19, 32, 41, tzinfo=datetime.timezone.utc
+            2023, 10, 30, 19, 32, 41, tzinfo=datetime.UTC
         )
         self.team.save()
 
@@ -127,7 +128,8 @@ class TestWarehouse(APIBaseTest):
 
         assert mock_ph_client.capture.call_count == 1
         mock_ph_client.capture.assert_called_with(
-            "external data sync job",
+            self.team.pk,
+            "$data_sync_job_completed",
             {
                 "team_id": self.team.pk,
                 "workspace_id": self.team.external_data_workspace_id,
@@ -140,5 +142,5 @@ class TestWarehouse(APIBaseTest):
         self.team.refresh_from_db()
         self.assertEqual(
             self.team.external_data_workspace_last_synced_at,
-            datetime.datetime(2023, 11, 7, 16, 50, 49, tzinfo=datetime.timezone.utc),
+            datetime.datetime(2023, 11, 7, 16, 50, 49, tzinfo=datetime.UTC),
         )

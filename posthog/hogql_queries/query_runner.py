@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from enum import IntEnum
 from typing import Any, Generic, Optional, TypeVar, Union, cast, TypeGuard
 from zoneinfo import ZoneInfo
@@ -320,7 +320,7 @@ def get_query_runner_or_none(
     except ValueError as e:
         if "Can't get a runner for an unknown" in str(e):
             return None
-        raise e
+        raise
 
 
 Q = TypeVar("Q", bound=RunnableQueryNode)
@@ -445,7 +445,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             elif execution_mode == ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE:
                 # We're allowed to calculate if the cache is older than 24 hours, but we'll do it asynchronously
                 assert isinstance(cached_response, CachedResponse)
-                if datetime.now(timezone.utc) - cached_response.last_refresh > EXTENDED_CACHE_AGE:
+                if datetime.now(UTC) - cached_response.last_refresh > EXTENDED_CACHE_AGE:
                     query_status_response = self.enqueue_async_calculation(cache_key=cache_key, user=user)
                     cached_response.query_status = query_status_response.query_status
                 return cached_response
@@ -490,8 +490,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         fresh_response_dict = {
             **self.calculate().model_dump(),
             "is_cached": False,
-            "last_refresh": datetime.now(timezone.utc),
-            "next_allowed_client_refresh": datetime.now(timezone.utc) + self._refresh_frequency(),
+            "last_refresh": datetime.now(UTC),
+            "next_allowed_client_refresh": datetime.now(UTC) + self._refresh_frequency(),
             "cache_key": cache_key,
             "timezone": self.team.timezone,
         }

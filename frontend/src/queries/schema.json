@@ -4197,8 +4197,8 @@
                     "type": "string"
                 },
                 "exprSource": {
-                    "$ref": "#/definitions/AnyDataNode",
-                    "description": "Query within which \"expr\" and \"template\" are validated. Defaults to \"select * from events\""
+                    "description": "Query within which \"expr\" and \"template\" are validated. Defaults to \"select * from events\"",
+                    "type": "string"
                 },
                 "filters": {
                     "$ref": "#/definitions/HogQLFilters",
@@ -7069,6 +7069,12 @@
                 "id": {
                     "type": "string"
                 },
+                "labels": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "query_async": {
                     "const": true,
                     "default": true,
@@ -8057,6 +8063,10 @@
                 "smoothingIntervals": {
                     "default": 1,
                     "type": "integer"
+                },
+                "yAxisScaleType": {
+                    "enum": ["log10", "linear"],
+                    "type": "string"
                 }
             },
             "type": "object"
@@ -8119,6 +8129,10 @@
                 },
                 "smoothing_intervals": {
                     "type": "number"
+                },
+                "y_axis_scale_type": {
+                    "enum": ["log10", "linear"],
+                    "type": "string"
                 }
             },
             "type": "object"

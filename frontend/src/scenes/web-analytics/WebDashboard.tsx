@@ -28,6 +28,8 @@ import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollec
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
 import { QuerySchema } from '~/queries/schema'
 
+import { WebAnalyticsLiveUserCount } from './WebAnalyticsLiveUserCount'
+
 const Filters = (): JSX.Element => {
     const {
         webAnalyticsFilters,
@@ -319,6 +321,7 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                 <WebAnalyticsModal />
                 <WebAnalyticsNotice />
                 <div className="WebAnalyticsDashboard w-full flex flex-col">
+                    <WebAnalyticsLiveUserCount />
                     <Filters />
                     <WebAnalyticsHealthCheck />
                     <Tiles />

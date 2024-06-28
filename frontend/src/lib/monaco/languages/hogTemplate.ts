@@ -3,12 +3,13 @@
 import { languages } from 'monaco-editor'
 
 import { conf as _conf, language as _language } from './hog'
-export const conf: languages.LanguageConfiguration = {
-    ..._conf,
-}
 
-export const language: languages.IMonarchLanguage = {
-    ..._language,
+export const conf: () => languages.LanguageConfiguration = () => ({
+    ..._conf(),
+})
+
+export const language: () => languages.IMonarchLanguage = () => ({
+    ..._language(),
     tokenizer: {
         root: [{ include: 'template_string' }],
 
@@ -122,4 +123,4 @@ export const language: languages.IMonarchLanguage = {
             { include: 'hog' },
         ],
     },
-}
+})

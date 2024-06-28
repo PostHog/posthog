@@ -290,6 +290,8 @@ class TestSessionsQueriesHogQLToClickhouse(ClickhouseTestMixin, APIBaseTest):
             modifiers=modifiers,
         )
         prepared_ast = prepare_ast_for_printing(node=parse(query), context=context, dialect="clickhouse")
+        if prepared_ast is None:
+            return ""
         pretty = print_prepared_ast(prepared_ast, context=context, dialect="clickhouse", pretty=True)
         return pretty
 
@@ -494,4 +496,4 @@ WHERE
 GROUP BY
     s.session_id
 LIMIT 50000"""
-        self.assertEqual(expected, actual)
+        assert expected == actual

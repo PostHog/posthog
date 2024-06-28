@@ -1,7 +1,7 @@
 import datetime
 import os
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Optional, cast
 from uuid import UUID
 
@@ -288,13 +288,13 @@ class PluginStorage(models.Model):
     value: models.TextField = models.TextField(blank=True, null=True)
 
 
-class PluginLogEntrySource(str, Enum):
+class PluginLogEntrySource(StrEnum):
     SYSTEM = "SYSTEM"
     PLUGIN = "PLUGIN"
     CONSOLE = "CONSOLE"
 
 
-class PluginLogEntryType(str, Enum):
+class PluginLogEntryType(StrEnum):
     DEBUG = "DEBUG"
     LOG = "LOG"
     INFO = "INFO"

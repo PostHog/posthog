@@ -1024,11 +1024,11 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         $web_vitals_LCP_value: {
             label: 'Web vitals LCP value',
         },
-        $web_vitals_INS_event: {
-            label: 'Web vitals INS measure event details',
+        $web_vitals_INP_event: {
+            label: 'Web vitals INP measure event details',
         },
-        $web_vitals_INS_value: {
-            label: 'Web vitals INS value',
+        $web_vitals_INP_value: {
+            label: 'Web vitals INP value',
         },
         $web_vitals_CLS_event: {
             label: 'Web vitals CLS measure event details',
