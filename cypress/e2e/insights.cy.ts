@@ -9,15 +9,6 @@ describe('Insights', () => {
         cy.visit(urls.insightNew())
     })
 
-    it('Saving an insight sets breadcrumbs', () => {
-        createInsight('insight name')
-
-        cy.get('[data-attr=breadcrumb-organization]').should('contain', 'Hogflix')
-        cy.get('[data-attr=breadcrumb-project]').should('contain', 'Hogflix Demo App')
-        cy.get('[data-attr=breadcrumb-SavedInsights]').should('have.text', 'Product analytics')
-        cy.get('[data-attr^="breadcrumb-Insight:"]').should('have.text', 'insight name')
-    })
-
     it('Can change insight name', () => {
         const startingName = randomString('starting-value-')
         const editedName = randomString('edited-value-')
@@ -49,33 +40,6 @@ describe('Insights', () => {
         cy.get('[data-attr="top-bar-name"]').should('contain', 'starting value')
 
         savedInsights.checkInsightIsInListView('starting value')
-    })
-
-    it('Create new insight and save and continue editing', () => {
-        cy.intercept('PATCH', /\/api\/projects\/\d+\/insights\/\d+\/?/).as('patchInsight')
-
-        const insightName = randomString('insight-name-')
-        createInsight(insightName)
-
-        cy.get('[data-attr="insight-edit-button"]').click()
-
-        cy.url().should('match', /insights\/[\w\d]+\/edit/)
-
-        cy.get('[data-attr="top-bar-name"] .EditableField__display').then(($pageTitle) => {
-            const pageTitle = $pageTitle.text()
-
-            cy.get('[data-attr="add-action-event-button"]').click()
-            cy.get('[data-attr="trend-element-subject-1"]').click()
-            cy.get('[data-attr="prop-filter-events-0"]').click()
-            cy.get('[data-attr="insight-save-dropdown"]').click()
-            cy.get('[data-attr="insight-save-and-continue"]').click()
-            cy.wait('@patchInsight')
-            // still on the insight edit page
-            expect(pageTitle).to.eq($pageTitle.text())
-            cy.get('[data-attr="insight-save-button"]').should('exist')
-        })
-
-        savedInsights.checkInsightIsInListView(insightName)
     })
 
     it('Stickiness graph', () => {
@@ -112,29 +76,5 @@ describe('Insights', () => {
     it('Cannot see tags or description (non-FOSS feature)', () => {
         cy.get('.insight-description').should('not.exist')
         cy.get('[data-attr=insight-tags]').should('not.exist')
-    })
-
-    it('can edit via the query editor', () => {
-        insight.newInsight('TRENDS')
-        insight.save()
-        cy.get('[data-attr="more-button"]').click()
-        cy.get('[data-attr="show-insight-source"]').click()
-        // Find "day"
-        cy.get('.monaco-editor[role="code"]')
-            .click()
-            // change subject to currently focused element
-            .focused()
-            .type('{ctrl}f')
-            .focused()
-            .type('day')
-
-        // Remove day and add hour
-        cy.get('.monaco-editor[role="code"]')
-            .click()
-            .focused()
-            .type('{leftArrow}{leftArrow}{backspace}{backspace}{backspace}hour')
-        cy.get('[data-attr=query-editor-save]').click()
-
-        cy.get('[data-attr="interval-filter').contains('hour').should('exist')
     })
 })

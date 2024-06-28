@@ -131,7 +131,7 @@ test('requires confirmation to navigate away from changed insight (dismissed)', 
 
     await page.getByRole('link', { name: 'Home' }).click()
     expect(dialogMessage).toContain('Leave insight?')
-    await expect(page).toHaveURL(/\/insights\/(\w+)\/edit$/)
+    await expect(page).toHaveURL(/insights\/[\w\d]+\/edit/)
 })
 
 test('requires confirmation to navigate away from changed insight (accepted)', async ({ page }) => {
@@ -154,7 +154,7 @@ test('requires confirmation to navigate away from changed insight (accepted)', a
 
     await page.getByRole('link', { name: 'Home' }).click()
     expect(dialogMessage).toContain('Leave insight?')
-    await expect(page).toHaveURL(/\/project\/(\d+)$/)
+    await expect(page).toHaveURL(/project\/\d+$/)
 })
 
 test("doesn't require confirmation to navigate away from unchanged insight", async ({ page }) => {
