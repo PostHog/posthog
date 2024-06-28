@@ -1,7 +1,17 @@
+import asyncio
+import datetime as dt
+import uuid
+
 import psycopg
 import pytest
 import pytest_asyncio
 from psycopg import sql
+
+from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
+from posthog.temporal.tests.utils.persons import (
+    generate_test_person_distinct_id2_in_clickhouse,
+    generate_test_persons_in_clickhouse,
+)
 
 
 @pytest.fixture
@@ -44,6 +54,17 @@ async def truncate_events(clickhouse_client):
     await clickhouse_client.execute_query("TRUNCATE TABLE IF EXISTS `sharded_events`")
 
 
+@pytest_asyncio.fixture(autouse=True)
+async def truncate_persons(clickhouse_client):
+    """Fixture to automatically truncate person and person_distinct_id2 after a test.
+
+    This is useful if during the test setup we insert a lot of persons we wish to clean-up.
+    """
+    yield
+    await clickhouse_client.execute_query("TRUNCATE TABLE IF EXISTS `person`")
+    await clickhouse_client.execute_query("TRUNCATE TABLE IF EXISTS `person_distinct_id2`")
+
+
 @pytest.fixture
 def batch_export_schema(request) -> dict | None:
     """A parametrizable fixture to configure a batch export schema.
@@ -59,7 +80,7 @@ def batch_export_schema(request) -> dict | None:
 
 @pytest_asyncio.fixture
 async def setup_postgres_test_db(postgres_config):
-    """Fixture to manage a database for Redshift export testing.
+    """Fixture to manage a database for Redshift and Postgres export testing.
 
     Managing a test database involves the following steps:
     1. Creating a test database.
@@ -123,3 +144,137 @@ async def setup_postgres_test_db(postgres_config):
         await cursor.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(postgres_config["database"])))
 
     await connection.close()
+
+
+@pytest_asyncio.fixture(scope="module", autouse=True)
+async def create_clickhouse_tables_and_views(clickhouse_client, django_db_setup):
+    from posthog.batch_exports.sql import (
+        CREATE_EVENTS_BATCH_EXPORT_VIEW,
+        CREATE_EVENTS_BATCH_EXPORT_VIEW_BACKFILL,
+        CREATE_EVENTS_BATCH_EXPORT_VIEW_UNBOUNDED,
+        CREATE_PERSONS_BATCH_EXPORT_VIEW,
+    )
+    from posthog.clickhouse.schema import CREATE_KAFKA_TABLE_QUERIES, build_query
+
+    create_view_queries = (
+        CREATE_EVENTS_BATCH_EXPORT_VIEW,
+        CREATE_EVENTS_BATCH_EXPORT_VIEW_BACKFILL,
+        CREATE_EVENTS_BATCH_EXPORT_VIEW_UNBOUNDED,
+        CREATE_PERSONS_BATCH_EXPORT_VIEW,
+    )
+
+    clickhouse_tasks = set()
+    for query in create_view_queries + tuple(map(build_query, CREATE_KAFKA_TABLE_QUERIES)):
+        task = asyncio.create_task(clickhouse_client.execute_query(query))
+        clickhouse_tasks.add(task)
+        task.add_done_callback(clickhouse_tasks.discard)
+
+    done, pending = await asyncio.wait(clickhouse_tasks)
+
+    if len(pending) > 0:
+        raise ValueError("Not all required tables and views were created in time")
+
+    for task in done:
+        if exc := task.exception():
+            raise exc
+
+    return
+
+
+@pytest.fixture
+def data_interval_start(data_interval_end, interval):
+    """Set a test interval start based on interval end and interval."""
+    if interval == "hour":
+        interval_time_delta = dt.timedelta(hours=1)
+    elif interval == "day":
+        interval_time_delta = dt.timedelta(days=1)
+    elif interval == "week":
+        interval_time_delta = dt.timedelta(weeks=1)
+    elif interval.startswith("every"):
+        _, value, unit = interval.split(" ")
+        kwargs = {unit: int(value)}
+        interval_time_delta = dt.timedelta(**kwargs)
+    else:
+        raise ValueError(f"Invalid interval: '{interval}'")
+
+    return data_interval_end - interval_time_delta
+
+
+@pytest.fixture
+def data_interval_end(interval):
+    """Set a test data interval end."""
+    return dt.datetime(2023, 4, 25, 15, 0, 0, tzinfo=dt.UTC)
+
+
+@pytest_asyncio.fixture
+async def generate_test_data(ateam, clickhouse_client, exclude_events, data_interval_start, data_interval_end):
+    """Generate test data in ClickHouse."""
+    events_to_export_created, _, _ = await generate_test_events_in_clickhouse(
+        client=clickhouse_client,
+        team_id=ateam.pk,
+        start_time=data_interval_start,
+        end_time=data_interval_end,
+        count=1000,
+        count_outside_range=10,
+        count_other_team=10,
+        duplicate=True,
+        properties={"$browser": "Chrome", "$os": "Mac OS X"},
+        person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
+    )
+
+    more_events_to_export_created, _, _ = await generate_test_events_in_clickhouse(
+        client=clickhouse_client,
+        team_id=ateam.pk,
+        start_time=data_interval_start,
+        end_time=data_interval_end,
+        count=5,
+        count_outside_range=0,
+        count_other_team=0,
+        properties=None,
+        person_properties=None,
+        event_name="test-no-prop-{i}",
+    )
+    events_to_export_created.extend(more_events_to_export_created)
+
+    if exclude_events:
+        for event_name in exclude_events:
+            await generate_test_events_in_clickhouse(
+                client=clickhouse_client,
+                team_id=ateam.pk,
+                start_time=data_interval_start,
+                end_time=data_interval_end,
+                count=5,
+                count_outside_range=0,
+                count_other_team=0,
+                event_name=event_name,
+            )
+
+    persons, _ = await generate_test_persons_in_clickhouse(
+        client=clickhouse_client,
+        team_id=ateam.pk,
+        start_time=data_interval_start,
+        end_time=data_interval_end,
+        count=10,
+        count_other_team=1,
+        properties={"utm_medium": "referral", "$initial_os": "Linux"},
+    )
+
+    persons_exported = []
+    for person in persons:
+        person_distinct_id, _ = await generate_test_person_distinct_id2_in_clickhouse(
+            client=clickhouse_client,
+            team_id=ateam.pk,
+            person_id=uuid.UUID(person["id"]),
+            distinct_id=f"distinct-id-{uuid.UUID(person['id'])}",
+            timestamp=dt.datetime.fromisoformat(person["_timestamp"]),
+        )
+        person_exported = {
+            "team_id": person["team_id"],
+            "person_id": person["id"],
+            "distinct_id": person_distinct_id["distinct_id"],
+            "version": person_distinct_id["version"],
+            "_timestamp": dt.datetime.fromisoformat(person["_timestamp"]),
+        }
+        persons_exported.append(person_exported)
+
+    return (events_to_export_created, persons_exported)

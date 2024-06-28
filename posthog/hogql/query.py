@@ -162,7 +162,7 @@ def execute_hogql_query(
                 else:
                     error = "Unknown error"
             else:
-                raise e
+                raise
 
     if clickhouse_sql is not None:
         timings_dict = timings.to_dict()
@@ -193,7 +193,7 @@ def execute_hogql_query(
                     else:
                         error = "Unknown error"
                 else:
-                    raise e
+                    raise
 
         if debug and error is None:  # If the query errored, explain will fail as well.
             with timings.measure("explain"):

@@ -17,9 +17,9 @@
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
-                     max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288,
+                     max_ast_elements=2000000,
+                     max_expanded_ast_elements=2000000,
+                     max_query_size=1048576,
                      max_bytes_before_external_group_by=0
   '''
 # ---
@@ -43,9 +43,9 @@
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
-                     max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288,
+                     max_ast_elements=2000000,
+                     max_expanded_ast_elements=2000000,
+                     max_query_size=1048576,
                      max_bytes_before_external_group_by=0
   '''
 # ---
@@ -69,9 +69,9 @@
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
-                     max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288,
+                     max_ast_elements=2000000,
+                     max_expanded_ast_elements=2000000,
+                     max_query_size=1048576,
                      max_bytes_before_external_group_by=0
   '''
 # ---
@@ -82,7 +82,7 @@
   JOIN
     (SELECT events.event AS event,
             events.`$session_id` AS `$session_id`
-     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90))), 0)
+     FROM events PREWHERE greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90)))
      WHERE equals(events.team_id, 2)) AS raw_session_replay_events__events ON equals(session_replay_events.session_id, raw_session_replay_events__events.`$session_id`)
   WHERE and(equals(session_replay_events.team_id, 2), ifNull(equals(raw_session_replay_events__events.event, '$pageview'), 0))
   ORDER BY session_replay_events.session_id ASC
@@ -90,9 +90,9 @@
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
-                     max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288,
+                     max_ast_elements=2000000,
+                     max_expanded_ast_elements=2000000,
+                     max_query_size=1048576,
                      max_bytes_before_external_group_by=0
   '''
 # ---
@@ -103,7 +103,7 @@
   JOIN
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', '') AS `properties___$current_url`,
             events.`$session_id` AS `$session_id`
-     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90))), 0)
+     FROM events PREWHERE greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90)))
      WHERE equals(events.team_id, 2)) AS raw_session_replay_events__events ON equals(session_replay_events.session_id, raw_session_replay_events__events.`$session_id`)
   WHERE and(equals(session_replay_events.team_id, 2), ifNull(like(raw_session_replay_events__events.`properties___$current_url`, '%example.com%'), 0))
   ORDER BY session_replay_events.session_id ASC
@@ -111,9 +111,9 @@
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
-                     max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288,
+                     max_ast_elements=2000000,
+                     max_expanded_ast_elements=2000000,
+                     max_query_size=1048576,
                      max_bytes_before_external_group_by=0
   '''
 # ---
@@ -125,7 +125,7 @@
   JOIN
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', '') AS `properties___$current_url`,
             events.`$session_id` AS `$session_id`
-     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90))), 0)
+     FROM events PREWHERE greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90)))
      WHERE equals(events.team_id, 2)) AS raw_session_replay_events__events ON equals(session_replay_events.session_id, raw_session_replay_events__events.`$session_id`)
   WHERE equals(session_replay_events.team_id, 2)
   GROUP BY session_replay_events.session_id
@@ -134,9 +134,9 @@
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
-                     max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288,
+                     max_ast_elements=2000000,
+                     max_expanded_ast_elements=2000000,
+                     max_query_size=1048576,
                      max_bytes_before_external_group_by=0
   '''
 # ---
@@ -147,7 +147,7 @@
   JOIN
     (SELECT events.distinct_id AS raw_session_replay_events__events___distinct_id,
             events.`$session_id` AS `$session_id`
-     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90))), 0)
+     FROM events PREWHERE greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90)))
      WHERE equals(events.team_id, 2)) AS raw_session_replay_events__events ON equals(session_replay_events.session_id, raw_session_replay_events__events.`$session_id`)
   INNER JOIN
     (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS raw_session_replay_events__events__pdi___person_id,
@@ -156,7 +156,7 @@
      FROM person_distinct_id2
      WHERE equals(person_distinct_id2.team_id, 2)
      GROUP BY person_distinct_id2.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS raw_session_replay_events__events__pdi ON equals(raw_session_replay_events__events.raw_session_replay_events__events___distinct_id, raw_session_replay_events__events__pdi.distinct_id)
+     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS raw_session_replay_events__events__pdi ON equals(raw_session_replay_events__events.raw_session_replay_events__events___distinct_id, raw_session_replay_events__events__pdi.distinct_id)
   LEFT JOIN
     (SELECT person.id AS id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'person_property'), ''), 'null'), '^"|"$', '') AS properties___person_property
@@ -166,16 +166,16 @@
                                                        FROM person
                                                        WHERE equals(person.team_id, 2)
                                                        GROUP BY person.id
-                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS raw_session_replay_events__events__pdi__person ON equals(raw_session_replay_events__events__pdi.raw_session_replay_events__events__pdi___person_id, raw_session_replay_events__events__pdi__person.id)
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS raw_session_replay_events__events__pdi__person ON equals(raw_session_replay_events__events__pdi.raw_session_replay_events__events__pdi___person_id, raw_session_replay_events__events__pdi__person.id)
   WHERE and(equals(session_replay_events.team_id, 2), ifNull(equals(ifNull(raw_session_replay_events__events__pdi__person.properties___person_property, 'false'), 'true'), 0))
   ORDER BY session_replay_events.session_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
-                     max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288,
+                     max_ast_elements=2000000,
+                     max_expanded_ast_elements=2000000,
+                     max_query_size=1048576,
                      max_bytes_before_external_group_by=0
   '''
 # ---
@@ -189,16 +189,16 @@
      FROM person_distinct_id2
      WHERE equals(person_distinct_id2.team_id, 2)
      GROUP BY person_distinct_id2.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS raw_session_replay_events__pdi ON equals(session_replay_events.distinct_id, raw_session_replay_events__pdi.distinct_id)
+     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS raw_session_replay_events__pdi ON equals(session_replay_events.distinct_id, raw_session_replay_events__pdi.distinct_id)
   WHERE and(equals(session_replay_events.team_id, 2), ifNull(equals(raw_session_replay_events__pdi.distinct_id, 'd1'), 0))
   ORDER BY session_replay_events.session_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
-                     max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288,
+                     max_ast_elements=2000000,
+                     max_expanded_ast_elements=2000000,
+                     max_query_size=1048576,
                      max_bytes_before_external_group_by=0
   '''
 # ---
@@ -213,22 +213,22 @@
      FROM person_distinct_id2
      WHERE equals(person_distinct_id2.team_id, 2)
      GROUP BY person_distinct_id2.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS raw_session_replay_events__pdi ON equals(session_replay_events.distinct_id, raw_session_replay_events__pdi.distinct_id)
+     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS raw_session_replay_events__pdi ON equals(session_replay_events.distinct_id, raw_session_replay_events__pdi.distinct_id)
   LEFT JOIN
     (SELECT person.id AS id
      FROM person
      WHERE equals(person.team_id, 2)
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS raw_session_replay_events__pdi__person ON equals(raw_session_replay_events__pdi.raw_session_replay_events__pdi___person_id, raw_session_replay_events__pdi__person.id)
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS raw_session_replay_events__pdi__person ON equals(raw_session_replay_events__pdi.raw_session_replay_events__pdi___person_id, raw_session_replay_events__pdi__person.id)
   WHERE and(equals(session_replay_events.team_id, 2), ifNull(equals(raw_session_replay_events__pdi__person.id, toUUIDOrNull('00000000-0000-4000-8000-000000000000')), 0))
   ORDER BY session_replay_events.session_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
-                     max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288,
+                     max_ast_elements=2000000,
+                     max_expanded_ast_elements=2000000,
+                     max_query_size=1048576,
                      max_bytes_before_external_group_by=0
   '''
 # ---
@@ -244,7 +244,7 @@
      FROM person_distinct_id2
      WHERE equals(person_distinct_id2.team_id, 2)
      GROUP BY person_distinct_id2.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS raw_session_replay_events__pdi ON equals(session_replay_events.distinct_id, raw_session_replay_events__pdi.distinct_id)
+     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS raw_session_replay_events__pdi ON equals(session_replay_events.distinct_id, raw_session_replay_events__pdi.distinct_id)
   LEFT JOIN
     (SELECT person.id AS id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'person_property'), ''), 'null'), '^"|"$', '') AS properties___person_property
@@ -254,7 +254,7 @@
                                                        FROM person
                                                        WHERE equals(person.team_id, 2)
                                                        GROUP BY person.id
-                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS raw_session_replay_events__pdi__person ON equals(raw_session_replay_events__pdi.raw_session_replay_events__pdi___person_id, raw_session_replay_events__pdi__person.id)
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS raw_session_replay_events__pdi__person ON equals(raw_session_replay_events__pdi.raw_session_replay_events__pdi___person_id, raw_session_replay_events__pdi__person.id)
   WHERE equals(session_replay_events.team_id, 2)
   GROUP BY session_replay_events.session_id
   ORDER BY session_replay_events.session_id ASC
@@ -262,9 +262,9 @@
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
-                     max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288,
+                     max_ast_elements=2000000,
+                     max_expanded_ast_elements=2000000,
+                     max_query_size=1048576,
                      max_bytes_before_external_group_by=0
   '''
 # ---
@@ -280,7 +280,7 @@
      FROM person_distinct_id2
      WHERE equals(person_distinct_id2.team_id, 2)
      GROUP BY person_distinct_id2.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS raw_session_replay_events__pdi ON equals(session_replay_events.distinct_id, raw_session_replay_events__pdi.distinct_id)
+     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS raw_session_replay_events__pdi ON equals(session_replay_events.distinct_id, raw_session_replay_events__pdi.distinct_id)
   LEFT JOIN
     (SELECT person.id AS id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'person_property'), ''), 'null'), '^"|"$', '') AS properties___person_property
@@ -290,7 +290,7 @@
                                                        FROM person
                                                        WHERE equals(person.team_id, 2)
                                                        GROUP BY person.id
-                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'person_property'), ''), 'null'), '^"|"$', ''), 'true'), 0)) SETTINGS optimize_aggregation_in_order=1) AS raw_session_replay_events__pdi__person ON equals(raw_session_replay_events__pdi.raw_session_replay_events__pdi___person_id, raw_session_replay_events__pdi__person.id)
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'person_property'), ''), 'null'), '^"|"$', ''), 'true'), 0)) SETTINGS optimize_aggregation_in_order=1) AS raw_session_replay_events__pdi__person ON equals(raw_session_replay_events__pdi.raw_session_replay_events__pdi___person_id, raw_session_replay_events__pdi__person.id)
   WHERE and(equals(session_replay_events.team_id, 2), ifNull(equals(raw_session_replay_events__pdi__person.properties___person_property, 'true'), 0))
   GROUP BY session_replay_events.session_id
   ORDER BY session_replay_events.session_id ASC
@@ -298,9 +298,9 @@
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
-                     max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288,
+                     max_ast_elements=2000000,
+                     max_expanded_ast_elements=2000000,
+                     max_query_size=1048576,
                      max_bytes_before_external_group_by=0
   '''
 # ---
@@ -316,7 +316,7 @@
      FROM person_distinct_id2
      WHERE equals(person_distinct_id2.team_id, 2)
      GROUP BY person_distinct_id2.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS raw_session_replay_events__pdi ON equals(session_replay_events.distinct_id, raw_session_replay_events__pdi.distinct_id)
+     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS raw_session_replay_events__pdi ON equals(session_replay_events.distinct_id, raw_session_replay_events__pdi.distinct_id)
   LEFT JOIN
     (SELECT person.id AS id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'person_property'), ''), 'null'), '^"|"$', '') AS properties___person_property
@@ -326,7 +326,7 @@
                                                        FROM person
                                                        WHERE equals(person.team_id, 2)
                                                        GROUP BY person.id
-                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS raw_session_replay_events__pdi__person ON equals(raw_session_replay_events__pdi.raw_session_replay_events__pdi___person_id, raw_session_replay_events__pdi__person.id)
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS raw_session_replay_events__pdi__person ON equals(raw_session_replay_events__pdi.raw_session_replay_events__pdi___person_id, raw_session_replay_events__pdi__person.id)
   WHERE and(equals(session_replay_events.team_id, 2), ifNull(equals(raw_session_replay_events__pdi__person.properties___person_property, 'true'), 0))
   GROUP BY session_replay_events.session_id
   ORDER BY session_replay_events.session_id ASC
@@ -334,9 +334,9 @@
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
-                     max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288,
+                     max_ast_elements=2000000,
+                     max_expanded_ast_elements=2000000,
+                     max_query_size=1048576,
                      max_bytes_before_external_group_by=0
   '''
 # ---
@@ -345,7 +345,7 @@
   SELECT DISTINCT session_replay_events.session_id AS session_id
   FROM session_replay_events
   LEFT JOIN
-    (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS duration,
+    (SELECT dateDiff('second', min(toTimeZone(sessions.min_timestamp, 'UTC')), max(toTimeZone(sessions.max_timestamp, 'UTC'))) AS duration,
             sessions.session_id AS session_id
      FROM sessions
      WHERE equals(sessions.team_id, 2)
@@ -359,9 +359,9 @@
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
-                     max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288,
+                     max_ast_elements=2000000,
+                     max_expanded_ast_elements=2000000,
+                     max_query_size=1048576,
                      max_bytes_before_external_group_by=0
   '''
 # ---
@@ -377,9 +377,9 @@
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
-                     max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288,
+                     max_ast_elements=2000000,
+                     max_expanded_ast_elements=2000000,
+                     max_query_size=1048576,
                      max_bytes_before_external_group_by=0
   '''
 # ---

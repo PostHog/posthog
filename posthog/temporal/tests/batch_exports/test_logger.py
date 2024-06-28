@@ -211,13 +211,13 @@ BATCH_EXPORT_ID = str(uuid.uuid4())
     "activity_environment",
     [
         ActivityInfo(
-            workflow_id=f"{BATCH_EXPORT_ID}-{dt.datetime.now(dt.timezone.utc)}",
+            workflow_id=f"{BATCH_EXPORT_ID}-{dt.datetime.now(dt.UTC)}",
             workflow_type="s3-export",
             workflow_run_id=str(uuid.uuid4()),
             attempt=random.randint(1, 10000),
         ),
         ActivityInfo(
-            workflow_id=f"{BATCH_EXPORT_ID}-Backfill-{dt.datetime.now(dt.timezone.utc)}",
+            workflow_id=f"{BATCH_EXPORT_ID}-Backfill-{dt.datetime.now(dt.UTC)}",
             workflow_type="backfill-batch-export",
             workflow_run_id=str(uuid.uuid4()),
             attempt=random.randint(1, 10000),
@@ -262,13 +262,13 @@ async def test_batch_exports_logger_binds_activity_context(
     "activity_environment",
     [
         ActivityInfo(
-            workflow_id=f"{BATCH_EXPORT_ID}-{dt.datetime.now(dt.timezone.utc)}",
+            workflow_id=f"{BATCH_EXPORT_ID}-{dt.datetime.now(dt.UTC)}",
             workflow_type="s3-export",
             workflow_run_id=str(uuid.uuid4()),
             attempt=random.randint(1, 10000),
         ),
         ActivityInfo(
-            workflow_id=f"{BATCH_EXPORT_ID}-Backfill-{dt.datetime.now(dt.timezone.utc)}",
+            workflow_id=f"{BATCH_EXPORT_ID}-Backfill-{dt.datetime.now(dt.UTC)}",
             workflow_type="backfill-batch-export",
             workflow_run_id=str(uuid.uuid4()),
             attempt=random.randint(1, 10000),
@@ -324,13 +324,13 @@ def log_entries_table():
     "activity_environment",
     [
         ActivityInfo(
-            workflow_id=f"{BATCH_EXPORT_ID}-{dt.datetime.now(dt.timezone.utc)}",
+            workflow_id=f"{BATCH_EXPORT_ID}-{dt.datetime.now(dt.UTC)}",
             workflow_type="s3-export",
             workflow_run_id=str(uuid.uuid4()),
             attempt=random.randint(1, 10000),
         ),
         ActivityInfo(
-            workflow_id=f"{BATCH_EXPORT_ID}-Backfill-{dt.datetime.now(dt.timezone.utc)}",
+            workflow_id=f"{BATCH_EXPORT_ID}-Backfill-{dt.datetime.now(dt.UTC)}",
             workflow_type="backfill-batch-export",
             workflow_run_id=str(uuid.uuid4()),
             attempt=random.randint(1, 10000),

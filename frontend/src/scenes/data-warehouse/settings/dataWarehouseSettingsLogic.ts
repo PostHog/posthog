@@ -38,7 +38,6 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
         resyncSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
         sourceLoadingFinished: (source: ExternalDataStripeSource) => ({ source }),
         schemaLoadingFinished: (schema: ExternalDataSourceSchema) => ({ schema }),
-        updateSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
         abortAnyRunningQuery: true,
         setCurrentTab: (tab: DataWarehouseSettingsTab = DataWarehouseSettingsTab.Managed) => ({ tab }),
         deleteSelfManagedTable: (tableId: string) => ({ tableId }),
@@ -71,6 +70,30 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                             values.dataWarehouseSources?.results.map((s) => (s.id === updatedSource.id ? source : s)) ||
                             [],
                     }
+                },
+            },
+        ],
+        schemas: [
+            null,
+            {
+                updateSchema: async (schema: ExternalDataSourceSchema) => {
+                    // Optimistic UI updates before sending updates to the backend
+                    const clonedSources = JSON.parse(
+                        JSON.stringify(values.dataWarehouseSources?.results ?? [])
+                    ) as ExternalDataStripeSource[]
+                    const sourceIndex = clonedSources.findIndex((n) => n.schemas.find((m) => m.id === schema.id))
+                    const schemaIndex = clonedSources[sourceIndex].schemas.findIndex((n) => n.id === schema.id)
+                    clonedSources[sourceIndex].schemas[schemaIndex] = schema
+
+                    actions.loadSourcesSuccess({
+                        ...values.dataWarehouseSources,
+                        results: clonedSources,
+                    })
+
+                    await api.externalDataSchemas.update(schema.id, schema)
+                    actions.loadSources(null)
+
+                    return null
                 },
             },
         ],
@@ -260,23 +283,6 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                     lemonToast.error('Cant refresh schema at this time')
                 }
             }
-        },
-        updateSchema: async ({ schema }) => {
-            // Optimistic UI updates before sending updates to the backend
-            const clonedSources = JSON.parse(
-                JSON.stringify(values.dataWarehouseSources?.results ?? [])
-            ) as ExternalDataStripeSource[]
-            const sourceIndex = clonedSources.findIndex((n) => n.schemas.find((m) => m.id === schema.id))
-            const schemaIndex = clonedSources[sourceIndex].schemas.findIndex((n) => n.id === schema.id)
-            clonedSources[sourceIndex].schemas[schemaIndex] = schema
-
-            actions.loadSourcesSuccess({
-                ...values.dataWarehouseSources,
-                results: clonedSources,
-            })
-
-            await api.externalDataSchemas.update(schema.id, schema)
-            actions.loadSources(null)
         },
         abortAnyRunningQuery: () => {
             if (cache.abortController) {

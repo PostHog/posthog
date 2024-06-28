@@ -29,7 +29,7 @@ export function ActionsPie({
     const { cohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
-    const { insightProps, hiddenLegendKeys } = useValues(insightLogic)
+    const { insightProps } = useValues(insightLogic)
     const {
         indexedResults,
         labelGroupType,
@@ -43,6 +43,7 @@ export function ActionsPie({
         isDataWarehouseSeries,
         querySource,
         breakdownFilter,
+        hiddenLegendIndexes,
     } = useValues(trendsDataLogic(insightProps))
 
     const renderingMetadata = context?.chartRenderingMetadata?.[ChartDisplayType.ActionsPie]
@@ -76,7 +77,10 @@ export function ActionsPie({
             },
         ])
         setTotal(
-            indexedResults.reduce((prev, item, i) => prev + (!hiddenLegendKeys?.[i] ? item.aggregated_value : 0), 0)
+            indexedResults.reduce(
+                (prev, item, i) => prev + (!hiddenLegendIndexes?.includes(i) ? item.aggregated_value : 0),
+                0
+            )
         )
     }
 
@@ -84,7 +88,7 @@ export function ActionsPie({
         if (indexedResults) {
             updateData()
         }
-    }, [indexedResults, hiddenLegendKeys])
+    }, [indexedResults, hiddenLegendIndexes])
 
     const onClick =
         renderingMetadata?.onSegmentClick ||
@@ -113,7 +117,7 @@ export function ActionsPie({
                     <div className="ActionsPie__chart">
                         <PieChart
                             data-attr="trend-pie-graph"
-                            hiddenLegendKeys={hiddenLegendKeys}
+                            hiddenLegendIndexes={hiddenLegendIndexes}
                             type={GraphType.Pie}
                             datasets={data}
                             labels={data[0].labels}

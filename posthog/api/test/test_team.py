@@ -73,10 +73,6 @@ class TestTeamAPI(APIBaseTest):
             response_data["person_on_events_querying_enabled"],
             get_instance_setting("PERSON_ON_EVENTS_ENABLED") or get_instance_setting("PERSON_ON_EVENTS_V2_ENABLED"),
         )
-        self.assertEqual(
-            response_data["groups_on_events_querying_enabled"],
-            get_instance_setting("GROUPS_ON_EVENTS_ENABLED"),
-        )
 
         # TODO: These assertions will no longer make sense when we fully remove these attributes from the model
         self.assertNotIn("event_names", response_data)

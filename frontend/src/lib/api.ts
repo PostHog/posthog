@@ -44,6 +44,7 @@ import {
     Group,
     GroupListParams,
     HogFunctionIconResponse,
+    HogFunctionStatus,
     HogFunctionTemplateType,
     HogFunctionType,
     InsightModel,
@@ -73,6 +74,7 @@ import {
     RolesListParams,
     RoleType,
     ScheduledChangeType,
+    SchemaIncrementalFieldsResponse,
     SearchListParams,
     SearchResponse,
     SessionRecordingPlaylistType,
@@ -889,7 +891,6 @@ const api = {
                 .withQueryString(
                     toParams({
                         short_id: encodeURIComponent(shortId),
-                        include_query_insights: true,
                         basic: basic,
                     })
                 )
@@ -1696,6 +1697,10 @@ const api = {
         ): Promise<any> {
             return await new ApiRequest().hogFunction(id).withAction('invocations').create({ data })
         },
+
+        async getStatus(id: HogFunctionType['id']): Promise<HogFunctionStatus> {
+            return await new ApiRequest().hogFunction(id).withAction('status').get()
+        },
     },
 
     annotations: {
@@ -2080,6 +2085,9 @@ const api = {
         },
         async resync(schemaId: ExternalDataSourceSchema['id']): Promise<void> {
             await new ApiRequest().externalDataSourceSchema(schemaId).withAction('resync').create()
+        },
+        async incremental_fields(schemaId: ExternalDataSourceSchema['id']): Promise<SchemaIncrementalFieldsResponse> {
+            return await new ApiRequest().externalDataSourceSchema(schemaId).withAction('incremental_fields').create()
         },
     },
 

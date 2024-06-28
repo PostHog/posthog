@@ -4,6 +4,7 @@ from uuid import UUID
 
 from posthog.hogql import ast
 from posthog.hogql.ast import FieldTraverserType, ConstantType
+from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.functions import find_hogql_posthog_function
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
@@ -17,8 +18,9 @@ from posthog.hogql.functions.action import matches_action
 from posthog.hogql.functions.cohort import cohort_query_node
 from posthog.hogql.functions.mapping import validate_function_args, HOGQL_CLICKHOUSE_FUNCTIONS, compare_types
 from posthog.hogql.functions.sparkline import sparkline
+from posthog.hogql.hogqlx import convert_to_hx, HOGQLX_COMPONENTS
 from posthog.hogql.parser import parse_select
-from posthog.hogql.resolver_utils import convert_hogqlx_tag, lookup_cte_by_name, lookup_field_by_name
+from posthog.hogql.resolver_utils import expand_hogqlx_query, lookup_cte_by_name, lookup_field_by_name
 from posthog.hogql.visitor import CloningVisitor, clone_expr, TraversingVisitor
 from posthog.models.utils import UUIDT
 from posthog.hogql.database.schema.events import EventsTable
@@ -276,7 +278,7 @@ class Resolver(CloningVisitor):
         scope = self.scopes[-1]
 
         if isinstance(node.table, ast.HogQLXTag):
-            node.table = convert_hogqlx_tag(node.table, self.context.team_id)
+            node.table = expand_hogqlx_query(node.table, self.context.team_id)
 
         # If selecting from a CTE, expand and visit the new node
         if isinstance(node.table, ast.Field) and len(node.table.chain) == 1:
@@ -319,7 +321,11 @@ class Resolver(CloningVisitor):
                 return node
 
             if isinstance(database_table, LazyTable):
+                if isinstance(database_table, PersonsTable):
+                    # Check for inlineable exprs in the join on the persons table
+                    database_table = database_table.create_new_table_with_filter(node)
                 node_table_type = ast.LazyTableType(table=database_table)
+
             else:
                 node_table_type = ast.TableType(table=database_table)
 
@@ -402,7 +408,9 @@ class Resolver(CloningVisitor):
             raise QueryError(f"A {type(node.table).__name__} cannot be used as a SELECT source")
 
     def visit_hogqlx_tag(self, node: ast.HogQLXTag):
-        return self.visit(convert_hogqlx_tag(node, self.context.team_id))
+        if node.kind in HOGQLX_COMPONENTS:
+            return self.visit(convert_to_hx(node))
+        return self.visit(expand_hogqlx_query(node, self.context.team_id))
 
     def visit_alias(self, node: ast.Alias):
         """Visit column aliases. SELECT 1, (select 3 as y) as x."""
@@ -697,6 +705,9 @@ class Resolver(CloningVisitor):
             return tuple
 
         return node
+
+    def visit_dict(self, node: ast.Dict):
+        return self.visit(convert_to_hx(node))
 
     def visit_constant(self, node: ast.Constant):
         node = super().visit_constant(node)

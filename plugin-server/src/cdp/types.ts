@@ -1,7 +1,7 @@
 import { VMState } from '@posthog/hogvm'
 import { DateTime } from 'luxon'
 
-import { ElementPropertyFilter, EventPropertyFilter, PersonPropertyFilter } from '../types'
+import { ClickHouseTimestamp, ElementPropertyFilter, EventPropertyFilter, PersonPropertyFilter } from '../types'
 
 export type HogBytecode = any[]
 
@@ -95,6 +95,11 @@ export type HogFunctionInvocationGlobals = {
     >
 }
 
+export type HogFunctionOverflowedGlobals = {
+    hogFunctionIds: HogFunctionType['id'][]
+    globals: HogFunctionInvocationGlobals
+}
+
 export type HogFunctionFilterGlobals = {
     // Filter Hog is built in the same way as analytics so the global object is meant to be an event
     event: string
@@ -126,7 +131,7 @@ export type HogFunctionFilterGlobals = {
 export type HogFunctionLogEntrySource = 'system' | 'hog' | 'console'
 export type HogFunctionLogEntryLevel = 'debug' | 'info' | 'warn' | 'error'
 
-export interface HogFunctionLogEntry {
+export type HogFunctionLogEntry = {
     team_id: number
     log_source: string // The kind of source (hog_function)
     log_source_id: string // The id of the hog function
@@ -134,6 +139,10 @@ export interface HogFunctionLogEntry {
     timestamp: DateTime
     level: HogFunctionLogEntryLevel
     message: string
+}
+
+export type HogFunctionLogEntrySerialized = Omit<HogFunctionLogEntry, 'timestamp'> & {
+    timestamp: ClickHouseTimestamp
 }
 
 export interface HogFunctionTiming {
@@ -154,8 +163,6 @@ export type HogFunctionInvocation = {
 export type HogFunctionInvocationResult = HogFunctionInvocation & {
     finished: boolean
     error?: any
-    logs: HogFunctionLogEntry[]
-    timings: HogFunctionTiming[]
     asyncFunctionRequest?: {
         name: string
         args: any[]
@@ -174,15 +181,9 @@ export type HogFunctionInvocationAsyncResponse = HogFunctionInvocationResult & {
     }
 }
 
-export type HogFunctionMessageToQueue = {
-    topic: string
-    value: object
-    key: string
-}
-
 // Mostly copied from frontend types
 export type HogFunctionInputSchemaType = {
-    type: 'string' | 'number' | 'boolean' | 'dictionary' | 'choice' | 'json'
+    type: 'string' | 'boolean' | 'dictionary' | 'choice' | 'json' | 'integration' | 'integration_field'
     key: string
     label?: string
     choices?: { value: string; label: string }[]
@@ -190,6 +191,9 @@ export type HogFunctionInputSchemaType = {
     default?: any
     secret?: boolean
     description?: string
+    integration?: string
+    integration_key?: string
+    integration_field?: 'slack_channel'
 }
 
 export type HogFunctionType = {
@@ -199,13 +203,43 @@ export type HogFunctionType = {
     enabled: boolean
     hog: string
     bytecode: HogBytecode
-    inputs_schema: HogFunctionInputSchemaType[]
-    inputs: Record<
-        string,
-        {
-            value: any
-            bytecode?: HogBytecode | object
-        }
-    >
+    inputs_schema?: HogFunctionInputSchemaType[]
+    inputs?: Record<string, HogFunctionInputType>
     filters?: HogFunctionFilters | null
+}
+
+export type HogFunctionInputType = {
+    value: any
+    bytecode?: HogBytecode | object
+}
+
+export type IntegrationType = {
+    id: number
+    team_id: number
+    kind: 'slack'
+    config: Record<string, any>
+    sensitive_config: Record<string, any>
+
+    // Fields we don't load but need for seeding data
+    errors?: string
+    created_at?: string
+    created_by_id?: number
+}
+
+type CdpOverflowMessageInvocations = {
+    source: 'event_invocations'
+    payload: HogFunctionOverflowedGlobals
+}
+
+type CdpOverflowMessageFunctionCallback = {
+    source: 'hog_function_callback'
+    payload: HogFunctionInvocationAsyncResponse
+}
+
+export type CdpOverflowMessage = CdpOverflowMessageInvocations | CdpOverflowMessageFunctionCallback
+
+export type HogFunctionMessageToProduce = {
+    topic: string
+    value: CdpOverflowMessage | HogFunctionLogEntrySerialized | HogFunctionInvocationAsyncResponse
+    key: string
 }

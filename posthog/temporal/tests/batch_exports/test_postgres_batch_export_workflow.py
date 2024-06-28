@@ -117,7 +117,7 @@ async def assert_clickhouse_records_in_postgres(
                 if k in {"properties", "set", "set_once", "person_properties"} and v is not None:
                     expected_record[k] = json.loads(v)
                 elif isinstance(v, dt.datetime):
-                    expected_record[k] = v.replace(tzinfo=dt.timezone.utc)
+                    expected_record[k] = v.replace(tzinfo=dt.UTC)
                 else:
                     expected_record[k] = v
 
@@ -127,6 +127,7 @@ async def assert_clickhouse_records_in_postgres(
     expected_column_names = list(expected_records[0].keys()).sort()
 
     assert inserted_column_names == expected_column_names
+    assert len(inserted_records) == len(expected_records)
     assert inserted_records[0] == expected_records[0]
     assert inserted_records == expected_records
 
@@ -171,7 +172,7 @@ TEST_SCHEMAS = [
     {
         "fields": [
             {"expression": "event", "alias": "event"},
-            {"expression": "inserted_at", "alias": "inserted_at"},
+            {"expression": "_inserted_at", "alias": "inserted_at"},
             {"expression": "toInt8(1 + 1)", "alias": "two"},
         ],
         "values": {},
@@ -200,8 +201,8 @@ async def test_insert_into_postgres_activity_inserts_data_into_postgres_table(
     development postgres instance for testing. But we setup and manage our own database
     to avoid conflicting with PostHog itself.
     """
-    data_interval_start = dt.datetime(2023, 4, 20, 14, 0, 0, tzinfo=dt.timezone.utc)
-    data_interval_end = dt.datetime(2023, 4, 25, 15, 0, 0, tzinfo=dt.timezone.utc)
+    data_interval_start = dt.datetime(2023, 4, 20, 14, 0, 0, tzinfo=dt.UTC)
+    data_interval_end = dt.datetime(2023, 4, 25, 15, 0, 0, tzinfo=dt.UTC)
 
     # Generate a random team id integer. There's still a chance of a collision,
     # but it's very small.
