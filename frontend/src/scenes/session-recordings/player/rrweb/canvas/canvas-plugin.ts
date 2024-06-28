@@ -1,5 +1,6 @@
 import { CanvasArg, canvasMutationData, canvasMutationParam, eventWithTime } from '@rrweb/types'
 import { captureException } from '@sentry/react'
+import { debounce } from 'lib/utils'
 import { canvasMutation, EventType, IncrementalSource, Replayer } from 'rrweb'
 import { ReplayPlugin } from 'rrweb/typings/types'
 
@@ -32,6 +33,41 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
     let latestCanvasEvent: CanvasEventWithTime | null = null
 
     const canvasMutationEvents = events.filter(isCanvasMutation)
+
+    // Buffers mutations from user interactions before Replayer was ready
+    const handleQueue = new Map<number, [CanvasEventWithTime, Replayer]>()
+    const flushQueue = (id: number): void => {
+        const queueItem = handleQueue.get(id)
+        handleQueue.delete(id)
+        if (!queueItem) {
+            return
+        }
+        const [event, replayer] = queueItem
+        processMutation(event, replayer).catch(handleMutationError)
+    }
+
+    // only processes a single mutation event in cases when the user is scrubbing
+    // avoids looking like the canvas is playing
+    const processMutationSync = (e: CanvasEventWithTime, { replayer }: { replayer: Replayer }): void => {
+        // We want to only process the most recent sync event
+        handleQueue.set(e.data.id, [e, replayer])
+        debouncedProcessQueuedEvents()
+    }
+    const debouncedProcessQueuedEvents = debounce(
+        () => {
+            Array.from(handleQueue.entries()).forEach(([id, [e, replayer]]) => {
+                void (async () => {
+                    try {
+                        await processMutation(e, replayer)
+                        handleQueue.delete(id)
+                    } catch (e) {
+                        handleMutationError(e)
+                    }
+                })()
+            })
+        },
+        250 // currently using 4fps for all recordings
+    )
 
     const deserializeAndPreloadCanvasEvents = async (data: canvasMutationData, event: eventWithTime): Promise<void> => {
         if (!canvasEventMap.has(event)) {
@@ -103,12 +139,8 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
             target: target,
             imageMap,
             canvasEventMap,
-            errorHandler: (error: any) => {
-                if (error instanceof Error) {
-                    captureException(error)
-                } else {
-                    console.error(error)
-                }
+            errorHandler: (error: unknown) => {
+                handleMutationError(error)
             },
         })
 
@@ -168,6 +200,10 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
                 ;(node as HTMLCanvasElement).appendChild(el)
                 containers.set(id, el)
             }
+
+            // `handler` can be called by users seeking before Replayer is ready
+            // replays user interactions stored in queue from before DOM was built
+            flushQueue(id)
         },
 
         // eslint-disable-next-line @typescript-eslint/no-misused-promises
@@ -187,10 +223,19 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
                 // reset preload index
                 nextPreloadIndex = null
                 latestCanvasEvent = e
+                processMutationSync(e, { replayer })
                 pruneBuffer(e)
             } else {
-                void processMutation(e, replayer)
+                void processMutation(e, replayer).catch(handleMutationError)
             }
         },
     } as ReplayPlugin
+}
+
+const handleMutationError = (error: unknown): void => {
+    if (error instanceof Error) {
+        captureException(error)
+    } else {
+        console.error(error)
+    }
 }
