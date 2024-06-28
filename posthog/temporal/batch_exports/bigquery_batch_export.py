@@ -184,9 +184,14 @@ class BigQueryClient(bigquery.Client):
         exists_ok: bool = True,
         not_found_ok: bool = True,
         delete: bool = True,
+        create: bool = True,
     ) -> collections.abc.AsyncGenerator[bigquery.Table, None]:
         """Manage a table in BigQuery by ensure it exists while in context."""
-        table = await self.acreate_table(project_id, dataset_id, table_id, table_schema, exists_ok)
+        if create is True:
+            table = await self.acreate_table(project_id, dataset_id, table_id, table_schema, exists_ok)
+        else:
+            fully_qualified_name = f"{project_id}.{dataset_id}.{table_id}"
+            table = bigquery.Table(fully_qualified_name, schema=table_schema)
 
         try:
             yield table
@@ -398,21 +403,24 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
         requires_merge = (
             isinstance(inputs.batch_export_model, BatchExportModel) and inputs.batch_export_model.name == "persons"
         )
+        stage_table_name = f"stage_{inputs.table_id}" if requires_merge else inputs.table_id
 
         with bigquery_client(inputs) as bq_client:
             async with (
                 bq_client.managed_table(
                     inputs.project_id,
                     inputs.dataset_id,
-                    f"{inputs.table_id}",
+                    inputs.table_id,
                     schema,
                     delete=False,
                 ) as bigquery_table,
                 bq_client.managed_table(
                     inputs.project_id,
                     inputs.dataset_id,
-                    f"stage_{inputs.table_id}",
+                    stage_table_name,
                     schema,
+                    create=requires_merge,
+                    delete=requires_merge,
                 ) as bigquery_stage_table,
             ):
 
@@ -426,10 +434,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                     )
                     table = bigquery_stage_table if requires_merge else bigquery_table
 
-                    if inputs.use_json_type is True:
-                        await bq_client.load_jsonl_file(local_results_file, table, schema)
-                    else:
-                        await bq_client.load_parquet_file(local_results_file, table, schema)
+                    await bq_client.load_jsonl_file(local_results_file, table, schema)
 
                     rows_exported.add(records_since_last_flush)
                     bytes_exported.add(bytes_since_last_flush)
@@ -447,13 +452,11 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                         for field in first_record_batch.select([field.name for field in schema]).schema
                     ]
                 )
-
-                writer = get_batch_export_writer(
-                    inputs,
-                    flush_callable=flush_to_bigquery,
+                writer = JSONLBatchExportWriter(
                     max_bytes=settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES,
-                    schema=record_schema,
+                    flush_callable=flush_to_bigquery,
                 )
+
                 async with writer.open_temporary_file():
                     async for record_batch in records_iterator:
                         record_batch = cast_record_batch_json_columns(record_batch, json_columns=json_columns)
