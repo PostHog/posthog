@@ -52,7 +52,8 @@ export type TaxonomicFilterRender = (props: {
 
 export interface TaxonomicFilterGroup {
     name: string
-    searchPlaceholder: string
+    /** Null means this group is not searchable (like HogQL expressions). */
+    searchPlaceholder: string | null
     type: TaxonomicFilterGroupType
     /** Component to show instead of the usual taxonomic list. */
     render?: TaxonomicFilterRender

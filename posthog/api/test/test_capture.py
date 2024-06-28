@@ -13,7 +13,7 @@ import string
 import structlog
 import zlib
 from datetime import datetime, timedelta
-from datetime import timezone as tz
+from datetime import UTC
 from django.http import HttpResponse
 from django.test.client import MULTIPART_CONTENT, Client
 from django.utils import timezone
@@ -444,10 +444,16 @@ class TestCapture(BaseTest):
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_capture_snapshot_event_too_large(self, kafka_produce: MagicMock) -> None:
-        kafka_produce.side_effect = [
+        mock_future = MagicMock()
+
+        mock_future.get.side_effect = [
             MessageSizeTooLargeError("Message size too large"),
-            None,  # Return None for successful calls
+            None,
         ]
+
+        # kafka_produce return this future, so that when capture calls `.get` on it, we can control the behavior
+        kafka_produce.return_value = mock_future
+
         response = self._send_august_2023_version_session_recording_event(
             event_data=[
                 {"type": 2, "data": {"lots": "of data"}, "$window_id": "the window id", "timestamp": 1234567890}
@@ -1415,7 +1421,7 @@ class TestCapture(BaseTest):
         # right time sent as sent_at to process_event
 
         sent_at = datetime.fromisoformat(arguments["sent_at"])
-        self.assertEqual(sent_at.tzinfo, tz.utc)
+        self.assertEqual(sent_at.tzinfo, UTC)
 
         timediff = sent_at.timestamp() - tomorrow_sent_at.timestamp()
         self.assertLess(abs(timediff), 1)

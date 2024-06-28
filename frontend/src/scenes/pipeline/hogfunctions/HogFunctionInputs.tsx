@@ -15,7 +15,7 @@ import {
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
+import { CodeEditorInline, CodeEditorInlineProps } from 'lib/monaco/CodeEditorInline'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { languages } from 'monaco-editor'
@@ -178,6 +178,11 @@ function JsonConfigField(props: {
     )
 }
 
+function HogFunctionTemplateInput(props: Omit<CodeEditorInlineProps, 'globals'>): JSX.Element {
+    const { globalVars } = useValues(pipelineHogFunctionConfigurationLogic)
+    return <CodeEditorInline {...props} globals={globalVars} />
+}
+
 function DictionaryField({ onChange, value }: { onChange?: (value: any) => void; value: any }): JSX.Element {
     const [entries, setEntries] = useState<[string, string][]>(Object.entries(value ?? {}))
 
@@ -202,7 +207,7 @@ function DictionaryField({ onChange, value }: { onChange?: (value: any) => void;
                         placeholder="Key"
                     />
 
-                    <CodeEditorInline
+                    <HogFunctionTemplateInput
                         className="flex-2"
                         value={val}
                         language="hogTemplate"
@@ -242,7 +247,7 @@ export function HogFunctionInputRenderer({ value, onChange, schema, disabled }: 
     switch (schema.type) {
         case 'string':
             return (
-                <CodeEditorInline
+                <HogFunctionTemplateInput
                     language="hogTemplate"
                     value={value}
                     onChange={disabled ? () => {} : onChange}

@@ -36,3 +36,4 @@ class CeleryQueue(Enum):
     USAGE_REPORTS = "usage_reports"
     SESSION_REPLAY_EMBEDDINGS = "session_replay_embeddings"
     SESSION_REPLAY_PERSISTENCE = "session_replay_persistence"
+    SESSION_REPLAY_GENERAL = "session_replay_general"
