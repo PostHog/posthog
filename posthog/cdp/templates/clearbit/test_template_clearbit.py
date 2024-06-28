@@ -66,6 +66,7 @@ class TestTemplateClearbit(BaseHogFunctionTemplateTest):
                     "distinct_id": "distinct-id",
                     "properties": {
                         "$set_once": {
+                            "clearbit_enriched": True,
                             "person": {
                                 "id": "1234",
                                 "name": {

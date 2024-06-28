@@ -33,7 +33,8 @@ if (response.status == 200 and not empty(response.body.person)) {
         'properties': {
             '$set_once': {
                 'person': response.body.person,
-                'company': response.body.company
+                'company': response.body.company,
+                'clearbit_enriched': true
             }
         }
     })
