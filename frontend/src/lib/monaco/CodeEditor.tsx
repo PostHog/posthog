@@ -25,7 +25,7 @@ export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> 
     autoFocus?: boolean
     metadataSource?: DataNode
     globals?: Record<string, any>
-    exprSource?: string
+    sourceQuery?: string
 }
 let codeEditorIndex = 0
 
@@ -120,7 +120,7 @@ export function CodeEditor({
     autoFocus,
     metadataSource,
     globals,
-    exprSource,
+    sourceQuery,
     ...editorProps
 }: CodeEditorProps): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
@@ -137,7 +137,7 @@ export function CodeEditor({
         language: editorProps.language,
         metadataSource: metadataSource,
         globals,
-        exprSource,
+        sourceQuery,
         monaco: monaco,
         editor: editor,
     })

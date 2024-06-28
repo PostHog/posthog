@@ -34,7 +34,7 @@ export const hogQLEditorLogic = kea<hogQLEditorLogicType>([
                     const response = await performQuery<HogQLMetadata>({
                         kind: NodeKind.HogQLMetadata,
                         expr: values.localValue,
-                        exprSource: props.metadataSource || undefined,
+                        sourceQuery: props.metadataSource || undefined,
                     })
                     breakpoint()
                     if (response && Array.isArray(response.errors) && response.errors.length > 0) {
