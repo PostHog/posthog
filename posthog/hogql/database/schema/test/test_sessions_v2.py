@@ -406,6 +406,7 @@ class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
                 "$entry_utm_medium",
                 "$entry_utm_source",
                 "$entry_utm_term",
+                "$first_lcp",
                 "$is_bounce",
                 "$last_external_click_url",
                 "$pageview_count",
