@@ -260,7 +260,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         ],
     })),
 
-    listeners(({ actions, values, cache, props }) => ({
+    listeners(({ actions, values, cache }) => ({
         loadTemplateSuccess: () => actions.resetForm(),
         loadHogFunctionSuccess: () => actions.resetForm(),
         upsertHogFunctionSuccess: () => actions.resetForm(),
