@@ -37,12 +37,14 @@ DROP COLUMN IF EXISTS autocapture_count
 
 def add_columns_to_required_tables(_):
     sync_execute(ADD_LCP_COLUMNS_BASE_SQL.format(table="raw_sessions", cluster=CLICKHOUSE_CLUSTER))
+    sync_execute(ADD_LCP_COLUMNS_BASE_SQL.format(table="writable_raw_sessions", cluster=CLICKHOUSE_CLUSTER))
     sync_execute(ADD_LCP_COLUMNS_BASE_SQL.format(table="sharded_raw_sessions", cluster=CLICKHOUSE_CLUSTER))
 
 
 def drop_columns_from_required_tables(_):
     for sql in [DROP_PAGEVIEW_COLUMN_BASE_SQL, DROP_SCREEN_COLUMN_BASE_SQL, DROP_AUTOCAPTURE_COLUMN_BASE_SQL]:
         sync_execute(sql.format(table="raw_sessions", cluster=CLICKHOUSE_CLUSTER))
+        sync_execute(sql.format(table="writable_raw_sessions", cluster=CLICKHOUSE_CLUSTER))
         sync_execute(sql.format(table="sharded_raw_sessions", cluster=CLICKHOUSE_CLUSTER))
 
 
