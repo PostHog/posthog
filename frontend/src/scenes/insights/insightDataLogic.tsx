@@ -43,7 +43,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
     connect((props: InsightLogicProps) => ({
         values: [
             insightLogic,
-            ['filters', 'legacyInsight', 'queryBasedInsight', 'savedInsight'],
+            ['legacyInsight', 'queryBasedInsight', 'savedInsight'],
             dataNodeLogic({
                 key: insightVizDataNodeKey(props),
                 loadPriority: props.loadPriority,
@@ -109,12 +109,11 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
 
         query: [
-            (s) => [s.propsQuery, s.filters, s.legacyInsight, s.internalQuery, s.filterTestAccountsDefault],
-            (propsQuery, filters, insight, internalQuery, filterTestAccountsDefault) =>
+            (s) => [s.propsQuery, s.queryBasedInsight, s.internalQuery, s.filterTestAccountsDefault],
+            (propsQuery, insight, internalQuery, filterTestAccountsDefault) =>
                 propsQuery ||
                 internalQuery ||
                 insight.query ||
-                (filters && filters.insight ? queryFromFilters(filters) : undefined) ||
                 queryFromKind(NodeKind.TrendsQuery, filterTestAccountsDefault),
         ],
 

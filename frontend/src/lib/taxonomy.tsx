@@ -155,6 +155,10 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'Exception',
             description: 'Automatically captured exceptions from the client Sentry integration',
         },
+        $web_vitals: {
+            label: 'Web vitals',
+            description: 'Automatically captured web vitals data',
+        },
         // Mobile SDKs events
         'Application Opened': {
             label: 'Application Opened',
@@ -1001,6 +1005,36 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         $is_identified: {
             label: 'Is Identified',
             description: 'When the person was identified',
+        },
+
+        // web vitals properties
+        $web_vitals_enabled_server_side: {
+            label: 'Web vitals enabled server side',
+            description: 'Whether web vitals was enabled in remote config',
+        },
+        $web_vitals_FCP_event: {
+            label: 'Web vitals FCP measure event details',
+        },
+        $web_vitals_FCP_value: {
+            label: 'Web vitals FCP value',
+        },
+        $web_vitals_LCP_event: {
+            label: 'Web vitals LCP measure event details',
+        },
+        $web_vitals_LCP_value: {
+            label: 'Web vitals LCP value',
+        },
+        $web_vitals_INP_event: {
+            label: 'Web vitals INP measure event details',
+        },
+        $web_vitals_INP_value: {
+            label: 'Web vitals INP value',
+        },
+        $web_vitals_CLS_event: {
+            label: 'Web vitals CLS measure event details',
+        },
+        $web_vitals_CLS_value: {
+            label: 'Web vitals CLS value',
         },
     },
     numerical_event_properties: {}, // Same as event properties, see assignment below
