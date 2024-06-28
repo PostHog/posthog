@@ -16,7 +16,7 @@ import type { editor } from 'monaco-editor'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
-import { HogQLQuery, NodeKind } from '~/queries/schema'
+import { DataNode, HogQLQuery, NodeKind } from '~/queries/schema'
 
 import type { hogQLQueryEditorLogicType } from './hogQLQueryEditorLogicType'
 
@@ -27,6 +27,7 @@ export interface HogQLQueryEditorLogicProps {
     onChange?: (query: string) => void
     monaco?: Monaco | null
     editor?: editor.IStandaloneCodeEditor | null
+    metadataSource?: DataNode
 }
 
 export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
@@ -45,6 +46,7 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
                 query: props.query.query,
                 language: 'hogql',
                 metadataFilters: props.query.filters,
+                metadataSource: props.metadataSource,
             }),
             ['hasErrors', 'error', 'isValidView'],
         ],
