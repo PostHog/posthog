@@ -1657,20 +1657,17 @@
       initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
   
       -- Count pageview, autocapture, and screen events for providing totals.
-      -- It's unclear if we can use the counts as they are not idempotent, and we had a bug on EU where events were
-      -- double-counted, so the counts were wrong. To get around this, also keep track of the unique uuids. This will be
-      -- slower and more expensive to store, but will be correct even if events are double-counted, so can be used to
-      -- verify correctness and as a backup. Ideally we will be able to delete the uniq columns in the future when we're
-      -- satisfied that counts are accurate.
-      pageview_count SimpleAggregateFunction(sum, Int64),
+      -- We use uniq on the event UUIDs so that inserting events can be idempotent. This is important as especially on EU
+      -- we don't reliably receive events exactly once.
       pageview_uniq AggregateFunction(uniq, Nullable(UUID)),
-      autocapture_count SimpleAggregateFunction(sum, Int64),
       autocapture_uniq AggregateFunction(uniq, Nullable(UUID)),
-      screen_count SimpleAggregateFunction(sum, Int64),
       screen_uniq AggregateFunction(uniq, Nullable(UUID)),
   
       -- replay
-      maybe_has_session_replay SimpleAggregateFunction(max, Bool) -- will be written False to by the events table mv and True to by the replay table mv
+      maybe_has_session_replay SimpleAggregateFunction(max, Bool), -- will be written False to by the events table mv and True to by the replay table mv
+  
+      -- web vitals
+      first_lcp AggregateFunction(argMin, Nullable(Float64), DateTime64(6, 'UTC'))
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_raw_sessions', cityHash64(session_id_v7))
   
   '''
@@ -1735,21 +1732,25 @@
       argMinState(JSONExtractString(properties, 'ttclid'), timestamp) as initial_ttclid,
   
       -- count
-      sumIf(1, event='$pageview') as pageview_count,
       uniqState(if(event='$pageview', uuid, NULL)) as pageview_uniq,
-      sumIf(1, event='$autocapture') as autocapture_count,
       uniqState(if(event='$autocapture', uuid, NULL)) as autocapture_uniq,
-      sumIf(1, event='$screen') as screen_count,
       uniqState(if(event='$screen', uuid, NULL)) as screen_uniq,
   
       -- replay
-      false as maybe_has_session_replay
+      false as maybe_has_session_replay,
+  
+      -- web vitals
+      argMinState(accurateCastOrNull(JSONExtractString(properties, '$web_vitals_LCP_value'), 'Float64'), timestamp) as first_lcp
   FROM posthog_test.sharded_events
   WHERE and(
       bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7, -- has a session id and is valid uuidv7
       toYYYYMMDD(timestamp) >= 0
   )
-  GROUP BY session_id_v7, team_id
+  GROUP BY
+      team_id,
+      toStartOfHour(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000))),
+      cityHash64(session_id_v7),
+      session_id_v7
   
   
   '''
@@ -2267,20 +2268,17 @@
       initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
   
       -- Count pageview, autocapture, and screen events for providing totals.
-      -- It's unclear if we can use the counts as they are not idempotent, and we had a bug on EU where events were
-      -- double-counted, so the counts were wrong. To get around this, also keep track of the unique uuids. This will be
-      -- slower and more expensive to store, but will be correct even if events are double-counted, so can be used to
-      -- verify correctness and as a backup. Ideally we will be able to delete the uniq columns in the future when we're
-      -- satisfied that counts are accurate.
-      pageview_count SimpleAggregateFunction(sum, Int64),
+      -- We use uniq on the event UUIDs so that inserting events can be idempotent. This is important as especially on EU
+      -- we don't reliably receive events exactly once.
       pageview_uniq AggregateFunction(uniq, Nullable(UUID)),
-      autocapture_count SimpleAggregateFunction(sum, Int64),
       autocapture_uniq AggregateFunction(uniq, Nullable(UUID)),
-      screen_count SimpleAggregateFunction(sum, Int64),
       screen_uniq AggregateFunction(uniq, Nullable(UUID)),
   
       -- replay
-      maybe_has_session_replay SimpleAggregateFunction(max, Bool) -- will be written False to by the events table mv and True to by the replay table mv
+      maybe_has_session_replay SimpleAggregateFunction(max, Bool), -- will be written False to by the events table mv and True to by the replay table mv
+  
+      -- web vitals
+      first_lcp AggregateFunction(argMin, Nullable(Float64), DateTime64(6, 'UTC'))
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.raw_sessions', '{replica}')
   
   PARTITION BY toYYYYMM(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)))
@@ -2566,20 +2564,17 @@
       initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
   
       -- Count pageview, autocapture, and screen events for providing totals.
-      -- It's unclear if we can use the counts as they are not idempotent, and we had a bug on EU where events were
-      -- double-counted, so the counts were wrong. To get around this, also keep track of the unique uuids. This will be
-      -- slower and more expensive to store, but will be correct even if events are double-counted, so can be used to
-      -- verify correctness and as a backup. Ideally we will be able to delete the uniq columns in the future when we're
-      -- satisfied that counts are accurate.
-      pageview_count SimpleAggregateFunction(sum, Int64),
+      -- We use uniq on the event UUIDs so that inserting events can be idempotent. This is important as especially on EU
+      -- we don't reliably receive events exactly once.
       pageview_uniq AggregateFunction(uniq, Nullable(UUID)),
-      autocapture_count SimpleAggregateFunction(sum, Int64),
       autocapture_uniq AggregateFunction(uniq, Nullable(UUID)),
-      screen_count SimpleAggregateFunction(sum, Int64),
       screen_uniq AggregateFunction(uniq, Nullable(UUID)),
   
       -- replay
-      maybe_has_session_replay SimpleAggregateFunction(max, Bool) -- will be written False to by the events table mv and True to by the replay table mv
+      maybe_has_session_replay SimpleAggregateFunction(max, Bool), -- will be written False to by the events table mv and True to by the replay table mv
+  
+      -- web vitals
+      first_lcp AggregateFunction(argMin, Nullable(Float64), DateTime64(6, 'UTC'))
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_raw_sessions', cityHash64(session_id_v7))
   
   '''
@@ -3324,20 +3319,17 @@
       initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
   
       -- Count pageview, autocapture, and screen events for providing totals.
-      -- It's unclear if we can use the counts as they are not idempotent, and we had a bug on EU where events were
-      -- double-counted, so the counts were wrong. To get around this, also keep track of the unique uuids. This will be
-      -- slower and more expensive to store, but will be correct even if events are double-counted, so can be used to
-      -- verify correctness and as a backup. Ideally we will be able to delete the uniq columns in the future when we're
-      -- satisfied that counts are accurate.
-      pageview_count SimpleAggregateFunction(sum, Int64),
+      -- We use uniq on the event UUIDs so that inserting events can be idempotent. This is important as especially on EU
+      -- we don't reliably receive events exactly once.
       pageview_uniq AggregateFunction(uniq, Nullable(UUID)),
-      autocapture_count SimpleAggregateFunction(sum, Int64),
       autocapture_uniq AggregateFunction(uniq, Nullable(UUID)),
-      screen_count SimpleAggregateFunction(sum, Int64),
       screen_uniq AggregateFunction(uniq, Nullable(UUID)),
   
       -- replay
-      maybe_has_session_replay SimpleAggregateFunction(max, Bool) -- will be written False to by the events table mv and True to by the replay table mv
+      maybe_has_session_replay SimpleAggregateFunction(max, Bool), -- will be written False to by the events table mv and True to by the replay table mv
+  
+      -- web vitals
+      first_lcp AggregateFunction(argMin, Nullable(Float64), DateTime64(6, 'UTC'))
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.raw_sessions', '{replica}')
   
   PARTITION BY toYYYYMM(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)))
