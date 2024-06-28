@@ -37,9 +37,6 @@ from posthog.session_recordings.models.session_recording_event import (
     SessionRecordingViewed,
 )
 
-from posthog.session_recordings.queries.session_recording_list_from_replay_summary import (
-    SessionRecordingListFromReplaySummary,
-)
 from posthog.session_recordings.queries.session_recording_list_from_filters import (
     SessionRecordingListFromFilters,
     EventsSubQuery,
@@ -769,23 +766,13 @@ def list_recordings(
             filter = filter.shallow_clone({SESSION_RECORDINGS_FILTER_IDS: remaining_session_ids})
 
     if (all_session_ids and filter.session_ids) or not all_session_ids:
-        has_hog_ql_filtering = request.GET.get("hog_ql_filtering", "false") == "true"
+        distinct_id = str(cast(User, request.user).distinct_id)
+        modifiers = safely_read_modifiers_overrides(distinct_id, team)
 
-        if has_hog_ql_filtering:
-            distinct_id = str(cast(User, request.user).distinct_id)
-            modifiers = safely_read_modifiers_overrides(distinct_id, team)
-
-            with timer("load_recordings_from_hogql"):
-                (ch_session_recordings, more_recordings_available, hogql_timings) = SessionRecordingListFromFilters(
-                    filter=filter, team=team, hogql_query_modifiers=modifiers
-                ).run()
-        else:
-            # Only go to clickhouse if we still have remaining specified IDs, or we are not specifying IDs
-            with timer("load_recordings_from_clickhouse"):
-                (
-                    ch_session_recordings,
-                    more_recordings_available,
-                ) = SessionRecordingListFromReplaySummary(filter=filter, team=team).run()
+        with timer("load_recordings_from_hogql"):
+            (ch_session_recordings, more_recordings_available, hogql_timings) = SessionRecordingListFromFilters(
+                filter=filter, team=team, hogql_query_modifiers=modifiers
+            ).run()
 
         with timer("build_recordings"):
             recordings_from_clickhouse = SessionRecording.get_or_build_from_clickhouse(team, ch_session_recordings)

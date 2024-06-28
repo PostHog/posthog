@@ -153,7 +153,8 @@ class SessionRecordingListFromFilters:
         if person_id_compare_operation:
             exprs.append(person_id_compare_operation)
 
-        if self._filter.session_ids:
+        # we check for session_ids type not for truthiness since we want to allow empty lists
+        if isinstance(self._filter.session_ids, list):
             exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.In,
