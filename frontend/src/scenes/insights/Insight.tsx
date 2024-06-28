@@ -1,7 +1,6 @@
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { InsightPageHeader } from 'scenes/insights/InsightPageHeader'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
 
 import { Query } from '~/queries/Query/Query'
 import { Node } from '~/queries/schema'
@@ -25,7 +24,7 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
         dashboardItemId: insightId || 'new',
         cachedInsight: legacyInsight?.short_id === insightId ? legacyInsight : null,
     })
-    const { insightProps, insightLoading, filtersKnown } = useValues(logic)
+    const { insightProps } = useValues(logic)
 
     // insightDataLogic
     const { query, showQueryEditor } = useValues(insightDataLogic(insightProps))
@@ -33,12 +32,6 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
 
     // other logics
     useMountedLogic(insightCommandLogic(insightProps))
-
-    // Show the skeleton if loading an insight for which we only know the id
-    // This helps with the UX flickering and showing placeholder "name" text.
-    if (insightId !== 'new' && insightLoading && !filtersKnown) {
-        return <InsightSkeleton />
-    }
 
     const actuallyShowQueryEditor = insightMode === ItemMode.Edit && showQueryEditor
 
