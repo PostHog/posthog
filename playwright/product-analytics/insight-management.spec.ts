@@ -1,4 +1,4 @@
-import { expect, test, logger } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import { urls } from 'scenes/urls'
 
 import { InsightType } from '~/types'
@@ -109,7 +109,12 @@ test("can't save unchanged insight", async ({ page }) => {
     await expect(insight.saveButton).toBeDisabled()
 })
 
-test(' requires confirmation to navigate away from changed insight', async ({ page }) => {
+test('requires confirmation to navigate away from changed insight', async ({ page }) => {
+    let dialogMessage = null
+    page.on('dialog', async (dialog) => {
+        dialogMessage = dialog.message()
+        await dialog.accept()
+    })
     const insight = await new InsightPage(page).createNew()
 
     // add an autocapture series
@@ -122,14 +127,24 @@ test(' requires confirmation to navigate away from changed insight', async ({ pa
     await insight.secondEntity.click()
     await page.getByText('Autocapture').click()
 
+    await page.getByRole('link', { name: 'Home' }).click()
+    expect(dialogMessage).toContain('Leave insight?')
+})
+
+test("doesn't require confirmation to navigate away from unchanged insight", async ({ page }) => {
     let dialogMessage = null
     page.on('dialog', async (dialog) => {
         dialogMessage = dialog.message()
         await dialog.accept()
     })
+    const insight = await new InsightPage(page).createNew()
+
+    // :FIXME: Reload shouldn't be necessary to trigger the confirmation dialog
+    await page.reload()
+    await insight.waitForDetailsTable()
+    // END FIXME
 
     await page.getByRole('link', { name: 'Home' }).click()
-    expect(dialogMessage).toContain('Leave insight?')
 
-    await expect(insight.saveButton).toBeDisabled()
+    expect(dialogMessage).toBeNull()
 })
