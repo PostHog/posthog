@@ -70,8 +70,8 @@ function PlayerWarningsRow(): JSX.Element | null {
                     targetBlank: true,
                 }}
             >
-                This session recording had {messageTooLargeWarnings.length} messages that were too large to be captured.{' '}
-                This will mean playback is not 100% accurate.{' '}
+                This session recording had recording data that was too large and could not be captured. This will mean
+                playback is not 100% accurate.{' '}
             </LemonBanner>
         </div>
     ) : null
