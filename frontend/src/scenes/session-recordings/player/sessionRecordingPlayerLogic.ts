@@ -1006,6 +1006,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.skipPlayerForward(rrwebPlayerTime, values.roughAnimationFPS)
             }
         },
+        messageTooLargeWarnings: (next) => {
+            if (next.length > 0) {
+                posthog.capture('replayer message too large warning seen', {
+                    recordingBeingViewed: values.sessionRecordingId,
+                })
+            }
+        },
     })),
 
     beforeUnmount(({ values, actions, cache, props }) => {
