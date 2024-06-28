@@ -30,6 +30,8 @@ if (response.status == 200 and not empty(response.body.person)) {
         'event': event_name,
         'distinct_id': event.distinct_id,
         'properties': {
+            '$lib': 'hog_function',
+            '$hog_function_source': source.url,
             '$set_once': {
                 'person': response.body.person,
                 'company': response.body.company,
