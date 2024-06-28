@@ -179,7 +179,7 @@ function JsonConfigField(props: {
 }
 
 function HogFunctionTemplateInput(props: Omit<CodeEditorInlineProps, 'globals'>): JSX.Element {
-    const { globalVars } = useValues(pipelineHogFunctionConfigurationLogic)
+    const { globalVars } = useValues(hogFunctionConfigurationLogic)
     return <CodeEditorInline {...props} globals={globalVars} />
 }
 
