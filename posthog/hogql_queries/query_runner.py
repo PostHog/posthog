@@ -2,7 +2,6 @@ from abc import ABC, abstractmethod
 from datetime import datetime, timedelta, UTC
 from enum import IntEnum
 from typing import Any, Generic, Optional, TypeVar, Union, cast, TypeGuard
-from zoneinfo import ZoneInfo
 
 import structlog
 from django.conf import settings
@@ -543,8 +542,13 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return generate_cache_key(f"query_{bytes.decode(to_json(self.get_cache_payload()))}")
 
     def _is_stale(self, cached_result_package):
-        # Default is to have the result valid for at 1 minute
-        return is_stale(self.team, datetime.now(tz=ZoneInfo("UTC")), "minute", cached_result_package)
+        query_date_range = getattr(self, "query_date_range", None)
+        if query_date_range:
+            return is_stale(
+                self.team, query_date_range.date_to(), query_date_range.interval_name, cached_result_package
+            )
+
+        return is_stale(self.team, None, "minute", cached_result_package)
 
     def _refresh_frequency(self) -> timedelta:
         return timedelta(minutes=1)
