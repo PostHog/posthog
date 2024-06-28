@@ -1,12 +1,12 @@
 import { useValues } from 'kea'
 import { ReadingHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
-import { Sparkline } from 'lib/lemon-ui/Sparkline'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/types'
