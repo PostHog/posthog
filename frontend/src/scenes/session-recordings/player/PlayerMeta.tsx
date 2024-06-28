@@ -60,6 +60,7 @@ function URLOrScreen({ lastUrl }: { lastUrl: string | undefined }): JSX.Element 
 
 function PlayerWarningsRow(): JSX.Element | null {
     const { messageTooLargeWarnings } = useValues(sessionRecordingPlayerLogic)
+
     return messageTooLargeWarnings.length ? (
         <div>
             <LemonBanner
