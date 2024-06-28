@@ -111,6 +111,23 @@ test("can't save unchanged insight", async ({ page }) => {
     await expect(insight.saveButton).toBeDisabled()
 })
 
+test('can delete insight', async ({ page }) => {
+    const insight = await new InsightPage(page).createNew(InsightType.TRENDS, 'my insight')
+    const toast = new Toast(page)
+
+    await page.pause()
+    await insight.delete()
+
+    await insight.withReload(
+        async () => {
+            await expect(page).toHaveURL(/\/insights$/)
+        },
+        async () => {
+            await expect(toast.container, 'displays toast').toContainText('my insight has been deleted')
+        }
+    )
+})
+
 test('requires confirmation to navigate away from changed insight (dismissed)', async ({ page }) => {
     let dialogMessage = null
     page.on('dialog', async (dialog) => {

@@ -126,4 +126,12 @@ export class InsightPage {
 
         await this.updateSourceButton.click()
     }
+
+    /*
+     * More menu
+     */
+    async delete(): Promise<void> {
+        await this.moreButton.click()
+        await this.page.getByTestId('delete-insight-from-insight-view').click()
+    }
 }
