@@ -1,5 +1,5 @@
 import copy
-from enum import Enum
+from enum import StrEnum
 import json
 import re
 from typing import Any, Literal
@@ -36,7 +36,7 @@ from posthog.types import InsightQueryNode
 from posthog.utils import str_to_bool
 
 
-class MathAvailability(str, Enum):
+class MathAvailability(StrEnum):
     Unavailable = ("Unavailable",)
     All = ("All",)
     ActorsOnly = "ActorsOnly"

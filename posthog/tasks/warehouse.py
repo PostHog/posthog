@@ -18,14 +18,16 @@ logger = structlog.get_logger(__name__)
 MONTHLY_LIMIT = 500_000_000
 
 # TODO: adjust to whenever billing officially starts
-DEFAULT_DATE_TIME = datetime.datetime(2024, 6, 1, tzinfo=datetime.timezone.utc)
+DEFAULT_DATE_TIME = datetime.datetime(2024, 6, 1, tzinfo=datetime.UTC)
 
 
 def capture_external_data_rows_synced() -> None:
-    for team in Team.objects.select_related("organization").exclude(
-        Q(organization__for_internal_metrics=True) | Q(is_demo=True)
-    ):
-        capture_workspace_rows_synced_by_team.delay(team.pk)
+    # the teams that are not demo and not internal metrics of existing sources
+    team_ids = ExternalDataSource.objects.filter(
+        ~Q(team__is_demo=True) & ~Q(team__organization__for_internal_metrics=True)
+    ).values_list("team", flat=True)
+    for team_id in team_ids:
+        capture_workspace_rows_synced_by_team.delay(team_id)
 
 
 def check_synced_row_limits() -> None:
@@ -89,7 +91,7 @@ def check_synced_row_limits_of_team(team_id: int) -> None:
 def capture_workspace_rows_synced_by_team(team_id: int) -> None:
     ph_client = get_ph_client()
     team = Team.objects.get(pk=team_id)
-    now = datetime.datetime.now(datetime.timezone.utc)
+    now = datetime.datetime.now(datetime.UTC)
     begin = team.external_data_workspace_last_synced_at or DEFAULT_DATE_TIME
 
     team.external_data_workspace_last_synced_at = now
@@ -97,7 +99,7 @@ def capture_workspace_rows_synced_by_team(team_id: int) -> None:
     for job in ExternalDataJob.objects.filter(team_id=team_id, created_at__gte=begin).order_by("created_at").all():
         ph_client.capture(
             team_id,
-            "external data sync job",
+            "$data_sync_job_completed",
             {
                 "team_id": team_id,
                 "workspace_id": team.external_data_workspace_id,

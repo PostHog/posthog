@@ -11,7 +11,8 @@ import { loaders } from 'kea-loaders'
 import { editor, MarkerSeverity } from 'monaco-editor'
 
 import { performQuery } from '~/queries/query'
-import { HogQLFilters, HogQLMetadata, HogQLMetadataResponse, HogQLNotice, NodeKind } from '~/queries/schema'
+import { DataNode, HogQLFilters, HogQLMetadata, HogQLMetadataResponse, HogQLNotice, NodeKind } from '~/queries/schema'
+import { isActorsQuery, isHogQLQuery } from '~/queries/utils'
 
 import type { codeEditorLogicType } from './codeEditorLogicType'
 
@@ -25,9 +26,18 @@ export interface CodeEditorLogicProps {
     key: string
     query: string
     language?: string
+    metadataSource?: DataNode
     metadataFilters?: HogQLFilters
     monaco?: Monaco | null
     editor?: editor.IStandaloneCodeEditor | null
+}
+
+export function metadataSourceToQuery(metadataSource?: DataNode): string {
+    return metadataSource && isActorsQuery(metadataSource)
+        ? 'select * from persons'
+        : isHogQLQuery(metadataSource)
+        ? metadataSource.query
+        : 'select * from events'
 }
 
 export const codeEditorLogic = kea<codeEditorLogicType>([
@@ -46,19 +56,32 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                     if (
                         !model ||
                         !props.monaco ||
-                        !['hog', 'hogQL', 'hogExpr', 'hogTemplate'].includes(props.language ?? '')
+                        !['hog', 'hogQL', 'hogQLExpr', 'hogTemplate'].includes(props.language ?? '')
                     ) {
                         return null
                     }
                     await breakpoint(300)
                     const query = props.query
+                    if (query === '') {
+                        return null
+                    }
                     const response = await performQuery<HogQLMetadata>(
                         props.language === 'hogQL'
                             ? { kind: NodeKind.HogQLMetadata, select: query, filters: props.metadataFilters }
                             : props.language === 'hogTemplate'
-                            ? { kind: NodeKind.HogQLMetadata, template: query, filters: props.metadataFilters }
-                            : props.language === 'hogExpr'
-                            ? { kind: NodeKind.HogQLMetadata, expr: query, filters: props.metadataFilters }
+                            ? {
+                                  kind: NodeKind.HogQLMetadata,
+                                  template: query,
+                                  exprSource: metadataSourceToQuery(props.metadataSource),
+                                  filters: props.metadataFilters,
+                              }
+                            : props.language === 'hogQLExpr'
+                            ? {
+                                  kind: NodeKind.HogQLMetadata,
+                                  expr: query,
+                                  exprSource: metadataSourceToQuery(props.metadataSource),
+                                  filters: props.metadataFilters,
+                              }
                             : { kind: NodeKind.HogQLMetadata, program: query, filters: props.metadataFilters }
                     )
                     breakpoint()

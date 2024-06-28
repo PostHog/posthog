@@ -106,7 +106,9 @@ class TestExternalDataSchema(APIBaseTest):
             f"/api/projects/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
         )
 
-        assert response.status_code == 400
+        # should respond but with empty list. Example: Hubspot has not incremental fields but the response should be an empty list so that full refresh is selectable
+        assert response.status_code == 200
+        assert response.json() == []
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio
