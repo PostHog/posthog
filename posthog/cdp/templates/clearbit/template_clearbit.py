@@ -12,9 +12,8 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     hog="""
 let api_key := inputs.api_key
 let email := inputs.email
-let event_name := inputs.event_name or 'clearbit_enriched'
 
-if (empty(email) or event.name == event_name or person.properties.clearbit_enriched) {
+if (empty(email) or event.name == '$set' or person.properties.clearbit_enriched) {
     return false
 }
 
@@ -27,7 +26,7 @@ let response := fetch(f'https://person-stream.clearbit.com/v2/combined/find?emai
 if (response.status == 200 and not empty(response.body.person)) {
     print('Clearbit data found - sending event to PostHog')
     postHogCapture({
-        'event': event_name,
+        'event': '$set',
         'distinct_id': event.distinct_id,
         'properties': {
             '$lib': 'hog_function',
@@ -59,15 +58,6 @@ if (response.status == 200 and not empty(response.body.person)) {
             "default": "{person.properties.email}",
             "secret": False,
             "required": True,
-        },
-        {
-            "key": "event_name",
-            "type": "string",
-            "label": "Event name",
-            "description": "Name of the event to be sent to PostHog when enriching with Clearbit data",
-            "secret": False,
-            "required": False,
-            "default": "clearbit_enriched",
         },
     ],
 )
