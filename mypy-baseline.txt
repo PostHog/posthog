@@ -209,7 +209,6 @@ posthog/hogql/resolver.py:0: error: Incompatible types in assignment (expression
 posthog/hogql/resolver.py:0: error: Argument 1 to "append" of "list" has incompatible type "BaseTableType | SelectUnionQueryType | SelectQueryType | SelectQueryAliasType | SelectViewType | None"; expected "SelectQueryType | SelectUnionQueryType"  [arg-type]
 posthog/hogql/resolver.py:0: error: Incompatible types in assignment (expression has type "Expr", variable has type "JoinExpr | None")  [assignment]
 posthog/hogql/resolver.py:0: error: Incompatible types in assignment (expression has type "Expr", variable has type "SampleExpr | None")  [assignment]
-posthog/hogql/resolver.py:0: error: Argument 2 to "convert_hogqlx_tag" has incompatible type "int | None"; expected "int"  [arg-type]
 posthog/hogql/resolver.py:0: error: Statement is unreachable  [unreachable]
 posthog/hogql/resolver.py:0: error: Item "None" of "Type | None" has no attribute "resolve_constant_type"  [union-attr]
 posthog/hogql/resolver.py:0: error: Item "None" of "Type | None" has no attribute "resolve_constant_type"  [union-attr]
