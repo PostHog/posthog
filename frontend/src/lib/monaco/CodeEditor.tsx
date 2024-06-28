@@ -16,16 +16,15 @@ import { editor, editor as importedEditor, IDisposable } from 'monaco-editor'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { DataNode } from '~/queries/schema'
+import { AnyDataNode, HogLanguage } from '~/queries/schema'
 
 export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> {
     queryKey?: string
     autocompleteContext?: string
     onPressCmdEnter?: (value: string) => void
     autoFocus?: boolean
-    metadataSource?: DataNode
+    sourceQuery?: AnyDataNode
     globals?: Record<string, any>
-    sourceQuery?: string
 }
 let codeEditorIndex = 0
 
@@ -49,7 +48,7 @@ function initEditor(
         }
     }
     if (editorProps?.language === 'hogQL' || editorProps?.language === 'hogQLExpr') {
-        const language: 'hogQL' | 'hogQLExpr' = editorProps.language
+        const language: HogLanguage = editorProps.language as HogLanguage
         if (!monaco.languages.getLanguages().some(({ id }) => id === language)) {
             monaco.languages.register(
                 language === 'hogQL'
@@ -77,7 +76,10 @@ function initEditor(
             })
             monaco.languages.setLanguageConfiguration('hogTemplate', hogTemplate.conf())
             monaco.languages.setMonarchTokensProvider('hogTemplate', hogTemplate.language())
-            monaco.languages.registerCompletionItemProvider('hogTemplate', hogQLAutocompleteProvider('hogTemplate'))
+            monaco.languages.registerCompletionItemProvider(
+                'hogTemplate',
+                hogQLAutocompleteProvider(HogLanguage.hogTemplate)
+            )
             monaco.languages.registerCodeActionProvider('hogTemplate', hogQLMetadataProvider())
         }
     }
@@ -118,7 +120,6 @@ export function CodeEditor({
     value,
     onPressCmdEnter,
     autoFocus,
-    metadataSource,
     globals,
     sourceQuery,
     ...editorProps
@@ -134,8 +135,7 @@ export function CodeEditor({
     const builtCodeEditorLogic = codeEditorLogic({
         key: queryKey ?? `new/${realKey}`,
         query: value ?? '',
-        language: editorProps.language,
-        metadataSource: metadataSource,
+        language: editorProps.language ?? 'text',
         globals,
         sourceQuery,
         monaco: monaco,

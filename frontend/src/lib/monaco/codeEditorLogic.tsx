@@ -11,9 +11,19 @@ import { loaders } from 'kea-loaders'
 import { editor, MarkerSeverity } from 'monaco-editor'
 
 import { performQuery } from '~/queries/query'
-import { DataNode, HogQLFilters, HogQLMetadata, HogQLMetadataResponse, HogQLNotice, NodeKind } from '~/queries/schema'
+import {
+    AnyDataNode,
+    HogLanguage,
+    HogQLFilters,
+    HogQLMetadata,
+    HogQLMetadataResponse,
+    HogQLNotice,
+    NodeKind,
+} from '~/queries/schema'
 
 import type { codeEditorLogicType } from './codeEditorLogicType'
+
+const METADATA_LANGUAGES = [HogLanguage.hog, HogLanguage.hogQL, HogLanguage.hogQLExpr, HogLanguage.hogTemplate]
 
 export interface ModelMarker extends editor.IMarkerData {
     hogQLFix?: string
@@ -24,8 +34,8 @@ export interface ModelMarker extends editor.IMarkerData {
 export interface CodeEditorLogicProps {
     key: string
     query: string
-    language?: string
-    sourceQuery?: DataNode
+    language: string
+    sourceQuery?: AnyDataNode
     metadataFilters?: HogQLFilters
     monaco?: Monaco | null
     editor?: editor.IStandaloneCodeEditor | null
@@ -45,11 +55,7 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
             {
                 reloadMetadata: async (_, breakpoint) => {
                     const model = props.editor?.getModel()
-                    if (
-                        !model ||
-                        !props.monaco ||
-                        !['hog', 'hogQL', 'hogQLExpr', 'hogTemplate'].includes(props.language ?? '')
-                    ) {
+                    if (!model || !props.monaco || !METADATA_LANGUAGES.includes(props.language as HogLanguage)) {
                         return null
                     }
                     await breakpoint(300)
@@ -59,7 +65,7 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                     }
                     const response = await performQuery<HogQLMetadata>({
                         kind: NodeKind.HogQLMetadata,
-                        language: props.language as 'hog' | 'hogQL' | 'hogQLExpr' | 'hogTemplate',
+                        language: props.language as HogLanguage,
                         query: query,
                         filters: props.metadataFilters,
                         globals: props.globals,
