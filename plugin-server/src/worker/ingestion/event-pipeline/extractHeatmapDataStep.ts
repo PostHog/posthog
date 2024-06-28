@@ -29,8 +29,6 @@ export async function extractHeatmapDataStep(
     let acks: Promise<void>[] = []
 
     try {
-        // Team lookup is cached, but will fail if PG is unavailable and the key expired.
-        // We should retry processing this event.
         const team = await runner.hub.teamManager.fetchTeam(teamId)
 
         if (team?.heatmaps_opt_in !== false) {
