@@ -44,7 +44,7 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
             codeEditorLogic({
                 key: `hogQLQueryEditor/${key}`,
                 query: props.query.query,
-                language: 'hogql',
+                language: 'hogQL',
                 metadataFilters: props.query.filters,
                 metadataSource: props.metadataSource,
             }),
