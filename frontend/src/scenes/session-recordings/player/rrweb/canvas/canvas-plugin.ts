@@ -15,8 +15,25 @@ function isCanvasMutation(e: eventWithTime): e is CanvasEventWithTime {
     return e.type === EventType.IncrementalSnapshot && e.data.source === IncrementalSource.CanvasMutation
 }
 
-function findEvent(events: CanvasEventWithTime[], target: CanvasEventWithTime): number {
-    return events.findIndex((event) => event.data.id === target.data.id)
+function quickFindClosestCanvasEventIndex(
+    events: CanvasEventWithTime[],
+    target: CanvasEventWithTime,
+    start: number,
+    end: number
+): number {
+    if (!target) {
+        return -1
+    }
+
+    if (start > end) {
+        return end
+    }
+
+    const mid = Math.floor((start + end) / 2)
+
+    return target.timestamp <= events[mid].timestamp
+        ? quickFindClosestCanvasEventIndex(events, target, start, mid - 1)
+        : quickFindClosestCanvasEventIndex(events, target, mid + 1, end)
 }
 
 const PRELOAD_BUFFER_SIZE = 20
@@ -27,24 +44,13 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
     const containers = new Map<number, HTMLImageElement>([])
     const imageMap = new Map<eventWithTime | string, HTMLImageElement>()
     const canvasEventMap = new Map<eventWithTime | string, canvasMutationParam>()
-    const preloadBuffer = new Set<CanvasEventWithTime>()
     const pruneQueue: eventWithTime[] = []
     let nextPreloadIndex: number | null = null
-    let latestCanvasEvent: CanvasEventWithTime | null = null
 
     const canvasMutationEvents = events.filter(isCanvasMutation)
 
     // Buffers mutations from user interactions before Replayer was ready
     const handleQueue = new Map<number, [CanvasEventWithTime, Replayer]>()
-    const flushQueue = (id: number): void => {
-        const queueItem = handleQueue.get(id)
-        handleQueue.delete(id)
-        if (!queueItem) {
-            return
-        }
-        const [event, replayer] = queueItem
-        processMutation(event, replayer).catch(handleMutationError)
-    }
 
     // only processes a single mutation event in cases when the user is scrubbing
     // avoids looking like the canvas is playing
@@ -106,20 +112,21 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
     const pruneBuffer = (event: eventWithTime): void => {
         while (pruneQueue.length) {
             const difference = Math.abs(event.timestamp - pruneQueue[0].timestamp)
+            const eventToPrune = pruneQueue.shift()
+            if (eventToPrune) {
+                canvasEventMap.delete(eventToPrune)
+            }
             if (difference <= BUFFER_TIME && pruneQueue.length <= PRELOAD_BUFFER_SIZE) {
                 break
             }
-
-            const eventToPrune = pruneQueue.shift()
-            if (eventToPrune && isCanvasMutation(eventToPrune) && canvasEventMap.has(eventToPrune)) {
-                canvasEventMap.delete(eventToPrune)
-            }
         }
-
-        pruneQueue.push(event)
     }
 
     const processMutation = async (e: CanvasEventWithTime, replayer: Replayer): Promise<void> => {
+        pruneBuffer(e)
+        pruneQueue.push(e)
+        void preload(e)
+
         const data = e.data as canvasMutationData
         const source = replayer.getMirror().getNode(data.id) as HTMLCanvasElement
         const target = canvases.get(data.id) || (source && cloneCanvas(data.id, source))
@@ -168,22 +175,17 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
         const currentIndex = nextPreloadIndex
             ? nextPreloadIndex
             : currentEvent
-            ? findEvent(canvasMutationEvents, currentEvent)
+            ? quickFindClosestCanvasEventIndex(canvasMutationEvents, currentEvent, 0, canvasMutationEvents.length)
             : 0
 
-        const eventsToPreload = canvasMutationEvents.slice(
-            currentIndex,
-            currentIndex + PRELOAD_BUFFER_SIZE - preloadBuffer.size
-        )
+        const eventsToPreload = canvasMutationEvents
+            .slice(currentIndex, currentIndex + PRELOAD_BUFFER_SIZE)
+            .filter(({ timestamp }) => !currentEvent || timestamp - currentEvent.timestamp <= BUFFER_TIME)
 
         nextPreloadIndex = currentIndex + 1
 
         for (const event of eventsToPreload) {
-            if (!preloadBuffer.has(event) && !canvasEventMap.has(event)) {
-                preloadBuffer.add(event)
-                await deserializeAndPreloadCanvasEvents(event.data as canvasMutationData, event)
-                preloadBuffer.delete(event)
-            }
+            await deserializeAndPreloadCanvasEvents(event.data as canvasMutationData, event)
         }
     }
 
@@ -200,32 +202,25 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
                 ;(node as HTMLCanvasElement).appendChild(el)
                 containers.set(id, el)
             }
-
-            // `handler` can be called by users seeking before Replayer is ready
-            // replays user interactions stored in queue from before DOM was built
-            flushQueue(id)
         },
 
         // eslint-disable-next-line @typescript-eslint/no-misused-promises
         handler: async (e: eventWithTime, isSync: boolean, { replayer }: { replayer: Replayer }) => {
             const isCanvas = isCanvasMutation(e)
 
-            if (!isCanvas) {
-                if (latestCanvasEvent) {
-                    void processMutation(latestCanvasEvent, replayer)
-                }
-                pruneBuffer(e)
-                return
-            }
-
             // scrubbing / fast forwarding
             if (isSync) {
                 // reset preload index
                 nextPreloadIndex = null
-                latestCanvasEvent = e
-                processMutationSync(e, { replayer })
+                canvasEventMap.clear()
+
+                if (isCanvas) {
+                    processMutationSync(e, { replayer })
+                } else {
+                    pruneBuffer(e)
+                }
                 pruneBuffer(e)
-            } else {
+            } else if (isCanvas) {
                 void processMutation(e, replayer).catch(handleMutationError)
             }
         },
