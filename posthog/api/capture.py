@@ -596,11 +596,11 @@ def get_event(request):
             generate_exception_response("capture", f"Invalid recording payload", code="invalid_payload"),
         )
     except KafkaTimeoutError as kte:
-        status_code = 400 if (retry_count or 0) > 2 else 504
+        status_code = status.HTTP_400_BAD_REQUEST if (retry_count or 0) > 2 else status.HTTP_504_GATEWAY_TIMEOUT
 
         KAFKA_TIMEOUT_ERROR_COUNTER.labels(retry_count=retry_count, status_code=status_code).inc()
 
-        if status_code == 504:
+        if status_code == status.HTTP_400_BAD_REQUEST:
             with sentry_sdk.push_scope() as scope:
                 scope.set_tag("capture-pathway", "replay")
                 scope.set_tag("ph-team-token", token)
