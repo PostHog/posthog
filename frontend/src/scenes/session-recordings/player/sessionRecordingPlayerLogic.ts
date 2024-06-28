@@ -1,4 +1,5 @@
 import { lemonToast } from '@posthog/lemon-ui'
+import { customEvent } from '@rrweb/types'
 import { captureException } from '@sentry/react'
 import {
     actions,
@@ -469,7 +470,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
         messageTooLargeWarnings: [
             (s) => [s.customRRWebEvents],
-            (customRRWebEvents) => {
+            (customRRWebEvents: customEvent[]) => {
                 return customRRWebEvents.filter((event) => event.data.tag === 'Message too large')
             },
         ],
