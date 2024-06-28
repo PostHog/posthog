@@ -840,16 +840,16 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         Person.objects.create(
             team=self.team,
             distinct_ids=["example_id"],
-            properties={"$some_prop": "invalid"},
+            properties={"$some_prop": 3},
         )
         feature_flag = self.create_feature_flag(
             key="flag-with-gt-filter",
             filters={
-                "groups": [{"properties": [{"key": "$some_prop", "value": 4, "type": "person", "operator": "gt"}]}]
+                "groups": [{"properties": [{"key": "$some_prop", "value": ["4"], "type": "person", "operator": "gt"}]}]
             },
         )
 
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(3):
             self.assertEqual(
                 self.match_flag(feature_flag, "example_id"),
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
