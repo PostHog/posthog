@@ -13,7 +13,7 @@ import { createKafkaProducer } from '../kafka/producer'
 import { addSentryBreadcrumbsEventListeners } from '../main/ingestion-queues/kafka-metrics'
 import { runInstrumentedFunction } from '../main/utils'
 import { GroupTypeToColumnIndex, Hub, RawClickHouseEvent, TeamId, TimestampFormat } from '../types'
-import { KafkaProducerWrapper } from '../utils/db/kafka-producer-wrapper'
+import { convertKafkaJSHeadersToRdKafkaHeaders, KafkaProducerWrapper } from '../utils/db/kafka-producer-wrapper'
 import { status } from '../utils/status'
 import { castTimestampOrNow } from '../utils/utils'
 import { AppMetrics } from '../worker/ingestion/app-metrics'
@@ -84,6 +84,8 @@ abstract class CdpConsumerBase {
     protected abstract topic: string
     protected abstract consumerGroupId: string
 
+    protected heartbeat = () => {}
+
     constructor(protected hub: Hub) {
         this.hogWatcher = new HogWatcher(hub)
         this.hogFunctionManager = new HogFunctionManager(hub.postgres, hub)
@@ -96,6 +98,8 @@ abstract class CdpConsumerBase {
         status.info('🔁', `${this.name} - handling batch`, {
             size: messages.length,
         })
+
+        this.heartbeat = heartbeat
 
         histogramKafkaBatchSize.observe(messages.length)
         histogramKafkaBatchSizeKb.observe(messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024)
@@ -156,6 +160,7 @@ abstract class CdpConsumerBase {
 
                         if (result.asyncFunctionRequest) {
                             const res = await this.asyncFunctionExecutor.execute(result)
+                            this.heartbeat()
 
                             // NOTE: This is very temporary as it is producing the response. the response will actually be produced by the 3rd party service
                             // Later this will actually be the _request_ which we will push to the async function topic if we make one
@@ -213,7 +218,11 @@ abstract class CdpConsumerBase {
                 }
 
                 const results = await Promise.all(
-                    asyncResponsesToRun.map((e) => this.hogExecutor.executeAsyncResponse(e))
+                    asyncResponsesToRun.map((e) => {
+                        const res = this.hogExecutor.executeAsyncResponse(e)
+                        this.heartbeat()
+                        return res
+                    })
                 )
                 this.hogWatcher.currentObservations.observeResults(results)
                 return results
@@ -279,10 +288,17 @@ abstract class CdpConsumerBase {
                                 })
                             }
 
-                            return this.hogExecutor.executeFunctions(globals, healthy)
+                            return healthy.map((x) => {
+                                // NOTE: Let's see if this works - otherwise we might need a process.nextTick to make sure there is room for events to fire
+                                const res = this.hogExecutor.executeFunction(globals, x)
+                                this.heartbeat()
+                                return res
+                            })
                         })
                     )
-                ).flat()
+                )
+                    .flat()
+                    .filter((x) => !!x) as HogFunctionInvocationResult[]
 
                 this.hogWatcher.currentObservations.observeResults(results)
                 return results
@@ -524,10 +540,17 @@ export class CdpOverflowConsumer extends CdpConsumerBase {
                 const results = (
                     await Promise.all(
                         invocationGlobals.map((item) => {
-                            return this.hogExecutor.executeFunctions(item.globals, item.hogFunctionIds)
+                            return item.hogFunctionIds.map((hogFunctionId) => {
+                                const res = this.hogExecutor.executeFunction(item.globals, hogFunctionId)
+                                this.heartbeat()
+                                return res
+                            })
                         })
                     )
-                ).flat()
+                )
+                    .flat()
+                    .filter((x) => !!x) as HogFunctionInvocationResult[]
+
                 this.hogWatcher.currentObservations.observeResults(results)
                 return results
             },
