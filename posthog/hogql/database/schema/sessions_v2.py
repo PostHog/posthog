@@ -50,9 +50,9 @@ RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "initial_referring_domain": DatabaseField(name="initial_referring_domain"),
     "initial_gclid": DatabaseField(name="initial_gclid"),
     "initial_gad_source": DatabaseField(name="initial_gad_source"),
-    "pageview_count": IntegerDatabaseField(name="pageview_count"),
-    "autocapture_count": IntegerDatabaseField(name="autocapture_count"),
-    "screen_count": IntegerDatabaseField(name="screen_count"),
+    "pageview_uniq": IntegerDatabaseField(name="pageview_uniq"),
+    "autocapture_uniq": IntegerDatabaseField(name="autocapture_uniq"),
+    "screen_uniq": IntegerDatabaseField(name="screen_uniq"),
     "last_external_click_url": StringDatabaseField(name="last_external_click_url"),
     "first_lcp": FloatDatabaseField(name="first_lcp", nullable=True),
 }
@@ -200,9 +200,9 @@ def select_from_sessions_table_v2(
         "$entry_referring_domain": arg_min_merge_nullable_string_field("initial_referring_domain"),
         "$entry_gclid": arg_min_merge_nullable_string_field("initial_gclid"),
         "$entry_gad_source": arg_min_merge_nullable_string_field("initial_gad_source"),
-        "$pageview_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "pageview_count"])]),
-        "$screen_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "screen_count"])]),
-        "$autocapture_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "autocapture_count"])]),
+        "$pageview_count": ast.Call(name="uniqMerge", args=[ast.Field(chain=[table_name, "pageview_uniq"])]),
+        "$screen_count": ast.Call(name="uniqMerge", args=[ast.Field(chain=[table_name, "screen_uniq"])]),
+        "$autocapture_count": ast.Call(name="uniqMerge", args=[ast.Field(chain=[table_name, "autocapture_uniq"])]),
         "$last_external_click_url": arg_max_merge_nullable_string_field("last_external_click_url"),
         "$first_lcp": arg_min_merge_field("first_lcp"),
     }
@@ -232,12 +232,11 @@ def select_from_sessions_table_v2(
         args=[aggregate_fields["$urls"]],
     )
 
-    bounce_pageview_count = aggregate_fields["$pageview_count"]
     aggregate_fields["$is_bounce"] = ast.Call(
         name="if",
         args=[
-            # if pageview_count is 0, return NULL so it doesn't contribute towards the bounce rate either way
-            ast.Call(name="equals", args=[bounce_pageview_count, ast.Constant(value=0)]),
+            # if pageview_count is 0, return NULL, so it doesn't contribute towards the bounce rate either way
+            ast.Call(name="equals", args=[aggregate_fields["$pageview_count"], ast.Constant(value=0)]),
             ast.Constant(value=None),
             ast.Call(
                 name="not",
@@ -246,7 +245,7 @@ def select_from_sessions_table_v2(
                         name="or",
                         args=[
                             # if > 1 pageview, not a bounce
-                            ast.Call(name="greater", args=[bounce_pageview_count, ast.Constant(value=1)]),
+                            ast.Call(name="greater", args=[aggregate_fields["$pageview_count"], ast.Constant(value=1)]),
                             # if > 0 autocapture events, not a bounce
                             ast.Call(
                                 name="greater", args=[aggregate_fields["$autocapture_count"], ast.Constant(value=0)]
