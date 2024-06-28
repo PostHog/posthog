@@ -546,14 +546,25 @@ export class CdpOverflowConsumer extends CdpConsumerBase {
         return await runInstrumentedFunction({
             statsKey: `cdpConsumer.handleEachBatch.executeOverflowedFunctions`,
             func: async () => {
-                const invocations = invocationGlobals
-                    .map((item) =>
-                        item.hogFunctionIds.map((hogFunctionId) => ({
-                            globals: item.globals,
-                            hogFunctionId,
-                        }))
-                    )
-                    .flat()
+                const invocations: {
+                    globals: HogFunctionInvocationGlobals
+                    hogFunctionId: string
+                }[] = []
+
+                invocationGlobals.forEach((item) => {
+                    item.hogFunctionIds.forEach((hogFunctionId) => {
+                        // Check for disabled functions as they may have been disabled since the overflow
+                        const state = this.hogWatcher.getFunctionState(hogFunctionId)
+                        if (state >= HogWatcherState.disabledForPeriod) {
+                            counterFunctionInvocation.inc({ outcome: 'disabled' })
+                        } else {
+                            invocations.push({
+                                globals: item.globals,
+                                hogFunctionId,
+                            })
+                        }
+                    })
+                })
 
                 const results = (
                     await this.runManyWithHeartbeat(invocations, (item) =>
