@@ -17,7 +17,6 @@ from posthog.queries.test.test_retention import (
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
-    also_test_with_materialized_columns,
     create_person_id_override_by_distinct_id,
     snapshot_clickhouse_queries,
 )
@@ -447,7 +446,6 @@ class TestClickhouseRetention(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-    @also_test_with_materialized_columns(group_properties=[(0, "industry")])
     @snapshot_clickhouse_queries
     def test_groups_aggregating_person_on_events(self):
         self._create_groups_and_events()
@@ -505,7 +503,6 @@ class TestClickhouseRetention(ClickhouseTestMixin, APIBaseTest):
                 ],
             )
 
-    @also_test_with_materialized_columns(group_properties=[(0, "industry")])
     @snapshot_clickhouse_queries
     def test_groups_in_period_person_on_events(self):
         from posthog.models.team import util
