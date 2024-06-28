@@ -3,7 +3,9 @@ import { urls } from 'scenes/urls'
 
 import { InsightType } from '~/types'
 
+import { SettingsPage } from '../settingsPage'
 import { ToastObject } from '../shared/toastObject'
+import { getLemonSwitchValue, setLemonSwitchValue } from '../utils'
 import { InsightPage } from './insightPage'
 
 test('can create insight', async ({ page }) => {
@@ -147,4 +149,37 @@ test("doesn't require confirmation to navigate away from unchanged insight", asy
     await page.getByRole('link', { name: 'Home' }).click()
 
     expect(dialogMessage).toBeNull()
+})
+
+test("doesn't require confirmation to navigate away from unchanged new insight", async ({ page }) => {
+    let dialogMessage = null
+    page.on('dialog', async (dialog) => {
+        dialogMessage = dialog.message()
+        await dialog.accept()
+    })
+    const insight = await new InsightPage(page).goToNew()
+
+    // :FIXME: Reload shouldn't be necessary to trigger the confirmation dialog
+    await page.reload()
+    await insight.waitForDetailsTable()
+    // END FIXME
+
+    await page.getByRole('link', { name: 'Home' }).click()
+
+    expect(dialogMessage).toBeNull()
+})
+
+test('sets tests account filter default correctly', async ({ page }) => {
+    const insight = new InsightPage(page)
+    const settings = new SettingsPage(page)
+
+    await settings.setTestAccountFilter(false)
+    await insight.goToNew()
+
+    expect(await getLemonSwitchValue(page, 'Filter out internal and test users')).toBeFalsy()
+
+    await settings.setTestAccountFilter(true)
+    await insight.goToNew()
+
+    expect(await getLemonSwitchValue(page, 'Filter out internal and test users')).toBeTruthy()
 })
