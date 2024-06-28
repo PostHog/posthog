@@ -31,8 +31,6 @@ export async function extractHeatmapDataStep(
     try {
         const team = await runner.hub.teamManager.fetchTeam(teamId)
 
-        console.log('team', team?.heatmaps_opt_in)
-
         if (team?.heatmaps_opt_in !== false) {
             const heatmapEvents = extractScrollDepthHeatmapData(event) ?? []
 
