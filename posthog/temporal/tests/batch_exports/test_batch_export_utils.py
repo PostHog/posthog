@@ -52,7 +52,7 @@ async def s3_batch_export(
 
 async def test_batch_export_run_is_set_to_running(ateam, s3_batch_export):
     """Test background task sets batch export to running."""
-    some_date = dt.datetime(2021, 12, 5, 13, 23, 0, tzinfo=dt.timezone.utc)
+    some_date = dt.datetime(2021, 12, 5, 13, 23, 0, tzinfo=dt.datetime.UTC)
 
     run = await BatchExportRun.objects.acreate(
         batch_export_id=s3_batch_export.id,
