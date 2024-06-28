@@ -426,10 +426,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                     )
                     table = bigquery_stage_table if requires_merge else bigquery_table
 
-                    if inputs.use_json_type is True:
-                        await bq_client.load_jsonl_file(local_results_file, table, schema)
-                    else:
-                        await bq_client.load_parquet_file(local_results_file, table, schema)
+                    await bq_client.load_jsonl_file(local_results_file, table, schema)
 
                     rows_exported.add(records_since_last_flush)
                     bytes_exported.add(bytes_since_last_flush)
@@ -447,13 +444,11 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                         for field in first_record_batch.select([field.name for field in schema]).schema
                     ]
                 )
-
-                writer = get_batch_export_writer(
-                    inputs,
-                    flush_callable=flush_to_bigquery,
+                writer = JSONLBatchExportWriter(
                     max_bytes=settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES,
-                    schema=record_schema,
+                    flush_callable=flush_to_bigquery,
                 )
+
                 async with writer.open_temporary_file():
                     async for record_batch in records_iterator:
                         record_batch = cast_record_batch_json_columns(record_batch, json_columns=json_columns)
