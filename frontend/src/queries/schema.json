@@ -3217,19 +3217,33 @@
                     "type": "array"
                 },
                 "aggregation_group_type_index": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "breakdown": {
                     "$ref": "#/definitions/BreakdownKeyType"
                 },
                 "breakdown_group_type_index": {
-                    "type": ["number", "null"]
+                    "anyOf": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 },
                 "breakdown_hide_other_aggregation": {
                     "type": ["boolean", "null"]
                 },
                 "breakdown_limit": {
-                    "type": "integer"
+                    "anyOf": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 },
                 "breakdown_normalize_url": {
                     "type": "boolean"
@@ -4054,7 +4068,14 @@
             "additionalProperties": false,
             "properties": {
                 "group_type_index": {
-                    "type": ["number", "null"]
+                    "anyOf": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 },
                 "key": {
                     "type": "string"

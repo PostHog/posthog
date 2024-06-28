@@ -2028,7 +2028,7 @@ class GroupPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    group_type_index: Optional[float] = None
+    group_type_index: Optional[int] = None
     key: str
     label: Optional[str] = None
     operator: PropertyOperator
@@ -3750,9 +3750,9 @@ class FilterType(BaseModel):
         extra="forbid",
     )
     actions: Optional[list[dict[str, Any]]] = None
-    aggregation_group_type_index: Optional[float] = None
+    aggregation_group_type_index: Optional[int] = None
     breakdown: Optional[Union[str, float, list[Union[str, float]]]] = None
-    breakdown_group_type_index: Optional[float] = None
+    breakdown_group_type_index: Optional[int] = None
     breakdown_hide_other_aggregation: Optional[bool] = None
     breakdown_limit: Optional[int] = None
     breakdown_normalize_url: Optional[bool] = None
