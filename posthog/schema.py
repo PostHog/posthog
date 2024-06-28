@@ -506,6 +506,13 @@ class GoalLine(BaseModel):
     value: float
 
 
+class HogLanguage(StrEnum):
+    HOG = "hog"
+    HOG_QL = "hogQL"
+    HOG_QL_EXPR = "hogQLExpr"
+    HOG_TEMPLATE = "hogTemplate"
+
+
 class HogQLNotice(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -847,13 +854,10 @@ class QueryResponseAlternative8(BaseModel):
         extra="forbid",
     )
     errors: list[HogQLNotice]
-    inputExpr: Optional[str] = None
-    inputProgram: Optional[str] = None
-    inputSelect: Optional[str] = None
-    inputTemplate: Optional[str] = None
     isValid: Optional[bool] = None
     isValidView: Optional[bool] = None
     notices: list[HogQLNotice]
+    query: Optional[str] = None
     warnings: list[HogQLNotice]
 
 
@@ -2052,13 +2056,10 @@ class HogQLMetadataResponse(BaseModel):
         extra="forbid",
     )
     errors: list[HogQLNotice]
-    inputExpr: Optional[str] = None
-    inputProgram: Optional[str] = None
-    inputSelect: Optional[str] = None
-    inputTemplate: Optional[str] = None
     isValid: Optional[bool] = None
     isValidView: Optional[bool] = None
     notices: list[HogQLNotice]
+    query: Optional[str] = None
     warnings: list[HogQLNotice]
 
 
@@ -3298,30 +3299,6 @@ class HogQLFilters(BaseModel):
     ] = None
 
 
-class HogQLMetadata(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    debug: Optional[bool] = Field(
-        default=None, description="Enable more verbose output, usually run from the /debug page"
-    )
-    expr: Optional[str] = Field(default=None, description="HogQL expression to validate")
-    exprSource: Optional[str] = Field(
-        default=None,
-        description='Query within which "expr" and "template" are validated. Defaults to "select * from events"',
-    )
-    filters: Optional[HogQLFilters] = Field(default=None, description="Extra filters applied to query via {filters}")
-    kind: Literal["HogQLMetadata"] = "HogQLMetadata"
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    program: Optional[str] = Field(default=None, description="Hog program to validate")
-    response: Optional[HogQLMetadataResponse] = None
-    select: Optional[str] = Field(default=None, description="Select query to validate")
-    table: Optional[str] = Field(default=None, description="Table to validate the expression against")
-    template: Optional[str] = Field(default=None, description="Template string to validate")
-
-
 class HogQLQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3573,27 +3550,6 @@ class FunnelsFilter(BaseModel):
 
 class HasPropertiesNode(RootModel[Union[EventsNode, EventsQuery, PersonsNode]]):
     root: Union[EventsNode, EventsQuery, PersonsNode]
-
-
-class HogQLAutocomplete(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    endPosition: int = Field(..., description="End position of the editor word")
-    expr: Optional[str] = Field(default=None, description="HogQL expression to validate")
-    exprSource: Optional[str] = Field(
-        default=None,
-        description='Query within which "expr" and "template" are validated. Defaults to "select * from events"',
-    )
-    filters: Optional[HogQLFilters] = Field(default=None, description="Table to validate the expression against")
-    kind: Literal["HogQLAutocomplete"] = "HogQLAutocomplete"
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    response: Optional[HogQLAutocompleteResponse] = None
-    select: Optional[str] = Field(default=None, description="Select query to validate")
-    startPosition: int = Field(..., description="Start position of the editor word")
-    template: Optional[str] = Field(default=None, description="HogQL string template to validate")
 
 
 class InsightFilter(
@@ -4427,48 +4383,6 @@ class ActorsQuery(BaseModel):
     source: Optional[Union[InsightActorsQuery, FunnelsActorsQuery, FunnelCorrelationActorsQuery, HogQLQuery]] = None
 
 
-class AnyDataNode(
-    RootModel[
-        Union[
-            EventsNode,
-            ActionsNode,
-            PersonsNode,
-            TimeToSeeDataSessionsQuery,
-            EventsQuery,
-            ActorsQuery,
-            InsightActorsQuery,
-            InsightActorsQueryOptions,
-            SessionsTimelineQuery,
-            HogQuery,
-            HogQLQuery,
-            HogQLMetadata,
-            HogQLAutocomplete,
-            WebOverviewQuery,
-            WebStatsTableQuery,
-            WebTopClicksQuery,
-        ]
-    ]
-):
-    root: Union[
-        EventsNode,
-        ActionsNode,
-        PersonsNode,
-        TimeToSeeDataSessionsQuery,
-        EventsQuery,
-        ActorsQuery,
-        InsightActorsQuery,
-        InsightActorsQueryOptions,
-        SessionsTimelineQuery,
-        HogQuery,
-        HogQLQuery,
-        HogQLMetadata,
-        HogQLAutocomplete,
-        WebOverviewQuery,
-        WebStatsTableQuery,
-        WebTopClicksQuery,
-    ]
-
-
 class DataTableNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4527,6 +4441,143 @@ class DataTableNode(BaseModel):
         WebStatsTableQuery,
         WebTopClicksQuery,
     ] = Field(..., description="Source of the events")
+
+
+class HogQLAutocomplete(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    endPosition: int = Field(..., description="End position of the editor word")
+    filters: Optional[HogQLFilters] = Field(default=None, description="Table to validate the expression against")
+    globals: Optional[dict[str, Any]] = Field(default=None, description="Global values in scope")
+    kind: Literal["HogQLAutocomplete"] = "HogQLAutocomplete"
+    language: HogLanguage = Field(..., description="Language to validate")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query: str = Field(..., description="Query to validate")
+    response: Optional[HogQLAutocompleteResponse] = None
+    sourceQuery: Optional[
+        Union[
+            EventsNode,
+            ActionsNode,
+            PersonsNode,
+            TimeToSeeDataSessionsQuery,
+            EventsQuery,
+            ActorsQuery,
+            InsightActorsQuery,
+            InsightActorsQueryOptions,
+            SessionsTimelineQuery,
+            HogQuery,
+            HogQLQuery,
+            HogQLMetadata,
+            HogQLAutocomplete,
+            WebOverviewQuery,
+            WebStatsTableQuery,
+            WebTopClicksQuery,
+        ]
+    ] = Field(default=None, description="Query in whose context to validate.")
+    startPosition: int = Field(..., description="Start position of the editor word")
+
+
+class HogQLMetadata(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    debug: Optional[bool] = Field(
+        default=None, description="Enable more verbose output, usually run from the /debug page"
+    )
+    filters: Optional[HogQLFilters] = Field(default=None, description="Extra filters applied to query via {filters}")
+    globals: Optional[dict[str, Any]] = Field(default=None, description="Extra globals for the query")
+    kind: Literal["HogQLMetadata"] = "HogQLMetadata"
+    language: HogLanguage = Field(..., description="Language to validate")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query: str = Field(..., description="Query to validate")
+    response: Optional[HogQLMetadataResponse] = None
+    sourceQuery: Optional[
+        Union[
+            EventsNode,
+            ActionsNode,
+            PersonsNode,
+            TimeToSeeDataSessionsQuery,
+            EventsQuery,
+            ActorsQuery,
+            InsightActorsQuery,
+            InsightActorsQueryOptions,
+            SessionsTimelineQuery,
+            HogQuery,
+            HogQLQuery,
+            HogQLMetadata,
+            HogQLAutocomplete,
+            WebOverviewQuery,
+            WebStatsTableQuery,
+            WebTopClicksQuery,
+        ]
+    ] = Field(
+        default=None,
+        description='Query within which "expr" and "template" are validated. Defaults to "select * from events"',
+    )
+
+
+class QueryRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    async_: Optional[bool] = Field(
+        default=None,
+        alias="async",
+        description=(
+            "(Experimental) Whether to run the query asynchronously. Defaults to False. If True, the `id` of the query"
+            " can be used to check the status and to cancel it."
+        ),
+        examples=[True],
+    )
+    client_query_id: Optional[str] = Field(
+        default=None, description="Client provided query ID. Can be used to retrieve the status or cancel the query."
+    )
+    query: Union[
+        EventsNode,
+        ActionsNode,
+        PersonsNode,
+        DataWarehouseNode,
+        TimeToSeeDataSessionsQuery,
+        EventsQuery,
+        ActorsQuery,
+        InsightActorsQuery,
+        InsightActorsQueryOptions,
+        SessionsTimelineQuery,
+        HogQuery,
+        HogQLQuery,
+        HogQLMetadata,
+        HogQLAutocomplete,
+        WebOverviewQuery,
+        WebStatsTableQuery,
+        WebTopClicksQuery,
+        DataVisualizationNode,
+        DataTableNode,
+        SavedInsightNode,
+        InsightVizNode,
+        TrendsQuery,
+        FunnelsQuery,
+        RetentionQuery,
+        PathsQuery,
+        StickinessQuery,
+        LifecycleQuery,
+        FunnelCorrelationQuery,
+        DatabaseSchemaQuery,
+    ] = Field(
+        ...,
+        description=(
+            "Submit a JSON string representing a query for PostHog data analysis, for example a HogQL query.\n\nExample"
+            ' payload:\n\n```\n\n{"query": {"kind": "HogQLQuery", "query": "select * from events limit'
+            ' 100"}}\n\n```\n\nFor more details on HogQL queries, see the [PostHog HogQL'
+            " documentation](/docs/hogql#api-access)."
+        ),
+        discriminator="kind",
+    )
+    refresh: Optional[Union[bool, str]] = None
 
 
 class QuerySchemaRoot(
@@ -4597,63 +4648,5 @@ class QuerySchemaRoot(
     ] = Field(..., discriminator="kind")
 
 
-class QueryRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    async_: Optional[bool] = Field(
-        default=None,
-        alias="async",
-        description=(
-            "(Experimental) Whether to run the query asynchronously. Defaults to False. If True, the `id` of the query"
-            " can be used to check the status and to cancel it."
-        ),
-        examples=[True],
-    )
-    client_query_id: Optional[str] = Field(
-        default=None, description="Client provided query ID. Can be used to retrieve the status or cancel the query."
-    )
-    query: Union[
-        EventsNode,
-        ActionsNode,
-        PersonsNode,
-        DataWarehouseNode,
-        TimeToSeeDataSessionsQuery,
-        EventsQuery,
-        ActorsQuery,
-        InsightActorsQuery,
-        InsightActorsQueryOptions,
-        SessionsTimelineQuery,
-        HogQuery,
-        HogQLQuery,
-        HogQLMetadata,
-        HogQLAutocomplete,
-        WebOverviewQuery,
-        WebStatsTableQuery,
-        WebTopClicksQuery,
-        DataVisualizationNode,
-        DataTableNode,
-        SavedInsightNode,
-        InsightVizNode,
-        TrendsQuery,
-        FunnelsQuery,
-        RetentionQuery,
-        PathsQuery,
-        StickinessQuery,
-        LifecycleQuery,
-        FunnelCorrelationQuery,
-        DatabaseSchemaQuery,
-    ] = Field(
-        ...,
-        description=(
-            "Submit a JSON string representing a query for PostHog data analysis, for example a HogQL query.\n\nExample"
-            ' payload:\n\n```\n\n{"query": {"kind": "HogQLQuery", "query": "select * from events limit'
-            ' 100"}}\n\n```\n\nFor more details on HogQL queries, see the [PostHog HogQL'
-            " documentation](/docs/hogql#api-access)."
-        ),
-        discriminator="kind",
-    )
-    refresh: Optional[Union[bool, str]] = None
-
-
 PropertyGroupFilterValue.model_rebuild()
+QueryRequest.model_rebuild()

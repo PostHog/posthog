@@ -5,7 +5,7 @@ from posthog.hogql.database.models import StringDatabaseField
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PERSONS_FIELDS
 from posthog.models.property_definition import PropertyDefinition
-from posthog.schema import HogQLAutocomplete, HogQLAutocompleteResponse
+from posthog.schema import HogQLAutocomplete, HogQLAutocompleteResponse, HogLanguage, HogQLQuery
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 
@@ -27,14 +27,17 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
     def _select(
         self, query: str, start: int, end: int, database: Optional[Database] = None
     ) -> HogQLAutocompleteResponse:
-        autocomplete = HogQLAutocomplete(kind="HogQLAutocomplete", select=query, startPosition=start, endPosition=end)
+        autocomplete = HogQLAutocomplete(
+            kind="HogQLAutocomplete", query=query, language=HogLanguage.HOG_QL, startPosition=start, endPosition=end
+        )
         return get_hogql_autocomplete(query=autocomplete, team=self.team, database_arg=database)
 
     def _expr(self, query: str, start: int, end: int, database: Optional[Database] = None) -> HogQLAutocompleteResponse:
         autocomplete = HogQLAutocomplete(
             kind="HogQLAutocomplete",
-            expr=query,
-            exprSource="select * from events",
+            query=query,
+            language=HogLanguage.HOG_QL_EXPR,
+            sourceQuery=HogQLQuery(query="select * from events"),
             startPosition=start,
             endPosition=end,
         )
@@ -45,8 +48,9 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
     ) -> HogQLAutocompleteResponse:
         autocomplete = HogQLAutocomplete(
             kind="HogQLAutocomplete",
-            template=query,
-            exprSource="select * from events",
+            query=query,
+            language=HogLanguage.HOG_TEMPLATE,
+            sourceQuery=HogQLQuery(query="select * from events"),
             startPosition=start,
             endPosition=end,
         )

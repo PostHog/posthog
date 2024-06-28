@@ -21,7 +21,14 @@ from posthog.hogql.visitor import clone_expr
 from posthog.models.team import Team
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.client import sync_execute
-from posthog.schema import HogQLQueryResponse, HogQLFilters, HogQLQueryModifiers, HogQLMetadata, HogQLMetadataResponse
+from posthog.schema import (
+    HogQLQueryResponse,
+    HogQLFilters,
+    HogQLQueryModifiers,
+    HogQLMetadata,
+    HogQLMetadataResponse,
+    HogLanguage,
+)
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 
@@ -209,7 +216,7 @@ def execute_hogql_query(
             with timings.measure("metadata"):
                 from posthog.hogql.metadata import get_hogql_metadata
 
-                metadata = get_hogql_metadata(HogQLMetadata(select=hogql, debug=True), team)
+                metadata = get_hogql_metadata(HogQLMetadata(language=HogLanguage.HOG_QL, query=hogql, debug=True), team)
 
     return HogQLQueryResponse(
         query=query,

@@ -38,6 +38,8 @@ class HogQLContext:
     limit_top_select: bool = True
     # How many nested views do we support on this query?
     max_view_depth: int = 1
+    # Globals that will be resolved in the context of the query
+    globals: Optional[dict] = None
 
     # Warnings returned with the metadata query
     warnings: list["HogQLNotice"] = field(default_factory=list)

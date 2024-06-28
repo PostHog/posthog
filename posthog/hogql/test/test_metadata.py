@@ -1,6 +1,6 @@
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.models import PropertyDefinition, Cohort
-from posthog.schema import HogQLMetadata, HogQLMetadataResponse
+from posthog.schema import HogQLMetadata, HogQLMetadataResponse, HogQLQuery
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from django.test import override_settings
 
@@ -12,8 +12,9 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         return get_hogql_metadata(
             query=HogQLMetadata(
                 kind="HogQLMetadata",
-                expr=query,
-                exprSource=f"select * from {table}",
+                language="hogQLExpr",
+                query=query,
+                sourceQuery=HogQLQuery(query=f"select * from {table}"),
                 response=None,
                 debug=debug,
             ),
@@ -22,19 +23,19 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
 
     def _select(self, query: str) -> HogQLMetadataResponse:
         return get_hogql_metadata(
-            query=HogQLMetadata(kind="HogQLMetadata", select=query, response=None),
+            query=HogQLMetadata(kind="HogQLMetadata", language="hogQL", query=query, response=None),
             team=self.team,
         )
 
     def _program(self, query: str) -> HogQLMetadataResponse:
         return get_hogql_metadata(
-            query=HogQLMetadata(kind="HogQLMetadata", program=query, response=None),
+            query=HogQLMetadata(kind="HogQLMetadata", language="hog", query=query, response=None),
             team=self.team,
         )
 
     def _template(self, query: str) -> HogQLMetadataResponse:
         return get_hogql_metadata(
-            query=HogQLMetadata(kind="HogQLMetadata", template=query, response=None),
+            query=HogQLMetadata(kind="HogQLMetadata", language="hogTemplate", query=query, response=None),
             team=self.team,
         )
 
@@ -45,8 +46,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "isValid": False,
-                "inputExpr": "select 1",
-                "inputSelect": None,
+                "query": "select 1",
                 "errors": [
                     {
                         "message": "extraneous input '1' expecting <EOF>",
@@ -64,8 +64,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "isValid": True,
-                "inputExpr": None,
-                "inputSelect": "select 1",
+                "query": "select 1",
                 "errors": [],
             },
         )
@@ -76,8 +75,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "isValid": True,
-                "inputExpr": "timestamp",
-                "inputSelect": None,
+                "query": "timestamp",
                 "errors": [],
             },
         )
@@ -88,8 +86,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "isValid": False,
-                "inputExpr": None,
-                "inputSelect": "timestamp",
+                "query": "timestamp",
                 "errors": [
                     {
                         "message": "mismatched input 'timestamp' expecting {SELECT, WITH, '{', '(', '<'}",
@@ -108,8 +105,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "isValid": False,
-                "inputExpr": "1 as true",
-                "inputSelect": None,
+                "query": "1 as true",
                 "errors": [
                     {
                         "message": '"true" cannot be an alias or identifier, as it\'s a reserved keyword',
@@ -128,8 +124,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "isValid": False,
-                "inputExpr": "1 + no_field",
-                "inputSelect": None,
+                "query": "1 + no_field",
                 "errors": [
                     {
                         "message": "Unable to resolve field: no_field",
@@ -166,8 +161,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.model_dump()
             | {
                 "isValid": True,
-                "inputExpr": None,
-                "inputSelect": query,
+                "query": query,
                 "notices": [
                     {
                         "message": "Field 'person_id' is of type 'String'",
@@ -220,8 +214,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "isValid": True,
-                "inputExpr": "properties.string || properties.number",
-                "inputSelect": None,
+                "query": "properties.string || properties.number",
                 "notices": [
                     {
                         "message": "Event property 'string' is of type 'String'. This property is not materialized 🐢.",
@@ -256,8 +249,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "isValid": True,
-                "inputExpr": "properties.string || properties.number",
-                "inputSelect": None,
+                "query": "properties.string || properties.number",
                 "notices": [
                     {
                         "message": "Event property 'string' is of type 'String'.",
@@ -283,8 +275,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             | {
                 "isValid": True,
                 "isValidView": True,
-                "inputExpr": None,
-                "inputSelect": "select event AS event FROM events",
+                "query": "select event AS event FROM events",
                 "errors": [],
             },
         )
@@ -310,8 +301,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             | {
                 "isValid": True,
                 "isValidView": True,
-                "inputExpr": None,
-                "inputSelect": "select event AS event FROM event_view",
+                "query": "select event AS event FROM event_view",
                 "errors": [],
             },
         )
@@ -344,10 +334,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict(),
             metadata.dict()
             | {
-                "inputExpr": None,
-                "inputProgram": "let i := NONO()",
-                "inputSelect": None,
-                "inputTemplate": None,
+                "query": "let i := NONO()",
                 "isValid": False,
                 "isValidView": False,
                 "notices": [],

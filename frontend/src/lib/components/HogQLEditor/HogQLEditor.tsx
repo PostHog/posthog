@@ -44,7 +44,7 @@ export function HogQLEditor({
                 className={CLICK_OUTSIDE_BLOCK_CLASS}
                 minHeight="78px"
                 autoFocus={!disableAutoFocus}
-                metadataSource={metadataSource}
+                sourceQuery={metadataSource}
                 onPressCmdEnter={
                     disableCmdEnter
                         ? undefined
