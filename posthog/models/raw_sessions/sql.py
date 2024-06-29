@@ -170,7 +170,7 @@ SELECT
     timestamp AS max_timestamp,
 
     -- urls
-    [{current_url}] AS urls,
+    if({current_url} IS NOT NULL, [{current_url}], []) AS urls,
     initializeAggregation('argMinState', {current_url_string}, timestamp) as entry_url,
     initializeAggregation('argMaxState', {current_url_string}, timestamp) as end_url,
     initializeAggregation('argMaxState', {external_click_url}, timestamp) as last_external_click_url,
