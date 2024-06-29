@@ -24,6 +24,7 @@ function WebVitalEventSummary(event: Record<string, any>): JSX.Element {
                 <TitledSnack
                     type={event.rating === 'good' ? 'success' : 'default'}
                     title={event.name}
+                    titleSuffix=""
                     value={
                         <>
                             {event.rating}: {event.value.toFixed(2)}
