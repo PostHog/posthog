@@ -110,8 +110,8 @@
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
-        HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                      and isNull(max_steps)))
+        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                      and isNull(max(max_steps))))
      WHERE ifNull(in(steps, [1, 2, 3]), 0)
      ORDER BY aggregation_target ASC) AS source
   INNER JOIN
@@ -149,8 +149,8 @@
                                                                   WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-01-08 23:59:59.999999', 6, 'UTC'))))))
                                                             WHERE ifNull(equals(step_0, 1), 0)))
                                                       GROUP BY aggregation_target, steps
-                                                      HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                                                                    and isNull(max_steps)))
+                                                      HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                                                                    and isNull(max(max_steps))))
                                                    WHERE ifNull(in(steps, [1, 2, 3]), 0)
                                                    ORDER BY aggregation_target ASC) AS source)))
      GROUP BY person.id
@@ -164,7 +164,8 @@
                     max_ast_elements=2000000,
                     max_expanded_ast_elements=2000000,
                     max_query_size=1048576,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.1
@@ -179,7 +180,8 @@
                      max_ast_elements=2000000,
                      max_expanded_ast_elements=2000000,
                      max_query_size=1048576,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     allow_experimental_analyzer=0
   '''
 # ---
 # name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.2
@@ -293,8 +295,8 @@
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
-        HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                      and isNull(max_steps)))
+        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                      and isNull(max(max_steps))))
      WHERE ifNull(in(steps, [2, 3]), 0)
      ORDER BY aggregation_target ASC) AS source
   INNER JOIN
@@ -332,8 +334,8 @@
                                                                   WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-01-08 23:59:59.999999', 6, 'UTC'))))))
                                                             WHERE ifNull(equals(step_0, 1), 0)))
                                                       GROUP BY aggregation_target, steps
-                                                      HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                                                                    and isNull(max_steps)))
+                                                      HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                                                                    and isNull(max(max_steps))))
                                                    WHERE ifNull(in(steps, [2, 3]), 0)
                                                    ORDER BY aggregation_target ASC) AS source)))
      GROUP BY person.id
@@ -347,7 +349,8 @@
                     max_ast_elements=2000000,
                     max_expanded_ast_elements=2000000,
                     max_query_size=1048576,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.3
@@ -362,7 +365,8 @@
                      max_ast_elements=2000000,
                      max_expanded_ast_elements=2000000,
                      max_query_size=1048576,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     allow_experimental_analyzer=0
   '''
 # ---
 # name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.4
@@ -476,8 +480,8 @@
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
-        HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                      and isNull(max_steps)))
+        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                      and isNull(max(max_steps))))
      WHERE ifNull(equals(steps, 2), 0)
      ORDER BY aggregation_target ASC) AS source
   INNER JOIN
@@ -515,8 +519,8 @@
                                                                   WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-01-08 23:59:59.999999', 6, 'UTC'))))))
                                                             WHERE ifNull(equals(step_0, 1), 0)))
                                                       GROUP BY aggregation_target, steps
-                                                      HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                                                                    and isNull(max_steps)))
+                                                      HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                                                                    and isNull(max(max_steps))))
                                                    WHERE ifNull(equals(steps, 2), 0)
                                                    ORDER BY aggregation_target ASC) AS source)))
      GROUP BY person.id
@@ -530,7 +534,8 @@
                     max_ast_elements=2000000,
                     max_expanded_ast_elements=2000000,
                     max_query_size=1048576,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.5
@@ -545,6 +550,7 @@
                      max_ast_elements=2000000,
                      max_expanded_ast_elements=2000000,
                      max_query_size=1048576,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     allow_experimental_analyzer=0
   '''
 # ---

@@ -42,7 +42,7 @@ is_invalid_algorithm = lambda algo: algo not in CLICKHOUSE_SUPPORTED_JOIN_ALGORI
 @lru_cache(maxsize=1)
 def default_settings() -> dict:
     return {
-        "join_algorithm": "direct,parallel_hash",
+        "join_algorithm": "direct,parallel_hash,hash",
         "distributed_replica_max_ignored_errors": 1000,
     }
 
