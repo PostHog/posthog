@@ -20,7 +20,8 @@
                      max_ast_elements=2000000,
                      max_expanded_ast_elements=2000000,
                      max_query_size=1048576,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     allow_experimental_analyzer=0
   '''
 # ---
 # name: TestFilterSessionReplaysByConsoleLogs.test_select_by_console_log_text_and_level
@@ -46,7 +47,8 @@
                      max_ast_elements=2000000,
                      max_expanded_ast_elements=2000000,
                      max_query_size=1048576,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     allow_experimental_analyzer=0
   '''
 # ---
 # name: TestFilterSessionReplaysByConsoleLogs.test_select_log_text
@@ -72,7 +74,8 @@
                      max_ast_elements=2000000,
                      max_expanded_ast_elements=2000000,
                      max_query_size=1048576,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     allow_experimental_analyzer=0
   '''
 # ---
 # name: TestFilterSessionReplaysByEvents.test_select_by_event
@@ -93,7 +96,8 @@
                      max_ast_elements=2000000,
                      max_expanded_ast_elements=2000000,
                      max_query_size=1048576,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     allow_experimental_analyzer=0
   '''
 # ---
 # name: TestFilterSessionReplaysByEvents.test_select_by_event_property
@@ -114,7 +118,8 @@
                      max_ast_elements=2000000,
                      max_expanded_ast_elements=2000000,
                      max_query_size=1048576,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     allow_experimental_analyzer=0
   '''
 # ---
 # name: TestFilterSessionReplaysByEvents.test_select_event_property
@@ -137,7 +142,8 @@
                      max_ast_elements=2000000,
                      max_expanded_ast_elements=2000000,
                      max_query_size=1048576,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     allow_experimental_analyzer=0
   '''
 # ---
 # name: TestFilterSessionReplaysByPerson.test_select_by_event_person
@@ -176,7 +182,8 @@
                      max_ast_elements=2000000,
                      max_expanded_ast_elements=2000000,
                      max_query_size=1048576,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     allow_experimental_analyzer=0
   '''
 # ---
 # name: TestFilterSessionReplaysByPerson.test_select_by_person_distinct_id
@@ -199,7 +206,8 @@
                      max_ast_elements=2000000,
                      max_expanded_ast_elements=2000000,
                      max_query_size=1048576,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     allow_experimental_analyzer=0
   '''
 # ---
 # name: TestFilterSessionReplaysByPerson.test_select_by_replay_person
@@ -229,7 +237,8 @@
                      max_ast_elements=2000000,
                      max_expanded_ast_elements=2000000,
                      max_query_size=1048576,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     allow_experimental_analyzer=0
   '''
 # ---
 # name: TestFilterSessionReplaysByPerson.test_select_person_property
@@ -265,7 +274,8 @@
                      max_ast_elements=2000000,
                      max_expanded_ast_elements=2000000,
                      max_query_size=1048576,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     allow_experimental_analyzer=0
   '''
 # ---
 # name: TestFilterSessionReplaysByPerson.test_select_where_person_property_with_join_optimization
@@ -301,7 +311,8 @@
                      max_ast_elements=2000000,
                      max_expanded_ast_elements=2000000,
                      max_query_size=1048576,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     allow_experimental_analyzer=0
   '''
 # ---
 # name: TestFilterSessionReplaysByPerson.test_select_where_person_property_without_join_optimization
@@ -337,7 +348,8 @@
                      max_ast_elements=2000000,
                      max_expanded_ast_elements=2000000,
                      max_query_size=1048576,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     allow_experimental_analyzer=0
   '''
 # ---
 # name: TestFilterSessionReplaysBySessions.test_select_by_duration_with_session_duration_filter
@@ -362,7 +374,8 @@
                      max_ast_elements=2000000,
                      max_expanded_ast_elements=2000000,
                      max_query_size=1048576,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     allow_experimental_analyzer=0
   '''
 # ---
 # name: TestFilterSessionReplaysBySessions.test_select_by_duration_without_session_filter
@@ -380,6 +393,7 @@
                      max_ast_elements=2000000,
                      max_expanded_ast_elements=2000000,
                      max_query_size=1048576,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     allow_experimental_analyzer=0
   '''
 # ---
