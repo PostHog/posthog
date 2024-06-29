@@ -17,7 +17,7 @@ export interface ItemEventProps {
     setExpanded: (expanded: boolean) => void
 }
 
-function WebVitalEventSummary(event: Record<string, any>): JSX.Element {
+function WebVitalEventSummary({ event }: { event: Record<string, any> }): JSX.Element {
     return (
         <>
             {event ? (
@@ -36,15 +36,15 @@ function WebVitalEventSummary(event: Record<string, any>): JSX.Element {
     )
 }
 
-function SummarizeWebVitals(properties: Record<string, any>): JSX.Element {
+function SummarizeWebVitals({ properties }: { properties: Record<string, any> }): JSX.Element {
     const { $web_vitals_FCP_event, $web_vitals_CLS_event, $web_vitals_INP_event, $web_vitals_LCP_event } = properties
 
     return (
         <div className="flex gap-1 items-center">
-            {WebVitalEventSummary($web_vitals_FCP_event)}
-            {WebVitalEventSummary($web_vitals_CLS_event)}
-            {WebVitalEventSummary($web_vitals_INP_event)}
-            {WebVitalEventSummary($web_vitals_LCP_event)}
+            <WebVitalEventSummary event={$web_vitals_FCP_event} />
+            <WebVitalEventSummary event={$web_vitals_CLS_event} />
+            <WebVitalEventSummary event={$web_vitals_INP_event} />
+            <WebVitalEventSummary event={$web_vitals_LCP_event} />
         </div>
     )
 }
@@ -53,13 +53,13 @@ export function ItemEvent({ item, expanded, setExpanded }: ItemEventProps): JSX.
     const insightUrl = insightUrlForEvent(item.data)
 
     const subValue =
-        item.data.event === '$pageview'
-            ? item.data.properties.$pathname || item.data.properties.$current_url
-            : item.data.event === '$screen'
-            ? item.data.properties.$screen_name
-            : item.data.event === '$web_vitals'
-            ? SummarizeWebVitals(item.data.properties)
-            : undefined
+        item.data.event === '$pageview' ? (
+            item.data.properties.$pathname || item.data.properties.$current_url
+        ) : item.data.event === '$screen' ? (
+            item.data.properties.$screen_name
+        ) : item.data.event === '$web_vitals' ? (
+            <SummarizeWebVitals properties={item.data.properties} />
+        ) : undefined
 
     let promotedKeys: string[] | undefined = undefined
     if (item.data.event === '$pageview') {
