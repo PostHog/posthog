@@ -37,7 +37,8 @@
                      max_ast_elements=2000000,
                      max_expanded_ast_elements=2000000,
                      max_query_size=1048576,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     allow_experimental_analyzer=0
   '''
 # ---
 # name: TestTrendsDataWarehouseQuery.test_trends_breakdown_with_property
@@ -78,7 +79,8 @@
                      max_ast_elements=2000000,
                      max_expanded_ast_elements=2000000,
                      max_query_size=1048576,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     allow_experimental_analyzer=0
   '''
 # ---
 # name: TestTrendsDataWarehouseQuery.test_trends_data_warehouse
@@ -105,7 +107,8 @@
                      max_ast_elements=2000000,
                      max_expanded_ast_elements=2000000,
                      max_query_size=1048576,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     allow_experimental_analyzer=0
   '''
 # ---
 # name: TestTrendsDataWarehouseQuery.test_trends_entity_property
@@ -132,7 +135,8 @@
                      max_ast_elements=2000000,
                      max_expanded_ast_elements=2000000,
                      max_query_size=1048576,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     allow_experimental_analyzer=0
   '''
 # ---
 # name: TestTrendsDataWarehouseQuery.test_trends_property
@@ -159,6 +163,7 @@
                      max_ast_elements=2000000,
                      max_expanded_ast_elements=2000000,
                      max_query_size=1048576,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     allow_experimental_analyzer=0
   '''
 # ---
