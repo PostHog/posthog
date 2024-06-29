@@ -5,13 +5,6 @@ from posthog.clickhouse.table_engines import (
     ReplicationScheme,
     AggregatingMergeTree,
 )
-from posthog.settings import TEST
-
-# the date of the day after this PR will be merged, this allows us to run the backfill script on complete days
-# with a condition like toYYYYMMDD(timestamp) < X
-INGEST_FROM_DATE = "toYYYYMMDD(timestamp) >= 20240626"
-if TEST:
-    INGEST_FROM_DATE = "toYYYYMMDD(timestamp) >= 0"
 
 TABLE_BASE_NAME = "raw_sessions"
 RAW_SESSIONS_DATA_TABLE = lambda: f"sharded_{TABLE_BASE_NAME}"
@@ -343,10 +336,7 @@ SELECT
     -- web vitals
     argMinState({lcp}, timestamp) as first_lcp
 FROM {database}.sharded_events
-WHERE and(
-    bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7, -- has a session id and is valid uuidv7
-    {INGEST_FROM_DATE}
-)
+WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7
 GROUP BY
     team_id,
     toStartOfHour(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000))),
@@ -389,7 +379,6 @@ GROUP BY
         igshid=source_string_column("igshid"),
         ttclid=source_string_column("ttclid"),
         lcp=source_float_column("$web_vitals_LCP_value"),
-        INGEST_FROM_DATE=INGEST_FROM_DATE,
     )
 )
 
