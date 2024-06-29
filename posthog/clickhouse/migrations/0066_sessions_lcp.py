@@ -20,7 +20,7 @@ operations = [
     run_sql_with_exceptions(DROP_RAW_SESSION_VIEW_SQL),
     # add the column
     run_sql_with_exceptions(ADD_LCP_COLUMN_BASE_SQL.format(table="raw_sessions", cluster=CLICKHOUSE_CLUSTER)),
-    run_sql_with_exceptions(ADD_LCP_COLUMN_BASE_SQL.format(table="writeable_sessions", cluster=CLICKHOUSE_CLUSTER)),
+    run_sql_with_exceptions(ADD_LCP_COLUMN_BASE_SQL.format(table="writable_raw_sessions", cluster=CLICKHOUSE_CLUSTER)),
     run_sql_with_exceptions(ADD_LCP_COLUMN_BASE_SQL.format(table="sharded_raw_sessions", cluster=CLICKHOUSE_CLUSTER)),
     # add the MV and view back
     run_sql_with_exceptions(RAW_SESSIONS_TABLE_MV_SQL),
