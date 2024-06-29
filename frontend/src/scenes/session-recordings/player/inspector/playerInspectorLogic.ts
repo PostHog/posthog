@@ -2,6 +2,7 @@ import { customEvent, EventType, eventWithTime, fullSnapshotEvent, pluginEvent }
 import FuseClass from 'fuse.js'
 import { actions, connect, events, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
@@ -944,4 +945,18 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             actions.loadMatchingEvents()
         }
     }),
+    subscriptions(({ actions }) => ({
+        items: (value) => {
+            value.forEach((item: InspectorListItem) => {
+                // we preload all web vitals data, so it can be used before user interaction
+                if (
+                    item.type === SessionRecordingPlayerTab.EVENTS &&
+                    !item.data.fullyLoaded &&
+                    item.data.event === '$web_vitals'
+                ) {
+                    actions.loadFullEventData(item.data)
+                }
+            })
+        },
+    })),
 ])

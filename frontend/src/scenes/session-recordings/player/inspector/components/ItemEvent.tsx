@@ -5,7 +5,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TitledSnack } from 'lib/components/TitledSnack'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { autoCaptureEventToDescription, capitalizeFirstLetter } from 'lib/utils'
+import { autoCaptureEventToDescription, capitalizeFirstLetter, isString } from 'lib/utils'
 import { insightUrlForEvent } from 'scenes/insights/utils'
 
 import { InspectorListItemEvent } from '../playerInspectorLogic'
@@ -17,7 +17,7 @@ export interface ItemEventProps {
     setExpanded: (expanded: boolean) => void
 }
 
-function webVitalEventSummary(event: Record<string, any>): JSX.Element {
+function WebVitalEventSummary(event: Record<string, any>): JSX.Element {
     return (
         <>
             {event ? (
@@ -35,15 +35,15 @@ function webVitalEventSummary(event: Record<string, any>): JSX.Element {
     )
 }
 
-function summarizeWebVitals(properties: Record<string, any>): JSX.Element {
+function SummarizeWebVitals(properties: Record<string, any>): JSX.Element {
     const { $web_vitals_FCP_event, $web_vitals_CLS_event, $web_vitals_INP_event, $web_vitals_LCP_event } = properties
 
     return (
         <div className="flex gap-1 items-center">
-            {webVitalEventSummary($web_vitals_FCP_event)}
-            {webVitalEventSummary($web_vitals_CLS_event)}
-            {webVitalEventSummary($web_vitals_INP_event)}
-            {webVitalEventSummary($web_vitals_LCP_event)}
+            {WebVitalEventSummary($web_vitals_FCP_event)}
+            {WebVitalEventSummary($web_vitals_CLS_event)}
+            {WebVitalEventSummary($web_vitals_INP_event)}
+            {WebVitalEventSummary($web_vitals_LCP_event)}
         </div>
     )
 }
@@ -57,7 +57,7 @@ export function ItemEvent({ item, expanded, setExpanded }: ItemEventProps): JSX.
             : item.data.event === '$screen'
             ? item.data.properties.$screen_name
             : item.data.event === '$web_vitals'
-            ? summarizeWebVitals(item.data.properties)
+            ? SummarizeWebVitals(item.data.properties)
             : undefined
 
     let promotedKeys: string[] | undefined = undefined
@@ -81,19 +81,23 @@ export function ItemEvent({ item, expanded, setExpanded }: ItemEventProps): JSX.
     return (
         <div data-attr="item-event">
             <LemonButton noPadding onClick={() => setExpanded(!expanded)} fullWidth>
-                <div className="flex gap-2 items-center p-2 text-xs cursor-pointer truncate">
-                    <PropertyKeyInfo
-                        className="font-medium shrink-0"
-                        disablePopover
-                        ellipsis={true}
-                        value={capitalizeFirstLetter(autoCaptureEventToDescription(item.data))}
-                        type={TaxonomicFilterGroupType.Events}
-                    />
-                    {item.data.event === '$autocapture' ? <span className="text-muted-alt">(Autocapture)</span> : null}
+                <div className="flex flex-row w-full justify-between gap-2 items-center p-2 text-xs cursor-pointer truncate">
+                    <div>
+                        <PropertyKeyInfo
+                            className="font-medium shrink-0"
+                            disablePopover
+                            ellipsis={true}
+                            value={capitalizeFirstLetter(autoCaptureEventToDescription(item.data))}
+                            type={TaxonomicFilterGroupType.Events}
+                        />
+                        {item.data.event === '$autocapture' ? (
+                            <span className="text-muted-alt">(Autocapture)</span>
+                        ) : null}
+                    </div>
                     {subValue ? (
-                        <span className="text-muted-alt truncate" title={subValue}>
+                        <div className="text-muted-alt truncate" title={isString(subValue) ? subValue : undefined}>
                             {subValue}
-                        </span>
+                        </div>
                     ) : null}
                 </div>
             </LemonButton>
