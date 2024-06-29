@@ -1,5 +1,7 @@
 from django.db import models
 from django.db.models.signals import post_save, post_delete
+
+from posthog.models import Action
 from posthog.models.signals import mutable_receiver
 from posthog.models.utils import UUIDModel
 from django.contrib.postgres.fields import ArrayField
@@ -82,6 +84,7 @@ class Survey(UUIDModel):
     )
     current_iteration = models.PositiveIntegerField(null=True)
     current_iteration_start_date = models.DateTimeField(null=True)
+    actions = models.ManyToManyField(Action)
 
 
 @receiver(pre_save, sender=Survey)
