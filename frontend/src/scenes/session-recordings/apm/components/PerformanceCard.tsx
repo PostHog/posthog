@@ -174,7 +174,7 @@ function itemToPerformanceValues(item: PerformanceEvent): {
     domInteractive?: number
     pageLoaded?: number
 } {
-    const webVitals: RecordingEventType[] = item.web_vitals ? [...item.web_vitals] : []
+    const webVitals: RecordingEventType[] = item.web_vitals ? Array.from(item.web_vitals) : []
     const clsValue = webVitals.find((event) => event.properties.$web_vitals_CLS_value)?.properties.$web_vitals_CLS_value
     const lcpValue = webVitals.find((event) => event.properties.$web_vitals_LCP_value)?.properties.$web_vitals_LCP_value
     const fcpValue =
