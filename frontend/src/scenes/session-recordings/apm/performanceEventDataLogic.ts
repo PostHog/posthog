@@ -89,8 +89,8 @@ function matchWebVitalsEvents(
                 const isAfterLastNavigation = webVitalUnixTimestamp > lastNavigationEvent.timestamp
                 const isBeforeNextNavigation = webVitalUnixTimestamp < (nextTimestamp ?? Infinity)
                 if (isAfterLastNavigation && isBeforeNextNavigation) {
-                    lastNavigationEvent.web_vitals = lastNavigationEvent.web_vitals || []
-                    lastNavigationEvent.web_vitals.push(webVital)
+                    lastNavigationEvent.web_vitals = lastNavigationEvent.web_vitals || new Set()
+                    lastNavigationEvent.web_vitals.add(webVital)
                 }
             }
         }

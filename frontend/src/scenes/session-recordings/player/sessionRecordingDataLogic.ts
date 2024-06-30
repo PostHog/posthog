@@ -495,9 +495,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
                         if (result) {
                             loadedProperties = JSON.parse(result[0])
+                            existingEvent.properties = loadedProperties
+                            existingEvent.fullyLoaded = true
                         }
                     } catch (e) {
                         // NOTE: This is not ideal but should happen so rarely that it is tolerable.
+                        existingEvent.fullyLoaded = true
                         captureException(e)
                     }
 
