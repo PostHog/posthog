@@ -937,5 +937,5 @@ class TestPortalBillingAPI(APILicensedTest):
 
         response = self.client.get("/api/billing/portal")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         self.assertEqual(response.json(), {"url": "https://billing.stripe.com/p/session/test_1234"})
