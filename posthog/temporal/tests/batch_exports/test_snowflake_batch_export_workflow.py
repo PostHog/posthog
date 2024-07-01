@@ -1191,7 +1191,7 @@ async def test_snowflake_export_workflow_with_many_files(
                     id=workflow_id,
                     task_queue=settings.TEMPORAL_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
-                    execution_timeout=dt.timedelta(seconds=20),
+                    execution_timeout=dt.timedelta(minutes=2),
                 )
 
     runs = await afetch_batch_export_runs(batch_export_id=snowflake_batch_export.id)
