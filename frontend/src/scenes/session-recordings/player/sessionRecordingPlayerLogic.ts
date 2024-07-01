@@ -109,6 +109,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'sessionPlayerMetaDataLoading',
                 'createExportJSON',
                 'customRRWebEvents',
+                'fullyLoaded',
             ],
             playerSettingsLogic,
             ['speed', 'skipInactivitySetting'],
@@ -183,6 +184,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         // the error is emitted from code we don't control in rrweb, so we can't guarantee it's really an Error
         playerErrorSeen: (error: any) => ({ error }),
         fingerprintReported: (fingerprint: string) => ({ fingerprint }),
+        reportMessageTooLargeWarningSeen: (sessionRecordingId: string) => ({ sessionRecordingId }),
     }),
     reducers(() => ({
         reportedReplayerErrors: [
@@ -345,6 +347,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             false,
             {
                 setIsFullScreen: (_, { isFullScreen }) => isFullScreen,
+            },
+        ],
+        messageTooLargeWarningSeen: [
+            null as string | null,
+            {
+                reportMessageTooLargeWarningSeen: (_, { sessionRecordingId }) => sessionRecordingId,
             },
         ],
     })),
@@ -983,9 +991,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 await document.exitFullscreen()
             }
         },
+
+        reportMessageTooLargeWarningSeen: async ({ sessionRecordingId }) => {
+            posthog.capture('message too large warning seen', { sessionRecordingId })
+        },
     })),
 
-    subscriptions(({ actions, values }) => ({
+    subscriptions(({ actions, values, props }) => ({
         sessionPlayerData: (next, prev) => {
             const hasSnapshotChanges = next?.snapshotsByWindowId !== prev?.snapshotsByWindowId
 
@@ -1004,6 +1016,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             if (rrwebPlayerTime !== undefined && values.currentPlayerState === SessionPlayerState.PLAY) {
                 actions.skipPlayerForward(rrwebPlayerTime, values.roughAnimationFPS)
+            }
+        },
+        messageTooLargeWarnings: (next) => {
+            if (
+                values.messageTooLargeWarningSeen !== values.sessionRecordingId &&
+                next.length > 0 &&
+                props.mode !== SessionRecordingPlayerMode.Preview
+            ) {
+                actions.reportMessageTooLargeWarningSeen(values.sessionRecordingId)
             }
         },
     })),

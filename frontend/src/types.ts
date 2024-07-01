@@ -1466,6 +1466,7 @@ export interface PerformanceEvent {
     first_contentful_paint?: number // https://web.dev/fcp/
     time_to_interactive?: number // https://web.dev/tti/
     total_blocking_time?: number // https://web.dev/tbt/
+    web_vitals?: Set<RecordingEventType>
 
     // request/response capture - merged in from rrweb/network@1 payloads
     request_headers?: Record<string, string>
@@ -2606,7 +2607,7 @@ export interface Survey {
             }[]
         } | null
     } | null
-    appearance: SurveyAppearance
+    appearance: SurveyAppearance | null
     questions: (BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion)[]
     created_at: string
     created_by: UserBasicType | null

@@ -1204,7 +1204,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 recurring_survey_iteration_count: survey.iteration_count == undefined ? 0 : survey.iteration_count,
                 recurring_survey_iteration_interval:
                     survey.iteration_frequency_days == undefined ? 0 : survey.iteration_frequency_days,
-                shuffle_questions_enabled: !!survey.appearance.shuffleQuestions,
+                shuffle_questions_enabled: !!survey.appearance?.shuffleQuestions,
                 shuffle_question_options_enabled_count: questionsWithShuffledOptions.length,
             })
         },
@@ -1267,7 +1267,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 recurring_survey_iteration_count: survey.iteration_count == undefined ? 0 : survey.iteration_count,
                 recurring_survey_iteration_interval:
                     survey.iteration_frequency_days == undefined ? 0 : survey.iteration_frequency_days,
-                shuffle_questions_enabled: !!survey.appearance.shuffleQuestions,
+                shuffle_questions_enabled: !!survey.appearance?.shuffleQuestions,
                 shuffle_question_options_enabled_count: questionsWithShuffledOptions.length,
             })
         },
