@@ -10,7 +10,11 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql_queries.insights.trends.breakdown import BREAKDOWN_NULL_DISPLAY, BREAKDOWN_NULL_STRING_LABEL
+from posthog.hogql_queries.insights.trends.breakdown import (
+    BREAKDOWN_NULL_DISPLAY,
+    BREAKDOWN_NULL_STRING_LABEL,
+    BREAKDOWN_OTHER_STRING_LABEL,
+)
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner, BREAKDOWN_OTHER_DISPLAY
 from posthog.models.cohort.cohort import Cohort
 from posthog.models import GroupTypeMapping
@@ -3246,6 +3250,30 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ]
         assert [9, 1, 1, 1, 1] == [r["count"] for r in response.results]
 
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(
+                breakdowns=[
+                    Breakdown(value="$bin", histogram_bin_count=5),
+                ],
+                breakdown_limit=2,
+            ),
+        )
+        breakdown_labels = [result["breakdown_value"] for result in response.results]
+
+        assert len(response.results) == 3
+        assert len(breakdown_labels) == 3
+        assert breakdown_labels == [
+            ["[4,28.8]"],
+            ["[103.2,128.01]"],
+            [BREAKDOWN_OTHER_STRING_LABEL],
+        ]
+        assert [9, 1, 3] == [r["count"] for r in response.results]
+
     def test_trends_event_histogram_breakdowns_return_equal_result(self):
         self._create_events(
             [
@@ -3931,3 +3959,35 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             BreakdownItem(label='["",""]', value='["",""]'),
             BreakdownItem(label=BREAKDOWN_NULL_DISPLAY, value=BREAKDOWN_NULL_STRING_LABEL),
         ]
+
+    def test_to_insight_query_applies_breakdown_limit(self):
+        self._create_test_events()
+        flush_persons_and_events()
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_BAR_VALUE),
+            BreakdownFilter(breakdown="$browser", breakdown_limit=2),
+        )
+
+        breakdown_labels = [result["breakdown_value"] for result in response.results]
+
+        assert len(response.results) == 3
+        assert breakdown_labels == ["Chrome", "Firefox", BREAKDOWN_OTHER_STRING_LABEL]
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_BAR_VALUE),
+            BreakdownFilter(breakdowns=[Breakdown(value="$browser")], breakdown_limit=2),
+        )
+
+        breakdown_labels = [result["breakdown_value"] for result in response.results]
+
+        assert len(response.results) == 3
+        assert breakdown_labels == [["Chrome"], ["Firefox"], [BREAKDOWN_OTHER_STRING_LABEL]]

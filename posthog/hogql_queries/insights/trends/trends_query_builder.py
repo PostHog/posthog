@@ -384,43 +384,42 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             query.order_by.append(ast.OrderExpr(expr=ast.Field(chain=["breakdown_value"]), order="ASC"))
 
             # TODO: What happens with cohorts and this limit?
-            if not breakdown.is_histogram_breakdown:
-                # arrayFold is basically arrayReduce (but you can pass your own lambda function)
-                # it takes result array from the outer query which looks like this (if they're grouped under "other" values):
-                # [
-                #   [0, 0, 1],
-                #   [0, 1, 0]
-                # ]
-                # and turns it into
-                # [0, 1, 1]
-                return parse_select(
-                    """
-                    SELECT
-                        groupArray(1)(date)[1] as date,
-                        arrayFold(
-                            (acc, x) -> arrayMap(
-                                i -> acc[i] + x[i],
-                                range(1, length(date) + 1)
-                            ),
-                            groupArray(total),
-                            arrayWithConstant(length(date), reinterpretAsFloat64(0))
-                        ) as total,
-                        {breakdown_select}
-                    FROM {outer_query}
-                    WHERE {breakdown_filter}
-                    GROUP BY breakdown_value
-                    ORDER BY
-                        {breakdown_order_by},
-                        arraySum(total) DESC,
-                        breakdown_value ASC
-                """,
-                    {
-                        "breakdown_select": self._breakdown_outer_query_select(breakdown),
-                        "outer_query": query,
-                        "breakdown_filter": self._breakdown_outer_query_filter(breakdown),
-                        "breakdown_order_by": self._breakdown_query_order_by(breakdown),
-                    },
-                )
+            # arrayFold is basically arrayReduce (but you can pass your own lambda function)
+            # it takes result array from the outer query which looks like this (if they're grouped under "other" values):
+            # [
+            #   [0, 0, 1],
+            #   [0, 1, 0]
+            # ]
+            # and turns it into
+            # [0, 1, 1]
+            return parse_select(
+                """
+                SELECT
+                    groupArray(1)(date)[1] as date,
+                    arrayFold(
+                        (acc, x) -> arrayMap(
+                            i -> acc[i] + x[i],
+                            range(1, length(date) + 1)
+                        ),
+                        groupArray(total),
+                        arrayWithConstant(length(date), reinterpretAsFloat64(0))
+                    ) as total,
+                    {breakdown_select}
+                FROM {outer_query}
+                WHERE {breakdown_filter}
+                GROUP BY breakdown_value
+                ORDER BY
+                    {breakdown_order_by},
+                    arraySum(total) DESC,
+                    breakdown_value ASC
+            """,
+                {
+                    "breakdown_select": self._breakdown_outer_query_select(breakdown),
+                    "outer_query": query,
+                    "breakdown_filter": self._breakdown_outer_query_filter(breakdown),
+                    "breakdown_order_by": self._breakdown_query_order_by(breakdown),
+                },
+            )
 
         query.order_by.append(
             ast.OrderExpr(expr=ast.Call(name="arraySum", args=[ast.Field(chain=["total"])]), order="DESC")
