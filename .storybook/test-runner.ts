@@ -104,6 +104,15 @@ module.exports = {
         if (snapshotBrowsers.includes(currentBrowser)) {
             await expectStoryToMatchSnapshot(page, context, storyContext, currentBrowser)
         }
+
+        if(storyContext.tags.includes('also-tablet')) {
+            const tabletViewport = { width: 768, height: 1024 }
+            await page.setViewportSize(tabletViewport)
+            context.id = `${context.id}--tablet`
+            if (snapshotBrowsers.includes(currentBrowser)) {
+                await expectStoryToMatchSnapshot(page, context, storyContext, currentBrowser)
+            }
+        }
     },
     tags: {
         skip: ['test-skip'], // NOTE: This is overridden by the CI action storybook-chromatic.yml to include browser specific skipping
