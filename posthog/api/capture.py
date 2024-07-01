@@ -659,16 +659,14 @@ def replace_with_warning(event: dict[str, Any]) -> dict[str, Any] | None:
                 "$snapshot_bytes": 0,
                 "$snapshot_items": [
                     *only_meta_events,
-                    *[
-                        {
-                            "type": 5,
-                            "data": {
-                                "tag": "Message too large",
-                            },
-                            "$window_id": first_item.get("$window_id"),
-                            "timestamp": first_item.get("timestamp"),
-                        }
-                    ],
+                    {
+                        "type": 5,
+                        "data": {
+                            "tag": "Message too large",
+                        },
+                        "$window_id": first_item.get("$window_id"),
+                        "timestamp": first_item.get("timestamp"),
+                    },
                 ],
             },
         }
