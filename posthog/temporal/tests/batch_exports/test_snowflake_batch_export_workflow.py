@@ -906,8 +906,10 @@ async def assert_clickhouse_records_in_snowflake(
 
             expected_records.append(expected_record)
 
-    inserted_column_names = list(inserted_records[0].keys()).sort()
-    expected_column_names = list(expected_records[0].keys()).sort()
+    inserted_column_names = list(inserted_records[0].keys())
+    expected_column_names = list(expected_records[0].keys())
+    inserted_column_names.sort()
+    expected_column_names.sort()
 
     # Ordering is not guaranteed, so we sort before comparing.
     inserted_records.sort(key=operator.itemgetter(sort_key))
