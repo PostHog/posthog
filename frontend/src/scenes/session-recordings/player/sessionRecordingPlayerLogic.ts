@@ -1,4 +1,5 @@
 import { lemonToast } from '@posthog/lemon-ui'
+import { customEvent } from '@rrweb/types'
 import { captureException } from '@sentry/react'
 import {
     actions,
@@ -107,6 +108,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'sessionPlayerMetaData',
                 'sessionPlayerMetaDataLoading',
                 'createExportJSON',
+                'customRRWebEvents',
+                'fullyLoaded',
             ],
             playerSettingsLogic,
             ['speed', 'skipInactivitySetting'],
@@ -178,9 +181,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setIsFullScreen: (isFullScreen: boolean) => ({ isFullScreen }),
         skipPlayerForward: (rrWebPlayerTime: number, skip: number) => ({ rrWebPlayerTime, skip }),
         incrementClickCount: true,
-        // the error is emitted from code we don't control in rrweb so we can't guarantee it's really an Error
+        // the error is emitted from code we don't control in rrweb, so we can't guarantee it's really an Error
         playerErrorSeen: (error: any) => ({ error }),
         fingerprintReported: (fingerprint: string) => ({ fingerprint }),
+        reportMessageTooLargeWarningSeen: (sessionRecordingId: string) => ({ sessionRecordingId }),
     }),
     reducers(() => ({
         reportedReplayerErrors: [
@@ -345,6 +349,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 setIsFullScreen: (_, { isFullScreen }) => isFullScreen,
             },
         ],
+        messageTooLargeWarningSeen: [
+            null as string | null,
+            {
+                reportMessageTooLargeWarningSeen: (_, { sessionRecordingId }) => sessionRecordingId,
+            },
+        ],
     })),
     selectors({
         // Prop references for use by other logics
@@ -463,6 +473,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     }
                     return null
                 }
+            },
+        ],
+
+        messageTooLargeWarnings: [
+            (s) => [s.customRRWebEvents],
+            (customRRWebEvents: customEvent[]) => {
+                return customRRWebEvents.filter((event) => event.data.tag === 'Message too large')
             },
         ],
     }),
@@ -974,9 +991,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 await document.exitFullscreen()
             }
         },
+
+        reportMessageTooLargeWarningSeen: async ({ sessionRecordingId }) => {
+            posthog.capture('message too large warning seen', { sessionRecordingId })
+        },
     })),
 
-    subscriptions(({ actions, values }) => ({
+    subscriptions(({ actions, values, props }) => ({
         sessionPlayerData: (next, prev) => {
             const hasSnapshotChanges = next?.snapshotsByWindowId !== prev?.snapshotsByWindowId
 
@@ -995,6 +1016,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             if (rrwebPlayerTime !== undefined && values.currentPlayerState === SessionPlayerState.PLAY) {
                 actions.skipPlayerForward(rrwebPlayerTime, values.roughAnimationFPS)
+            }
+        },
+        messageTooLargeWarnings: (next) => {
+            if (
+                values.messageTooLargeWarningSeen !== values.sessionRecordingId &&
+                next.length > 0 &&
+                props.mode !== SessionRecordingPlayerMode.Preview
+            ) {
+                actions.reportMessageTooLargeWarningSeen(values.sessionRecordingId)
             }
         },
     })),

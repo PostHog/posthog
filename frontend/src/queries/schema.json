@@ -3270,19 +3270,33 @@
                     "type": "array"
                 },
                 "aggregation_group_type_index": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "breakdown": {
                     "$ref": "#/definitions/BreakdownKeyType"
                 },
                 "breakdown_group_type_index": {
-                    "type": ["number", "null"]
+                    "anyOf": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 },
                 "breakdown_hide_other_aggregation": {
                     "type": ["boolean", "null"]
                 },
                 "breakdown_limit": {
-                    "type": "integer"
+                    "anyOf": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 },
                 "breakdown_normalize_url": {
                     "type": "boolean"
@@ -4107,7 +4121,14 @@
             "additionalProperties": false,
             "properties": {
                 "group_type_index": {
-                    "type": ["number", "null"]
+                    "anyOf": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 },
                 "key": {
                     "type": "string"
@@ -4142,6 +4163,10 @@
                 }
             ]
         },
+        "HogLanguage": {
+            "enum": ["hog", "hogQL", "hogQLExpr", "hogTemplate"],
+            "type": "string"
+        },
         "HogQLAutocomplete": {
             "additionalProperties": false,
             "properties": {
@@ -4149,43 +4174,43 @@
                     "description": "End position of the editor word",
                     "type": "integer"
                 },
-                "expr": {
-                    "description": "HogQL expression to validate",
-                    "type": "string"
-                },
-                "exprSource": {
-                    "description": "Query within which \"expr\" and \"template\" are validated. Defaults to \"select * from events\"",
-                    "type": "string"
-                },
                 "filters": {
                     "$ref": "#/definitions/HogQLFilters",
                     "description": "Table to validate the expression against"
+                },
+                "globals": {
+                    "description": "Global values in scope",
+                    "type": "object"
                 },
                 "kind": {
                     "const": "HogQLAutocomplete",
                     "type": "string"
                 },
+                "language": {
+                    "$ref": "#/definitions/HogLanguage",
+                    "description": "Language to validate"
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "query": {
+                    "description": "Query to validate",
+                    "type": "string"
+                },
                 "response": {
                     "$ref": "#/definitions/HogQLAutocompleteResponse"
                 },
-                "select": {
-                    "description": "Select query to validate",
-                    "type": "string"
+                "sourceQuery": {
+                    "$ref": "#/definitions/AnyDataNode",
+                    "description": "Query in whose context to validate."
                 },
                 "startPosition": {
                     "description": "Start position of the editor word",
                     "type": "integer"
-                },
-                "template": {
-                    "description": "HogQL string template to validate",
-                    "type": "string"
                 }
             },
-            "required": ["endPosition", "kind", "startPosition"],
+            "required": ["endPosition", "kind", "language", "query", "startPosition"],
             "type": "object"
         },
         "HogQLAutocompleteResponse": {
@@ -4245,47 +4270,39 @@
                     "description": "Enable more verbose output, usually run from the /debug page",
                     "type": "boolean"
                 },
-                "expr": {
-                    "description": "HogQL expression to validate",
-                    "type": "string"
-                },
-                "exprSource": {
-                    "description": "Query within which \"expr\" and \"template\" are validated. Defaults to \"select * from events\"",
-                    "type": "string"
-                },
                 "filters": {
                     "$ref": "#/definitions/HogQLFilters",
                     "description": "Extra filters applied to query via {filters}"
+                },
+                "globals": {
+                    "description": "Extra globals for the query",
+                    "type": "object"
                 },
                 "kind": {
                     "const": "HogQLMetadata",
                     "type": "string"
                 },
+                "language": {
+                    "$ref": "#/definitions/HogLanguage",
+                    "description": "Language to validate"
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
-                "program": {
-                    "description": "Hog program to validate",
+                "query": {
+                    "description": "Query to validate",
                     "type": "string"
                 },
                 "response": {
                     "$ref": "#/definitions/HogQLMetadataResponse"
                 },
-                "select": {
-                    "description": "Select query to validate",
-                    "type": "string"
-                },
-                "table": {
-                    "description": "Table to validate the expression against",
-                    "type": "string"
-                },
-                "template": {
-                    "description": "Template string to validate",
-                    "type": "string"
+                "sourceQuery": {
+                    "$ref": "#/definitions/AnyDataNode",
+                    "description": "Query within which \"expr\" and \"template\" are validated. Defaults to \"select * from events\""
                 }
             },
-            "required": ["kind"],
+            "required": ["kind", "language", "query"],
             "type": "object"
         },
         "HogQLMetadataResponse": {
@@ -4296,18 +4313,6 @@
                         "$ref": "#/definitions/HogQLNotice"
                     },
                     "type": "array"
-                },
-                "inputExpr": {
-                    "type": "string"
-                },
-                "inputProgram": {
-                    "type": "string"
-                },
-                "inputSelect": {
-                    "type": "string"
-                },
-                "inputTemplate": {
-                    "type": "string"
                 },
                 "isValid": {
                     "type": "boolean"
@@ -4320,6 +4325,9 @@
                         "$ref": "#/definitions/HogQLNotice"
                     },
                     "type": "array"
+                },
+                "query": {
+                    "type": "string"
                 },
                 "warnings": {
                     "items": {
@@ -6218,18 +6226,6 @@
                             },
                             "type": "array"
                         },
-                        "inputExpr": {
-                            "type": "string"
-                        },
-                        "inputProgram": {
-                            "type": "string"
-                        },
-                        "inputSelect": {
-                            "type": "string"
-                        },
-                        "inputTemplate": {
-                            "type": "string"
-                        },
                         "isValid": {
                             "type": "boolean"
                         },
@@ -6241,6 +6237,9 @@
                                 "$ref": "#/definitions/HogQLNotice"
                             },
                             "type": "array"
+                        },
+                        "query": {
+                            "type": "string"
                         },
                         "warnings": {
                             "items": {

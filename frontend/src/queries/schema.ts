@@ -270,10 +270,7 @@ export interface HogQLNotice {
 }
 
 export interface HogQLMetadataResponse {
-    inputExpr?: string
-    inputSelect?: string
-    inputProgram?: string
-    inputTemplate?: string
+    query?: string
     isValid?: boolean
     isValidView?: boolean
     errors: HogQLNotice[]
@@ -345,20 +342,23 @@ export interface HogQLAutocompleteResponse {
     timings?: QueryTiming[]
 }
 
+export enum HogLanguage {
+    hog = 'hog',
+    hogQL = 'hogQL',
+    hogQLExpr = 'hogQLExpr',
+    hogTemplate = 'hogTemplate',
+}
+
 export interface HogQLMetadata extends DataNode<HogQLMetadataResponse> {
     kind: NodeKind.HogQLMetadata
-    /** Hog program to validate */
-    program?: string
-    /** Template string to validate */
-    template?: string
-    /** Select query to validate */
-    select?: string
-    /** HogQL expression to validate */
-    expr?: string
+    /** Language to validate */
+    language: HogLanguage
+    /** Query to validate */
+    query: string
     /** Query within which "expr" and "template" are validated. Defaults to "select * from events" */
-    exprSource?: string
-    /** Table to validate the expression against */
-    table?: string
+    sourceQuery?: AnyDataNode
+    /** Extra globals for the query */
+    globals?: Record<string, any>
     /** Extra filters applied to query via {filters} */
     filters?: HogQLFilters
     /** Enable more verbose output, usually run from the /debug page */
@@ -367,14 +367,14 @@ export interface HogQLMetadata extends DataNode<HogQLMetadataResponse> {
 
 export interface HogQLAutocomplete extends DataNode<HogQLAutocompleteResponse> {
     kind: NodeKind.HogQLAutocomplete
-    /** HogQL string template to validate */
-    template?: string
-    /** Select query to validate */
-    select?: string
-    /** HogQL expression to validate */
-    expr?: string
-    /** Query within which "expr" and "template" are validated. Defaults to "select * from events" */
-    exprSource?: string
+    /** Language to validate */
+    language: HogLanguage
+    /** Query to validate */
+    query: string
+    /** Query in whose context to validate. */
+    sourceQuery?: AnyDataNode
+    /** Global values in scope */
+    globals?: Record<string, any>
     /** Table to validate the expression against */
     filters?: HogQLFilters
     /**
