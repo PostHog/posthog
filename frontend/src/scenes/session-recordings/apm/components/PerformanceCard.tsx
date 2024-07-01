@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { Link } from 'lib/lemon-ui/Link'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyMilliseconds } from 'lib/utils'
 
@@ -9,6 +10,7 @@ interface SummaryCardData {
     label: string
     description: JSX.Element
     scoreBenchmarks: number[]
+    allowLoadingIndicator: boolean
 }
 
 const fcpSummary: SummaryCardData = {
@@ -27,6 +29,7 @@ const fcpSummary: SummaryCardData = {
         </div>
     ),
     scoreBenchmarks: [1800, 3000],
+    allowLoadingIndicator: true,
 }
 
 const domInteractiveSummary: SummaryCardData = {
@@ -45,6 +48,7 @@ const domInteractiveSummary: SummaryCardData = {
         </div>
     ),
     scoreBenchmarks: [3800, 7300],
+    allowLoadingIndicator: false,
 }
 
 const pageLoadedSummary: SummaryCardData = {
@@ -64,6 +68,7 @@ const pageLoadedSummary: SummaryCardData = {
         </div>
     ),
     scoreBenchmarks: [3800, 7300],
+    allowLoadingIndicator: false,
 }
 
 const clsSummary: SummaryCardData = {
@@ -80,6 +85,7 @@ const clsSummary: SummaryCardData = {
     ),
 
     scoreBenchmarks: [0.1, 0.25],
+    allowLoadingIndicator: true,
 }
 
 const lcpSummary: SummaryCardData = {
@@ -99,6 +105,7 @@ const lcpSummary: SummaryCardData = {
     ),
 
     scoreBenchmarks: [2500, 4000],
+    allowLoadingIndicator: true,
 }
 
 const inpSummary: SummaryCardData = {
@@ -115,6 +122,7 @@ const inpSummary: SummaryCardData = {
     ),
 
     scoreBenchmarks: [200, 500],
+    allowLoadingIndicator: true,
 }
 
 const summaryMapping = {
@@ -129,21 +137,23 @@ const summaryMapping = {
 export function PerformanceDuration({
     value,
     benchmarks,
+    loading,
 }: {
     benchmarks: number[]
     value: number | undefined
+    loading?: boolean
 }): JSX.Element {
     return value === undefined ? (
         <>-</>
     ) : (
         <span
             className={clsx({
-                'text-danger-dark': value >= benchmarks[1],
-                'text-warning-dark': value >= benchmarks[0] && value < benchmarks[1],
-                'text-success-dark': value < benchmarks[0],
+                'text-danger-dark': !loading && value >= benchmarks[1],
+                'text-warning-dark': !loading && value >= benchmarks[0] && value < benchmarks[1],
+                'text-success-dark': !loading && value < benchmarks[0],
             })}
         >
-            {humanFriendlyMilliseconds(value)}
+            {loading ? <Spinner textColored={true} /> : humanFriendlyMilliseconds(value)}
         </span>
     )
 }
@@ -153,6 +163,7 @@ function PerformanceCard(props: {
     description: JSX.Element
     label: string
     value: number | undefined
+    loading: boolean
 }): JSX.Element {
     return (
         <Tooltip title={props.description}>
@@ -173,26 +184,33 @@ function itemToPerformanceValues(item: PerformanceEvent): {
     inp?: number
     domInteractive?: number
     pageLoaded?: number
+    loaded: boolean
 } {
     const webVitals: RecordingEventType[] = item.web_vitals ? Array.from(item.web_vitals) : []
-    const clsValue = webVitals.find((event) => event.properties.$web_vitals_CLS_value)?.properties.$web_vitals_CLS_value
-    const lcpValue = webVitals.find((event) => event.properties.$web_vitals_LCP_value)?.properties.$web_vitals_LCP_value
-    const fcpValue =
-        item.first_contentful_paint ||
-        webVitals.find((event) => event.properties.$web_vitals_FCP_value)?.properties.$web_vitals_FCP_value
-    const inpValue = webVitals.find((event) => event.properties.$web_vitals_INP_value)?.properties.$web_vitals_INP_value
+
+    const clsEvent = webVitals.find((event) => event.properties.$web_vitals_CLS_value)
+    const lcpEvent = webVitals.find((event) => event.properties.$web_vitals_LCP_value)
+    const fcpEvent = webVitals.find((event) => event.properties.$web_vitals_FCP_value)
+    const inpEvent = webVitals.find((event) => event.properties.$web_vitals_INP_value)
+
     return {
-        cls: clsValue,
-        lcp: lcpValue,
-        fcp: fcpValue,
-        inp: inpValue,
+        cls: clsEvent?.properties.$web_vitals_CLS_value,
+        lcp: lcpEvent?.properties.$web_vitals_LCP_value,
+        fcp: item.first_contentful_paint || fcpEvent?.properties.$web_vitals_FCP_value,
+        inp: inpEvent?.properties.$web_vitals_INP_value,
         domInteractive: item.dom_interactive,
         pageLoaded: item.load_event_end,
+        loaded:
+            (clsEvent === undefined || clsEvent.fullyLoaded) &&
+            (lcpEvent === undefined || lcpEvent.fullyLoaded) &&
+            (fcpEvent === undefined || fcpEvent.fullyLoaded) &&
+            (inpEvent === undefined || inpEvent.fullyLoaded),
     }
 }
 
 export function PerformanceCardRow({ item }: { item: PerformanceEvent }): JSX.Element {
     const performanceValues = itemToPerformanceValues(item)
+
     return (
         <div className="grid grid-cols-3 place-items-center">
             {Object.entries(summaryMapping).map(([key, summary]) => (
@@ -202,6 +220,7 @@ export function PerformanceCardRow({ item }: { item: PerformanceEvent }): JSX.El
                     description={summary.description}
                     label={summary.label}
                     value={performanceValues[key]}
+                    loading={summary.allowLoadingIndicator && !performanceValues.loaded}
                 />
             ))}
         </div>
