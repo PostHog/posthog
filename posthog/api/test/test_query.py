@@ -86,7 +86,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 response
                 | {
                     "columns": [
-                        "properties.key",
+                        "key",
                         "event",
                         "distinct_id",
                         "concat(event, ' ', properties.key)",
