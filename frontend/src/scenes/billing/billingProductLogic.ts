@@ -1,7 +1,6 @@
 import { LemonDialog } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'posthog-js'
 import React from 'react'
@@ -327,13 +326,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
         },
         initiateProductUpgrade: ({ plan, product, redirectPath }) => {
             actions.setBillingProductLoading(product.type)
-            let products = `${product.type}:${plan?.plan_key}`
-            if (
-                values.featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' &&
-                values.billing?.subscription_level == 'free'
-            ) {
-                products += ',all_products:'
-            }
+            const products = `${product.type}:${plan?.plan_key}`
             actions.handleProductUpgrade(products, redirectPath)
         },
         handleProductUpgrade: ({ products, redirectPath }) => {
