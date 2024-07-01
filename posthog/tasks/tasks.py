@@ -228,29 +228,31 @@ def ingestion_lag() -> None:
         pass
 
 
-@shared_task(ignore_result=True)
-def invalid_web_replays() -> None:
-    from posthog.client import sync_execute
-
-    # ultimately I want to observe values by team id, but at the moment that would be lots of series, let's reduce the value first
-    query = """
-    select
-        --team_id,
-        count() as all_recordings,
-        countIf(snapshot_source == 'mobile') as mobile_recordings,
-        countIf(snapshot_source == 'web') as web_recordings,
-        countIf(snapshot_source =='web' and first_url is null) as invalid_web_recordings
-    from (
-        select any(team_id) as team_id, argMinMerge(first_url) as first_url, argMinMerge(snapshot_source) as snapshot_source
-        from session_replay_events
-        where min_first_timestamp >= now() - interval 65 minute
-        and min_first_timestamp <= now() - interval 5 minute
-        group by session_id
-    )
-    --group by team_id
-    """
-
+@shared_task(ignore_result=True, queue=CeleryQueue.SESSION_REPLAY_GENERAL.value)
+def replay_count_metrics() -> None:
     try:
+        logger.info("[replay_count_metrics] running task")
+
+        from posthog.client import sync_execute
+
+        # ultimately I want to observe values by team id, but at the moment that would be lots of series, let's reduce the value first
+        query = """
+        select
+            --team_id,
+            count() as all_recordings,
+            countIf(snapshot_source == 'mobile') as mobile_recordings,
+            countIf(snapshot_source == 'web') as web_recordings,
+            countIf(snapshot_source =='web' and first_url is null) as invalid_web_recordings
+        from (
+            select any(team_id) as team_id, argMinMerge(first_url) as first_url, argMinMerge(snapshot_source) as snapshot_source
+            from session_replay_events
+            where min_first_timestamp >= now() - interval 65 minute
+            and min_first_timestamp <= now() - interval 5 minute
+            group by session_id
+        )
+        --group by team_id
+        """
+
         results = sync_execute(
             query,
         )

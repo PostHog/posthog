@@ -24,22 +24,25 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 import { groupsModel } from '~/models/groupsModel'
 import { EntityTypes } from '~/types'
 
+import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
 import { HogFunctionIconEditable } from './HogFunctionIcon'
 import { HogFunctionInputs } from './HogFunctionInputs'
+import { HogFunctionStatusIndicator } from './HogFunctionStatusIndicator'
 import { HogFunctionTest, HogFunctionTestPlaceholder } from './HogFunctionTest'
-import { pipelineHogFunctionConfigurationLogic } from './pipelineHogFunctionConfigurationLogic'
 
-export function PipelineHogFunctionConfiguration({
-    templateId,
-    id,
-}: {
-    templateId?: string
-    id?: string
-}): JSX.Element {
+export function HogFunctionConfiguration({ templateId, id }: { templateId?: string; id?: string }): JSX.Element {
     const logicProps = { templateId, id }
-    const logic = pipelineHogFunctionConfigurationLogic(logicProps)
-    const { isConfigurationSubmitting, configurationChanged, showSource, configuration, loading, loaded, hogFunction } =
-        useValues(logic)
+    const logic = hogFunctionConfigurationLogic(logicProps)
+    const {
+        isConfigurationSubmitting,
+        configurationChanged,
+        showSource,
+        configuration,
+        loading,
+        loaded,
+        hogFunction,
+        willReEnableOnSave,
+    } = useValues(logic)
     const {
         submitConfiguration,
         resetForm,
@@ -100,14 +103,14 @@ export function PipelineHogFunctionConfiguration({
                 onClick={submitConfiguration}
                 loading={isConfigurationSubmitting}
             >
-                {templateId ? 'Create' : 'Save'}
+                {templateId ? 'Create' : willReEnableOnSave ? 'Save & re-enable' : 'Save'}
             </LemonButton>
         </>
     )
 
     return (
         <div className="space-y-3">
-            <BindLogic logic={pipelineHogFunctionConfigurationLogic} props={logicProps}>
+            <BindLogic logic={hogFunctionConfigurationLogic} props={logicProps}>
                 <PageHeader
                     buttons={
                         <>
@@ -118,7 +121,7 @@ export function PipelineHogFunctionConfiguration({
                 />
 
                 <Form
-                    logic={pipelineHogFunctionConfigurationLogic}
+                    logic={hogFunctionConfigurationLogic}
                     props={logicProps}
                     formKey="configuration"
                     className="space-y-3"
@@ -138,9 +141,12 @@ export function PipelineHogFunctionConfiguration({
                                         )}
                                     </LemonField>
 
-                                    <div className="flex flex-col py-1 flex-1">
+                                    <div className="flex flex-col py-1 flex-1 justify-start">
                                         <span className="font-semibold">{configuration.name}</span>
                                     </div>
+
+                                    <HogFunctionStatusIndicator />
+
                                     <LemonField name="enabled">
                                         {({ value, onChange }) => (
                                             <LemonSwitch
