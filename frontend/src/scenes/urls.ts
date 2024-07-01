@@ -108,8 +108,11 @@ export const urls = {
     savedInsights: (tab?: string): string => `/insights${tab ? `?tab=${tab}` : ''}`,
     webAnalytics: (): string => `/web`,
 
-    replay: (tab?: ReplayTabs, filters?: Partial<FilterType>): string =>
-        combineUrl(tab ? `/replay/${tab}` : '/replay/recent', filters ? { filters } : {}).url,
+    replay: (tab?: ReplayTabs, filters?: Partial<FilterType>, currentRecording?: string): string =>
+        combineUrl(tab ? `/replay/${tab}` : '/replay/recent', {
+            ...(filters ? { filters } : {}),
+            ...(currentRecording ? { sessionRecordingId: currentRecording } : {}),
+        }).url,
     replayPlaylist: (id: string, filters?: Partial<FilterType>): string =>
         combineUrl(`/replay/playlists/${id}`, filters ? { filters } : {}).url,
     replaySingle: (id: string, filters?: Partial<FilterType>): string =>

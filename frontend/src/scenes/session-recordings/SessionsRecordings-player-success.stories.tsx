@@ -1,5 +1,5 @@
 import { Meta } from '@storybook/react'
-import { combineUrl, router } from 'kea-router'
+import { router } from 'kea-router'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
@@ -118,7 +118,25 @@ const meta: Meta = {
                 },
             },
             post: {
-                '/api/projects/:team/query': recordingEventsJson,
+                '/api/projects/:team/query': (req, res, ctx) => {
+                    const body = req.body as Record<string, any>
+
+                    if (
+                        body.query.kind === 'HogQLQuery' &&
+                        body.query.query.startsWith(
+                            'SELECT properties.$session_id as session_id, any(properties) as properties'
+                        )
+                    ) {
+                        return res(ctx.json({ results: [['session_id_one', '{}']] }))
+                    }
+
+                    if (body.query.kind === 'EventsQuery' && body.query.properties.length === 1) {
+                        return res(ctx.json(recordingEventsJson))
+                    }
+
+                    // default to an empty response or we duplicate information
+                    return res(ctx.json({ results: [] }))
+                },
             },
         }),
     ],
@@ -148,7 +166,7 @@ export function RecordingsPlayListWithPinnedRecordings(): JSX.Element {
 
 export function SecondRecordingInList(): JSX.Element {
     useEffect(() => {
-        router.actions.push(combineUrl(urls.replay(), undefined, { sessionRecordingId: recordings[1].id }).url)
+        router.actions.push(urls.replay(undefined, {}, recordings[1].id))
     }, [])
     return <App />
 }
