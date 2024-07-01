@@ -14,7 +14,6 @@ import recordings from './__mocks__/recordings.json'
 
 const meta: Meta = {
     title: 'Replay/Player/Success',
-    tags: ['test-skip'], // TODO: Fix the flakey rendering due to player playback
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
