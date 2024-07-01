@@ -73,6 +73,12 @@ class FakeSnowflakeCursor:
     def get_results_from_sfqid(self, query_id):
         pass
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args, **kwargs):
+        pass
+
     def fetchone(self):
         if self._fail == "put":
             return (
@@ -127,6 +133,9 @@ class FakeSnowflakeConnection:
         current_status = self._is_running
         self._is_running = not current_status
         return current_status
+
+    def close(self, *args, **kwargs):
+        pass
 
     def __enter__(self):
         return self
@@ -444,17 +453,17 @@ async def test_snowflake_export_workflow_exports_events(
                     for call in cursor._execute_async_calls:
                         execute_async_calls.append(call["query"])
 
-                assert execute_calls[0:3] == [
+                assert execute_async_calls[0:3] == [
                     f'USE DATABASE "{database}"',
                     f'USE SCHEMA "{schema}"',
                     "SET ABORT_DETACHED_QUERY = FALSE",
                 ]
 
-                assert all(query.startswith("PUT") for query in execute_calls[3:12])
-                assert all(f"_{n}.jsonl" in query for n, query in enumerate(execute_calls[3:12]))
+                assert all(query.startswith("PUT") for query in execute_calls[0:9])
+                assert all(f"_{n}.jsonl" in query for n, query in enumerate(execute_calls[0:9]))
 
-                assert execute_async_calls[0].strip().startswith(f'CREATE TABLE IF NOT EXISTS "{table_name}"')
-                assert execute_async_calls[1].strip().startswith(f'COPY INTO "{table_name}"')
+                assert execute_async_calls[3].strip().startswith(f'CREATE TABLE IF NOT EXISTS "{table_name}"')
+                assert execute_async_calls[4].strip().startswith(f'COPY INTO "{table_name}"')
 
     runs = await afetch_batch_export_runs(batch_export_id=snowflake_batch_export.id)
     assert len(runs) == 1
