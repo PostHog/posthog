@@ -235,8 +235,7 @@
                     max_ast_elements=2000000,
                     max_expanded_ast_elements=2000000,
                     max_query_size=1048576,
-                    max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestFOSSFunnel.test_funnel_events_with_person_on_events_v2
@@ -703,8 +702,7 @@
                     max_ast_elements=2000000,
                     max_expanded_ast_elements=2000000,
                     max_query_size=1048576,
-                    max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestFOSSFunnel.test_funnel_with_property_groups.2
@@ -866,8 +864,7 @@
                     max_ast_elements=2000000,
                     max_expanded_ast_elements=2000000,
                     max_query_size=1048576,
-                    max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestFOSSFunnel.test_funnel_with_property_groups.3
@@ -1029,8 +1026,7 @@
                     max_ast_elements=2000000,
                     max_expanded_ast_elements=2000000,
                     max_query_size=1048576,
-                    max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestFOSSFunnel.test_funnel_with_static_cohort_step_filter
