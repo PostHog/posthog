@@ -5,6 +5,7 @@ import { router } from 'kea-router'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import hubspotLogo from 'public/hubspot-logo.svg'
+import mysqlLogo from 'public/mysql-logo.svg'
 import postgresLogo from 'public/postgres-logo.svg'
 import posthogLogo from 'public/posthog-icon.svg'
 import snowflakeLogo from 'public/snowflake-logo.svg'
@@ -230,6 +231,7 @@ export function RenderDataWarehouseSourceIcon({
         Zendesk: zendeskLogo,
         Postgres: postgresLogo,
         Snowflake: snowflakeLogo,
+        MySQL: mysqlLogo,
     }[type]
 
     return (

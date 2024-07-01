@@ -105,7 +105,7 @@ async def import_data_activity(inputs: ImportDataActivityInputs) -> tuple[TSchem
         )
 
         return await _run(job_inputs=job_inputs, source=source, logger=logger, inputs=inputs, schema=schema)
-    elif model.pipeline.source_type == ExternalDataSource.Type.POSTGRES:
+    elif model.pipeline.source_type in [ExternalDataSource.Type.POSTGRES, ExternalDataSource.Type.MYSQL]:
         from posthog.temporal.data_imports.pipelines.sql_database import postgres_source
 
         host = model.pipeline.job_inputs.get("host")
@@ -140,7 +140,8 @@ async def import_data_activity(inputs: ImportDataActivityInputs) -> tuple[TSchem
                 if tunnel is None:
                     raise Exception("Can't open tunnel to SSH server")
 
-                source = postgres_source(
+                source = sql_source_for_type(
+                    source_type=model.pipeline.source_type,
                     host=tunnel.local_bind_host,
                     port=tunnel.local_bind_port,
                     user=user,
@@ -153,7 +154,8 @@ async def import_data_activity(inputs: ImportDataActivityInputs) -> tuple[TSchem
 
                 return await _run(job_inputs=job_inputs, source=source, logger=logger, inputs=inputs, schema=schema)
 
-        source = postgres_source(
+        source = sql_source_for_type(
+            source_type=model.pipeline.source_type,
             host=host,
             port=port,
             user=user,

@@ -20,8 +20,16 @@ from .helpers import (
 )
 
 
-def postgres_source(
-    host: str, port: int, user: str, password: str, database: str, sslmode: str, schema: str, table_names: list[str]
+def sql_source_for_type(
+    source_type: ExternalDataSource.Type,
+    host: str,
+    port: int,
+    user: str,
+    password: str,
+    database: str,
+    sslmode: str,
+    schema: str,
+    table_names: list[str],
 ) -> DltSource:
     host = quote(host)
     user = quote(user)
@@ -29,9 +37,17 @@ def postgres_source(
     database = quote(database)
     sslmode = quote(sslmode)
 
-    credentials = ConnectionStringCredentials(
-        f"postgresql://{user}:{password}@{host}:{port}/{database}?sslmode={sslmode}"
-    )
+    if source_type == ExternalDataSource.Type.POSTGRES:
+        credentials = ConnectionStringCredentials(
+            f"postgresql://{user}:{password}@{host}:{port}/{database}?sslmode={sslmode}"
+        )
+    elif source_type == ExternalDataSource.Type.MYSQL:
+        credentials = ConnectionStringCredentials(
+            f"mysql+pymysql://{user}:{password}@{host}:{port}/{database}"
+        )
+    else:
+        raise Exception("Unsupported source_type")
+
     db_source = sql_database(credentials, schema=schema, table_names=table_names)
 
     return db_source

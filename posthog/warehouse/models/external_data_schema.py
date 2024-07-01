@@ -5,9 +5,10 @@ from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, UUIDModel, sane_repr
 import uuid
 import psycopg2
+import pymysql
+from .external_data_source import ExternalDataSource
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
 from posthog.warehouse.util import database_sync_to_async
-
 
 class ExternalDataSchema(CreatedMetaFields, UUIDModel):
     class Status(models.TextChoices):
@@ -81,7 +82,13 @@ def sync_old_schemas_with_new_schemas(new_schemas: list, source_id: uuid.UUID, t
 
 
 def get_snowflake_schemas(
-    account_id: str, database: str, warehouse: str, user: str, password: str, schema: str, role: Optional[str] = None
+    account_id: str,
+    database: str,
+    warehouse: str,
+    user: str,
+    password: str,
+    schema: str,
+    role: Optional[str] = None
 ) -> list[Any]:
     with snowflake.connector.connect(
         user=user,
@@ -106,7 +113,13 @@ def get_snowflake_schemas(
 
 
 def get_postgres_schemas(
-    host: str, port: str, database: str, user: str, password: str, schema: str, ssh_tunnel: SSHTunnel
+    host: str,
+    port: str,
+    database: str,
+    user: str,
+    password: str,
+    schema: str,
+    ssh_tunnel: SSHTunnel,
 ) -> list[Any]:
     def get_schemas(postgres_host: str, postgres_port: int):
         connection = psycopg2.connect(
@@ -141,3 +154,64 @@ def get_postgres_schemas(
             return get_schemas(tunnel.local_bind_host, tunnel.local_bind_port)
 
     return get_schemas(host, int(port))
+
+def get_mysql_schemas(
+    host: str,
+    port: str,
+    database: str,
+    user: str,
+    password: str,
+    schema: str,
+    ssh_tunnel: SSHTunnel,
+) -> list[Any]:
+    def get_schemas(mysql_host: str, mysql_port: int):
+        connection = pymysql.connect(
+            host=mysql_host,
+            port=mysql_port,
+            database=database,
+            user=user,
+            password=password,
+            connect_timeout=5,
+            # ssl_ca="/tmp/no.txt",
+            # ssl_cert="/tmp/no.txt",
+            # ssl_key="/tmp/no.txt",
+        )
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = %(schema)s", {"schema": schema}
+            )
+            result = cursor.fetchall()
+            result = [row[0] for row in result]
+
+        connection.close()
+
+        return result
+
+    if ssh_tunnel.enabled:
+        with ssh_tunnel.get_tunnel(host, int(port)) as tunnel:
+            if tunnel is None:
+                raise Exception("Can't open tunnel to SSH server")
+
+            return get_schemas(tunnel.local_bind_host, tunnel.local_bind_port)
+
+    return get_schemas(host, int(port))
+
+def get_sql_schemas_for_source_type(
+    source_type: ExternalDataSource.Type,
+    host: str,
+    port: str,
+    database: str,
+    user: str,
+    password: str,
+    schema: str,
+    ssh_tunnel: SSHTunnel
+) -> list[Any]:
+    if source_type == ExternalDataSource.Type.POSTGRES:
+        schemas = get_postgres_schemas(host, port, database, user, password, schema, ssh_tunnel)
+    elif source_type == ExternalDataSource.Type.MYSQL:
+        schemas = get_mysql_schemas(host, port, database, user, password, schema, ssh_tunnel)
+    else:
+        raise Exception('Unsupported source_type')
+
+    return schemas
