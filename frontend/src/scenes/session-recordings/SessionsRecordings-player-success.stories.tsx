@@ -165,3 +165,24 @@ export function SecondRecordingInList(): JSX.Element {
     }, [])
     return <App />
 }
+SecondRecordingInList.bind({
+    parameters: {
+        testOptions: {
+            viewport: { width: 1920, height: 1080 },
+        },
+    },
+})
+
+export function SecondRecordingInListNarrow(): JSX.Element {
+    useEffect(() => {
+        router.actions.push(combineUrl(urls.replay(), undefined, { sessionRecordingId: recordings[1].id }).url)
+    }, [])
+    return <App />
+}
+SecondRecordingInListNarrow.bind({
+    parameters: {
+        testOptions: {
+            viewport: { width: 1280, height: 1080 },
+        },
+    },
+})
