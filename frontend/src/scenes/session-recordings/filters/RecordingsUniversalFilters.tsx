@@ -80,9 +80,9 @@ export const RecordingsUniversalFilters = ({
                             let values = filters.filter_group.values
 
                             // set the type on the nested child when only using a single filter group
-                            const hasSingleGroup = filters.filter_group.values.length === 1
+                            const hasSingleGroup = values.length === 1
                             if (hasSingleGroup) {
-                                const group = filters.filter_group.values[0] as UniversalFiltersGroup
+                                const group = values[0] as UniversalFiltersGroup
                                 values = [{ ...group, type }]
                             }
 

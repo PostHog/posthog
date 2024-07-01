@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
+import { isAnyPropertyfilter } from 'lib/components/PropertyFilters/utils'
 import { UniversalFiltersGroup, UniversalFilterValue } from 'lib/components/UniversalFilters/UniversalFilters'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isActionFilter, isEventFilter } from 'lib/components/UniversalFilters/utils'
@@ -14,7 +15,9 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
 
 import {
+    AnyPropertyFilter,
     DurationType,
+    FilterableLogLevel,
     FilterLogicalOperator,
     FilterType,
     PropertyFilterType,
@@ -58,7 +61,7 @@ interface EventUUIDsMatching {
 
 interface BackendEventsMatching {
     matchType: 'backend'
-    filters: RecordingUniversalFilters
+    filters: RecordingFilters
 }
 
 export type MatchingEventsMatchType = NoEventsToMatch | EventNamesMatching | EventUUIDsMatching | BackendEventsMatching
@@ -120,6 +123,56 @@ const capturePartialFilters = (filters: Partial<RecordingFilters>): void => {
     posthog.capture('recording list filters changed', {
         ...partialFilters,
     })
+}
+
+function convertUniversalFiltersToLegacyFilters(universalFilters: RecordingUniversalFilters): RecordingFilters {
+    const nestedFilters = universalFilters.filter_group.values[0] as UniversalFiltersGroup
+    const filters = nestedFilters.values as UniversalFilterValue[]
+
+    const properties: AnyPropertyFilter[] = []
+    const events: FilterType['events'] = []
+    const actions: FilterType['actions'] = []
+    let console_logs: FilterableLogLevel[] = []
+    let snapshot_source: AnyPropertyFilter | null = null
+    let console_search_query = ''
+
+    filters.forEach((f) => {
+        if (isEventFilter(f)) {
+            events.push(f)
+        } else if (isActionFilter(f)) {
+            actions.push(f)
+        } else if (isAnyPropertyfilter(f)) {
+            if (f.type === PropertyFilterType.Recording) {
+                if (f.key === 'console_log_level') {
+                    console_logs = f.value as FilterableLogLevel[]
+                } else if (f.key === 'console_log_query') {
+                    console_search_query = (f.value || '') as string
+                } else if (f.key === 'snapshot_source') {
+                    const value = f.value as string[] | null
+                    if (value) {
+                        snapshot_source = f
+                    }
+                }
+            } else {
+                properties.push(f)
+            }
+        }
+    })
+
+    const durationFilter = universalFilters.duration[0]
+
+    return {
+        ...universalFilters,
+        properties,
+        events,
+        actions,
+        session_recording_duration: { ...durationFilter, key: 'duration' },
+        duration_type_filter: durationFilter.key,
+        console_search_query,
+        console_logs,
+        snapshot_source,
+        operand: nestedFilters.type,
+    }
 }
 
 export function convertLegacyFiltersToUniversalFilters(
@@ -274,7 +327,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             {} as Record<string, boolean>,
             {
                 loadEventsHaveSessionId: async () => {
-                    const events: FilterType['events'] = values.universalFilterValues.filter(isEventFilter)
+                    const events: FilterType['events'] = convertUniversalFiltersToLegacyFilters(values.filters).events
 
                     if (events === undefined || events.length === 0) {
                         return {}
@@ -295,7 +348,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             {
                 loadSessionRecordings: async ({ direction }, breakpoint) => {
                     const params = {
-                        ...values.filters,
+                        // TODO: requires a backend change so will include in a separate PR
+                        ...convertUniversalFiltersToLegacyFilters(values.filters),
                         person_uuid: props.personUUID ?? '',
                         target_entity_order: values.orderBy,
                         limit: RECORDINGS_LIMIT,
@@ -603,15 +657,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 return convertLegacyFiltersToUniversalFilters(simpleFilters, advancedFilters)
             },
         ],
-        universalFilterValues: [
-            (s) => [s.universalFilters],
-            (universalFilters): UniversalFilterValue[] => filtersFromUniversalFilterGroups(universalFilters),
-        ],
         legacyFilters: [
             (s) => [s.simpleFilters, s.advancedFilters],
-            (simpleFilters, advancedFilters): RecordingFilters => {
-                return combineRecordingFilters(simpleFilters, advancedFilters)
-            },
+            (simpleFilters, advancedFilters): RecordingFilters =>
+                combineRecordingFilters(simpleFilters, advancedFilters),
         ],
 
         matchingEventsMatchType: [
@@ -626,11 +675,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 const eventFilters = filterValues.filter(isEventFilter)
                 const actionFilters = filterValues.filter(isActionFilter)
 
-                const hasActions = !!actionFilters.length
                 const hasEvents = !!eventFilters.length
+                const hasActions = !!actionFilters.length
                 const simpleEventsFilters = (eventFilters || [])
                     .filter((e) => !e.properties || !e.properties.length)
-                    .map((e) => e.name.toString())
+                    .map((e) => (e.name ? e.name.toString() : null))
+                    .filter(Boolean) as string[]
                 const hasSimpleEventsFilters = !!simpleEventsFilters.length
 
                 if (hasActions) {
@@ -689,9 +739,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             (s) => [s.filters, (_, props) => props.personUUID],
             (filters, personUUID) => {
                 const defaultFilters = getDefaultFilters(personUUID)
-
-                const group = filters.filter_group.values[0] as UniversalFiltersGroup
-                const groupFilters = group.values as UniversalFilterValue[]
+                const groupFilters = filtersFromUniversalFilterGroups(filters)
 
                 return (
                     groupFilters.length +
