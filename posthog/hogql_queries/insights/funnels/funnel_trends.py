@@ -75,7 +75,7 @@ class FunnelTrends(FunnelBase):
             if breakdown_clause:
                 breakdown_value = period_row[-1]
                 if breakdown_value is None or breakdown_value == [None]:
-                    serialized_result.update({"breakdown_value": "None"})
+                    serialized_result.update({"breakdown_value": ["None"]})
                 elif isinstance(breakdown_value, str) or (
                     isinstance(breakdown_value, list) and all(isinstance(item, str) for item in breakdown_value)
                 ):

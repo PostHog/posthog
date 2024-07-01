@@ -444,13 +444,25 @@ class TestCapture(BaseTest):
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_capture_snapshot_event_too_large(self, kafka_produce: MagicMock) -> None:
-        kafka_produce.side_effect = [
+        mock_future = MagicMock()
+
+        mock_future.get.side_effect = [
             MessageSizeTooLargeError("Message size too large"),
-            None,  # Return None for successful calls
+            None,
         ]
+
+        # kafka_produce return this future, so that when capture calls `.get` on it, we can control the behavior
+        kafka_produce.return_value = mock_future
+
         response = self._send_august_2023_version_session_recording_event(
             event_data=[
-                {"type": 2, "data": {"lots": "of data"}, "$window_id": "the window id", "timestamp": 1234567890}
+                {
+                    "type": 4,
+                    "data": {"href": "https://keepme.io"},
+                    "$window_id": "the window id",
+                    "timestamp": 1234567890,
+                },
+                {"type": 2, "data": {"lots": "of data"}, "$window_id": "the window id", "timestamp": 1234567890},
             ]
         )
         assert response.status_code == 200
@@ -459,11 +471,17 @@ class TestCapture(BaseTest):
             snapshot_bytes=0,
             event_data=[
                 {
+                    "type": 4,
+                    "data": {"href": "https://keepme.io"},
+                    "$window_id": "the window id",
+                    "timestamp": 1234567890,
+                },
+                {
                     "type": 5,
                     "data": {"tag": "Message too large"},
                     "timestamp": 1234567890,
                     "$window_id": "the window id",
-                }
+                },
             ],
         )
         assert {

@@ -547,31 +547,43 @@ def get_event(request):
                 replay_events, settings.SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES
             )
 
-            replay_futures: list[FutureRecordMetadata | None] = []
+            replay_futures: list[tuple[FutureRecordMetadata, tuple, dict]] = []
 
             # We want to be super careful with our new ingestion flow for now so the whole thing is separated
             # This is mostly a copy of above except we only log, we don't error out
             if alternative_replay_events:
                 processed_events = list(preprocess_events(alternative_replay_events))
                 for event, event_uuid, distinct_id in processed_events:
-                    replay_futures.append(
-                        capture_internal_with_message_replacement(
-                            event,
-                            distinct_id,
-                            ip,
-                            site_url,
-                            now,
-                            sent_at,
-                            event_uuid,
-                            token,
-                            lib_version,
-                        )
+                    capture_args = (
+                        event,
+                        distinct_id,
+                        ip,
+                        site_url,
+                        now,
+                        sent_at,
+                        event_uuid,
+                        token,
                     )
+                    capture_kwargs = {
+                        "extra_headers": [("lib_version", lib_version)],
+                    }
+                    this_future = capture_internal(*capture_args, **capture_kwargs)
+                    replay_futures.append((this_future, capture_args, capture_kwargs))
 
                 start_time = time.monotonic()
-                for future in replay_futures:
+                for future, args, kwargs in replay_futures:
                     if future is not None:
-                        future.get(timeout=settings.KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS - (time.monotonic() - start_time))
+                        try:
+                            future.get(
+                                timeout=settings.KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS - (time.monotonic() - start_time)
+                            )
+                        except MessageSizeTooLargeError:
+                            REPLAY_MESSAGE_SIZE_TOO_LARGE_COUNTER.inc()
+                            warning_event = replace_with_warning(args[0])
+                            if warning_event:
+                                warning_future = capture_internal(warning_event, *args[1:], **kwargs)
+                                warning_future.get(timeout=settings.KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS)
+
     except ValueError as e:
         with sentry_sdk.push_scope() as scope:
             scope.set_tag("capture-pathway", "replay")
@@ -584,11 +596,14 @@ def get_event(request):
             generate_exception_response("capture", f"Invalid recording payload", code="invalid_payload"),
         )
     except KafkaTimeoutError as kte:
-        status_code = 400 if (retry_count or 0) > 2 else 504
+        # posthog-js will retry when it receives a 504, and it sends `retry_count` in the query params,
+        # so we use this to retry on 0, 1, and 2 and then return a 400 on the fourth attempt
+        # this is to prevent a client from retrying indefinitely
+        status_code = status.HTTP_400_BAD_REQUEST if (retry_count or 0) > 2 else status.HTTP_504_GATEWAY_TIMEOUT
 
         KAFKA_TIMEOUT_ERROR_COUNTER.labels(retry_count=retry_count, status_code=status_code).inc()
 
-        if status_code == 504:
+        if status_code == status.HTTP_400_BAD_REQUEST:
             with sentry_sdk.push_scope() as scope:
                 scope.set_tag("capture-pathway", "replay")
                 scope.set_tag("ph-team-token", token)
@@ -636,12 +651,14 @@ def replace_with_warning(event: dict[str, Any]) -> dict[str, Any] | None:
         if not isinstance(first_item, dict) or ("$window_id" not in first_item and "timestamp" not in first_item):
             return None
 
+        only_meta_events = [x for x in snapshot_items if isinstance(x, dict) and ("type" in x and x["type"] == 4)]
         return {
             **event,
             "properties": {
                 **properties,
                 "$snapshot_bytes": 0,
                 "$snapshot_items": [
+                    *only_meta_events,
                     {
                         "type": 5,
                         "data": {
@@ -649,7 +666,7 @@ def replace_with_warning(event: dict[str, Any]) -> dict[str, Any] | None:
                         },
                         "$window_id": first_item.get("$window_id"),
                         "timestamp": first_item.get("timestamp"),
-                    }
+                    },
                 ],
             },
         }
@@ -658,48 +675,6 @@ def replace_with_warning(event: dict[str, Any]) -> dict[str, Any] | None:
             scope.set_tag("capture-pathway", "replay")
             capture_exception(ex)
         return None
-
-
-def capture_internal_with_message_replacement(
-    event: dict[str, Any],
-    distinct_id: str,
-    ip: str,
-    site_url: str,
-    now: datetime,
-    sent_at: datetime | None,
-    event_uuid: UUIDT,
-    token: str | None,
-    lib_version: str,
-) -> FutureRecordMetadata | None:
-    try:
-        return capture_internal(
-            event,
-            distinct_id,
-            ip,
-            site_url,
-            now,
-            sent_at,
-            event_uuid,
-            token,
-            extra_headers=[("lib_version", lib_version)],
-        )
-    except MessageSizeTooLargeError:
-        REPLAY_MESSAGE_SIZE_TOO_LARGE_COUNTER.inc()
-        warning_event = replace_with_warning(event)
-        if not warning_event:
-            return None
-
-        return capture_internal(
-            warning_event,
-            distinct_id,
-            ip,
-            site_url,
-            now,
-            sent_at,
-            event_uuid,
-            token,
-            extra_headers=[("lib_version", lib_version)],
-        )
 
 
 def preprocess_events(events: list[dict[str, Any]]) -> Iterator[tuple[dict[str, Any], UUIDT, str]]:

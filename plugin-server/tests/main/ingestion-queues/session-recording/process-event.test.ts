@@ -33,6 +33,7 @@ describe('session recording process event', () => {
             | 'message_count'
             | 'snapshot_source'
         >
+        expectedWarnings: string[]
     }[] = [
         {
             testDescription: 'click and mouse counts are detected',
@@ -68,6 +69,7 @@ describe('session recording process event', () => {
                 message_count: 1,
                 snapshot_source: 'web',
             },
+            expectedWarnings: [],
         },
         {
             testDescription: 'keyboard press is detected',
@@ -91,6 +93,7 @@ describe('session recording process event', () => {
                 message_count: 1,
                 snapshot_source: 'web',
             },
+            expectedWarnings: [],
         },
         {
             testDescription: 'console log entries are counted',
@@ -179,6 +182,7 @@ describe('session recording process event', () => {
                 message_count: 1,
                 snapshot_source: 'web',
             },
+            expectedWarnings: [],
         },
         {
             testDescription: 'url can be detected in meta event',
@@ -216,6 +220,7 @@ describe('session recording process event', () => {
                 message_count: 1,
                 snapshot_source: 'web',
             },
+            expectedWarnings: [],
         },
         {
             testDescription: 'first url detection takes the first url whether meta url or payload url',
@@ -257,6 +262,7 @@ describe('session recording process event', () => {
                 message_count: 1,
                 snapshot_source: 'web',
             },
+            expectedWarnings: [],
         },
         {
             testDescription: 'first url detection can use payload url',
@@ -302,6 +308,7 @@ describe('session recording process event', () => {
                 message_count: 1,
                 snapshot_source: 'web',
             },
+            expectedWarnings: [],
         },
         {
             testDescription: 'negative timestamps are not included when picking timestamps',
@@ -330,6 +337,7 @@ describe('session recording process event', () => {
                 message_count: 1,
                 snapshot_source: 'web',
             },
+            expectedWarnings: [],
         },
         {
             testDescription: 'overlapping windows are summed separately for activity',
@@ -361,6 +369,7 @@ describe('session recording process event', () => {
                 message_count: 1,
                 snapshot_source: 'web',
             },
+            expectedWarnings: [],
         },
         {
             testDescription: 'mobile snapshot source is stored',
@@ -384,13 +393,41 @@ describe('session recording process event', () => {
                 size: 82,
                 snapshot_source: 'mobile',
             },
+            expectedWarnings: [],
+        },
+        {
+            testDescription: 'message too large warning is reported',
+            snapshotData: {
+                events_summary: [
+                    { timestamp: 1682449093000, type: 3, data: { source: 2, type: 2 }, windowId: '1' },
+                    { timestamp: 1682449093000, type: 5, data: { tag: 'Message too large' }, windowId: '1' },
+                ],
+            },
+            snapshotSource: 'web',
+            expected: {
+                active_milliseconds: 1,
+                click_count: 1,
+                console_error_count: 0,
+                console_log_count: 0,
+                console_warn_count: 0,
+                event_count: 2,
+                first_timestamp: '2023-04-25 18:58:13.000',
+                first_url: null,
+                keypress_count: 0,
+                last_timestamp: '2023-04-25 18:58:13.000',
+                message_count: 1,
+                mouse_activity_count: 1,
+                size: 169,
+                snapshot_source: 'web',
+            },
+            expectedWarnings: ['replay_message_too_large'],
         },
     ]
 
     it.each(sessionReplayEventTestCases)(
         'session replay event generation - $testDescription',
-        ({ snapshotData, snapshotSource, expected }) => {
-            const data = createSessionReplayEvent(
+        ({ snapshotData, snapshotSource, expected, expectedWarnings }) => {
+            const { event: data, warnings } = createSessionReplayEvent(
                 'some-id',
                 12345,
                 '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4',
@@ -398,6 +435,8 @@ describe('session recording process event', () => {
                 snapshotData.events_summary,
                 snapshotSource || null
             )
+
+            expect(warnings).toStrictEqual(expectedWarnings)
 
             const expectedEvent: SummarizedSessionRecordingEvent = {
                 distinct_id: '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4',

@@ -2015,6 +2015,16 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
             REMOTE_ADDR=ip,
         )
 
+    def test_options_unauthenticated(self):
+        unauthenticated_client = Client(enforce_csrf_checks=True)
+        unauthenticated_client.logout()
+        request_headers = {"HTTP_ACCESS_CONTROL_REQUEST_METHOD": "GET", "HTTP_ORIGIN": "*", "USER_AGENT": "Agent 008"}
+        response = unauthenticated_client.options(
+            "/api/surveys", data={}, follow=False, secure=False, headers={}, **request_headers
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["Access-Control-Allow-Origin"], "*")
+
     @snapshot_postgres_queries
     def test_list_surveys(self):
         basic_survey = Survey.objects.create(
