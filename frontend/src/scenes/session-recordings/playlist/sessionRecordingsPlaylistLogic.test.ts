@@ -9,6 +9,7 @@ import { sessionRecordingDataLogic } from '../player/sessionRecordingDataLogic'
 import {
     convertLegacyFiltersToUniversalFilters,
     DEFAULT_RECORDING_FILTERS,
+    DEFAULT_RECORDING_UNIVERSAL_FILTERS,
     DEFAULT_SIMPLE_RECORDING_FILTERS,
     defaultRecordingDurationFilter,
     sessionRecordingsPlaylistLogic,
@@ -199,8 +200,9 @@ describe('sessionRecordingsPlaylistLogic', () => {
         describe('entityFilters', () => {
             it('starts with default values', () => {
                 expectLogic(logic).toMatchValues({
-                    filters: DEFAULT_RECORDING_FILTERS,
+                    advancedFilters: DEFAULT_RECORDING_FILTERS,
                     simpleFilters: DEFAULT_SIMPLE_RECORDING_FILTERS,
+                    universalFilters: DEFAULT_RECORDING_UNIVERSAL_FILTERS,
                 })
             })
 
@@ -260,6 +262,10 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     })
                 })
                     .toMatchValues({
+                        legacyFilters: expect.objectContaining({
+                            date_from: '2021-10-05',
+                            date_to: '2021-10-20',
+                        }),
                         filters: expect.objectContaining({
                             date_from: '2021-10-05',
                             date_to: '2021-10-20',
@@ -269,7 +275,9 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     .toMatchValues({ sessionRecordings: ['Recordings filtered by date'] })
 
                 expect(router.values.searchParams.advancedFilters).toHaveProperty('date_from', '2021-10-05')
+                expect(router.values.searchParams.filters).toHaveProperty('date_from', '2021-10-05')
                 expect(router.values.searchParams.advancedFilters).toHaveProperty('date_to', '2021-10-20')
+                expect(router.values.searchParams.filters).toHaveProperty('date_to', '2021-10-20')
             })
         })
         describe('duration filter', () => {
@@ -285,13 +293,16 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     })
                 })
                     .toMatchValues({
-                        filters: expect.objectContaining({
+                        legacyFilters: expect.objectContaining({
                             session_recording_duration: {
                                 type: PropertyFilterType.Recording,
                                 key: 'duration',
                                 value: 600,
                                 operator: PropertyOperator.LessThan,
                             },
+                        }),
+                        filters: expect.objectContaining({
+                            duration: [{ key: 'duration', operator: 'lt', type: 'recording', value: 600 }],
                         }),
                     })
                     .toDispatchActions(['setAdvancedFilters', 'loadSessionRecordingsSuccess'])
@@ -303,6 +314,14 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     value: 600,
                     operator: PropertyOperator.LessThan,
                 })
+                expect(router.values.searchParams.filters).toHaveProperty('duration', [
+                    {
+                        type: PropertyFilterType.Recording,
+                        key: 'duration',
+                        value: 600,
+                        operator: PropertyOperator.LessThan,
+                    },
+                ])
             })
         })
 
@@ -395,7 +414,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
             await expectLogic(logic)
                 .toDispatchActions(['setAdvancedFilters'])
                 .toMatchValues({
-                    filters: {
+                    legacyFilters: {
                         events: [{ id: '$autocapture', type: 'events', order: 0, name: '$autocapture' }],
                         actions: [{ id: '1', type: 'actions', order: 0, name: 'View Recording' }],
                         date_from: '2021-10-01',
@@ -413,6 +432,25 @@ describe('sessionRecordingsPlaylistLogic', () => {
                         snapshot_source: null,
                         operand: FilterLogicalOperator.And,
                     },
+                    filters: {
+                        date_from: '2021-10-01',
+                        date_to: '2021-10-10',
+                        duration: [{ key: 'duration', operator: 'lt', type: 'recording', value: 600 }],
+                        filter_group: {
+                            type: 'AND',
+                            values: [
+                                {
+                                    type: 'AND',
+                                    values: [
+                                        { id: '$autocapture', name: '$autocapture', order: 0, type: 'events' },
+                                        { id: '1', name: 'View Recording', order: 0, type: 'actions' },
+                                    ],
+                                },
+                            ],
+                        },
+                        filter_test_accounts: false,
+                        live_mode: false,
+                    },
                 })
         })
 
@@ -429,7 +467,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     advancedFilters: expect.objectContaining({
                         actions: [{ id: '1', type: 'actions', order: 0, name: 'View Recording' }],
                     }),
-                    filters: {
+                    legacyFilters: {
                         actions: [{ id: '1', type: 'actions', order: 0, name: 'View Recording' }],
                         session_recording_duration: defaultRecordingDurationFilter,
                         console_logs: [],
@@ -440,6 +478,22 @@ describe('sessionRecordingsPlaylistLogic', () => {
                         properties: [],
                         operand: FilterLogicalOperator.And,
                         snapshot_source: null,
+                    },
+                    filters: {
+                        date_from: '-3d',
+                        date_to: null,
+                        duration: [{ key: 'duration', operator: 'gt', type: 'recording', value: 1 }],
+                        filter_group: {
+                            type: 'AND',
+                            values: [
+                                {
+                                    type: 'AND',
+                                    values: [{ id: '1', name: 'View Recording', order: 0, type: 'actions' }],
+                                },
+                            ],
+                        },
+                        filter_test_accounts: false,
+                        live_mode: false,
                     },
                 })
         })
@@ -534,7 +588,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 logic.actions.setAdvancedFilters({
                     console_logs: ['warn', 'error'],
                 } satisfies Partial<RecordingFilters>)
-            }).toMatchValues({ totalFiltersCount: 2 })
+            }).toMatchValues({ totalFiltersCount: 1 })
         })
 
         it('counts console log search query', async () => {
@@ -558,7 +612,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
 
         it('resets console log filters', async () => {
             await expectLogic(logic, () => {
-                logic.actions.setAdvancedFilters({
+                logic.actions.setUniversalFilters({
                     console_logs: ['warn', 'error'],
                 } satisfies Partial<RecordingFilters>)
                 logic.actions.resetFilters()
@@ -595,7 +649,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
             const result = convertLegacyFiltersToUniversalFilters(undefined, {})
             expect(result).toEqual({
                 date_from: '-3d',
-                date_to: undefined,
+                date_to: null,
                 duration: [
                     {
                         key: 'duration',
@@ -639,7 +693,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
             )
             expect(result).toEqual({
                 date_from: '-7d',
-                date_to: undefined,
+                date_to: null,
                 duration: [
                     {
                         key: 'active_seconds',

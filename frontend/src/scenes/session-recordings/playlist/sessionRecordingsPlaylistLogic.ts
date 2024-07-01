@@ -99,6 +99,7 @@ export const DEFAULT_RECORDING_UNIVERSAL_FILTERS: RecordingUniversalFilters = {
     live_mode: false,
     filter_test_accounts: false,
     date_from: '-3d',
+    date_to: null,
     filter_group: { ...DEFAULT_UNIVERSAL_GROUP_FILTER },
     duration: [defaultRecordingDurationFilter],
 }
@@ -184,16 +185,17 @@ export function convertLegacyFiltersToUniversalFilters(
     const events = filters.events ?? []
     const actions = filters.actions ?? []
     const properties = filters.properties ?? []
-    const logLevelFilters: RecordingPropertyFilter[] = filters.console_logs
-        ? [
-              {
-                  key: 'console_log_level',
-                  value: filters.console_logs,
-                  operator: PropertyOperator.Exact,
-                  type: PropertyFilterType.Recording,
-              },
-          ]
-        : []
+    const logLevelFilters: RecordingPropertyFilter[] =
+        filters.console_logs && filters.console_logs.length > 0
+            ? [
+                  {
+                      key: 'console_log_level',
+                      value: filters.console_logs,
+                      operator: PropertyOperator.Exact,
+                      type: PropertyFilterType.Recording,
+                  },
+              ]
+            : []
     const logQueryFilters: RecordingPropertyFilter[] = filters.console_search_query
         ? [
               {
@@ -806,6 +808,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             }
         ] => {
             const params: Params = objectClean({
+                filters: values.filters ?? undefined,
                 simpleFilters: values.simpleFilters ?? undefined,
                 advancedFilters: values.advancedFilters ?? undefined,
                 sessionRecordingId: values.selectedRecordingId ?? undefined,
