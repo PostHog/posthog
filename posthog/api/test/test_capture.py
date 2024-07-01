@@ -2234,10 +2234,13 @@ class TestCapture(BaseTest):
             contents = object_storage.read("session_id/abcdefgh.json", bucket=TEST_SAMPLES_BUCKET)
             assert contents == json.dumps(event)
 
-    def test_capture_replay_nothing_to_bucket_when_random_number_is_more_than_sample_rate(self):
-        sample_rate = 0.0001
-        random_number = sample_rate * 10
-
+    @parameterized.expand(
+        [
+            ["does not write when random number is more than sample rate", 0.0001, 0.0002],
+            ["does not write when random number is less than sample rate but over max limit", 0.011, 0.001],
+        ]
+    )
+    def test_capture_replay_does_not_write_to_bucket(self, _name: str, sample_rate: float, random_number: float):
         with self.settings(
             REPLAY_MESSAGE_TOO_LARGE_SAMPLE_RATE=sample_rate, REPLAY_MESSAGE_TOO_LARGE_SAMPLE_BUCKET=TEST_SAMPLES_BUCKET
         ):
@@ -2259,37 +2262,6 @@ class TestCapture(BaseTest):
                     },
                 ],
             )
-            sample_replay_data_to_object_storage(event, random_number)
-
-            with pytest.raises(ObjectStorageError):
-                object_storage.read("session_id/abcdefgh.json", bucket=TEST_SAMPLES_BUCKET)
-
-    def test_capture_replay_nothing_to_bucket_when_otherwise_valid_but_over_limit(self):
-        sample_rate = 0.011
-        random_number = 0.0001
-
-        with self.settings(
-            REPLAY_MESSAGE_TOO_LARGE_SAMPLE_RATE=sample_rate, REPLAY_MESSAGE_TOO_LARGE_SAMPLE_BUCKET=TEST_SAMPLES_BUCKET
-        ):
-            event = make_processed_recording_event(
-                session_id="abcdefgh",
-                snapshot_bytes=0,
-                event_data=[
-                    {
-                        "type": 4,
-                        "data": {"href": "https://keepme.io"},
-                        "$window_id": "the window id",
-                        "timestamp": 1234567890,
-                    },
-                    {
-                        "type": 5,
-                        "data": {"tag": "Message too large"},
-                        "timestamp": 1234567890,
-                        "$window_id": "the window id",
-                    },
-                ],
-            )
-
             sample_replay_data_to_object_storage(event, random_number)
 
             with pytest.raises(ObjectStorageError):
