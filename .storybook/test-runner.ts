@@ -106,10 +106,6 @@ module.exports = {
         }
 
         console.log(storyContext.tags)
-        await page.evaluate(() => {
-            console.log(storyContext.tags)
-        })
-
         if(storyContext.tags.includes('also-tablet')) {
             const tabletViewport = { width: 768, height: 1024 }
             await page.setViewportSize(tabletViewport)
