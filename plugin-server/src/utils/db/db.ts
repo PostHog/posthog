@@ -641,7 +641,8 @@ export class DB {
         isUserId: number | null,
         isIdentified: boolean,
         uuid: string,
-        distinctIds?: { distinctId: string; version?: number }[]
+        distinctIds?: { distinctId: string; version?: number }[],
+        tx?: TransactionClient
     ): Promise<InternalPerson> {
         distinctIds ||= []
 
@@ -653,7 +654,7 @@ export class DB {
         const personVersion = 0
 
         const { rows } = await this.postgres.query<RawPerson>(
-            PostgresUse.COMMON_WRITE,
+            tx ?? PostgresUse.COMMON_WRITE,
             `WITH inserted_person AS (
                     INSERT INTO posthog_person (
                         created_at, properties, properties_last_updated_at,
