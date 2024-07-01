@@ -207,7 +207,7 @@ class BillingManager:
 
         return data
 
-    def _get_stripe_portal_url(self, organization: Organization) -> BillingStatus:
+    def _get_stripe_portal_url(self, organization: Organization) -> str:
         """
         Retrieves stripe protal url
         """
