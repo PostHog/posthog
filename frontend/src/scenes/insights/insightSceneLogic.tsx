@@ -16,7 +16,7 @@ import { urls } from 'scenes/urls'
 import { ActivityFilters } from '~/layout/navigation-3000/sidepanel/panels/activity/activityForSceneLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
+import { examples } from '~/queries/examples'
 import { ActivityScope, Breadcrumb, FilterType, InsightShortId, InsightType, ItemMode } from '~/types'
 
 import { insightDataLogic } from './insightDataLogic'
@@ -91,18 +91,31 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         ],
     }),
     selectors(() => ({
-        insightSelector: [(s) => [s.insightLogicRef], (insightLogicRef) => insightLogicRef?.logic.selectors.insight],
-        insight: [(s) => [(state, props) => s.insightSelector?.(state, props)?.(state, props)], (insight) => insight],
+        legacyInsightSelector: [
+            (s) => [s.insightLogicRef],
+            (insightLogicRef) => insightLogicRef?.logic.selectors.legacyInsight,
+        ],
+        legacyInsight: [
+            (s) => [(state, props) => s.legacyInsightSelector?.(state, props)?.(state, props)],
+            (insight) => insight,
+        ],
+        queryBasedInsightSelector: [
+            (s) => [s.insightLogicRef],
+            (insightLogicRef) => insightLogicRef?.logic.selectors.queryBasedInsight,
+        ],
+        queryBasedInsight: [
+            (s) => [(state, props) => s.queryBasedInsightSelector?.(state, props)?.(state, props)],
+            (insight) => insight,
+        ],
         breadcrumbs: [
             (s) => [
                 s.insightLogicRef,
-                s.insight,
+                s.queryBasedInsight,
                 groupsModel.selectors.aggregationLabel,
                 cohortsModel.selectors.cohortsById,
                 mathsLogic.selectors.mathDefinitions,
             ],
-            (insightLogicRef, legacyInsight, aggregationLabel, cohortsById, mathDefinitions): Breadcrumb[] => {
-                const insight = legacyInsight ? getQueryBasedInsightModel(legacyInsight) : null
+            (insightLogicRef, insight, aggregationLabel, cohortsById, mathDefinitions): Breadcrumb[] => {
                 return [
                     {
                         key: Scene.SavedInsights,
@@ -126,7 +139,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             },
         ],
         activityFilters: [
-            (s) => [s.insight],
+            (s) => [s.queryBasedInsight],
             (insight): ActivityFilters | null => {
                 return insight
                     ? {
@@ -139,7 +152,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
     })),
     sharedListeners(({ actions, values }) => ({
         reloadInsightLogic: () => {
-            const logicInsightId = values.insight?.short_id ?? null
+            const logicInsightId = values.queryBasedInsight?.short_id ?? null
             const insightId = values.insightId ?? null
 
             if (logicInsightId !== insightId) {
@@ -165,7 +178,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 if (oldRef2) {
                     oldRef2.unmount()
                 }
-            } else if (insightId && !values.insight?.result) {
+            } else if (insightId && !values.queryBasedInsight?.result) {
                 values.insightLogicRef?.logic.actions.loadInsight(insightId as InsightShortId)
             }
         },
@@ -175,6 +188,20 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         setSceneState: sharedListeners.reloadInsightLogic,
     })),
     urlToAction(({ actions, values }) => ({
+        '/data-warehouse': (_, __, { q }) => {
+            actions.setSceneState(String('new') as InsightShortId, ItemMode.Edit, undefined)
+            values.insightDataLogicRef?.logic.actions.setQuery(examples.DataVisualization)
+            values.insightLogicRef?.logic.actions.setInsight(
+                {
+                    ...createEmptyInsight('new', false),
+                    ...(q ? { query: JSON.parse(q) } : {}),
+                },
+                {
+                    fromPersistentApi: false,
+                    overrideFilter: false,
+                }
+            )
+        },
         '/insights/:shortId(/:mode)(/:subscriptionId)': (
             { shortId, mode, subscriptionId }, // url params
             { dashboard, ...searchParams }, // search params

@@ -642,7 +642,7 @@ class SessionRecordingListFromReplaySummary(EventQuery):
     {provided_session_ids_clause}
     {log_matching_session_ids_clause}
     GROUP BY session_id
-        HAVING s.first_url is not null {duration_clause} {console_log_clause}
+        HAVING 1=1 {duration_clause} {console_log_clause}
     {order_by_clause}
     LIMIT %(limit)s OFFSET %(offset)s
     """
@@ -692,7 +692,7 @@ class SessionRecordingListFromReplaySummary(EventQuery):
         except Exception as ex:
             # error here weren't making it to sentry, let's be explicit
             capture_exception(ex, tags={"team_id": self._team.pk})
-            raise ex
+            raise
 
     @property
     def limit(self):

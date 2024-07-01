@@ -1,7 +1,7 @@
 import datetime
 import os
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Optional, cast
 from uuid import UUID
 
@@ -20,7 +20,7 @@ from posthog.models.organization import Organization
 from posthog.models.signals import mutable_receiver
 from posthog.models.team import Team
 from posthog.plugins.access import can_configure_plugins, can_install_plugins
-from posthog.plugins.reload import populate_plugin_capabilities_on_workers, reload_plugins_on_workers
+from posthog.plugins.plugin_server_api import populate_plugin_capabilities_on_workers, reload_plugins_on_workers
 from posthog.plugins.site import get_decide_site_apps
 from posthog.plugins.utils import (
     download_plugin_archive,
@@ -288,13 +288,13 @@ class PluginStorage(models.Model):
     value: models.TextField = models.TextField(blank=True, null=True)
 
 
-class PluginLogEntrySource(str, Enum):
+class PluginLogEntrySource(StrEnum):
     SYSTEM = "SYSTEM"
     PLUGIN = "PLUGIN"
     CONSOLE = "CONSOLE"
 
 
-class PluginLogEntryType(str, Enum):
+class PluginLogEntryType(StrEnum):
     DEBUG = "DEBUG"
     LOG = "LOG"
     INFO = "INFO"

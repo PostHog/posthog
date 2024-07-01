@@ -999,6 +999,7 @@ describe('DB', () => {
                 name: 'TEST PROJECT',
                 organization_id: organizationId,
                 session_recording_opt_in: true,
+                heatmaps_opt_in: null,
                 slack_incoming_webhook: null,
                 uuid: expect.any(String),
                 person_display_name_properties: [],
@@ -1026,6 +1027,7 @@ describe('DB', () => {
                 name: 'TEST PROJECT',
                 organization_id: organizationId,
                 session_recording_opt_in: true,
+                heatmaps_opt_in: null,
                 slack_incoming_webhook: null,
                 uuid: expect.any(String),
                 test_account_filters: {} as any, // NOTE: Test insertion data gets set as an object weirdly

@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from enum import IntEnum
 from typing import Any, Generic, Optional, TypeVar, Union, cast, TypeGuard
 from zoneinfo import ZoneInfo
@@ -273,27 +273,15 @@ def get_query_runner(
             limit_context=limit_context,
         )
     if kind == "WebOverviewQuery":
-        use_session_table = get_from_dict_or_attr(query, "useSessionsTable")
-        if use_session_table:
-            from .web_analytics.web_overview import WebOverviewQueryRunner
+        from .web_analytics.web_overview import WebOverviewQueryRunner
 
-            return WebOverviewQueryRunner(
-                query=query,
-                team=team,
-                timings=timings,
-                modifiers=modifiers,
-                limit_context=limit_context,
-            )
-        else:
-            from .web_analytics.web_overview_legacy import LegacyWebOverviewQueryRunner
-
-            return LegacyWebOverviewQueryRunner(
-                query=query,
-                team=team,
-                timings=timings,
-                modifiers=modifiers,
-                limit_context=limit_context,
-            )
+        return WebOverviewQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
     if kind == "WebTopClicksQuery":
         from .web_analytics.top_clicks import WebTopClicksQueryRunner
 
@@ -305,27 +293,15 @@ def get_query_runner(
             limit_context=limit_context,
         )
     if kind == "WebStatsTableQuery":
-        use_session_table = get_from_dict_or_attr(query, "useSessionsTable")
-        if use_session_table:
-            from .web_analytics.stats_table import WebStatsTableQueryRunner
+        from .web_analytics.stats_table import WebStatsTableQueryRunner
 
-            return WebStatsTableQueryRunner(
-                query=query,
-                team=team,
-                timings=timings,
-                modifiers=modifiers,
-                limit_context=limit_context,
-            )
-        else:
-            from .web_analytics.stats_table_legacy import LegacyWebStatsTableQueryRunner
-
-            return LegacyWebStatsTableQueryRunner(
-                query=query,
-                team=team,
-                timings=timings,
-                modifiers=modifiers,
-                limit_context=limit_context,
-            )
+        return WebStatsTableQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
 
     raise ValueError(f"Can't get a runner for an unknown query kind: {kind}")
 
@@ -344,7 +320,7 @@ def get_query_runner_or_none(
     except ValueError as e:
         if "Can't get a runner for an unknown" in str(e):
             return None
-        raise e
+        raise
 
 
 Q = TypeVar("Q", bound=RunnableQueryNode)
@@ -469,7 +445,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             elif execution_mode == ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE:
                 # We're allowed to calculate if the cache is older than 24 hours, but we'll do it asynchronously
                 assert isinstance(cached_response, CachedResponse)
-                if datetime.now(timezone.utc) - cached_response.last_refresh > EXTENDED_CACHE_AGE:
+                if datetime.now(UTC) - cached_response.last_refresh > EXTENDED_CACHE_AGE:
                     query_status_response = self.enqueue_async_calculation(cache_key=cache_key, user=user)
                     cached_response.query_status = query_status_response.query_status
                 return cached_response
@@ -514,8 +490,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         fresh_response_dict = {
             **self.calculate().model_dump(),
             "is_cached": False,
-            "last_refresh": datetime.now(timezone.utc),
-            "next_allowed_client_refresh": datetime.now(timezone.utc) + self._refresh_frequency(),
+            "last_refresh": datetime.now(UTC),
+            "next_allowed_client_refresh": datetime.now(UTC) + self._refresh_frequency(),
             "cache_key": cache_key,
             "timezone": self.team.timezone,
         }

@@ -289,7 +289,7 @@ if not REDIS_URL:
 # Controls whether the TolerantZlibCompressor is used for Redis compression when writing to Redis.
 # The TolerantZlibCompressor is a drop-in replacement for the standard Django ZlibCompressor that
 # can cope with compressed and uncompressed reading at the same time
-USE_REDIS_COMPRESSION = get_from_env("USE_REDIS_COMPRESSION", False, type_cast=str_to_bool)
+USE_REDIS_COMPRESSION = get_from_env("USE_REDIS_COMPRESSION", True, type_cast=str_to_bool)
 
 # AWS ElastiCache supports "reader" endpoints.
 # See "Finding a Redis (Cluster Mode Disabled) Cluster's Endpoints (Console)"
@@ -304,6 +304,14 @@ REDIS_READER_URL = os.getenv("REDIS_READER_URL", None)
 # pubsub channel, pushed to when plugin configs change.
 # We should move away to a different communication channel and remove this.
 PLUGINS_RELOAD_REDIS_URL = os.getenv("PLUGINS_RELOAD_REDIS_URL", REDIS_URL)
+
+
+CDP_FUNCTION_EXECUTOR_API_URL = get_from_env("CDP_FUNCTION_EXECUTOR_API_URL", "")
+
+if not CDP_FUNCTION_EXECUTOR_API_URL:
+    CDP_FUNCTION_EXECUTOR_API_URL = (
+        "http://localhost:6738" if DEBUG else "http://ingestion-cdp-function-callbacks.posthog.svc.cluster.local"
+    )
 
 CACHES = {
     "default": {

@@ -1,4 +1,5 @@
 from datetime import timedelta
+from posthog.hogql.constants import HogQLGlobalSettings, MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY
 from math import ceil
 from typing import Optional, Any
 
@@ -95,6 +96,9 @@ class FunnelsQueryRunner(QueryRunner):
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
+            settings=HogQLGlobalSettings(
+                max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY
+            ),  # Make sure funnel queries never OOM
         )
 
         results = self.funnel_class._format_results(response.results)

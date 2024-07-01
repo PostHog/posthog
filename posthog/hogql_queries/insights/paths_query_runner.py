@@ -1,4 +1,5 @@
 import itertools
+from posthog.hogql.constants import HogQLGlobalSettings, MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY
 from collections import defaultdict
 from datetime import datetime, timedelta
 from math import ceil
@@ -857,6 +858,9 @@ class PathsQueryRunner(QueryRunner):
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
+            settings=HogQLGlobalSettings(
+                max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY
+            ),  # Make sure funnel queries never OOM
         )
 
         response.results = self.validate_results(response.results)
