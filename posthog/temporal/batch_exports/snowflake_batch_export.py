@@ -214,7 +214,7 @@ class SnowflakeClient:
         parameters: dict | None = None,
         file_stream=None,
         poll_interval: float = 1.0,
-    ) -> None:
+    ) -> list[tuple] | list[dict]:
         """Wrap Snowflake connector's polling API in a coroutine.
 
         This enables asynchronous execution of queries to release the event loop to execute other tasks
