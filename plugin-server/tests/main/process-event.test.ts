@@ -50,7 +50,7 @@ export async function createPerson(
         null,
         false,
         new UUIDT().toString(),
-        distinctIds.map((distinctId) => ({ distinctId }))
+        distinctIds
     )
 }
 

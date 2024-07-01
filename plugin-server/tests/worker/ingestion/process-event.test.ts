@@ -63,7 +63,7 @@ describe('EventsProcessor#createEvent()', () => {
             null,
             false,
             personUuid,
-            [{ distinctId: 'my_id' }]
+            ['my_id']
         )
     })
 

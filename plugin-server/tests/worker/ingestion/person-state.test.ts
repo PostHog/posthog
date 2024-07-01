@@ -222,81 +222,8 @@ describe('PersonState.update()', () => {
             expect(distinctIds).toEqual(expect.arrayContaining([]))
         })
 
-        it('overrides are created only when distinct_id is in posthog_personlessdistinctid', async () => {
-            // oldUserDistinctId exists, and 'old2' will merge into it, but not create an override
-            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, oldUserUuid, [
-                { distinctId: oldUserDistinctId },
-            ])
-
-            // newUserDistinctId exists, and 'new2' will merge into it, and will create an override
-            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, newUserUuid, [
-                { distinctId: newUserDistinctId },
-            ])
-            await hub.db.addPersonlessDistinctId(teamId, 'new2')
-
-            const hubParam = undefined
-            const processPerson = true
-            const [_person, kafkaAcks] = await personState(
-                {
-                    event: '$identify',
-                    distinct_id: oldUserDistinctId,
-                    properties: {
-                        $anon_distinct_id: 'old2',
-                    },
-                },
-                hubParam,
-                processPerson
-            ).update()
-
-            const [_person2, kafkaAcks2] = await personState(
-                {
-                    event: '$identify',
-                    distinct_id: newUserDistinctId,
-                    properties: {
-                        $anon_distinct_id: 'new2',
-                    },
-                },
-                hubParam,
-                processPerson
-            ).update()
-
-            await hub.db.kafkaProducer.flush()
-            await kafkaAcks
-            await kafkaAcks2
-
-            // new2 has an override, because it was in posthog_personlessdistinctid
-            await delayUntilEventIngested(() => fetchOverridesForDistinctId('new2'))
-            const chOverrides = await fetchOverridesForDistinctId('new2')
-            expect(chOverrides.length).toEqual(1)
-            expect(chOverrides).toEqual(
-                expect.arrayContaining([
-                    expect.objectContaining({
-                        distinct_id: 'new2',
-                        person_id: newUserUuid,
-                        version: 1,
-                    }),
-                ])
-            )
-
-            // old2 does have an override, because we are temporarily writing out unnecessary
-            // overrides while we backfill `posthog_personlessdistinctid`
-            const chOverridesOld = await fetchOverridesForDistinctId('old2')
-            expect(chOverridesOld.length).toEqual(1)
-            expect(chOverridesOld).toEqual(
-                expect.arrayContaining([
-                    expect.objectContaining({
-                        distinct_id: 'old2',
-                        person_id: oldUserUuid,
-                        version: 1,
-                    }),
-                ])
-            )
-        })
-
-        it('force_upgrade works', async () => {
-            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, oldUserUuid, [
-                { distinctId: oldUserDistinctId },
-            ])
+        it('merging creates an override and force_upgrade works', async () => {
+            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, oldUserUuid, [oldUserDistinctId])
 
             const hubParam = undefined
             let processPerson = true
@@ -313,6 +240,21 @@ describe('PersonState.update()', () => {
             ).update()
             await hub.db.kafkaProducer.flush()
             await kafkaAcks
+
+            await delayUntilEventIngested(() => fetchOverridesForDistinctId(newUserDistinctId))
+            const chOverrides = await fetchOverridesForDistinctId(newUserDistinctId)
+            expect(chOverrides.length).toEqual(1)
+
+            // Override created for Person that never existed in the DB
+            expect(chOverrides).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        distinct_id: newUserDistinctId,
+                        person_id: oldUserUuid,
+                        version: 1,
+                    }),
+                ])
+            )
 
             // Using the `distinct_id` again with `processPerson=false` results in
             // `force_upgrade=true` and real Person `uuid` and `created_at`
@@ -436,9 +378,7 @@ describe('PersonState.update()', () => {
         })
 
         it('handles person being created in a race condition', async () => {
-            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, newUserUuid, [
-                { distinctId: newUserDistinctId },
-            ])
+            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, newUserUuid, [newUserDistinctId])
 
             jest.spyOn(hub.db, 'fetchPerson').mockImplementationOnce(() => {
                 return Promise.resolve(undefined)
@@ -475,7 +415,7 @@ describe('PersonState.update()', () => {
 
         it('handles person being created in a race condition updates properties if needed', async () => {
             await hub.db.createPerson(timestamp, { b: 3, c: 4 }, {}, {}, teamId, null, false, newUserUuid, [
-                { distinctId: newUserDistinctId },
+                newUserDistinctId,
             ])
 
             jest.spyOn(hub.db, 'fetchPerson').mockImplementationOnce(() => {
@@ -563,7 +503,7 @@ describe('PersonState.update()', () => {
                 null,
                 false,
                 newUserUuid,
-                [{ distinctId: newUserDistinctId }]
+                [newUserDistinctId]
             )
 
             const [person, kafkaAcks] = await personState({
@@ -599,7 +539,7 @@ describe('PersonState.update()', () => {
 
         it('updates person properties - no update if not needed', async () => {
             await hub.db.createPerson(timestamp, { $current_url: 123 }, {}, {}, teamId, null, false, newUserUuid, [
-                { distinctId: newUserDistinctId },
+                newUserDistinctId,
             ])
 
             const [person, kafkaAcks] = await personState({
@@ -641,7 +581,7 @@ describe('PersonState.update()', () => {
 
         it('updates person properties - always update for person events', async () => {
             await hub.db.createPerson(timestamp, { $current_url: 123 }, {}, {}, teamId, null, false, newUserUuid, [
-                { distinctId: newUserDistinctId },
+                newUserDistinctId,
             ])
 
             const [person, kafkaAcks] = await personState({
@@ -674,9 +614,7 @@ describe('PersonState.update()', () => {
         })
 
         it('updates person properties - always update if undefined before', async () => {
-            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, newUserUuid, [
-                { distinctId: newUserDistinctId },
-            ])
+            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, newUserUuid, [newUserDistinctId])
 
             const [person, kafkaAcks] = await personState({
                 event: '$pageview',
@@ -717,7 +655,7 @@ describe('PersonState.update()', () => {
                 null,
                 false,
                 newUserUuid,
-                [{ distinctId: newUserDistinctId }]
+                [newUserDistinctId]
             )
 
             const [person, kafkaAcks] = await personState({
@@ -759,7 +697,7 @@ describe('PersonState.update()', () => {
                 null,
                 false,
                 newUserUuid,
-                [{ distinctId: newUserDistinctId }]
+                [newUserDistinctId]
             )
 
             const personS = personState({
@@ -798,7 +736,7 @@ describe('PersonState.update()', () => {
 
         it('does not update person if not needed', async () => {
             await hub.db.createPerson(timestamp, { b: 3, c: 4 }, {}, {}, teamId, null, false, newUserUuid, [
-                { distinctId: newUserDistinctId },
+                newUserDistinctId,
             ])
 
             const [person, kafkaAcks] = await personState({
@@ -833,9 +771,7 @@ describe('PersonState.update()', () => {
         })
 
         it('marks user as is_identified', async () => {
-            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, newUserUuid, [
-                { distinctId: newUserDistinctId },
-            ])
+            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, newUserUuid, [newUserDistinctId])
             const personS = personState({
                 event: '$pageview',
                 distinct_id: newUserDistinctId,
@@ -887,8 +823,8 @@ describe('PersonState.update()', () => {
                 properties_last_operation: {},
             }
             await hub.db.createPerson(timestamp, { a: 6, c: 8 }, {}, {}, teamId, null, true, newUserUuid, [
-                { distinctId: newUserDistinctId },
-                { distinctId: oldUserDistinctId },
+                newUserDistinctId,
+                oldUserDistinctId,
             ]) // the merged Person
 
             const personS = personState({
@@ -965,7 +901,7 @@ describe('PersonState.update()', () => {
                         uuid: newUserUuid,
                         properties: { foo: 'bar' },
                         created_at: timestamp,
-                        version: 0,
+                        version: 1,
                         is_identified: true,
                     })
                 )
@@ -984,8 +920,8 @@ describe('PersonState.update()', () => {
 
             it(`marks is_identified to be updated when no changes to distinct_ids but $anon_distinct_id passe`, async () => {
                 await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, newUserUuid, [
-                    { distinctId: newUserDistinctId },
-                    { distinctId: oldUserDistinctId },
+                    newUserDistinctId,
+                    oldUserDistinctId,
                 ])
 
                 const personS = personState({
@@ -1018,9 +954,7 @@ describe('PersonState.update()', () => {
             })
 
             it(`add distinct id and marks user is_identified when passed $anon_distinct_id person does not exists and distinct_id does`, async () => {
-                await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, newUserUuid, [
-                    { distinctId: newUserDistinctId },
-                ])
+                await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, newUserUuid, [newUserDistinctId])
 
                 const personS = personState({
                     event: '$identify',
@@ -1056,9 +990,7 @@ describe('PersonState.update()', () => {
             })
 
             it(`add distinct id and marks user as is_identified when passed $anon_distinct_id person exists and distinct_id does not`, async () => {
-                await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, oldUserUuid, [
-                    { distinctId: oldUserDistinctId },
-                ])
+                await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, oldUserUuid, [oldUserDistinctId])
 
                 const personS = personState({
                     event: '$identify',
@@ -1095,12 +1027,8 @@ describe('PersonState.update()', () => {
             })
 
             it(`merge into distinct_id person and marks user as is_identified when both persons have is_identified false`, async () => {
-                await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, oldUserUuid, [
-                    { distinctId: oldUserDistinctId },
-                ])
-                await hub.db.createPerson(timestamp2, {}, {}, {}, teamId, null, false, newUserUuid, [
-                    { distinctId: newUserDistinctId },
-                ])
+                await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, oldUserUuid, [oldUserDistinctId])
+                await hub.db.createPerson(timestamp2, {}, {}, {}, teamId, null, false, newUserUuid, [newUserDistinctId])
 
                 const [person, kafkaAcks] = await personState({
                     event: '$identify',
@@ -1162,12 +1090,8 @@ describe('PersonState.update()', () => {
             })
 
             it(`merge into distinct_id person and marks user as is_identified when distinct_id user is identified and $anon_distinct_id user is not`, async () => {
-                await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, oldUserUuid, [
-                    { distinctId: oldUserDistinctId },
-                ])
-                await hub.db.createPerson(timestamp2, {}, {}, {}, teamId, null, true, newUserUuid, [
-                    { distinctId: newUserDistinctId },
-                ])
+                await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, oldUserUuid, [oldUserDistinctId])
+                await hub.db.createPerson(timestamp2, {}, {}, {}, teamId, null, true, newUserUuid, [newUserDistinctId])
 
                 const [person, kafkaAcks] = await personState({
                     event: '$identify',
@@ -1229,12 +1153,8 @@ describe('PersonState.update()', () => {
             })
 
             it(`does not merge people when distinct_id user is not identified and $anon_distinct_id user is`, async () => {
-                await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, true, oldUserUuid, [
-                    { distinctId: oldUserDistinctId },
-                ])
-                await hub.db.createPerson(timestamp2, {}, {}, {}, teamId, null, false, newUserUuid, [
-                    { distinctId: newUserDistinctId },
-                ])
+                await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, true, oldUserUuid, [oldUserDistinctId])
+                await hub.db.createPerson(timestamp2, {}, {}, {}, teamId, null, false, newUserUuid, [newUserDistinctId])
 
                 const personS = personState({
                     event: '$identify',
@@ -1282,12 +1202,8 @@ describe('PersonState.update()', () => {
             })
 
             it(`does not merge people when both users are identified`, async () => {
-                await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, true, oldUserUuid, [
-                    { distinctId: oldUserDistinctId },
-                ])
-                await hub.db.createPerson(timestamp2, {}, {}, {}, teamId, null, true, newUserUuid, [
-                    { distinctId: newUserDistinctId },
-                ])
+                await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, true, oldUserUuid, [oldUserDistinctId])
+                await hub.db.createPerson(timestamp2, {}, {}, {}, teamId, null, true, newUserUuid, [newUserDistinctId])
 
                 const [person, kafkaAcks] = await personState({
                     event: '$identify',
@@ -1334,10 +1250,10 @@ describe('PersonState.update()', () => {
 
             it(`merge into distinct_id person and updates properties with $set/$set_once`, async () => {
                 await hub.db.createPerson(timestamp, { a: 1, b: 2 }, {}, {}, teamId, null, false, oldUserUuid, [
-                    { distinctId: oldUserDistinctId },
+                    oldUserDistinctId,
                 ])
                 await hub.db.createPerson(timestamp2, { b: 3, c: 4, d: 5 }, {}, {}, teamId, null, false, newUserUuid, [
-                    { distinctId: newUserDistinctId },
+                    newUserDistinctId,
                 ])
 
                 const [person, kafkaAcks] = await personState({
@@ -1402,9 +1318,7 @@ describe('PersonState.update()', () => {
             })
 
             it(`handles race condition when other thread creates the user`, async () => {
-                await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, oldUserUuid, [
-                    { distinctId: oldUserDistinctId },
-                ])
+                await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, oldUserUuid, [oldUserDistinctId])
 
                 // Fake the race by assuming createPerson was called before the addDistinctId creation above
                 jest.spyOn(hub.db, 'addDistinctId').mockImplementation(async (person, distinctId) => {
@@ -1417,7 +1331,7 @@ describe('PersonState.update()', () => {
                         null,
                         false,
                         uuidFromDistinctId(teamId, distinctId),
-                        [{ distinctId }]
+                        [distinctId]
                     )
                     await hub.db.addDistinctId(person, distinctId, 0) // this throws
                 })
@@ -1521,12 +1435,8 @@ describe('PersonState.update()', () => {
         describe(`overrides: ${useOverridesMode}`, () => {
             // only difference between $merge_dangerously and $identify
             it(`merge_dangerously can merge people when alias id user is identified`, async () => {
-                await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, true, oldUserUuid, [
-                    { distinctId: oldUserDistinctId },
-                ])
-                await hub.db.createPerson(timestamp2, {}, {}, {}, teamId, null, true, newUserUuid, [
-                    { distinctId: newUserDistinctId },
-                ])
+                await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, true, oldUserUuid, [oldUserDistinctId])
+                await hub.db.createPerson(timestamp2, {}, {}, {}, teamId, null, true, newUserUuid, [newUserDistinctId])
 
                 const [person, kafkaAcks] = await personState({
                     event: '$merge_dangerously',
@@ -1659,7 +1569,7 @@ describe('PersonState.update()', () => {
                 null,
                 false,
                 uuidFromDistinctId(teamId, 'anonymous_id'),
-                [{ distinctId: 'anonymous_id' }]
+                ['anonymous_id']
             )
             const identifiedPerson = await hub.db.createPerson(
                 timestamp,
@@ -1670,7 +1580,7 @@ describe('PersonState.update()', () => {
                 null,
                 false,
                 uuidFromDistinctId(teamId, 'new_distinct_id'),
-                [{ distinctId: 'new_distinct_id' }]
+                ['new_distinct_id']
             )
 
             // existing overrides
@@ -1736,7 +1646,7 @@ describe('PersonState.update()', () => {
                 null,
                 false,
                 uuidFromDistinctId(teamId, 'anonymous_id'),
-                [{ distinctId: 'anonymous_id' }]
+                ['anonymous_id']
             )
             const identifiedPerson = await hub.db.createPerson(
                 timestamp,
@@ -1747,7 +1657,7 @@ describe('PersonState.update()', () => {
                 null,
                 false,
                 uuidFromDistinctId(teamId, 'new_distinct_id'),
-                [{ distinctId: 'new_distinct_id' }]
+                ['new_distinct_id']
             )
 
             // existing overrides for both anonPerson and identifiedPerson
@@ -1821,7 +1731,7 @@ describe('PersonState.update()', () => {
                 null,
                 false,
                 uuidFromDistinctId(teamId, 'anonymous_id'),
-                [{ distinctId: 'anonymous_id' }]
+                ['anonymous_id']
             )
             const identifiedPerson = await hub.db.createPerson(
                 timestamp,
@@ -1832,7 +1742,7 @@ describe('PersonState.update()', () => {
                 null,
                 false,
                 uuidFromDistinctId(teamId, 'new_distinct_id'),
-                [{ distinctId: 'new_distinct_id' }]
+                ['new_distinct_id']
             )
 
             await insertRow(hub.db.postgres, 'posthog_featureflaghashkeyoverride', {
@@ -1904,8 +1814,8 @@ describe('PersonState.update()', () => {
         describe(`overrides: ${useOverridesMode}`, () => {
             it(`no-op if persons already merged`, async () => {
                 await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, true, firstUserUuid, [
-                    { distinctId: firstUserDistinctId },
-                    { distinctId: secondUserDistinctId },
+                    firstUserDistinctId,
+                    secondUserDistinctId,
                 ])
                 const state: PersonState = personState({}, hub)
                 jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
@@ -1942,7 +1852,7 @@ describe('PersonState.update()', () => {
                     null,
                     false,
                     firstUserUuid,
-                    [{ distinctId: firstUserDistinctId }]
+                    [firstUserDistinctId]
                 )
                 const second: InternalPerson = await hub.db.createPerson(
                     timestamp,
@@ -1953,7 +1863,7 @@ describe('PersonState.update()', () => {
                     null,
                     false,
                     secondUserUuid,
-                    [{ distinctId: secondUserDistinctId }]
+                    [secondUserDistinctId]
                 )
 
                 const state: PersonState = personState({}, hub)
@@ -2035,7 +1945,7 @@ describe('PersonState.update()', () => {
                     null,
                     false,
                     firstUserUuid,
-                    [{ distinctId: firstUserDistinctId }]
+                    [firstUserDistinctId]
                 )
                 const second: InternalPerson = await hub.db.createPerson(
                     timestamp,
@@ -2046,7 +1956,7 @@ describe('PersonState.update()', () => {
                     null,
                     false,
                     secondUserUuid,
-                    [{ distinctId: secondUserDistinctId }]
+                    [secondUserDistinctId]
                 )
 
                 const state: PersonState = personState({}, hub)
@@ -2095,10 +2005,10 @@ describe('PersonState.update()', () => {
 
             it(`retries merges up to retry limit if postgres down`, async () => {
                 await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, [
-                    { distinctId: firstUserDistinctId },
+                    firstUserDistinctId,
                 ])
                 await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, [
-                    { distinctId: secondUserDistinctId },
+                    secondUserDistinctId,
                 ])
 
                 const state: PersonState = personState({}, hub)
@@ -2144,10 +2054,10 @@ describe('PersonState.update()', () => {
             it(`handleIdentifyOrAlias does not throw on merge failure`, async () => {
                 // TODO: This the current state, we should probably change it
                 await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, [
-                    { distinctId: firstUserDistinctId },
+                    firstUserDistinctId,
                 ])
                 await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, [
-                    { distinctId: secondUserDistinctId },
+                    secondUserDistinctId,
                 ])
 
                 const state: PersonState = personState(
@@ -2207,7 +2117,7 @@ describe('PersonState.update()', () => {
                     null,
                     false,
                     firstUserUuid,
-                    [{ distinctId: firstUserDistinctId }]
+                    [firstUserDistinctId]
                 )
                 const second: InternalPerson = await hub.db.createPerson(
                     timestamp,
@@ -2218,7 +2128,7 @@ describe('PersonState.update()', () => {
                     null,
                     false,
                     secondUserUuid,
-                    [{ distinctId: secondUserDistinctId }]
+                    [secondUserDistinctId]
                 )
 
                 const state: PersonState = personState({}, hub)
@@ -2335,7 +2245,7 @@ describe('PersonState.update()', () => {
                     null,
                     false,
                     firstUserUuid,
-                    [{ distinctId: firstUserDistinctId }]
+                    [firstUserDistinctId]
                 )
                 const second: InternalPerson = await hub.db.createPerson(
                     timestamp.plus({ minutes: 2 }),
@@ -2346,7 +2256,7 @@ describe('PersonState.update()', () => {
                     null,
                     false,
                     secondUserUuid,
-                    [{ distinctId: secondUserDistinctId }]
+                    [secondUserDistinctId]
                 )
                 const third: InternalPerson = await hub.db.createPerson(
                     timestamp.plus({ minutes: 5 }),
@@ -2357,7 +2267,7 @@ describe('PersonState.update()', () => {
                     null,
                     false,
                     new UUIDT().toString(),
-                    [{ distinctId: 'third' }]
+                    ['third']
                 )
 
                 // We want to simulate a concurrent update to person_overrides. We do
@@ -2483,7 +2393,7 @@ describe('PersonState.update()', () => {
                     null,
                     false,
                     firstUserUuid,
-                    [{ distinctId: firstUserDistinctId }]
+                    [firstUserDistinctId]
                 )
                 const second: InternalPerson = await hub.db.createPerson(
                     timestamp.plus({ minutes: 2 }),
@@ -2494,7 +2404,7 @@ describe('PersonState.update()', () => {
                     null,
                     false,
                     secondUserUuid,
-                    [{ distinctId: secondUserDistinctId }]
+                    [secondUserDistinctId]
                 )
                 const third: InternalPerson = await hub.db.createPerson(
                     timestamp.plus({ minutes: 5 }),
@@ -2505,7 +2415,7 @@ describe('PersonState.update()', () => {
                     null,
                     false,
                     new UUIDT().toString(),
-                    [{ distinctId: 'third' }]
+                    ['third']
                 )
 
                 await personState(

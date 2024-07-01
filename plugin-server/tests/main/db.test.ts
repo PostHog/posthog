@@ -294,7 +294,7 @@ describe('DB', () => {
         })
 
         test('without properties', async () => {
-            const person = await db.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, false, uuid, [{ distinctId }])
+            const person = await db.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, false, uuid, [distinctId])
             const fetched_person = await fetchPersonByPersonId(team.id, person.id)
 
             expect(fetched_person!.is_identified).toEqual(false)
@@ -306,7 +306,7 @@ describe('DB', () => {
         })
 
         test('without properties indentified true', async () => {
-            const person = await db.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, true, uuid, [{ distinctId }])
+            const person = await db.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, true, uuid, [distinctId])
             const fetched_person = await fetchPersonByPersonId(team.id, person.id)
             expect(fetched_person!.is_identified).toEqual(true)
             expect(fetched_person!.properties).toEqual({})
@@ -326,7 +326,7 @@ describe('DB', () => {
                 null,
                 false,
                 uuid,
-                [{ distinctId }]
+                [distinctId]
             )
             const fetched_person = await fetchPersonByPersonId(team.id, person.id)
             expect(fetched_person!.is_identified).toEqual(false)
@@ -354,7 +354,7 @@ describe('DB', () => {
             const distinctId = 'distinct_id1'
             // Note that we update the person badly in case of concurrent updates, but lets make sure we're consistent
             const personDbBefore = await db.createPerson(TIMESTAMP, { c: 'aaa' }, {}, {}, team.id, null, false, uuid, [
-                { distinctId },
+                distinctId,
             ])
             const providedPersonTs = DateTime.fromISO('2000-04-04T11:42:06.502Z').toUTC()
             const personProvided = { ...personDbBefore, properties: { c: 'bbb' }, created_at: providedPersonTs }
@@ -486,7 +486,7 @@ describe('DB', () => {
             const team = await getFirstTeam(hub)
             const uuid = new UUIDT().toString()
             const createdPerson = await db.createPerson(TIMESTAMP, { foo: 'bar' }, {}, {}, team.id, null, true, uuid, [
-                { distinctId: 'some_id' },
+                'some_id',
             ])
 
             const person = await db.fetchPerson(team.id, 'some_id')
@@ -852,7 +852,7 @@ describe('DB', () => {
                 null,
                 false,
                 new UUIDT().toString(),
-                [{ distinctId: 'source_person' }]
+                ['source_person']
             )
             const targetPerson = await db.createPerson(
                 TIMESTAMP,
@@ -863,7 +863,7 @@ describe('DB', () => {
                 null,
                 false,
                 new UUIDT().toString(),
-                [{ distinctId: 'target_person' }]
+                ['target_person']
             )
             sourcePersonID = sourcePerson.id
             targetPersonID = targetPerson.id
