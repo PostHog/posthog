@@ -15,6 +15,6 @@ materialized_view = KafkaDebugMaterializedView(to_table=debug_table, from_table=
 
 operations = [
     run_sql_with_exceptions(debug_table.get_create_table_sql()),
-    run_sql_with_exceptions(KafkaDebugMaterializedView(debug_table, kafka_table).get_create_table_sql()),
+    run_sql_with_exceptions(KafkaDebugMaterializedView(debug_table, kafka_table).get_create_view_sql()),
     run_sql_with_exceptions(kafka_table.get_create_table_sql()),
 ]
