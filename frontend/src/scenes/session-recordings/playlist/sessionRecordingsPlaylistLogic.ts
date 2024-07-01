@@ -6,7 +6,7 @@ import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { UniversalFiltersGroup, UniversalFilterValue } from 'lib/components/UniversalFilters/UniversalFilters'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
-import { isEventFilter } from 'lib/components/UniversalFilters/utils'
+import { isActionFilter, isEventFilter } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectClean, objectsEqual } from 'lib/utils'
@@ -29,6 +29,7 @@ import {
 } from '~/types'
 
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
+import { filtersFromUniversalFilterGroups } from '../utils'
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
 import type { sessionRecordingsPlaylistLogicType } from './sessionRecordingsPlaylistLogicType'
 
@@ -57,7 +58,7 @@ interface EventUUIDsMatching {
 
 interface BackendEventsMatching {
     matchType: 'backend'
-    filters: RecordingFilters
+    filters: RecordingUniversalFilters
 }
 
 export type MatchingEventsMatchType = NoEventsToMatch | EventNamesMatching | EventUUIDsMatching | BackendEventsMatching
@@ -273,9 +274,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             {} as Record<string, boolean>,
             {
                 loadEventsHaveSessionId: async () => {
-                    const group = values.filters.filter_group.values[0] as UniversalFiltersGroup
-                    const filters = group.values as UniversalFilterValue[]
-                    const events: FilterType['events'] = filters.filter(isEventFilter)
+                    const events: FilterType['events'] = values.universalFilterValues.filter(isEventFilter)
 
                     if (events === undefined || events.length === 0) {
                         return {}
@@ -604,6 +603,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 return convertLegacyFiltersToUniversalFilters(simpleFilters, advancedFilters)
             },
         ],
+        universalFilterValues: [
+            (s) => [s.universalFilters],
+            (universalFilters): UniversalFilterValue[] => filtersFromUniversalFilterGroups(universalFilters),
+        ],
         legacyFilters: [
             (s) => [s.simpleFilters, s.advancedFilters],
             (simpleFilters, advancedFilters): RecordingFilters => {
@@ -613,14 +616,19 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
         matchingEventsMatchType: [
             (s) => [s.filters],
-            (filters: RecordingFilters | undefined): MatchingEventsMatchType => {
+            (filters): MatchingEventsMatchType => {
                 if (!filters) {
                     return { matchType: 'none' }
                 }
 
-                const hasActions = !!filters.actions?.length
-                const hasEvents = !!filters.events?.length
-                const simpleEventsFilters = (filters.events || [])
+                const filterValues = filtersFromUniversalFilterGroups(filters)
+
+                const eventFilters = filterValues.filter(isEventFilter)
+                const actionFilters = filterValues.filter(isActionFilter)
+
+                const hasActions = !!actionFilters.length
+                const hasEvents = !!eventFilters.length
+                const simpleEventsFilters = (eventFilters || [])
                     .filter((e) => !e.properties || !e.properties.length)
                     .map((e) => e.name.toString())
                 const hasSimpleEventsFilters = !!simpleEventsFilters.length
@@ -632,7 +640,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     return { matchType: 'none' }
                 }
 
-                if (hasEvents && hasSimpleEventsFilters && simpleEventsFilters.length === filters.events?.length) {
+                if (hasEvents && hasSimpleEventsFilters && simpleEventsFilters.length === eventFilters.length) {
                     return {
                         matchType: 'name',
                         eventNames: simpleEventsFilters,

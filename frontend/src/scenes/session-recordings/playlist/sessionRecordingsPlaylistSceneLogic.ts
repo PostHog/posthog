@@ -26,6 +26,7 @@ import {
 } from '~/types'
 
 import { addRecordingToPlaylist, removeRecordingFromPlaylist } from '../player/utils/playerUtils'
+import { filtersFromUniversalFilterGroups } from '../utils'
 import { PINNED_RECORDINGS_LIMIT } from './sessionRecordingsPlaylistLogic'
 import type { sessionRecordingsPlaylistSceneLogicType } from './sessionRecordingsPlaylistSceneLogicType'
 
@@ -179,7 +180,9 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
         ],
         derivedName: [
             (s) => [s.filters, s.cohortsById],
-            (filters, cohortsById) => summarizePlaylistFilters(filters || {}, cohortsById)?.slice(0, 400) || 'Unnamed',
+            (filters, cohortsById) =>
+                summarizePlaylistFilters(filtersFromUniversalFilterGroups(filters), cohortsById)?.slice(0, 400) ||
+                'Unnamed',
         ],
     })),
 
