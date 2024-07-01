@@ -377,7 +377,7 @@ describe('PersonState.update()', () => {
 
             // verify Postgres distinct_ids
             const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
-            expect(distinctIds).toEqual(expect.arrayContaining([{ distinctId: newUserDistinctId }]))
+            expect(distinctIds).toEqual(expect.arrayContaining([newUserDistinctId]))
         })
 
         it('does not attach existing person properties to $process_person_profile=false events', async () => {
@@ -409,7 +409,7 @@ describe('PersonState.update()', () => {
 
             // verify Postgres distinct_ids
             const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
-            expect(distinctIds).toEqual(expect.arrayContaining([{ distinctId: newUserDistinctId }]))
+            expect(distinctIds).toEqual(expect.arrayContaining([newUserDistinctId]))
 
             // OK, a person now exists with { c: 420 }, let's prove the properties come back out
             // of the DB.
@@ -470,7 +470,7 @@ describe('PersonState.update()', () => {
 
             // verify Postgres distinct_ids
             const distinctIds = await hub.db.fetchDistinctIdValues(person)
-            expect(distinctIds).toEqual(expect.arrayContaining([{ distinctId: newUserDistinctId }]))
+            expect(distinctIds).toEqual(expect.arrayContaining([newUserDistinctId]))
         })
 
         it('handles person being created in a race condition updates properties if needed', async () => {
@@ -512,7 +512,7 @@ describe('PersonState.update()', () => {
 
             // verify Postgres distinct_ids
             const distinctIds = await hub.db.fetchDistinctIdValues(person)
-            expect(distinctIds).toEqual(expect.arrayContaining([{ distinctId: newUserDistinctId }]))
+            expect(distinctIds).toEqual(expect.arrayContaining([newUserDistinctId]))
         })
 
         it('creates person with properties', async () => {
@@ -548,7 +548,7 @@ describe('PersonState.update()', () => {
 
             // verify Postgres distinct_ids
             const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
-            expect(distinctIds).toEqual(expect.arrayContaining([{ distinctId: newUserDistinctId }]))
+            expect(distinctIds).toEqual(expect.arrayContaining([newUserDistinctId]))
         })
     })
 
@@ -1276,9 +1276,9 @@ describe('PersonState.update()', () => {
 
                 // verify Postgres distinct_ids
                 const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
-                expect(distinctIds).toEqual(expect.arrayContaining([{ distinctId: oldUserDistinctId }]))
+                expect(distinctIds).toEqual(expect.arrayContaining([oldUserDistinctId]))
                 const distinctIds2 = await hub.db.fetchDistinctIdValues(persons[1])
-                expect(distinctIds2).toEqual(expect.arrayContaining([{ distinctId: newUserDistinctId }]))
+                expect(distinctIds2).toEqual(expect.arrayContaining([newUserDistinctId]))
             })
 
             it(`does not merge people when both users are identified`, async () => {
@@ -1327,9 +1327,9 @@ describe('PersonState.update()', () => {
 
                 // verify Postgres distinct_ids
                 const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
-                expect(distinctIds).toEqual(expect.arrayContaining([{ distinctId: oldUserDistinctId }]))
+                expect(distinctIds).toEqual(expect.arrayContaining([oldUserDistinctId]))
                 const distinctIds2 = await hub.db.fetchDistinctIdValues(persons[1])
-                expect(distinctIds2).toEqual(expect.arrayContaining([{ distinctId: newUserDistinctId }]))
+                expect(distinctIds2).toEqual(expect.arrayContaining([newUserDistinctId]))
             })
 
             it(`merge into distinct_id person and updates properties with $set/$set_once`, async () => {
@@ -1452,7 +1452,7 @@ describe('PersonState.update()', () => {
 
                 // verify Postgres distinct_ids
                 const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
-                expect(distinctIds).toEqual(expect.arrayContaining([{ distinctId: newUserDistinctId }]))
+                expect(distinctIds).toEqual(expect.arrayContaining([newUserDistinctId]))
             })
         })
     })
