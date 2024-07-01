@@ -86,7 +86,7 @@ module.exports = {
         ATTEMPT_COUNT_PER_ID[context.id] = (ATTEMPT_COUNT_PER_ID[context.id] || 0) + 1
         const storyContext = await getStoryContext(page, context)
 
-        console.log('test: ', storyContext.id, ' with tags: ', storyContext.tags)
+        console.log('test: ', storyContext.id, ' with story tags: ', storyContext.tags, ' and context tags', context.tags)
 
         const viewport = storyContext.parameters?.testOptions?.viewport || DEFAULT_VIEWPORT
         await page.evaluate(
