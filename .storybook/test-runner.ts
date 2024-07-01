@@ -10,6 +10,9 @@ const DEFAULT_VIEWPORT = { width: 1280, height: 720 }
 type SupportedBrowserName = 'chromium' | 'webkit'
 type SnapshotTheme = 'light' | 'dark'
 
+interface ViewPort { width: number; height: number }
+interface ExtraViewPort extends ViewPort { id: string; }
+
 // Extend Storybook interface `Parameters` with Chromatic parameters
 declare module '@storybook/types' {
     interface Parameters {
@@ -39,8 +42,8 @@ declare module '@storybook/types' {
             /** If taking a component snapshot, you can narrow it down by specifying the selector. */
             snapshotTargetSelector?: string
             /** specify an alternative viewport size */
-            viewport?: { width: number; height: number }
-            extraViewports?: { id: string, width: number; height: number }[]
+            viewport?: ViewPort
+            extraViewports?: ExtraViewPort[]
         }
         msw?: {
             mocks?: Mocks
@@ -87,7 +90,7 @@ module.exports = {
         ATTEMPT_COUNT_PER_ID[context.id] = (ATTEMPT_COUNT_PER_ID[context.id] || 0) + 1
         const storyContext = await getStoryContext(page, context)
         const viewport = storyContext.parameters?.testOptions?.viewport || DEFAULT_VIEWPORT
-        const extraViewports = storyContext.parameters?.testOptions?.extraViewports || []
+        const extraViewports: ExtraViewPort[] = storyContext.parameters?.testOptions?.extraViewports || []
 
         await page.evaluate(
             ([retry, id]) => console.log(`[${id}] Attempt ${retry}`),
@@ -108,7 +111,7 @@ module.exports = {
             await expectStoryToMatchSnapshot(page, context, storyContext, currentBrowser)
         }
 
-        await Promise.allSettled(extraViewports.map(async (extraViewport: { id: string, width: number; height: number }) => {
+        for (const extraViewport of extraViewports) {
             const { id, ...viewport } = extraViewport
             await page.setViewportSize(viewport)
             context.id = `${context.id}--${id}`
@@ -118,7 +121,7 @@ module.exports = {
             if (snapshotBrowsers.includes(currentBrowser)) {
                 await expectStoryToMatchSnapshot(page, context, storyContext, currentBrowser)
             }
-        }))
+        }
     },
     tags: {
         skip: ['test-skip'], // NOTE: This is overridden by the CI action storybook-chromatic.yml to include browser specific skipping
