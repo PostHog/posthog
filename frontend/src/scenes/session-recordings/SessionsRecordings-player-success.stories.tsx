@@ -20,6 +20,15 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2023-02-01',
         waitForSelector: '.PlayerFrame__content .replayer-wrapper iframe',
+        testOptions: {
+            extraViewports: [
+                {
+                    id: 'tablet',
+                    height: 768,
+                    width: 1024,
+                },
+            ],
+        },
     },
     decorators: [
         mswDecorator({

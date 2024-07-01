@@ -40,6 +40,7 @@ declare module '@storybook/types' {
             snapshotTargetSelector?: string
             /** specify an alternative viewport size */
             viewport?: { width: number; height: number }
+            extraViewports?: { id: string, width: number; height: number }[]
         }
         msw?: {
             mocks?: Mocks
@@ -85,10 +86,11 @@ module.exports = {
     async postVisit(page, context) {
         ATTEMPT_COUNT_PER_ID[context.id] = (ATTEMPT_COUNT_PER_ID[context.id] || 0) + 1
         const storyContext = await getStoryContext(page, context)
+        const viewport = storyContext.parameters?.testOptions?.viewport || DEFAULT_VIEWPORT
+        const extraViewports = storyContext.parameters?.testOptions?.extraViewports || []
 
         console.log('test: ', storyContext.id, ' with story tags: ', storyContext.tags)
 
-        const viewport = storyContext.parameters?.testOptions?.viewport || DEFAULT_VIEWPORT
         await page.evaluate(
             ([retry, id]) => console.log(`[${id}] Attempt ${retry}`),
             [ATTEMPT_COUNT_PER_ID[context.id], context.id]
@@ -108,14 +110,14 @@ module.exports = {
             await expectStoryToMatchSnapshot(page, context, storyContext, currentBrowser)
         }
 
-        if(storyContext.tags.includes('also-tablet')) {
-            const tabletViewport = { width: 768, height: 1024 }
-            await page.setViewportSize(tabletViewport)
-            context.id = `${context.id}--tablet`
+        await Promise.allSettled(extraViewports.map(async (extraViewport: { id: string, width: number; height: number }) => {
+            const { id, ...viewport } = extraViewport
+            await page.setViewportSize(viewport)
+            context.id = `${context.id}--${id}`
             if (snapshotBrowsers.includes(currentBrowser)) {
                 await expectStoryToMatchSnapshot(page, context, storyContext, currentBrowser)
             }
-        }
+        }))
     },
     tags: {
         skip: ['test-skip'], // NOTE: This is overridden by the CI action storybook-chromatic.yml to include browser specific skipping
