@@ -1192,14 +1192,15 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 {"id": "step three", "order": 2},
             ],
             "breakdown_type": "hogql",
-            "breakdown": "NULL",  # Simulate empty breakdown value
+            "breakdown": "IF(rowNumberInAllBlocks() % 2 = 0, NULL, 'foo')",  # Simulate some empty breakdown values
         }
 
         query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["breakdown_value"], "None")
+        self.assertEqual(len(results), 2)
+        self.assertEqual(results[0]["breakdown_value"], ["None"])
+        self.assertEqual(results[1]["breakdown_value"], ["foo"])
 
     def test_funnel_step_breakdown_event_with_breakdown_limit(self):
         journeys_for(
