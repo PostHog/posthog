@@ -1,5 +1,6 @@
 import json
 import re
+from random import random
 
 import sentry_sdk
 import structlog
@@ -41,6 +42,7 @@ from posthog.session_recordings.session_recording_helpers import (
     preprocess_replay_events_for_blob_ingestion,
     split_replay_events,
 )
+from posthog.storage import object_storage
 from posthog.utils import get_ip_address
 from posthog.utils_cors import cors_response
 
@@ -639,7 +641,8 @@ def replace_with_warning(event: dict[str, Any]) -> dict[str, Any] | None:
     We do this so that when we're playing back the recording we can insert useful info in the UI.
     """
     try:
-        #
+        sample_replay_data_to_object_storage(event, random())
+
         properties = event.pop("properties", {})
         snapshot_items = properties.pop("$snapshot_items", [])
         # since we had message too large there really should be an item in the list
@@ -675,6 +678,20 @@ def replace_with_warning(event: dict[str, Any]) -> dict[str, Any] | None:
             scope.set_tag("capture-pathway", "replay")
             capture_exception(ex)
         return None
+
+
+def sample_replay_data_to_object_storage(event: dict[str, Any], random_number: float) -> None:
+    try:
+        sample_rate = settings.REPLAY_MESSAGE_TOO_LARGE_SAMPLE_RATE
+        if 0 < random_number < sample_rate <= 0.01:
+            # we upload the event to s3 using boto3.
+            # we can hardcode the region because we're only going to turn this on manually
+            object_key = f"session_id/{event.get('properties', {}).get('$session_id', 'unknown')}.json"
+            object_storage.write(object_key, json.dumps(event), bucket=settings.REPLAY_MESSAGE_TOO_LARGE_SAMPLE_BUCKET)
+    except Exception as ex:
+        with sentry_sdk.push_scope() as scope:
+            scope.set_tag("capture-pathway", "replay")
+            capture_exception(ex)
 
 
 def preprocess_events(events: list[dict[str, Any]]) -> Iterator[tuple[dict[str, Any], UUIDT, str]]:
