@@ -1,5 +1,5 @@
 import { Meta } from '@storybook/react'
-import { combineUrl, router } from 'kea-router'
+import { router } from 'kea-router'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
@@ -20,6 +20,9 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2023-02-01',
         waitForSelector: '.PlayerFrame__content .replayer-wrapper iframe',
+        testOptions: {
+            viewport: { width: 1280, height: 800 },
+        },
     },
     decorators: [
         mswDecorator({
@@ -146,27 +149,6 @@ export default meta
 export function RecentRecordings(): JSX.Element {
     useEffect(() => {
         router.actions.push(urls.replay())
-    }, [])
-    return <App />
-}
-
-export function RecordingsPlayListNoPinnedRecordings(): JSX.Element {
-    useEffect(() => {
-        router.actions.push(urls.replayPlaylist('abcdefg'))
-    }, [])
-    return <App />
-}
-
-export function RecordingsPlayListWithPinnedRecordings(): JSX.Element {
-    useEffect(() => {
-        router.actions.push(urls.replayPlaylist('1234567'))
-    }, [])
-    return <App />
-}
-
-export function SecondRecordingInList(): JSX.Element {
-    useEffect(() => {
-        router.actions.push(combineUrl(urls.replay(), undefined, { sessionRecordingId: recordings[1].id }).url)
     }, [])
     return <App />
 }
