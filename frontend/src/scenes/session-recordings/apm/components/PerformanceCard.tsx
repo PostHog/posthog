@@ -148,12 +148,12 @@ export function PerformanceDuration({
     ) : (
         <span
             className={clsx({
-                'text-danger-dark': value >= benchmarks[1],
-                'text-warning-dark': value >= benchmarks[0] && value < benchmarks[1],
-                'text-success-dark': value < benchmarks[0],
+                'text-danger-dark': !loading && value >= benchmarks[1],
+                'text-warning-dark': !loading && value >= benchmarks[0] && value < benchmarks[1],
+                'text-success-dark': !loading && value < benchmarks[0],
             })}
         >
-            {loading ? <Spinner /> : humanFriendlyMilliseconds(value)}
+            {loading ? <Spinner textColored={true} /> : humanFriendlyMilliseconds(value)}
         </span>
     )
 }
