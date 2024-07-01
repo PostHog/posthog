@@ -1466,6 +1466,7 @@ export interface PerformanceEvent {
     first_contentful_paint?: number // https://web.dev/fcp/
     time_to_interactive?: number // https://web.dev/tti/
     total_blocking_time?: number // https://web.dev/tbt/
+    web_vitals?: Set<RecordingEventType>
 
     // request/response capture - merged in from rrweb/network@1 payloads
     request_headers?: Record<string, string>
