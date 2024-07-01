@@ -197,8 +197,7 @@
                     max_ast_elements=2000000,
                     max_expanded_ast_elements=2000000,
                     max_query_size=1048576,
-                    max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromFilters.test_event_filter_with_person_properties_materialized_00_poe_v2_and_materialized_columns_allowed_with_materialization.1
@@ -236,8 +235,7 @@
                     max_ast_elements=2000000,
                     max_expanded_ast_elements=2000000,
                     max_query_size=1048576,
-                    max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromFilters.test_event_filter_with_person_properties_materialized_01_poe_v2_and_materialized_columns_allowed_without_materialization
@@ -270,8 +268,7 @@
                     max_ast_elements=2000000,
                     max_expanded_ast_elements=2000000,
                     max_query_size=1048576,
-                    max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromFilters.test_event_filter_with_person_properties_materialized_01_poe_v2_and_materialized_columns_allowed_without_materialization.1
@@ -309,8 +306,7 @@
                     max_ast_elements=2000000,
                     max_expanded_ast_elements=2000000,
                     max_query_size=1048576,
-                    max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromFilters.test_event_filter_with_person_properties_materialized_02_poe_v2_and_materialized_columns_off_with_materialization
@@ -343,8 +339,7 @@
                     max_ast_elements=2000000,
                     max_expanded_ast_elements=2000000,
                     max_query_size=1048576,
-                    max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromFilters.test_event_filter_with_person_properties_materialized_02_poe_v2_and_materialized_columns_off_with_materialization.1
@@ -382,8 +377,7 @@
                     max_ast_elements=2000000,
                     max_expanded_ast_elements=2000000,
                     max_query_size=1048576,
-                    max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromFilters.test_event_filter_with_person_properties_materialized_03_poe_v2_and_materialized_columns_off_without_materialization
@@ -416,8 +410,7 @@
                     max_ast_elements=2000000,
                     max_expanded_ast_elements=2000000,
                     max_query_size=1048576,
-                    max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromFilters.test_event_filter_with_person_properties_materialized_03_poe_v2_and_materialized_columns_off_without_materialization.1
@@ -455,8 +448,7 @@
                     max_ast_elements=2000000,
                     max_expanded_ast_elements=2000000,
                     max_query_size=1048576,
-                    max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromFilters.test_event_filter_with_person_properties_materialized_04_poe_off_and_materialized_columns_allowed_with_materialization
@@ -489,8 +481,7 @@
                     max_ast_elements=2000000,
                     max_expanded_ast_elements=2000000,
                     max_query_size=1048576,
-                    max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromFilters.test_event_filter_with_person_properties_materialized_04_poe_off_and_materialized_columns_allowed_with_materialization.1
@@ -540,8 +531,7 @@
                     max_ast_elements=2000000,
                     max_expanded_ast_elements=2000000,
                     max_query_size=1048576,
-                    max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromFilters.test_event_filter_with_person_properties_materialized_05_poe_off_and_materialized_columns_allowed_without_materialization
@@ -574,8 +564,7 @@
                     max_ast_elements=2000000,
                     max_expanded_ast_elements=2000000,
                     max_query_size=1048576,
-                    max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromFilters.test_event_filter_with_person_properties_materialized_05_poe_off_and_materialized_columns_allowed_without_materialization.1
@@ -625,8 +614,7 @@
                     max_ast_elements=2000000,
                     max_expanded_ast_elements=2000000,
                     max_query_size=1048576,
-                    max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromFilters.test_event_filter_with_person_properties_materialized_06_poe_off_and_materialized_columns_not_allowed_with_materialization
@@ -659,8 +647,7 @@
                     max_ast_elements=2000000,
                     max_expanded_ast_elements=2000000,
                     max_query_size=1048576,
-                    max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromFilters.test_event_filter_with_person_properties_materialized_06_poe_off_and_materialized_columns_not_allowed_with_materialization.1
@@ -710,8 +697,7 @@
                     max_ast_elements=2000000,
                     max_expanded_ast_elements=2000000,
                     max_query_size=1048576,
-                    max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromFilters.test_event_filter_with_person_properties_materialized_07_poe_off_and_materialized_columns_not_allowed_without_materialization
@@ -744,8 +730,7 @@
                     max_ast_elements=2000000,
                     max_expanded_ast_elements=2000000,
                     max_query_size=1048576,
-                    max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromFilters.test_event_filter_with_person_properties_materialized_07_poe_off_and_materialized_columns_not_allowed_without_materialization.1
@@ -795,8 +780,7 @@
                     max_ast_elements=2000000,
                     max_expanded_ast_elements=2000000,
                     max_query_size=1048576,
-                    max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromFilters.test_event_filter_with_person_properties_materialized_08_poe_v1_and_materialized_columns_allowed_with_materialization
@@ -829,8 +813,7 @@
                     max_ast_elements=2000000,
                     max_expanded_ast_elements=2000000,
                     max_query_size=1048576,
-                    max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromFilters.test_event_filter_with_person_properties_materialized_08_poe_v1_and_materialized_columns_allowed_with_materialization.1
@@ -868,8 +851,7 @@
                     max_ast_elements=2000000,
                     max_expanded_ast_elements=2000000,
                     max_query_size=1048576,
-                    max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromFilters.test_event_filter_with_person_properties_materialized_09_poe_v1_and_materialized_columns_allowed_without_materialization
@@ -902,8 +884,7 @@
                     max_ast_elements=2000000,
                     max_expanded_ast_elements=2000000,
                     max_query_size=1048576,
-                    max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromFilters.test_event_filter_with_person_properties_materialized_09_poe_v1_and_materialized_columns_allowed_without_materialization.1
@@ -941,8 +922,7 @@
                     max_ast_elements=2000000,
                     max_expanded_ast_elements=2000000,
                     max_query_size=1048576,
-                    max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromFilters.test_event_filter_with_person_properties_materialized_10_poe_v1_and_not_materialized_columns_not_allowed_with_materialization
@@ -975,8 +955,7 @@
                     max_ast_elements=2000000,
                     max_expanded_ast_elements=2000000,
                     max_query_size=1048576,
-                    max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromFilters.test_event_filter_with_person_properties_materialized_10_poe_v1_and_not_materialized_columns_not_allowed_with_materialization.1
@@ -1014,8 +993,7 @@
                     max_ast_elements=2000000,
                     max_expanded_ast_elements=2000000,
                     max_query_size=1048576,
-                    max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromFilters.test_event_filter_with_person_properties_materialized_11_poe_v1_and_not_materialized_columns_not_allowed_without_materialization
@@ -1048,8 +1026,7 @@
                     max_ast_elements=2000000,
                     max_expanded_ast_elements=2000000,
                     max_query_size=1048576,
-                    max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromFilters.test_event_filter_with_person_properties_materialized_11_poe_v1_and_not_materialized_columns_not_allowed_without_materialization.1
@@ -1087,8 +1064,7 @@
                     max_ast_elements=2000000,
                     max_expanded_ast_elements=2000000,
                     max_query_size=1048576,
-                    max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromFilters.test_person_id_filter_00_poe_v2_and_materialized_columns_allowed_with_materialization
@@ -1124,8 +1100,7 @@
                     max_ast_elements=2000000,
                     max_expanded_ast_elements=2000000,
                     max_query_size=1048576,
-                    max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromFilters.test_person_id_filter_01_poe_v2_and_materialized_columns_allowed_without_materialization
@@ -1161,8 +1136,7 @@
                     max_ast_elements=2000000,
                     max_expanded_ast_elements=2000000,
                     max_query_size=1048576,
-                    max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromFilters.test_person_id_filter_02_poe_v2_and_materialized_columns_off_with_materialization
@@ -1198,8 +1172,7 @@
                     max_ast_elements=2000000,
                     max_expanded_ast_elements=2000000,
                     max_query_size=1048576,
-                    max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromFilters.test_person_id_filter_03_poe_v2_and_materialized_columns_off_without_materialization
@@ -1235,8 +1208,7 @@
                     max_ast_elements=2000000,
                     max_expanded_ast_elements=2000000,
                     max_query_size=1048576,
-                    max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromFilters.test_person_id_filter_04_poe_off_and_materialized_columns_allowed_with_materialization
@@ -1277,8 +1249,7 @@
                     max_ast_elements=2000000,
                     max_expanded_ast_elements=2000000,
                     max_query_size=1048576,
-                    max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromFilters.test_person_id_filter_05_poe_off_and_materialized_columns_allowed_without_materialization
@@ -1319,8 +1290,7 @@
                     max_ast_elements=2000000,
                     max_expanded_ast_elements=2000000,
                     max_query_size=1048576,
-                    max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromFilters.test_person_id_filter_06_poe_off_and_materialized_columns_not_allowed_with_materialization
@@ -1361,8 +1331,7 @@
                     max_ast_elements=2000000,
                     max_expanded_ast_elements=2000000,
                     max_query_size=1048576,
-                    max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromFilters.test_person_id_filter_07_poe_off_and_materialized_columns_not_allowed_without_materialization
@@ -1403,8 +1372,7 @@
                     max_ast_elements=2000000,
                     max_expanded_ast_elements=2000000,
                     max_query_size=1048576,
-                    max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromFilters.test_person_id_filter_08_poe_v1_and_materialized_columns_allowed_with_materialization
@@ -1446,8 +1414,7 @@
                     max_ast_elements=2000000,
                     max_expanded_ast_elements=2000000,
                     max_query_size=1048576,
-                    max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromFilters.test_person_id_filter_09_poe_v1_and_materialized_columns_allowed_without_materialization
@@ -1489,8 +1456,7 @@
                     max_ast_elements=2000000,
                     max_expanded_ast_elements=2000000,
                     max_query_size=1048576,
-                    max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromFilters.test_person_id_filter_10_poe_v1_and_not_materialized_columns_not_allowed_with_materialization
@@ -1532,8 +1498,7 @@
                     max_ast_elements=2000000,
                     max_expanded_ast_elements=2000000,
                     max_query_size=1048576,
-                    max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromFilters.test_person_id_filter_11_poe_v1_and_not_materialized_columns_not_allowed_without_materialization
@@ -1575,7 +1540,6 @@
                     max_ast_elements=2000000,
                     max_expanded_ast_elements=2000000,
                     max_query_size=1048576,
-                    max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
