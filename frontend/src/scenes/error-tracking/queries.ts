@@ -1,4 +1,6 @@
 import { UniversalFiltersGroup } from 'lib/components/UniversalFilters/UniversalFilters'
+import { dayjs } from 'lib/dayjs'
+import { range } from 'lib/utils'
 
 import { DataTableNode, DateRange, ErrorTrackingOrder, EventsQuery, InsightVizNode, NodeKind } from '~/queries/schema'
 import { AnyPropertyFilter, BaseMathType, ChartDisplayType } from '~/types'
@@ -14,14 +16,18 @@ export const errorTrackingQuery = ({
     filterTestAccounts: boolean
     filterGroup: UniversalFiltersGroup
 }): DataTableNode => {
+    const period = 24
+    const unit = 'hour'
+    const labels = generateFormattedDateLabels(period, unit)
+
     return {
         kind: NodeKind.DataTableNode,
         source: {
             kind: NodeKind.EventsQuery,
             select: [
-                'any(properties) -- Error',
+                'any(properties) -- context.columns.error',
                 'properties.$exception_type',
-                'sparkline(reverse(arrayMap(x -> countEqual(groupArray(dateDiff("hour", now() - INTERVAL 1 day, timestamp)), x), range(24)))) -- Volume',
+                `sparkline(reverse(arrayMap(x -> countEqual(groupArray(dateDiff('${unit}', now() - INTERVAL ${period} ${unit}, timestamp)), x), range(${period}))), [${labels}]) -- context.columns.volume`,
                 'count() as unique_occurrences -- Occurrences',
                 'count(distinct $session_id) as unique_sessions -- Sessions',
                 'count(distinct distinct_id) as unique_users -- Users',
@@ -40,6 +46,13 @@ export const errorTrackingQuery = ({
         showActions: false,
         showTimings: false,
     }
+}
+
+const generateFormattedDateLabels = (period: number, unit: 'hour'): string => {
+    const now = dayjs().startOf(unit)
+    const formattedDates = range(period).map((idx) => now.subtract(period - idx, unit))
+    const stringifiedDates = formattedDates.map((d) => `'${d.format('D MMM, YYYY HH:mm')} (UTC)'`)
+    return stringifiedDates.join(',')
 }
 
 export const errorTrackingGroupQuery = ({
@@ -87,7 +100,7 @@ export const errorTrackingGroupBreakdownQuery = ({
             series: [
                 {
                     kind: NodeKind.EventsNode,
-                    event: '$exception',
+                    event: '$pageview',
                     math: BaseMathType.TotalCount,
                     name: 'This is the series name',
                     custom_name: 'Boomer',
@@ -112,7 +125,7 @@ const defaultProperties = ({
     const properties = filterGroup.values as AnyPropertyFilter[]
 
     return {
-        event: '$exception',
+        event: '$pageview',
         after: dateRange.date_from || undefined,
         before: dateRange.date_to || undefined,
         filterTestAccounts,

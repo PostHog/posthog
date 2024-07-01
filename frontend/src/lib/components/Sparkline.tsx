@@ -6,7 +6,7 @@ import { humanFriendlyNumber } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 
-import { LemonSkeleton } from './LemonSkeleton'
+import { LemonSkeleton } from '../lemon-ui/LemonSkeleton'
 
 export interface SparklineTimeSeries {
     name: string
@@ -140,7 +140,7 @@ export function Sparkline({
                                         embedded
                                         hideInspectActorsSection
                                         showHeader={!!labels}
-                                        date={tooltip.dataPoints[0].label}
+                                        altTitle={tooltip.dataPoints[0].label}
                                         seriesData={tooltip.dataPoints.map((dp, i) => ({
                                             id: i,
                                             dataIndex: 0,

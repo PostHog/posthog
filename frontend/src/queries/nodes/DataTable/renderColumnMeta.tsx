@@ -45,16 +45,6 @@ export function renderColumnMeta(key: string, query: DataTableNode, context?: Qu
                 disableIcon
             />
         )
-    } else if (key.startsWith('context.columns.')) {
-        const column = trimQuotes(key.substring(16))
-        const queryContextColumn = context?.columns?.[column]
-        const Component = queryContextColumn?.renderTitle
-        title = Component ? (
-            <Component columnName={column} query={query} />
-        ) : (
-            queryContextColumn?.title ?? column.replace('_', ' ')
-        )
-        align = queryContextColumn?.align
     } else if (key === 'person.$delete') {
         title = ''
         width = 0
@@ -67,7 +57,21 @@ export function renderColumnMeta(key: string, query: DataTableNode, context?: Qu
             />
         )
     } else {
-        title = queryFeatures.has(QueryFeature.selectAndOrderByColumns) ? extractExpressionComment(key) : key
+        const extractedKey = extractExpressionComment(key)
+        if (extractedKey.startsWith('context.columns.')) {
+            const column = trimQuotes(extractedKey.substring(16)) // 16 = "context.columns.".length
+            const queryContextColumn = context?.columns?.[column]
+            const Component = queryContextColumn?.renderTitle
+            title = Component ? (
+                <Component columnName={column} query={query} />
+            ) : (
+                queryContextColumn?.title ?? column.replace('_', ' ')
+            )
+            align = queryContextColumn?.align
+            width = queryContextColumn?.width
+        } else {
+            title = queryFeatures.has(QueryFeature.selectAndOrderByColumns) ? extractExpressionComment(key) : key
+        }
     }
 
     const specifiedWidth = context?.columns?.[key]?.width

@@ -1,3 +1,4 @@
+import { LemonSegmentedButton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { useMemo } from 'react'
@@ -5,7 +6,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
-import { QueryContext, QueryContextColumnComponent } from '~/queries/types'
+import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
 
 import { ErrorTrackingFilters } from './ErrorTrackingFilters'
 import { errorTrackingLogic } from './errorTrackingLogic'
@@ -28,10 +29,11 @@ export function ErrorTrackingScene(): JSX.Element {
 
     const context: QueryContext = {
         columns: {
-            'any(properties) -- Error': {
+            error: {
                 width: '50%',
                 render: CustomGroupTitleColumn,
             },
+            volume: { renderTitle: CustomVolumeColumnHeader },
         },
         showOpenEditorButton: false,
     }
@@ -40,6 +42,22 @@ export function ErrorTrackingScene(): JSX.Element {
         <div className="space-y-4">
             <ErrorTrackingFilters />
             <Query query={query} context={context} />
+        </div>
+    )
+}
+
+const CustomVolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName }) => {
+    return (
+        <div className="flex justify-between items-center min-w-64">
+            <div>{columnName}</div>
+            <LemonSegmentedButton
+                size="xsmall"
+                value="7d"
+                options={[
+                    { value: '7d', label: '7d' },
+                    { value: '24d', label: '24d' },
+                ]}
+            />
         </div>
     )
 }

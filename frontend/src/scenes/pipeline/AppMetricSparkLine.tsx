@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { Sparkline, SparklineTimeSeries } from 'lib/lemon-ui/Sparkline'
+import { Sparkline, SparklineTimeSeries } from 'lib/components/Sparkline'
 
 import { pipelineNodeMetricsLogic } from './pipelineNodeMetricsLogic'
 import { PipelineNode } from './types'
