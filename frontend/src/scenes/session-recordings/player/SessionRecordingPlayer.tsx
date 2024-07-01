@@ -194,18 +194,18 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
             label: 'Inspector',
             'data-attr': 'session-recording-player-view-choice-inspector',
         })
-    }
 
-    viewOptions.push({
-        value: PlaybackViewMode.Waterfall,
-        label: (
-            <div className="space-x-1">
-                <span>Waterfall</span>
-                <LemonTag type="success">New</LemonTag>
-            </div>
-        ),
-        'data-attr': 'session-recording-player-view-choice-waterfall',
-    })
+        viewOptions.push({
+            value: PlaybackViewMode.Waterfall,
+            label: (
+                <div className="space-x-1">
+                    <span>Waterfall</span>
+                    <LemonTag type="success">New</LemonTag>
+                </div>
+            ),
+            'data-attr': 'session-recording-player-view-choice-waterfall',
+        })
+    }
 
     return (
         <BindLogic logic={sessionRecordingPlayerLogic} props={logicProps}>
