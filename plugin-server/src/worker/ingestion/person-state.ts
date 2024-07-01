@@ -1,12 +1,12 @@
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
-import { ONE_HOUR } from 'config/constants'
 import { ProducerRecord } from 'kafkajs'
 import LRU from 'lru-cache'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 import { KafkaProducerWrapper } from 'utils/db/kafka-producer-wrapper'
 
+import { ONE_HOUR } from '../../config/constants'
 import { KAFKA_PERSON_OVERRIDE } from '../../config/kafka-topics'
 import { InternalPerson, Person, PropertyUpdateOperation, TimestampFormat } from '../../types'
 import { DB } from '../../utils/db/db'
