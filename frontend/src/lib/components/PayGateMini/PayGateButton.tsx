@@ -1,19 +1,14 @@
 import { LemonButton } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
-import { BillingProductV2AddonType, BillingProductV2Type, BillingV2FeatureType, BillingV2Type } from '~/types'
+import { BillingProductV2AddonType, BillingProductV2Type, BillingV2FeatureType } from '~/types'
 
 interface PayGateButtonProps {
     gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null
     productWithFeature: BillingProductV2AddonType | BillingProductV2Type
     featureInfo: BillingV2FeatureType
     onCtaClick: () => void
-    billing: BillingV2Type | null
     isAddonProduct?: boolean
-    scrollToProduct: boolean
 }
 
 export const PayGateButton = ({
@@ -21,28 +16,17 @@ export const PayGateButton = ({
     productWithFeature,
     featureInfo,
     onCtaClick,
-    billing,
     isAddonProduct,
-    scrollToProduct = true,
 }: PayGateButtonProps): JSX.Element => {
-    const { featureFlags } = useValues(featureFlagLogic)
     return (
         <LemonButton
-            to={getCtaLink(
-                gateVariant,
-                productWithFeature,
-                featureInfo,
-                featureFlags,
-                billing?.subscription_level,
-                isAddonProduct,
-                scrollToProduct
-            )}
+            to={getCtaLink(gateVariant, productWithFeature, featureInfo, isAddonProduct)}
             disableClientSideRouting={gateVariant === 'add-card' && !isAddonProduct}
             type="primary"
             center
             onClick={onCtaClick}
         >
-            {getCtaLabel(gateVariant, billing, featureFlags)}
+            {getCtaLabel(gateVariant)}
         </LemonButton>
     )
 }
@@ -51,22 +35,12 @@ const getCtaLink = (
     gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
     productWithFeature: BillingProductV2AddonType | BillingProductV2Type,
     featureInfo: BillingV2FeatureType,
-    featureFlags: FeatureFlagsSet,
-    subscriptionLevel?: BillingV2Type['subscription_level'],
-    isAddonProduct?: boolean,
-    scrollToProduct: boolean = true
+    isAddonProduct?: boolean
 ): string | undefined => {
-    if (
-        gateVariant === 'add-card' &&
-        !isAddonProduct &&
-        featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' &&
-        subscriptionLevel === 'free'
-    ) {
+    if (gateVariant === 'add-card' && !isAddonProduct) {
         return `/api/billing/activate?products=all_products:&redirect_path=${urls.organizationBilling()}&intent_product=${
             productWithFeature.type
         }`
-    } else if (gateVariant === 'add-card') {
-        return `/organization/billing${scrollToProduct ? `?products=${productWithFeature.type}` : ''}`
     } else if (gateVariant === 'contact-sales') {
         return `mailto:sales@posthog.com?subject=Inquiring about ${featureInfo.name}`
     } else if (gateVariant === 'move-to-cloud') {
@@ -75,19 +49,9 @@ const getCtaLink = (
     return undefined
 }
 
-const getCtaLabel = (
-    gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
-    billing: BillingV2Type | null,
-    featureFlags: FeatureFlagsSet
-): string => {
-    if (
-        gateVariant === 'add-card' &&
-        featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' &&
-        billing?.subscription_level === 'free'
-    ) {
+const getCtaLabel = (gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null): string => {
+    if (gateVariant === 'add-card') {
         return 'Upgrade now'
-    } else if (gateVariant === 'add-card') {
-        return billing?.has_active_subscription ? 'Upgrade now' : 'Subscribe now'
     } else if (gateVariant === 'contact-sales') {
         return 'Contact sales'
     }

@@ -1,6 +1,4 @@
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
 import { BillingProductV2Type, BillingV2TierType, BillingV2Type } from '~/types'
 
@@ -162,29 +160,19 @@ export const convertAmountToUsage = (
 
 export const getUpgradeProductLink = ({
     product,
-    upgradeToPlanKey,
     redirectPath,
     includeAddons = true,
-    subscriptionLevel,
-    featureFlags,
 }: {
     product: BillingProductV2Type
-    upgradeToPlanKey: string
     redirectPath?: string
     includeAddons: boolean
-    subscriptionLevel?: BillingV2Type['subscription_level']
-    featureFlags: FeatureFlagsSet
 }): string => {
     let url = '/api/billing/activate?'
     if (redirectPath) {
         url += `redirect_path=${redirectPath}&`
     }
 
-    if (featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' && subscriptionLevel == 'free') {
-        url += `products=all_products:&intent_product=${product.type}`
-        return url
-    }
-    url += `products=${product.type}:${upgradeToPlanKey},`
+    url += `products=all_products:&intent_product=${product.type},`
 
     if (includeAddons && product.addons?.length) {
         for (const addon of product.addons) {

@@ -2,8 +2,6 @@ import './UnsubscribeSurveyModal.scss'
 
 import { LemonBanner, LemonButton, LemonModal, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
@@ -16,7 +14,6 @@ export const UnsubscribeSurveyModal = ({
 }: {
     product: BillingProductV2Type | BillingProductV2AddonType
 }): JSX.Element | null => {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { surveyID, surveyResponse, isAddonProduct } = useValues(billingProductLogic({ product }))
     const { setSurveyResponse, reportSurveyDismissed } = useActions(billingProductLogic({ product }))
     const { deactivateProduct, resetUnsubscribeError } = useActions(billingLogic)
@@ -31,14 +28,8 @@ export const UnsubscribeSurveyModal = ({
                 ?.subscribed) ||
         billing?.subscription_level === 'paid'
 
-    const subscribeToAllProductsAndPaid =
-        featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' && billing?.subscription_level === 'paid'
-    let action = 'Unsubscribe'
-    let actionVerb = 'unsubscribing'
-    if (subscribeToAllProductsAndPaid) {
-        action = isAddonProduct ? 'Remove addon' : 'Downgrade'
-        actionVerb = isAddonProduct ? 'removing this addon' : 'downgrading'
-    }
+    const action = isAddonProduct ? 'Remove addon' : 'Downgrade'
+    const actionVerb = isAddonProduct ? 'removing this addon' : 'downgrading'
 
     return (
         <LemonModal
@@ -47,11 +38,7 @@ export const UnsubscribeSurveyModal = ({
                 resetUnsubscribeError()
             }}
             width="max(44vw)"
-            title={
-                subscribeToAllProductsAndPaid
-                    ? `Why are you ${actionVerb}?`
-                    : `Why are you ${actionVerb} from ${product.name}?`
-            }
+            title={`Why are you ${actionVerb}?`}
             footer={
                 <>
                     <LemonButton
@@ -66,13 +53,7 @@ export const UnsubscribeSurveyModal = ({
                         type={textAreaNotEmpty ? 'primary' : 'secondary'}
                         disabledReason={includesPipelinesAddon && unsubscribeDisabledReason}
                         onClick={() => {
-                            deactivateProduct(
-                                featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' &&
-                                    billing?.subscription_level === 'paid' &&
-                                    !isAddonProduct
-                                    ? 'all_products'
-                                    : product.type
-                            )
+                            deactivateProduct(!isAddonProduct ? 'all_products' : product.type)
                         }}
                         loading={billingLoading}
                     >
