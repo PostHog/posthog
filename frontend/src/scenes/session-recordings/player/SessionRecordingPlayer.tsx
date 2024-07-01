@@ -5,7 +5,6 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { BuilderHog2 } from 'lib/components/hedgehogs'
 import { dayjs } from 'lib/dayjs'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import { HotkeysInterface, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
@@ -103,8 +102,6 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
     const { preferredInspectorStacking, playbackViewMode } = useValues(playerSettingsLogic)
     const { setPreferredInspectorStacking, setPlaybackViewMode } = useActions(playerSettingsLogic)
 
-    const allowWaterfallView = useFeatureFlag('SESSION_REPLAY_NETWORK_VIEW')
-
     useKeyboardHotkeys(
         {
             f: {
@@ -197,8 +194,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
             label: 'Inspector',
             'data-attr': 'session-recording-player-view-choice-inspector',
         })
-    }
-    if (allowWaterfallView) {
+
         viewOptions.push({
             value: PlaybackViewMode.Waterfall,
             label: (
