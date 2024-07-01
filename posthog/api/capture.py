@@ -681,11 +681,14 @@ def replace_with_warning(event: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def sample_replay_data_to_object_storage(event: dict[str, Any], random_number: float) -> None:
+    """
+    the random number is passed in to make testing easier
+    both the random number and the sample rate must be between 0 and 0.01
+    if the random number is less than the sample_rate then we write the event to S3
+    """
     try:
         sample_rate = settings.REPLAY_MESSAGE_TOO_LARGE_SAMPLE_RATE
         if 0 < random_number < sample_rate <= 0.01:
-            # we upload the event to s3 using boto3.
-            # we can hardcode the region because we're only going to turn this on manually
             object_key = f"session_id/{event.get('properties', {}).get('$session_id', 'unknown')}.json"
             object_storage.write(object_key, json.dumps(event), bucket=settings.REPLAY_MESSAGE_TOO_LARGE_SAMPLE_BUCKET)
     except Exception as ex:
