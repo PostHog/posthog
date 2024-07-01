@@ -30,8 +30,8 @@ export const RecordingsUniversalFilters = ({
 
     return (
         <div className={clsx('divide-y bg-bg-light rounded', className)}>
-            <div className="flex flex-wrap justify-between px-2 py-1.5 gap-2">
-                <div className="flex flex-wrap-reverse gap-2">
+            <div className="flex justify-between px-2 py-1.5 flex-wrap gap-1">
+                <div className="flex flex-wrap gap-2">
                     <DateFilter
                         dateFrom={filters.date_from ?? '-3d'}
                         dateTo={filters.date_to}
@@ -64,17 +64,20 @@ export const RecordingsUniversalFilters = ({
                         durationTypeFilter={durationFilter.key}
                         pageKey="session-recordings"
                     />
-                    <TestAccountFilter
-                        filters={filters}
-                        onChange={(testFilters) =>
-                            setFilters({
-                                ...filters,
-                                filter_test_accounts: testFilters.filter_test_accounts,
-                            })
-                        }
-                    />
+                    <div>
+                        <TestAccountFilter
+                            size="small"
+                            filters={filters}
+                            onChange={(testFilters) =>
+                                setFilters({
+                                    ...filters,
+                                    filter_test_accounts: testFilters.filter_test_accounts,
+                                })
+                            }
+                        />
+                    </div>
                 </div>
-                <div>
+                <div className="flex items-center">
                     <AndOrFilterSelect
                         value={filters.filter_group.type}
                         onChange={(type) => {
