@@ -56,6 +56,7 @@ paramiko==3.4.0
 Pillow==10.2.0
 posthoganalytics==3.5.0
 psycopg2-binary==2.9.7
+PyMySQL==1.1.1
 psycopg[binary]==3.1.18
 pyarrow==15.0.0
 pydantic==2.5.3

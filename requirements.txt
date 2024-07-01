@@ -414,6 +414,7 @@ psycopg-binary==3.1.18
     # via psycopg
 psycopg2-binary==2.9.7
     # via -r requirements.in
+PyMySQL==1.1.1
 py==1.11.0
     # via retry
 pyarrow==15.0.0

@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0446_annotation_dashboard_alter_annotation_scope"),
+        ("posthog", "0447_alter_integration_kind"),
     ]
 
     operations = [
