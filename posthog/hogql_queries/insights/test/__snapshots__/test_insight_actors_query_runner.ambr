@@ -102,8 +102,7 @@
                      max_ast_elements=2000000,
                      max_expanded_ast_elements=2000000,
                      max_query_size=1048576,
-                     max_bytes_before_external_group_by=0,
-                     allow_experimental_analyzer=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestInsightActorsQueryRunner.test_insight_persons_lifecycle_query
@@ -193,8 +192,7 @@
                      max_ast_elements=2000000,
                      max_expanded_ast_elements=2000000,
                      max_query_size=1048576,
-                     max_bytes_before_external_group_by=0,
-                     allow_experimental_analyzer=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestInsightActorsQueryRunner.test_insight_persons_stickiness_groups_query
@@ -227,8 +225,7 @@
                      max_ast_elements=2000000,
                      max_expanded_ast_elements=2000000,
                      max_query_size=1048576,
-                     max_bytes_before_external_group_by=0,
-                     allow_experimental_analyzer=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestInsightActorsQueryRunner.test_insight_persons_stickiness_query
@@ -285,8 +282,7 @@
                      max_ast_elements=2000000,
                      max_expanded_ast_elements=2000000,
                      max_query_size=1048576,
-                     max_bytes_before_external_group_by=0,
-                     allow_experimental_analyzer=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestInsightActorsQueryRunner.test_insight_persons_trends_groups_query
@@ -320,8 +316,7 @@
                      max_ast_elements=2000000,
                      max_expanded_ast_elements=2000000,
                      max_query_size=1048576,
-                     max_bytes_before_external_group_by=0,
-                     allow_experimental_analyzer=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestInsightActorsQueryRunner.test_insight_persons_trends_query_with_argmaxV1
@@ -389,8 +384,7 @@
                      max_ast_elements=2000000,
                      max_expanded_ast_elements=2000000,
                      max_query_size=1048576,
-                     max_bytes_before_external_group_by=0,
-                     allow_experimental_analyzer=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestInsightActorsQueryRunner.test_insight_persons_trends_query_with_argmaxV2
@@ -467,7 +461,6 @@
                      max_ast_elements=2000000,
                      max_expanded_ast_elements=2000000,
                      max_query_size=1048576,
-                     max_bytes_before_external_group_by=0,
-                     allow_experimental_analyzer=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
