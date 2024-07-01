@@ -134,4 +134,9 @@ export class InsightPage {
         await this.moreButton.click()
         await this.page.getByTestId('delete-insight-from-insight-view').click()
     }
+
+    async duplicate(): Promise<void> {
+        await this.moreButton.click()
+        await this.page.getByTestId('duplicate-insight-from-insight-view').click()
+    }
 }

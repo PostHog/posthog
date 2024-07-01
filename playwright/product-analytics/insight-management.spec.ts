@@ -8,6 +8,8 @@ import { Toast } from '../shared/toast'
 import { getLemonSwitchValue } from '../utils'
 import { InsightPage } from './insightPage'
 
+const SHORT_ID_REGEX = /\/insights\/([\w\d]+)(\/edit)?$/
+
 test('can create insight', async ({ page }) => {
     const insight = new InsightPage(page)
     const toast = new Toast(page)
@@ -124,6 +126,26 @@ test('can delete insight', async ({ page }) => {
         },
         async () => {
             await expect(toast.container, 'displays toast').toContainText('my insight has been deleted')
+        }
+    )
+})
+
+test('can duplicate insight', async ({ page }) => {
+    const insight = await new InsightPage(page).createNew(InsightType.TRENDS, 'my insight')
+    const toast = new Toast(page)
+
+    await page.pause()
+    await insight.duplicate()
+
+    const prevShortId = page.url().match(SHORT_ID_REGEX)?.[1]
+
+    await insight.withReload(
+        async () => {
+            await expect(insight.topBarName, 'sets name').toContainText('my insight (copy)')
+            expect(page.url().match(SHORT_ID_REGEX)?.[1]).not.toEqual(prevShortId)
+        },
+        async () => {
+            await expect(toast.container, 'displays toast').toContainText('Insight saved')
         }
     )
 })
