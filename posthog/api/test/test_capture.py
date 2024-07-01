@@ -172,6 +172,40 @@ s3 = resource(
 )
 
 
+# snapshot events are processed and altered during capture processing
+def make_processed_recording_event(
+    event_data: dict | list[dict] | None = None,
+    session_id="abc123",
+    window_id="def456",
+    distinct_id="ghi789",
+    timestamp=1658516991883,
+    snapshot_bytes=60,
+) -> dict[str, Any]:
+    if event_data is None:
+        # event_data is an array of RRWeb events
+        event_data = [{"type": 3, "data": {"source": 1}}, {"type": 3, "data": {"source": 2}}]
+
+    if isinstance(event_data, dict):
+        event_data = [event_data]
+
+    return {
+        "event": "$snapshot_items",
+        "properties": {
+            # estimate of the size of the event data
+            "$snapshot_bytes": snapshot_bytes,
+            "$snapshot_items": event_data,
+            "$session_id": session_id,
+            "$window_id": window_id,
+            # snapshot events have the distinct id in the properties
+            # as well as at the top-level
+            "distinct_id": distinct_id,
+            "$snapshot_source": "web",
+        },
+        "timestamp": timestamp,
+        "distinct_id": distinct_id,
+    }
+
+
 class TestCapture(BaseTest):
     """
     Tests all data capture endpoints (e.g. `/capture` `/batch/`).
@@ -258,40 +292,6 @@ class TestCapture(BaseTest):
         )
 
         return event
-
-    # snapshot events are processed and altered during capture processing
-    def _make_processed_recording_event(
-        self,
-        event_data: dict | list[dict] | None = None,
-        session_id="abc123",
-        window_id="def456",
-        distinct_id="ghi789",
-        timestamp=1658516991883,
-        snapshot_bytes=60,
-    ) -> dict[str, Any]:
-        if event_data is None:
-            # event_data is an array of RRWeb events
-            event_data = [{"type": 3, "data": {"source": 1}}, {"type": 3, "data": {"source": 2}}]
-
-        if isinstance(event_data, dict):
-            event_data = [event_data]
-
-        return {
-            "event": "$snapshot_items",
-            "properties": {
-                # estimate of the size of the event data
-                "$snapshot_bytes": snapshot_bytes,
-                "$snapshot_items": event_data,
-                "$session_id": session_id,
-                "$window_id": window_id,
-                # snapshot events have the distinct id in the properties
-                # as well as at the top-level
-                "distinct_id": distinct_id,
-                "$snapshot_source": "web",
-            },
-            "timestamp": timestamp,
-            "distinct_id": distinct_id,
-        }
 
     def _send_august_2023_version_session_recording_event(
         self,
@@ -500,7 +500,7 @@ class TestCapture(BaseTest):
         )
         assert response.status_code == 200
 
-        expected_data = self._make_processed_recording_event(
+        expected_data = make_processed_recording_event(
             snapshot_bytes=0,
             event_data=[
                 {
@@ -2206,10 +2206,13 @@ class TestCapture(BaseTest):
         )
 
     def test_capture_replay_to_bucket_when_random_number_is_less_than_sample_rate(self):
+        sample_rate = 0.001
+        random_number = sample_rate / 2
+
         with self.settings(
-            REPLAY_MESSAGE_TOO_LARGE_SAMPLE_RATE=0.001, REPLAY_MESSAGE_TOO_LARGE_SAMPLE_BUCKET=TEST_SAMPLES_BUCKET
+            REPLAY_MESSAGE_TOO_LARGE_SAMPLE_RATE=sample_rate, REPLAY_MESSAGE_TOO_LARGE_SAMPLE_BUCKET=TEST_SAMPLES_BUCKET
         ):
-            event = self._make_processed_recording_event(
+            event = make_processed_recording_event(
                 session_id="abcdefgh",
                 snapshot_bytes=0,
                 event_data=[
@@ -2227,15 +2230,18 @@ class TestCapture(BaseTest):
                     },
                 ],
             )
-            sample_replay_data_to_object_storage(event, 0.0005)
+            sample_replay_data_to_object_storage(event, random_number)
             contents = object_storage.read("session_id/abcdefgh.json", bucket=TEST_SAMPLES_BUCKET)
             assert contents == json.dumps(event)
 
     def test_capture_replay_nothing_to_bucket_when_random_number_is_more_than_sample_rate(self):
+        sample_rate = 0.0001
+        random_number = sample_rate * 10
+
         with self.settings(
-            REPLAY_MESSAGE_TOO_LARGE_SAMPLE_RATE=0.1, REPLAY_MESSAGE_TOO_LARGE_SAMPLE_BUCKET=TEST_SAMPLES_BUCKET
+            REPLAY_MESSAGE_TOO_LARGE_SAMPLE_RATE=sample_rate, REPLAY_MESSAGE_TOO_LARGE_SAMPLE_BUCKET=TEST_SAMPLES_BUCKET
         ):
-            event = self._make_processed_recording_event(
+            event = make_processed_recording_event(
                 session_id="abcdefgh",
                 snapshot_bytes=0,
                 event_data=[
@@ -2253,7 +2259,38 @@ class TestCapture(BaseTest):
                     },
                 ],
             )
-            sample_replay_data_to_object_storage(event, 0.2)
+            sample_replay_data_to_object_storage(event, random_number)
+
+            with pytest.raises(ObjectStorageError):
+                object_storage.read("session_id/abcdefgh.json", bucket=TEST_SAMPLES_BUCKET)
+
+    def test_capture_replay_nothing_to_bucket_when_otherwise_valid_but_over_limit(self):
+        sample_rate = 0.011
+        random_number = 0.0001
+
+        with self.settings(
+            REPLAY_MESSAGE_TOO_LARGE_SAMPLE_RATE=sample_rate, REPLAY_MESSAGE_TOO_LARGE_SAMPLE_BUCKET=TEST_SAMPLES_BUCKET
+        ):
+            event = make_processed_recording_event(
+                session_id="abcdefgh",
+                snapshot_bytes=0,
+                event_data=[
+                    {
+                        "type": 4,
+                        "data": {"href": "https://keepme.io"},
+                        "$window_id": "the window id",
+                        "timestamp": 1234567890,
+                    },
+                    {
+                        "type": 5,
+                        "data": {"tag": "Message too large"},
+                        "timestamp": 1234567890,
+                        "$window_id": "the window id",
+                    },
+                ],
+            )
+
+            sample_replay_data_to_object_storage(event, random_number)
 
             with pytest.raises(ObjectStorageError):
                 object_storage.read("session_id/abcdefgh.json", bucket=TEST_SAMPLES_BUCKET)
