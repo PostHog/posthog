@@ -1,3 +1,5 @@
+import { uuid } from 'lib/utils'
+
 import jsonData from './recording_events.json'
 
 export default {
@@ -13,7 +15,7 @@ export default {
     hasMore: false,
     results: [
         ...jsonData.map((x) => [
-            x.id,
+            uuid(),
             x.event,
             x.timestamp,
             x.elements_hash,

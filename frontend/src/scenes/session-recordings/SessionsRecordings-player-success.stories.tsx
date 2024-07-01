@@ -129,8 +129,13 @@ const meta: Meta = {
                     ) {
                         return res(ctx.json({ results: [['session_id_one', '{}']] }))
                     }
-                    // default
-                    return res(ctx.json(recordingEventsJson))
+
+                    if (body.query.kind === 'EventsQuery' && body.query.properties.length === 1) {
+                        return res(ctx.json(recordingEventsJson))
+                    }
+
+                    // default to an empty response or we duplicate information
+                    return res(ctx.json({ results: [] }))
                 },
             },
         }),

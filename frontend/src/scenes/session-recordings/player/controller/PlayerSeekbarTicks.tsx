@@ -62,7 +62,7 @@ export const PlayerSeekbarTicks = memo(
                 {seekbarItems.map((item, i) => {
                     return (
                         <PlayerSeekbarTick
-                            key={`${item.data.id}-${item.timeInRecording}`}
+                            key={item.data.id}
                             item={item}
                             endTimeMs={endTimeMs}
                             zIndex={i + (item.highlightColor ? 1000 : 0)}
