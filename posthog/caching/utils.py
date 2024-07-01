@@ -85,9 +85,11 @@ def stale_cache_invalidation_disabled(team: Team) -> bool:
 
 
 def last_refresh_from_cached_result(cached_result: dict | object) -> Optional[datetime]:
-    last_refresh: str | datetime | None = getattr(cached_result, "last_refresh", None) or cached_result.get(
-        "last_refresh"
-    )
+    last_refresh: str | datetime | None
+    if isinstance(cached_result, dict):
+        last_refresh = cached_result.get("last_refresh")
+    else:
+        last_refresh = getattr(cached_result, "last_refresh", None)
     if isinstance(last_refresh, str):
         last_refresh = isoparse(last_refresh)
     return last_refresh
@@ -149,7 +151,8 @@ def is_stale(
         raise Exception("Cached results require a last_refresh")
 
     # If the date_to is in the past of the last refresh, the data cannot be stale
-    if date_to and date_to < last_refresh:
+    # Use a buffer in case last_refresh from cache.set happened slightly after the actual query
+    if date_to and date_to < (last_refresh - timedelta(seconds=10)):
         return False
 
     if interval not in staleness_threshold_map[mode]:

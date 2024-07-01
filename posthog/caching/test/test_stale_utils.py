@@ -1,5 +1,6 @@
 import pytest
 from datetime import datetime, timedelta, UTC
+from freezegun import freeze_time
 
 from posthog.caching.utils import is_stale
 
@@ -15,34 +16,41 @@ def stale_cache_invalidation_disabled(team):
     return False
 
 
+team_a = Team("A")
+team_b = Team("B")
+
+date_to = datetime(2021, 1, 1, 0, 0, 1, tzinfo=UTC)
+
+
 @pytest.mark.parametrize(
     "team, date_to, interval, last_refresh, expected",
     [
         # Test cases for no interval
-        (Team("A"), None, None, datetime.now(tz=UTC) - timedelta(minutes=20), True),
-        (Team("A"), None, None, datetime.now(tz=UTC) - timedelta(seconds=20), False),
-        (Team("A"), None, None, datetime.now(tz=UTC) - timedelta(seconds=10), False),
+        (team_a, None, None, timedelta(minutes=20), True),
+        (team_a, None, None, timedelta(seconds=20), False),
+        (team_a, None, None, timedelta(seconds=10), False),
         # Test cases for "minute" interval
-        (Team("A"), datetime.now(tz=UTC), "minute", datetime.now(tz=UTC) - timedelta(seconds=20), True),
-        (Team("A"), datetime.now(tz=UTC), "minute", datetime.now(tz=UTC) - timedelta(seconds=10), False),
+        (team_a, None, "minute", timedelta(seconds=20), True),
+        (team_a, None, "minute", timedelta(seconds=10), False),
         # Test cases for "hour" interval
-        (Team("A"), datetime.now(tz=UTC), "hour", datetime.now(tz=UTC) - timedelta(minutes=20), True),
-        (Team("A"), datetime.now(tz=UTC), "hour", datetime.now(tz=UTC) - timedelta(minutes=10), False),
+        (team_a, date_to, "hour", timedelta(minutes=20), True),
+        (team_a, date_to, "hour", timedelta(minutes=10), False),
         # Test cases for "day" interval
-        (Team("A"), None, "day", datetime.now(tz=UTC) - timedelta(hours=3), True),
-        (Team("A"), datetime.now(tz=UTC), "day", datetime.now(tz=UTC) - timedelta(hours=3), True),
-        (Team("A"), datetime.now(tz=UTC), "day", datetime.now(tz=UTC) - timedelta(hours=1), False),
+        (team_a, None, "day", timedelta(hours=3), True),
+        (team_a, date_to, "day", timedelta(hours=3), True),
+        (team_a, date_to, "day", timedelta(hours=1), False),
         # Test cases for "month" interval
-        (Team("A"), datetime.now(tz=UTC), "month", datetime.now(tz=UTC) - timedelta(days=2), True),
-        (Team("A"), datetime.now(tz=UTC), "month", datetime.now(tz=UTC) - timedelta(hours=20), False),
+        (team_a, date_to, "month", timedelta(days=2), True),
+        (team_a, date_to, "month", timedelta(hours=20), False),
         # Test case where date_to is in the past of last_refresh
-        (Team("A"), datetime.now(tz=UTC) - timedelta(days=1), "day", datetime.now(tz=UTC), False),
+        (team_a, date_to - timedelta(days=1), "day", timedelta(seconds=0), False),
         # Test case where stale cache invalidation is disabled
-        (Team("B"), datetime.now(tz=UTC), "day", datetime.now(tz=UTC) - timedelta(hours=3), False),
+        (team_b, date_to, "day", timedelta(hours=3), False),
         # Assuming team B has cache invalidation disabled
     ],
 )
+@freeze_time("2021-01-01T00:00:00Z")
 def test_is_stale(team, date_to, interval, last_refresh, expected):
     with pytest.MonkeyPatch.context() as m:
         m.setattr("posthog.caching.utils.stale_cache_invalidation_disabled", lambda t: team.name == "B")
-        assert is_stale(team, date_to, interval, last_refresh) == expected
+        assert is_stale(team, date_to, interval, datetime.now(UTC) - last_refresh) == expected
