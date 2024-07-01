@@ -359,7 +359,7 @@ class TestBillingAPI(APILicensedTest):
             "available_product_features": [],
             "custom_limits_usd": {},
             "has_active_subscription": True,
-            "stripe_portal_url": "https://billing.stripe.com/p/session/test_1234",
+            "stripe_portal_url": "http://localhost:8000/api/billing/portal",
             "current_total_amount_usd": "100.00",
             "deactivated": False,
             "products": [
@@ -562,7 +562,7 @@ class TestBillingAPI(APILicensedTest):
             "free_trial_until": None,
             "current_total_amount_usd": "0.00",
             "deactivated": False,
-            "stripe_portal_url": "https://billing.stripe.com/p/session/test_1234",
+            "stripe_portal_url": "http://localhost:8000/api/billing/portal",
         }
 
     @patch("ee.api.billing.requests.get")
@@ -927,3 +927,15 @@ class TestActivateBillingAPI(APILicensedTest):
         response = self.client.get(url, data)
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class TestPortalBillingAPI(APILicensedTest):
+    @patch("ee.api.billing.requests.get")
+    def test_portal_success(self, mock_request):
+        mock_request.return_value.status_code = 200
+        mock_request.return_value.json.return_value = {"url": "https://billing.stripe.com/p/session/test_1234"}
+
+        response = self.client.get("/api/billing/portal")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"url": "https://billing.stripe.com/p/session/test_1234"})
