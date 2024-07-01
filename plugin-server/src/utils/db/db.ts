@@ -641,19 +641,12 @@ export class DB {
         isUserId: number | null,
         isIdentified: boolean,
         uuid: string,
-        distinctIds?: string[],
-        distinctIdVersions?: number[]
+        distinctIds?: { distinctId: string; version?: number }[]
     ): Promise<InternalPerson> {
         distinctIds ||= []
 
-        if (distinctIdVersions === undefined) {
-            // Default to version 0 for all Distinct IDs
-            distinctIdVersions = new Array(distinctIds.length).fill(0)
-        } else {
-            // This should never happen and is only here to catch code during development/tests
-            if (distinctIds.length != distinctIdVersions.length) {
-                throw new Error('createPerson: distinctIds and distinctIdVersions lengths must match')
-            }
+        for (const distinctId of distinctIds) {
+            distinctId.version ||= 0
         }
 
         // The Person is being created, and so we can hardcode version 0!
@@ -676,7 +669,7 @@ export class DB {
                         (_, index) => `, distinct_id_${index} AS (
                         INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
                         VALUES (
-                            $${11 + index + distinctIdVersions!.length - 1},
+                            $${11 + index + distinctIds!.length - 1},
                             (SELECT id FROM inserted_person),
                             $5,
                             $${10 + index})
@@ -700,8 +693,14 @@ export class DB {
                 // we would do a round trip for each INSERT. We shouldn't actually depend on the
                 // `id` column of distinct_ids, so this is just a simple way to keeps tests exactly
                 // the same and prove behavior is the same as before.
-                ...distinctIdVersions.slice().reverse(),
-                ...distinctIds.slice().reverse(),
+                ...distinctIds
+                    .slice()
+                    .reverse()
+                    .map(({ version }) => version),
+                ...distinctIds
+                    .slice()
+                    .reverse()
+                    .map(({ distinctId }) => distinctId),
             ],
             'insertPerson'
         )
@@ -709,10 +708,7 @@ export class DB {
 
         const kafkaMessages = [generateKafkaPersonUpdateMessage(person)]
 
-        for (let i = 0; i < distinctIds.length; i++) {
-            const distinctId = distinctIds[i]
-            const version = distinctIdVersions[i]
-
+        for (const distinctId of distinctIds) {
             kafkaMessages.push({
                 topic: KAFKA_PERSON_DISTINCT_ID,
                 messages: [
@@ -720,8 +716,8 @@ export class DB {
                         value: JSON.stringify({
                             person_id: person.uuid,
                             team_id: teamId,
-                            distinct_id: distinctId,
-                            version,
+                            distinct_id: distinctId.distinctId,
+                            version: distinctId.version,
                             is_deleted: 0,
                         }),
                     },

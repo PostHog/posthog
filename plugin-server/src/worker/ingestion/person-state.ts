@@ -221,7 +221,7 @@ export class PersonState {
             // :NOTE: This should never be set in this branch, but adding this for logical consistency
             this.updateIsIdentified,
             this.event.uuid,
-            [this.distinctId]
+            [{ distinctId: this.distinctId }]
         )
         return [person, true]
     }
@@ -234,13 +234,12 @@ export class PersonState {
         isUserId: number | null,
         isIdentified: boolean,
         creatorEventUuid: string,
-        distinctIds: string[],
-        distinctIdVersions?: number[]
+        distinctIds: { distinctId: string; version?: number }[]
     ): Promise<InternalPerson> {
         if (distinctIds.length < 1) {
             throw new Error('at least 1 distinctId is required in `createPerson`')
         }
-        const uuid = uuidFromDistinctId(teamId, distinctIds[0])
+        const uuid = uuidFromDistinctId(teamId, distinctIds[0].distinctId)
 
         const props = { ...propertiesOnce, ...properties, ...{ $creator_event_uuid: creatorEventUuid } }
         const propertiesLastOperation: Record<string, any> = {}
@@ -263,8 +262,7 @@ export class PersonState {
             isUserId,
             isIdentified,
             uuid,
-            distinctIds,
-            distinctIdVersions
+            distinctIds
         )
     }
 
@@ -594,8 +592,10 @@ export class PersonState {
                             null,
                             true,
                             this.event.uuid,
-                            [distinctId1, distinctId2],
-                            [distinctId1Version, distinctId2Version]
+                            [
+                                { distinctId: distinctId1, version: distinctId1Version },
+                                { distinctId: distinctId2, version: distinctId2Version },
+                            ]
                         ),
                         Promise.resolve(),
                     ]
