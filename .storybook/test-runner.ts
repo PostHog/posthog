@@ -89,8 +89,6 @@ module.exports = {
         const viewport = storyContext.parameters?.testOptions?.viewport || DEFAULT_VIEWPORT
         const extraViewports = storyContext.parameters?.testOptions?.extraViewports || []
 
-        console.log('test: ', storyContext.id, ' with story tags: ', storyContext.tags)
-
         await page.evaluate(
             ([retry, id]) => console.log(`[${id}] Attempt ${retry}`),
             [ATTEMPT_COUNT_PER_ID[context.id], context.id]
@@ -114,6 +112,9 @@ module.exports = {
             const { id, ...viewport } = extraViewport
             await page.setViewportSize(viewport)
             context.id = `${context.id}--${id}`
+
+            console.log('test: ', storyContext.id, ' with new viewport: ', viewport)
+
             if (snapshotBrowsers.includes(currentBrowser)) {
                 await expectStoryToMatchSnapshot(page, context, storyContext, currentBrowser)
             }
