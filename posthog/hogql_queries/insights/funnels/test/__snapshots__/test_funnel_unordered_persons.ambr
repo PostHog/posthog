@@ -254,8 +254,8 @@
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
-        HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                      and isNull(max_steps)))
+        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                      and isNull(max(max_steps))))
      WHERE ifNull(in(steps, [1, 2, 3]), 0)
      ORDER BY aggregation_target ASC) AS source
   INNER JOIN
@@ -337,8 +337,8 @@
                                                                   WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-01-08 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))
                                                             WHERE ifNull(equals(step_0, 1), 0)))
                                                       GROUP BY aggregation_target, steps
-                                                      HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                                                                    and isNull(max_steps)))
+                                                      HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                                                                    and isNull(max(max_steps))))
                                                    WHERE ifNull(in(steps, [1, 2, 3]), 0)
                                                    ORDER BY aggregation_target ASC) AS source)))
      GROUP BY person.id

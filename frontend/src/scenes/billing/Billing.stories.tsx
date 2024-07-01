@@ -32,7 +32,7 @@ const meta: Meta = {
     ],
 }
 export default meta
-export const _BillingV2 = (): JSX.Element => {
+export const _Billing = (): JSX.Element => {
     useStorybookMocks({
         get: {
             '/api/billing/': {
@@ -44,7 +44,7 @@ export const _BillingV2 = (): JSX.Element => {
     return <Billing />
 }
 
-export const BillingV2WithDiscount = (): JSX.Element => {
+export const BillingWithDiscount = (): JSX.Element => {
     useStorybookMocks({
         get: {
             '/api/billing/': {
@@ -56,7 +56,7 @@ export const BillingV2WithDiscount = (): JSX.Element => {
     return <Billing />
 }
 
-export const BillingV2WithLimitAnd100PercentDiscount = (): JSX.Element => {
+export const BillingWithLimitAnd100PercentDiscount = (): JSX.Element => {
     useStorybookMocks({
         get: {
             '/api/billing/': {

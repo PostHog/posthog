@@ -284,6 +284,23 @@ describe('DB', () => {
         return selectResult.rows[0]
     }
 
+    test('addPersonlessDistinctId', async () => {
+        const team = await getFirstTeam(hub)
+        await db.addPersonlessDistinctId(team.id, 'addPersonlessDistinctId')
+
+        // This will conflict, but shouldn't throw an error
+        await db.addPersonlessDistinctId(team.id, 'addPersonlessDistinctId')
+
+        const result = await db.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            'SELECT id FROM posthog_personlessdistinctid WHERE team_id = $1 AND distinct_id = $2',
+            [team.id, 'addPersonlessDistinctId'],
+            'addPersonlessDistinctId'
+        )
+
+        expect(result.rows.length).toEqual(1)
+    })
+
     describe('createPerson', () => {
         let team: Team
         const uuid = new UUIDT().toString()

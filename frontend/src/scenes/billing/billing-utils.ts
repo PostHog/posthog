@@ -2,7 +2,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
-import { BillingProductV2Type, BillingV2TierType, BillingV2Type } from '~/types'
+import { BillingProductV2Type, BillingTierType, BillingType } from '~/types'
 
 export const summarizeUsage = (usage: number | null): string => {
     if (usage === null) {
@@ -15,10 +15,7 @@ export const summarizeUsage = (usage: number | null): string => {
     return `${Math.round(usage / 1000000)} million`
 }
 
-export const projectUsage = (
-    usage: number | undefined,
-    period: BillingV2Type['billing_period']
-): number | undefined => {
+export const projectUsage = (usage: number | undefined, period: BillingType['billing_period']): number | undefined => {
     if (typeof usage === 'undefined') {
         return usage
     }
@@ -39,7 +36,7 @@ export const projectUsage = (
 
 export const convertUsageToAmount = (
     usage: number,
-    productAndAddonTiers: BillingV2TierType[][],
+    productAndAddonTiers: BillingTierType[][],
     percentDiscount?: number
 ): string => {
     if (!productAndAddonTiers) {
@@ -47,7 +44,7 @@ export const convertUsageToAmount = (
     }
     let remainingUsage = usage
     let amount = 0
-    let previousTier: BillingV2TierType | undefined = undefined
+    let previousTier: BillingTierType | undefined = undefined
 
     const tiers = productAndAddonTiers[0].map((tier, index) => {
         const allAddonsTiers = productAndAddonTiers.slice(1)
@@ -91,7 +88,7 @@ export const convertUsageToAmount = (
 
 export const convertAmountToUsage = (
     amount: string,
-    productAndAddonTiers: BillingV2TierType[][],
+    productAndAddonTiers: BillingTierType[][],
     discountPercent?: number
 ): number => {
     if (!amount) {
@@ -118,7 +115,7 @@ export const convertAmountToUsage = (
 
     let remainingAmount = parseFloat(amount)
     let usage = 0
-    let previousTier: BillingV2TierType | undefined = undefined
+    let previousTier: BillingTierType | undefined = undefined
 
     if (remainingAmount === 0) {
         if (parseFloat(tiers[0].unit_amount_usd) === 0) {
@@ -172,7 +169,7 @@ export const getUpgradeProductLink = ({
     upgradeToPlanKey: string
     redirectPath?: string
     includeAddons: boolean
-    subscriptionLevel?: BillingV2Type['subscription_level']
+    subscriptionLevel?: BillingType['subscription_level']
     featureFlags: FeatureFlagsSet
 }): string => {
     let url = '/api/billing/activate?'
