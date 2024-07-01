@@ -2,7 +2,6 @@ from abc import ABC, abstractmethod
 from datetime import datetime, timedelta, UTC
 from enum import IntEnum
 from typing import Any, Generic, Optional, TypeVar, Union, cast, TypeGuard
-from dateutil.parser import isoparse
 
 import structlog
 from django.conf import settings
@@ -12,7 +11,7 @@ from pydantic import BaseModel, ConfigDict
 from sentry_sdk import capture_exception, push_scope
 
 from posthog.cache_utils import OrjsonJsonSerializer
-from posthog.caching.utils import is_stale
+from posthog.caching.utils import is_stale, last_refresh_from_cached_result, ThresholdMode
 from posthog.clickhouse.client.execute_async import enqueue_process_query_task
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql import ast
@@ -543,15 +542,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return generate_cache_key(f"query_{bytes.decode(to_json(self.get_cache_payload()))}")
 
     def _is_stale(self, cached_result_package, lazy: bool = False) -> bool:
-        last_refresh = getattr(cached_result_package, "last_refresh", None) or cached_result_package.get("last_refresh")
-        if isinstance(last_refresh, str):
-            last_refresh = isoparse(last_refresh)
-
+        last_refresh = last_refresh_from_cached_result(cached_result_package)
         query_date_range = getattr(self, "query_date_range", None)
         date_to = query_date_range.date_to() if query_date_range else None
         interval = query_date_range.interval_name if query_date_range else "minute"
-
-        return is_stale(self.team, date_to=date_to, interval=interval, last_refresh=last_refresh, lazy=lazy)
+        mode = ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT
+        return is_stale(self.team, date_to=date_to, interval=interval, last_refresh=last_refresh, mode=mode)
 
     def _refresh_frequency(self) -> timedelta:
         return timedelta(minutes=1)

@@ -1,10 +1,10 @@
 from datetime import datetime, timedelta, UTC
+from enum import Enum
 from typing import Any, Optional, Union
 
-from dateutil.parser import parser
+from dateutil.parser import parser, isoparse
 
 import posthoganalytics
-
 
 from posthog.client import sync_execute
 from posthog.cloud_utils import is_cloud
@@ -14,7 +14,6 @@ from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.team.team import Team
 from posthog.redis import get_client
-
 
 RECENTLY_ACCESSED_TEAMS_REDIS_KEY = "INSIGHT_CACHE_UPDATE_RECENTLY_ACCESSED_TEAMS"
 
@@ -85,30 +84,49 @@ def stale_cache_invalidation_disabled(team: Team) -> bool:
         return False
 
 
+def last_refresh_from_cached_result(cached_result: dict | object) -> Optional[datetime]:
+    last_refresh: str | datetime | None = getattr(cached_result, "last_refresh", None) or cached_result.get(
+        "last_refresh"
+    )
+    if isinstance(last_refresh, str):
+        last_refresh = isoparse(last_refresh)
+    return last_refresh
+
+
 def is_stale_filter(
     team: Team,
     filter: Filter | RetentionFilter | StickinessFilter | PathFilter,
     cached_result: Any,
 ) -> bool:
     interval = filter.period.lower() if isinstance(filter, RetentionFilter) else filter.interval
-    return is_stale(team, filter.date_to, interval, cached_result)
+    last_refresh = last_refresh_from_cached_result(cached_result)
+    return is_stale(team, filter.date_to, interval, last_refresh)
+
+
+# enum legacy, default, lazy
+class ThresholdMode(Enum):
+    LEGACY = "legacy"
+    DEFAULT = "default"
+    LAZY = "lazy"
 
 
 staleness_threshold_map = {
-    None: timedelta(minutes=1),
-    "minute": timedelta(seconds=15),
-    "hour": timedelta(minutes=15),
-    "day": timedelta(hours=2),
-    "week": timedelta(hours=12),
-    "month": timedelta(days=1),
-}
-staleness_threshold_map_lazy = {
-    None: timedelta(hours=1),
-    "minute": timedelta(hours=1),
-    "hour": timedelta(hours=6),
-    "day": timedelta(hours=24),
-    "week": timedelta(days=2),
-    "month": timedelta(days=2),
+    ThresholdMode.DEFAULT: {
+        None: timedelta(minutes=1),
+        "minute": timedelta(seconds=15),
+        "hour": timedelta(minutes=15),
+        "day": timedelta(hours=2),
+        "week": timedelta(hours=12),
+        "month": timedelta(days=1),
+    },
+    ThresholdMode.LAZY: {
+        None: timedelta(hours=1),
+        "minute": timedelta(hours=1),
+        "hour": timedelta(hours=6),
+        "day": timedelta(hours=24),
+        "week": timedelta(days=2),
+        "month": timedelta(days=2),
+    },
 }
 
 
@@ -117,7 +135,7 @@ def is_stale(
     date_to: Optional[datetime],
     interval: Optional[str],
     last_refresh: Optional[datetime],
-    lazy: bool = False,
+    mode: ThresholdMode = ThresholdMode.DEFAULT,
 ) -> bool:
     """
     Indicates whether a cache item is obviously outdated based on the last_refresh date, the last
@@ -134,10 +152,10 @@ def is_stale(
     if date_to and date_to < last_refresh:
         return False
 
-    if interval not in staleness_threshold_map:
+    if interval not in staleness_threshold_map[mode]:
         return False
 
-    staleness_threshold = staleness_threshold_map_lazy[interval] if lazy else staleness_threshold_map[interval]
+    staleness_threshold = staleness_threshold_map[mode][interval]
 
     max_age = datetime.now(UTC) - staleness_threshold
     return last_refresh < max_age
