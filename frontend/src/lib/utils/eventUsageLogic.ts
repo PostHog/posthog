@@ -50,8 +50,8 @@ import {
     PropertyFilterValue,
     PropertyGroupFilter,
     RecordingDurationFilter,
-    RecordingFilters,
     RecordingReportLoadTimes,
+    RecordingUniversalFilters,
     Resource,
     SessionPlayerData,
     SessionRecordingPlayerTab,
@@ -414,7 +414,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
         reportRecordingsListFetched: (
             loadTime: number,
-            filters: RecordingFilters,
+            filters: RecordingUniversalFilters,
             defaultDurationFilter: RecordingDurationFilter
         ) => ({
             loadTime,

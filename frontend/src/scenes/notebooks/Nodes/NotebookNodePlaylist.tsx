@@ -26,7 +26,7 @@ const Component = ({
     attributes,
     updateAttributes,
 }: NotebookNodeProps<NotebookNodePlaylistAttributes>): JSX.Element => {
-    const { filters, simpleFilters, pinned, nodeId } = attributes
+    const { filters, simpleFilters, pinned, nodeId, universalFilters } = attributes
     const playerKey = `notebook-${nodeId}`
 
     const recordingPlaylistLogicProps: SessionRecordingPlaylistLogicProps = useMemo(
@@ -34,12 +34,11 @@ const Component = ({
             logicKey: playerKey,
             advancedFilters: filters,
             simpleFilters,
+            universalFilters,
             updateSearchParams: false,
             autoPlay: false,
-            onFiltersChange: (newFilters: RecordingFilters) => {
-                updateAttributes({
-                    filters: newFilters,
-                })
+            onFiltersChange: (newFilters, legacyFilters) => {
+                updateAttributes({ universalFilters: newFilters, filters: legacyFilters })
             },
             pinnedRecordings: pinned,
             onPinnedChange(recording, isPinned) {

@@ -4,6 +4,7 @@ import { EditableField } from 'lib/components/EditableField/EditableField'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -29,6 +30,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
 
     const { showFilters } = useValues(playerSettingsLogic)
     const { setShowFilters } = useActions(playerSettingsLogic)
+    const hasUniversalFiltering = useFeatureFlag('SESSION_REPLAY_UNIVERSAL_FILTERS')
 
     if (!playlist && playlistLoading) {
         return (
@@ -136,7 +138,9 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                         advancedFilters={playlist.filters}
                         universalFilters={convertLegacyFiltersToUniversalFilters({}, playlist.filters)}
                         hideSimpleFilters={true}
-                        onFiltersChange={setFilters}
+                        onFiltersChange={(universalFilters, legacyFilters) =>
+                            setFilters(hasUniversalFiltering ? universalFilters : legacyFilters)
+                        }
                         onPinnedChange={onPinnedChange}
                         pinnedRecordings={pinnedRecordings ?? []}
                     />

@@ -16,7 +16,14 @@ import {
 import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
-import { Breadcrumb, RecordingFilters, ReplayTabs, SessionRecordingPlaylistType, SessionRecordingType } from '~/types'
+import {
+    Breadcrumb,
+    RecordingFilters,
+    RecordingUniversalFilters,
+    ReplayTabs,
+    SessionRecordingPlaylistType,
+    SessionRecordingType,
+} from '~/types'
 
 import { addRecordingToPlaylist, removeRecordingFromPlaylist } from '../player/utils/playerUtils'
 import { PINNED_RECORDINGS_LIMIT } from './sessionRecordingsPlaylistLogic'
@@ -38,7 +45,7 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
             properties,
             silent,
         }),
-        setFilters: (filters: RecordingFilters | null) => ({ filters }),
+        setFilters: (filters: RecordingFilters | RecordingUniversalFilters | null) => ({ filters }),
         loadPinnedRecordings: true,
         onPinnedChange: (recording: SessionRecordingType, pinned: boolean) => ({ pinned, recording }),
     }),
@@ -108,7 +115,7 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
     })),
     reducers(() => ({
         filters: [
-            null as RecordingFilters | null,
+            null as RecordingFilters | RecordingUniversalFilters | null,
             {
                 getPlaylistSuccess: (_, { playlist }) => playlist?.filters || null,
                 updatePlaylistSuccess: (_, { playlist }) => playlist?.filters || null,
