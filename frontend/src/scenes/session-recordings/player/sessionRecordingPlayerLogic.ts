@@ -20,7 +20,7 @@ import { subscriptions } from 'kea-subscriptions'
 import { delay } from 'kea-test-utils'
 import { now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { clamp, downloadFile, fromParamsGivenUrl } from 'lib/utils'
+import { clamp, downloadFile } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { wrapConsole } from 'lib/utils/wrapConsole'
 import posthog from 'posthog-js'
@@ -621,7 +621,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 // Check for the "t" search param in the url on first load
                 if (!cache.hasInitialized) {
                     cache.hasInitialized = true
-                    const searchParams = fromParamsGivenUrl(window.location.search)
+                    const searchParams = router.values.searchParams
                     if (searchParams.timestamp) {
                         const desiredStartTime = Number(searchParams.timestamp)
                         actions.seekToTimestamp(desiredStartTime, true)
@@ -673,6 +673,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (props.autoPlay) {
                 // Autoplay assumes we are playing immediately so lets go ahead and load more data
                 actions.setPlay()
+
+                if (router.values.searchParams.pause) {
+                    setTimeout(() => {
+                        // KLUDGE: when loaded for visual regression tests we want to pause the player
+                        // but only after it has had time to buffer and show the frame
+                        actions.setPause()
+                    }, 100)
+                }
             }
         },
 

@@ -1,5 +1,5 @@
 import { Meta } from '@storybook/react'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
@@ -143,30 +143,37 @@ const meta: Meta = {
 }
 export default meta
 
+const sceneUrl = (url: string, searchParams: Record<string, any> = {}): string =>
+    combineUrl(url, {
+        pause: true,
+        t: 7,
+        ...searchParams,
+    }).url
+
 export function RecentRecordings(): JSX.Element {
     useEffect(() => {
-        router.actions.push(urls.replay())
+        router.actions.push(sceneUrl(urls.replay()))
     }, [])
     return <App />
 }
 
 export function RecordingsPlayListNoPinnedRecordings(): JSX.Element {
     useEffect(() => {
-        router.actions.push(urls.replayPlaylist('abcdefg'))
+        router.actions.push(sceneUrl(urls.replayPlaylist('abcdefg')))
     }, [])
     return <App />
 }
 
 export function RecordingsPlayListWithPinnedRecordings(): JSX.Element {
     useEffect(() => {
-        router.actions.push(urls.replayPlaylist('1234567'))
+        router.actions.push(sceneUrl(urls.replayPlaylist('1234567')))
     }, [])
     return <App />
 }
 
 export function SecondRecordingInList(): JSX.Element {
     useEffect(() => {
-        router.actions.push(urls.replay(undefined, {}, recordings[1].id))
+        router.actions.push(sceneUrl(urls.replay(), { sessionRecordingId: recordings[1].id }))
     }, [])
     return <App />
 }

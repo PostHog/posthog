@@ -108,16 +108,14 @@ export const urls = {
     savedInsights: (tab?: string): string => `/insights${tab ? `?tab=${tab}` : ''}`,
     webAnalytics: (): string => `/web`,
 
-    replay: (tab?: ReplayTabs, filters?: Partial<FilterType>, currentRecording?: string): string =>
-        combineUrl(tab ? `/replay/${tab}` : '/replay/recent', {
-            ...(filters ? { filters } : {}),
-            ...(currentRecording ? { sessionRecordingId: currentRecording } : {}),
-        }).url,
+    replay: (tab?: ReplayTabs, filters?: Partial<FilterType>): string =>
+        combineUrl(tab ? `/replay/${tab}` : '/replay/recent', filters ? { filters } : {}).url,
     replayPlaylist: (id: string, filters?: Partial<FilterType>): string =>
         combineUrl(`/replay/playlists/${id}`, filters ? { filters } : {}).url,
     replaySingle: (id: string, filters?: Partial<FilterType>): string =>
         combineUrl(`/replay/${id}`, filters ? { filters } : {}).url,
     replayFilePlayback: (): string => combineUrl('/replay/file-playback').url,
+
     personByDistinctId: (id: string, encode: boolean = true): string =>
         encode ? `/person/${encodeURIComponent(id)}` : `/person/${id}`,
     personByUUID: (uuid: string, encode: boolean = true): string =>
