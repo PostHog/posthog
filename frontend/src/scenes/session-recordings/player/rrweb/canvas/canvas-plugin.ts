@@ -38,6 +38,7 @@ function quickFindClosestCanvasEventIndex(
 
 const PRELOAD_BUFFER_SIZE = 20
 const BUFFER_TIME = 30000 // 30 seconds
+const DEBOUNCE_MILLIS = 250 // currently using 4fps for all recordings
 
 export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
     const canvases = new Map<number, HTMLCanvasElement>([])
@@ -59,21 +60,18 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
         handleQueue.set(e.data.id, [e, replayer])
         debouncedProcessQueuedEvents()
     }
-    const debouncedProcessQueuedEvents = debounce(
-        () => {
-            Array.from(handleQueue.entries()).forEach(([id, [e, replayer]]) => {
-                void (async () => {
-                    try {
-                        await processMutation(e, replayer)
-                        handleQueue.delete(id)
-                    } catch (e) {
-                        handleMutationError(e)
-                    }
-                })()
-            })
-        },
-        250 // currently using 4fps for all recordings
-    )
+    const debouncedProcessQueuedEvents = debounce(() => {
+        Array.from(handleQueue.entries()).forEach(([id, [e, replayer]]) => {
+            void (async () => {
+                try {
+                    await processMutation(e, replayer)
+                    handleQueue.delete(id)
+                } catch (e) {
+                    handleMutationError(e)
+                }
+            })()
+        })
+    }, DEBOUNCE_MILLIS)
 
     const deserializeAndPreloadCanvasEvents = async (data: canvasMutationData, event: eventWithTime): Promise<void> => {
         if (!canvasEventMap.has(event)) {
@@ -228,9 +226,5 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
 }
 
 const handleMutationError = (error: unknown): void => {
-    if (error instanceof Error) {
-        captureException(error)
-    } else {
-        console.error(error)
-    }
+    captureException(error)
 }
