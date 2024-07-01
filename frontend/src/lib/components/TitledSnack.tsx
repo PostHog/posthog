@@ -4,8 +4,10 @@ export function TitledSnack({
     title,
     value,
     type = 'default',
+    titleSuffix = ':',
 }: {
     title: string
+    titleSuffix?: string
     value: string | JSX.Element
     type?: 'default' | 'success'
 }): JSX.Element {
@@ -20,7 +22,10 @@ export function TitledSnack({
                     type === 'success' ? 'bg-success-highlight' : 'bg-primary-highlight'
                 )}
             >
-                <strong>{title}:</strong>
+                <strong>
+                    {title}
+                    {titleSuffix}
+                </strong>
             </span>
             <span
                 className={clsx(

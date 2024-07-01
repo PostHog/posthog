@@ -655,7 +655,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         itemsLoading: [
             (s) => [s.dashboardLoading, s.refreshStatus],
             (dashboardLoading, refreshStatus) => {
-                return dashboardLoading || Object.values(refreshStatus).some((s) => s.loading)
+                return dashboardLoading || Object.values(refreshStatus).some((s) => s.loading || s.queued)
             },
         ],
         isRefreshingQueued: [(s) => [s.refreshStatus], (refreshStatus) => (id: string) => !!refreshStatus[id]?.queued],

@@ -251,66 +251,72 @@ abstract class CdpConsumerBase {
         return await runInstrumentedFunction({
             statsKey: `cdpConsumer.handleEachBatch.executeMatchingFunctions`,
             func: async () => {
-                const results = (
-                    await Promise.all(
-                        invocationGlobals.map((globals) => {
-                            const { functions, total, matching } = this.hogExecutor.findMatchingFunctions(globals)
+                const invocations: { globals: HogFunctionInvocationGlobals; hogFunction: HogFunctionType }[] = []
 
-                            counterFunctionInvocation.inc({ outcome: 'filtered' }, total - matching)
+                invocationGlobals.forEach((globals) => {
+                    const { functions, total, matching } = this.hogExecutor.findMatchingFunctions(globals)
 
-                            // Filter for overflowed and disabled functions
-                            const [healthy, overflowed, disabled] = functions.reduce(
-                                (acc, item) => {
-                                    const state = this.hogWatcher.getFunctionState(item.id)
-                                    if (state >= HogWatcherState.disabledForPeriod) {
-                                        acc[2].push(item)
-                                    } else if (state >= HogWatcherState.overflowed) {
-                                        acc[1].push(item)
-                                    } else {
-                                        acc[0].push(item)
-                                    }
+                    counterFunctionInvocation.inc({ outcome: 'filtered' }, total - matching)
 
-                                    return acc
-                                },
-                                [[], [], []] as [HogFunctionType[], HogFunctionType[], HogFunctionType[]]
-                            )
-
-                            if (overflowed.length) {
-                                counterFunctionInvocation.inc({ outcome: 'overflowed' }, overflowed.length)
-                                // TODO: Report to AppMetrics 2 when it is ready
-                                status.debug('🔁', `Oveflowing functions`, {
-                                    count: overflowed.length,
-                                })
-
-                                this.messagesToProduce.push({
-                                    topic: KAFKA_CDP_FUNCTION_OVERFLOW,
-                                    value: {
-                                        source: 'event_invocations',
-                                        payload: {
-                                            hogFunctionIds: overflowed.map((x) => x.id),
-                                            globals,
-                                        },
-                                    },
-                                    key: globals.event.uuid,
-                                })
+                    // Filter for overflowed and disabled functions
+                    const [healthy, overflowed, disabled] = functions.reduce(
+                        (acc, item) => {
+                            const state = this.hogWatcher.getFunctionState(item.id)
+                            if (state >= HogWatcherState.disabledForPeriod) {
+                                acc[2].push(item)
+                            } else if (state >= HogWatcherState.overflowed) {
+                                acc[1].push(item)
+                            } else {
+                                acc[0].push(item)
                             }
 
-                            if (disabled.length) {
-                                counterFunctionInvocation.inc({ outcome: 'disabled' }, disabled.length)
-                                // TODO: Report to AppMetrics 2 when it is ready
-                                status.debug('🔁', `Disabled functions skipped`, {
-                                    count: disabled.length,
-                                })
-                            }
-
-                            return this.runManyWithHeartbeat(healthy, (x) =>
-                                this.hogExecutor.executeFunction(globals, x)
-                            )
-                        })
+                            return acc
+                        },
+                        [[], [], []] as [HogFunctionType[], HogFunctionType[], HogFunctionType[]]
                     )
-                )
-                    .flat()
-                    .filter((x) => !!x) as HogFunctionInvocationResult[]
+
+                    if (overflowed.length) {
+                        // Group all overflowed functions into one event
+                        counterFunctionInvocation.inc({ outcome: 'overflowed' }, overflowed.length)
+                        // TODO: Report to AppMetrics 2 when it is ready
+                        status.debug('🔁', `Oveflowing functions`, {
+                            count: overflowed.length,
+                        })
+
+                        this.messagesToProduce.push({
+                            topic: KAFKA_CDP_FUNCTION_OVERFLOW,
+                            value: {
+                                source: 'event_invocations',
+                                payload: {
+                                    hogFunctionIds: overflowed.map((x) => x.id),
+                                    globals,
+                                },
+                            },
+                            key: globals.event.uuid,
+                        })
+                    }
+
+                    if (disabled.length) {
+                        counterFunctionInvocation.inc({ outcome: 'disabled' }, disabled.length)
+                        // TODO: Report to AppMetrics 2 when it is ready
+                        status.debug('🔁', `Disabled functions skipped`, {
+                            count: disabled.length,
+                        })
+                    }
+
+                    healthy.forEach((x) => {
+                        invocations.push({
+                            globals,
+                            hogFunction: x,
+                        })
+                    })
+                })
+
+                const results = (
+                    await this.runManyWithHeartbeat(invocations, (item) =>
+                        this.hogExecutor.executeFunction(item.globals, item.hogFunction)
+                    )
+                ).filter((x) => !!x) as HogFunctionInvocationResult[]
 
                 this.hogWatcher.currentObservations.observeResults(results)
                 return results
@@ -556,9 +562,14 @@ export class CdpOverflowConsumer extends CdpConsumerBase {
                     .flat()
 
                 const results = (
-                    await this.runManyWithHeartbeat(invocations, (item) =>
-                        this.hogExecutor.executeFunction(item.globals, item.hogFunctionId)
-                    )
+                    await this.runManyWithHeartbeat(invocations, (item) => {
+                        const state = this.hogWatcher.getFunctionState(item.hogFunctionId)
+                        if (state >= HogWatcherState.disabledForPeriod) {
+                            counterFunctionInvocation.inc({ outcome: 'disabled' })
+                            return
+                        }
+                        return this.hogExecutor.executeFunction(item.globals, item.hogFunctionId)
+                    })
                 ).filter((x) => !!x) as HogFunctionInvocationResult[]
 
                 this.hogWatcher.currentObservations.observeResults(results)
