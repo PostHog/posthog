@@ -288,7 +288,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
         if first_record_batch is None:
             return 0
 
-        if inputs.batch_export_schema is None:
+        if model is None or (isinstance(model, BatchExportModel) and model.name == "events"):
             table_fields = [
                 ("uuid", "VARCHAR(200)"),
                 ("event", "VARCHAR(200)"),
