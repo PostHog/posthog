@@ -22,7 +22,7 @@ from posthog.warehouse.models import (
     asave_external_data_schema,
     get_table_by_schema_id,
     aget_schema_by_id,
-    get_external_data_jobs_by_schema_id,
+    aget_external_data_jobs_by_schema_id,
 )
 
 from posthog.warehouse.models.external_data_job import ExternalDataJob
@@ -210,7 +210,7 @@ async def validate_schema_and_update_table(
         )
         raise
 
-    previous_jobs = get_external_data_jobs_by_schema_id(schema_id=_schema_id)
+    previous_jobs = await aget_external_data_jobs_by_schema_id(schema_id=_schema_id)
     if previous_jobs:
         for previous_job in previous_jobs:
             try:

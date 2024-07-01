@@ -64,10 +64,10 @@ def get_external_data_job(job_id: UUID) -> ExternalDataJob:
 
 
 @database_sync_to_async
-def get_external_data_jobs_by_schema_id(schema_id: UUID) -> list[ExternalDataJob]:
+def aget_external_data_jobs_by_schema_id(schema_id: UUID) -> list[ExternalDataJob]:
     from posthog.warehouse.models import ExternalDataSchema
 
-    return (
+    return list(
         ExternalDataJob.objects.prefetch_related(
             "pipeline", Prefetch("schema", queryset=ExternalDataSchema.objects.prefetch_related("source"))
         )
