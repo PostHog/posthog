@@ -39,7 +39,7 @@ from posthog.session_recordings.models.session_recording_event import (
 
 from posthog.session_recordings.queries.session_recording_list_from_filters import (
     SessionRecordingListFromFilters,
-    EventsSubQuery,
+    ReplayFiltersEventsSubQuery,
 )
 from posthog.session_recordings.queries.session_recording_properties import (
     SessionRecordingProperties,
@@ -301,7 +301,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         distinct_id = str(cast(User, request.user).distinct_id)
         modifiers = safely_read_modifiers_overrides(distinct_id, self.team)
-        matching_events_query_response = EventsSubQuery(
+        matching_events_query_response = ReplayFiltersEventsSubQuery(
             filter=filter, team=self.team, hogql_query_modifiers=modifiers
         ).get_event_ids_for_session()
 

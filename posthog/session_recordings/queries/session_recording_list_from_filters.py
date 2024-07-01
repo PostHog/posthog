@@ -183,7 +183,7 @@ class SessionRecordingListFromFilters:
         optional_exprs: list[ast.Expr] = []
 
         # if in PoE mode then we should be pushing person property queries into here
-        events_sub_query = EventsSubQuery(self._team, self._filter).get_query_for_session_id_matching()
+        events_sub_query = ReplayFiltersEventsSubQuery(self._team, self._filter).get_query_for_session_id_matching()
         if events_sub_query:
             optional_exprs.append(
                 ast.CompareOperation(
@@ -428,7 +428,7 @@ class PersonsIdCompareOperation:
             )
 
 
-class EventsSubQuery:
+class ReplayFiltersEventsSubQuery:
     _team: Team
     _filter: SessionRecordingsFilter
 
