@@ -118,7 +118,20 @@ const meta: Meta = {
                 },
             },
             post: {
-                '/api/projects/:team/query': recordingEventsJson,
+                '/api/projects/:team/query': (req, res, ctx) => {
+                    const body = req.body as Record<string, any>
+
+                    if (
+                        body.query.kind === 'HogQLQuery' &&
+                        body.query.query.startsWith(
+                            'SELECT properties.$session_id as session_id, any(properties) as properties'
+                        )
+                    ) {
+                        return res(ctx.json({ results: [['session_id_one', '{}']] }))
+                    }
+                    // default
+                    return res(ctx.json(recordingEventsJson))
+                },
             },
         }),
     ],
