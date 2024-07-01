@@ -241,7 +241,9 @@ export const WebStatsTrendTile = ({
             if (!dataset) {
                 return
             }
-            const breakdownValue = dataset.breakdownValues?.[graphPoint.index]
+
+            const breakdownValues = dataset.breakdownValues?.[graphPoint.index]
+            const breakdownValue = Array.isArray(breakdownValues) ? breakdownValues[0] : breakdownValues
             if (!breakdownValue) {
                 return
             }

@@ -7,10 +7,20 @@ import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { BreakdownFilter } from '~/queries/schema'
 
-type BreakdownColumnTitleProps = { breakdownFilter: BreakdownFilter }
+interface BreakdownColumnTitleProps {
+    breakdownFilter: BreakdownFilter
+}
 
 export function BreakdownColumnTitle({ breakdownFilter }: BreakdownColumnTitleProps): JSX.Element {
     return <PropertyKeyInfo disableIcon disablePopover value={formatBreakdownType(breakdownFilter)} />
+}
+
+interface MultipleBreakdownColumnTitleProps {
+    children?: string | null
+}
+
+export function MultipleBreakdownColumnTitle({ children }: MultipleBreakdownColumnTitleProps): JSX.Element {
+    return <PropertyKeyInfo disableIcon disablePopover value={children || 'Breakdown Value'} />
 }
 
 type BreakdownColumnItemProps = {

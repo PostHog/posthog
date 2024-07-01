@@ -335,6 +335,48 @@ describe('formatBreakdownLabel()', () => {
             'millenial::Chrome'
         )
     })
+
+    it('handles multiple breakdowns', () => {
+        const breakdownFilter: BreakdownFilter = {
+            breakdowns: [
+                {
+                    value: 'demographic',
+                    type: 'event',
+                },
+                {
+                    value: '$browser',
+                    type: 'event',
+                },
+            ],
+            breakdown: 'fallback',
+        }
+
+        expect(formatBreakdownLabel(['Engineers', 'Chrome'], breakdownFilter, [], identity, 1)).toEqual(
+            'Engineers::Chrome'
+        )
+        expect(formatBreakdownLabel([10, 'Chrome'], breakdownFilter, [], identity, 2)).toEqual('10::Chrome')
+        expect(formatBreakdownLabel([10, 'Chrome'], breakdownFilter, [], () => '10s', 0)).toEqual('10s::Chrome')
+    })
+
+    it('handles a breakdown value of a multiple breakdown', () => {
+        const breakdownFilter: BreakdownFilter = {
+            breakdowns: [
+                {
+                    value: 'demographic',
+                    type: 'event',
+                },
+                {
+                    value: '$browser',
+                    type: 'event',
+                },
+            ],
+            breakdown: 'fallback',
+        }
+
+        expect(formatBreakdownLabel('Chrome', breakdownFilter, [], identity, 1)).toEqual('Chrome')
+        expect(formatBreakdownLabel(10, breakdownFilter, [], identity, 2)).toEqual('10')
+        expect(formatBreakdownLabel(10, breakdownFilter, [], () => '10s', 0)).toEqual('10s')
+    })
 })
 
 describe('formatBreakdownType()', () => {

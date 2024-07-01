@@ -207,26 +207,26 @@ export function isNullBreakdown(breakdown_value: string | number | null | undefi
 }
 
 function isValidJsonArray(maybeJson: string): boolean {
-    try {
-        const json = JSON.parse(maybeJson)
-        return Array.isArray(json)
-    } catch {
-        return false
+    if (maybeJson.startsWith('[')) {
+        try {
+            const json = JSON.parse(maybeJson)
+            return Array.isArray(json)
+        } catch {
+            return false
+        }
     }
+
+    return false
 }
 
 export function formatBreakdownLabel(
     breakdown_value: BreakdownKeyType | undefined,
     breakdownFilter: BreakdownFilter | null | undefined,
     cohorts: CohortType[] | undefined,
-    formatPropertyValueForDisplay: FormatPropertyValueForDisplayFunction | undefined
+    formatPropertyValueForDisplay: FormatPropertyValueForDisplayFunction | undefined,
+    multipleBreakdownIndex?: number
 ): string {
-    if (
-        breakdownFilter?.breakdown_histogram_bin_count != null &&
-        typeof breakdown_value === 'string' &&
-        breakdown_value.length > 0 &&
-        isValidJsonArray(breakdown_value)
-    ) {
+    if (typeof breakdown_value === 'string' && breakdown_value.length > 0 && isValidJsonArray(breakdown_value)) {
         // replace nan with null
         const bucketValues = breakdown_value.replace(/\bnan\b/g, 'null')
         const [bucketStart, bucketEnd] = JSON.parse(bucketValues)
@@ -234,13 +234,15 @@ export function formatBreakdownLabel(
             bucketStart,
             breakdownFilter,
             cohorts,
-            formatPropertyValueForDisplay
+            formatPropertyValueForDisplay,
+            multipleBreakdownIndex
         )
         const formattedBucketEnd = formatBreakdownLabel(
             bucketEnd,
             breakdownFilter,
             cohorts,
-            formatPropertyValueForDisplay
+            formatPropertyValueForDisplay,
+            multipleBreakdownIndex
         )
         if (formattedBucketStart === formattedBucketEnd) {
             return formattedBucketStart
@@ -251,15 +253,32 @@ export function formatBreakdownLabel(
         if (breakdown_value === 0 || breakdown_value === 'all') {
             return 'All Users'
         }
+
         return cohorts?.filter((c) => c.id == breakdown_value)[0]?.name ?? (breakdown_value || '').toString()
     } else if (typeof breakdown_value == 'number') {
-        return isOtherBreakdown(breakdown_value)
-            ? BREAKDOWN_OTHER_DISPLAY
-            : isNullBreakdown(breakdown_value)
-            ? BREAKDOWN_NULL_DISPLAY
-            : formatPropertyValueForDisplay
-            ? formatPropertyValueForDisplay(breakdownFilter?.breakdown, breakdown_value)?.toString() ?? 'None'
-            : String(breakdown_value)
+        if (isOtherBreakdown(breakdown_value)) {
+            return BREAKDOWN_OTHER_DISPLAY
+        }
+
+        if (isNullBreakdown(breakdown_value)) {
+            return BREAKDOWN_NULL_DISPLAY
+        }
+
+        if (formatPropertyValueForDisplay) {
+            const nestedBreakdown =
+                typeof multipleBreakdownIndex === 'number'
+                    ? breakdownFilter?.breakdowns?.[multipleBreakdownIndex]
+                    : undefined
+
+            return (
+                formatPropertyValueForDisplay(
+                    nestedBreakdown?.value ?? breakdownFilter?.breakdown,
+                    breakdown_value
+                )?.toString() ?? 'None'
+            )
+        }
+
+        return String(breakdown_value)
     } else if (typeof breakdown_value == 'string') {
         return isOtherBreakdown(breakdown_value) || breakdown_value === 'nan'
             ? BREAKDOWN_OTHER_DISPLAY
@@ -268,7 +287,7 @@ export function formatBreakdownLabel(
             : breakdown_value
     } else if (Array.isArray(breakdown_value)) {
         return breakdown_value
-            .map((v) => formatBreakdownLabel(v, breakdownFilter, cohorts, formatPropertyValueForDisplay))
+            .map((v, index) => formatBreakdownLabel(v, breakdownFilter, cohorts, formatPropertyValueForDisplay, index))
             .join('::')
     }
     return ''
