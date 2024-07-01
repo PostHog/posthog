@@ -155,7 +155,7 @@ const personsTable: DatabaseSchemaBatchExportTable = {
         team_id: {
             name: 'team_id',
             hogql_value: 'team_id',
-            type: 'number',
+            type: 'integer',
             schema_valid: true,
         },
         distinct_id: {
@@ -176,7 +176,7 @@ const personsTable: DatabaseSchemaBatchExportTable = {
             type: 'json',
             schema_valid: true,
         },
-        properties: {
+        version: {
             name: 'version',
             hogql_value: 'version',
             type: 'integer',
