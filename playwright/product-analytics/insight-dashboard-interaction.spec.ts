@@ -218,7 +218,6 @@ test.describe('changes on dashboard are reflected in insight', () => {
         // move to another dashboard
         await page.locator('.CardMeta').getByTestId('more-button').click()
         await page.locator('.Popover').getByText('Move to').click()
-        // await page.pause()
         await page.locator('.Popover[aria-level="1"] .LemonButton').first().click()
 
         // open the insight
@@ -234,7 +233,30 @@ test.describe('changes on dashboard are reflected in insight', () => {
         })
     })
 
-    // move to other dashboard
+    test('renaming the dashboard', async ({ page }) => {
+        const insightPage = new InsightPage(page)
+        const dashboardPage = new DashboardPage(page)
+        await dashboardPage.createNew()
+
+        // create an insight and add it to a new dashboard
+        await insightPage.createNew()
+        await insightPage.addToNewDashboard()
+        await page.pause()
+
+        // rename the dashboard
+        const newName = randomString('new-name')
+        await dashboardPage.editName(newName)
+
+        // open the insight
+        await page.goBack()
+
+        // verify the dashboard was renamed
+        await insightPage.withReload(async () => {
+            await insightPage.dashboardButton.click()
+            await page.getByTestId('dashboard-searchfield').fill(newName)
+            await expect(page.getByText(newName)).toBeVisible()
+        })
+    })
+
     // add insight
-    // renaming dashboard
 })
