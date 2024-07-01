@@ -1,4 +1,4 @@
-import { LemonModal } from '@posthog/lemon-ui'
+import { LemonBanner, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 
@@ -18,10 +18,10 @@ export function UpgradeModal(): JSX.Element {
                     isGrandfathered={upgradeModalIsGrandfathered ?? undefined}
                     background={false}
                 >
-                    <div className="pr-7">
-                        You should have access to this feature already. If you are still seeing this modal, please let
-                        us know 🙂
-                    </div>
+                    <LemonBanner type="error">
+                        There's been an error retrieving your billing info. Please try again in a few minutes. If you
+                        are still seeing this modal, please let us know.
+                    </LemonBanner>
                 </PayGateMini>
             </div>
         </LemonModal>

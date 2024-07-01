@@ -12,6 +12,7 @@ import { getProductIcon } from 'scenes/products/Products'
 
 import {
     AvailableFeature,
+    AvailableFeatureUnion,
     BillingProductV2AddonType,
     BillingProductV2Type,
     BillingV2FeatureType,
@@ -35,6 +36,11 @@ export interface PayGateMiniProps {
     isGrandfathered?: boolean
     docsLink?: string
 }
+
+const featuresWithLimitOnPaidUnlimitedOnTeams: AvailableFeatureUnion[] = [
+    AvailableFeature.ORGANIZATIONS_PROJECTS,
+    AvailableFeature.MANAGED_REVERSE_PROXY,
+]
 
 /** A sort of paywall for premium features.
  *
@@ -63,7 +69,8 @@ export function PayGateMini({
     const { billing, billingLoading } = useValues(billingLogic)
     const { hideUpgradeModal } = useActions(upgradeModalLogic)
 
-    const scrollToProduct = !(featureInfo?.key === AvailableFeature.ORGANIZATIONS_PROJECTS && !isAddonProduct)
+    const scrollToProduct =
+        featureInfo?.key && !(featuresWithLimitOnPaidUnlimitedOnTeams.includes(featureInfo?.key) && !isAddonProduct)
 
     useEffect(() => {
         if (gateVariant) {
@@ -114,7 +121,7 @@ export function PayGateMini({
                         featureInfo={featureInfo}
                         onCtaClick={handleCtaClick}
                         billing={billing}
-                        scrollToProduct={scrollToProduct}
+                        scrollToProduct={!!scrollToProduct}
                         isAddonProduct={isAddonProduct}
                     />
                     {docsLink && isCloudOrDev && (
@@ -207,46 +214,71 @@ const renderUsageLimitMessage = (
     isAddonProduct?: boolean,
     handleCtaClick?: () => void
 ): JSX.Element => {
-    if (featureAvailableOnOrg?.limit && gateVariant !== 'move-to-cloud') {
+    if (
+        (featureAvailableOnOrg?.limit || (!featureAvailableOnOrg && featureInfoOnNextPlan?.limit)) &&
+        gateVariant !== 'move-to-cloud'
+    ) {
         return (
             <div>
-                <p>
-                    You've reached your usage limit for{' '}
-                    <Tooltip title={featureInfo.description}>
-                        <span>
-                            <b>{featureInfo.name}</b>
-                            <IconInfo className="ml-0.5 text-muted" />
-                        </span>
-                    </Tooltip>
-                    .
-                </p>
-                <p className="border border-border bg-bg-3000 rounded p-4">
-                    <b>Your current plan limit:</b>{' '}
-                    <span>
-                        {featureAvailableOnOrg.limit} {featureAvailableOnOrg.unit}
-                    </span>
-                </p>
-                {featureInfo.key === AvailableFeature.ORGANIZATIONS_PROJECTS && !isAddonProduct ? (
+                {featureAvailableOnOrg ? (
+                    <>
+                        <p>
+                            You've reached your usage limit for{' '}
+                            <Tooltip title={featureInfo.description}>
+                                <span>
+                                    <b>{featureInfo.name}</b>
+                                    <IconInfo className="ml-0.5 text-muted" />
+                                </span>
+                            </Tooltip>
+                            .
+                        </p>
+                        <p className="border border-border bg-bg-3000 rounded p-4">
+                            <b>Your current plan limit:</b>{' '}
+                            <span>
+                                {featureAvailableOnOrg.limit} {featureAvailableOnOrg.unit}
+                            </span>
+                        </p>
+                    </>
+                ) : featuresWithLimitOnPaidUnlimitedOnTeams.includes(featureInfo.key) && !isAddonProduct ? (
+                    <>
+                        <p>
+                            <Tooltip title={featureInfo.description}>
+                                <span>
+                                    <b>{featureInfo.name}</b>
+                                    <IconInfo className="ml-0.5 text-muted" />
+                                </span>
+                            </Tooltip>{' '}
+                            is only available on paid plans.
+                        </p>
+                    </>
+                ) : null}
+                {(featureAvailableOnOrg || featuresWithLimitOnPaidUnlimitedOnTeams.includes(featureInfo.key)) &&
+                !isAddonProduct ? (
                     <>
                         <p>
                             Please enter your credit card details by subscribing to any product (eg. Product analytics
-                            or Session replay) to create up to <b>{featureInfoOnNextPlan?.limit} projects</b>.
+                            or Session replay) to create up to{' '}
+                            <b>
+                                {featureInfoOnNextPlan?.limit || 'unlimited'} {featureInfoOnNextPlan?.unit}
+                            </b>
+                            . You can set billing limits as low as $0 to control your spend.
                         </p>
                         <p className="italic text-xs text-muted mb-4">
-                            Need unlimited projects? Check out the{' '}
+                            Need unlimited {featureInfoOnNextPlan?.unit}s? Check out the{' '}
                             <Link to="/organization/billing?products=platform_and_support" onClick={handleCtaClick}>
                                 Teams addon
                             </Link>
                             .
                         </p>
                     </>
-                ) : featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' &&
-                  billing?.subscription_level === 'free' &&
-                  !isAddonProduct ? (
-                    <p>Upgrade to create more {featureInfo.name}</p>
+                ) : isAddonProduct ? (
+                    <p>
+                        Please upgrade to the <b>{productWithFeature.name} addon</b> to create more{' '}
+                        {featureInfoOnNextPlan?.unit}.
+                    </p>
                 ) : (
                     <p>
-                        Upgrade your <b>{productWithFeature.name}</b> plan to create more {featureInfo.name}
+                        Please upgrade your <b>{productWithFeature.name}</b> plan to create more {featureInfo.name}.
                     </p>
                 )}
             </div>
