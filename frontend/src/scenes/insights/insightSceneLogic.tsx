@@ -206,7 +206,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             { shortId, mode, subscriptionId }, // url params
             { dashboard, ...searchParams }, // search params
             { filters: _filters, q }, // hash params
-            { method, initial }, // "location changed" event payload
+            { method }, // "location changed" event payload
             { searchParams: previousSearchParams } // previous location
         ) => {
             const insightMode =
