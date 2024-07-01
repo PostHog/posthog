@@ -4,9 +4,11 @@ import { urls } from 'scenes/urls'
 import { InsightType } from '~/types'
 
 import { randomString } from '../utils'
+import { DashboardPage } from './dashboardPage'
 
 export class InsightPage {
     readonly page: Page
+
     readonly saveButton: Locator
     readonly editButton: Locator
     readonly topBarName: Locator
@@ -23,6 +25,9 @@ export class InsightPage {
     // menu
     readonly moreButton: Locator
     readonly toggleEditorButton: Locator
+
+    // dashboard
+    readonly dashboardButton: Locator
 
     // source editor
     readonly editor: Locator
@@ -45,6 +50,8 @@ export class InsightPage {
         this.moreButton = page.getByTestId('more-button')
         this.toggleEditorButton = page.getByTestId('show-insight-source')
 
+        this.dashboardButton = page.getByTestId('save-to-dashboard-button')
+
         this.editor = this.page.getByTestId('query-editor').locator('.monaco-editor')
         this.updateSourceButton = page.getByRole('button', { name: 'Update and run' })
     }
@@ -56,7 +63,7 @@ export class InsightPage {
         return this
     }
 
-    async createNew(insightType?: InsightType, insightName?: string): Promise<InsightPage> {
+    async createNew(insightName?: string, insightType?: InsightType): Promise<InsightPage> {
         await this.goToNew(insightType)
         await this.editName(insightName)
         await this.save()
@@ -133,10 +140,39 @@ export class InsightPage {
     async delete(): Promise<void> {
         await this.moreButton.click()
         await this.page.getByTestId('delete-insight-from-insight-view').click()
+        await expect(this.page.locator('.saved-insights')).toBeVisible()
     }
 
     async duplicate(): Promise<void> {
         await this.moreButton.click()
         await this.page.getByTestId('duplicate-insight-from-insight-view').click()
+    }
+
+    /*
+     * Dashboards
+     */
+    async addToNewDashboard(dashboardName?: string): Promise<void> {
+        await this.dashboardButton.click()
+        await this.page.locator('.LemonModal').getByText('Add to a new dashboard').click()
+        await this.page.getByTestId('create-dashboard-blank').click()
+        await expect(this.page.locator('.dashboard')).toBeVisible()
+
+        if (dashboardName) {
+            await new DashboardPage(this.page).editName(dashboardName)
+        }
+    }
+
+    async removeDashboard(dashboardName?: string): Promise<void> {
+        await this.dashboardButton.click()
+        if (dashboardName) {
+            await this.page.getByTestId('dashboard-searchfield').fill(dashboardName)
+        }
+        await this.page.getByText('Remove from dashboard').first().click()
+    }
+
+    async openDashboard(dashboardName: string): Promise<void> {
+        await this.dashboardButton.click()
+        await this.page.getByTestId('dashboard-searchfield').fill(dashboardName)
+        await this.page.getByTestId('dashboard-list-item').getByRole('link').first().click()
     }
 }

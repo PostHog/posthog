@@ -1,8 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { urls } from 'scenes/urls'
 
-import { InsightType } from '~/types'
-
 import { SettingsPage } from '../settingsPage'
 import { Toast } from '../shared/toast'
 import { getLemonSwitchValue } from '../utils'
@@ -69,7 +67,7 @@ test('can edit insight metadata', async ({ page }) => {
 })
 
 test('can undo insight metadata edit', async ({ page }) => {
-    const insight = await new InsightPage(page).createNew(InsightType.TRENDS, 'old name')
+    const insight = await new InsightPage(page).createNew('old name')
     const toast = new Toast(page)
 
     await insight.editName('new name')
@@ -114,7 +112,7 @@ test("can't save unchanged insight", async ({ page }) => {
 })
 
 test('can delete insight', async ({ page }) => {
-    const insight = await new InsightPage(page).createNew(InsightType.TRENDS, 'my insight')
+    const insight = await new InsightPage(page).createNew('my insight')
     const toast = new Toast(page)
 
     await page.pause()
@@ -131,7 +129,7 @@ test('can delete insight', async ({ page }) => {
 })
 
 test('can duplicate insight', async ({ page }) => {
-    const insight = await new InsightPage(page).createNew(InsightType.TRENDS, 'my insight')
+    const insight = await new InsightPage(page).createNew('my insight')
     const toast = new Toast(page)
 
     await page.pause()
