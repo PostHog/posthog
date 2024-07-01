@@ -38,7 +38,6 @@ export const RecordingsUniversalFilters = ({
                         disabled={filters.live_mode}
                         onChange={(changedDateFrom, changedDateTo) => {
                             setFilters({
-                                ...filters,
                                 date_from: changedDateFrom,
                                 date_to: changedDateTo,
                             })
@@ -69,10 +68,7 @@ export const RecordingsUniversalFilters = ({
                             size="small"
                             filters={filters}
                             onChange={(testFilters) =>
-                                setFilters({
-                                    ...filters,
-                                    filter_test_accounts: testFilters.filter_test_accounts,
-                                })
+                                setFilters({ filter_test_accounts: testFilters.filter_test_accounts })
                             }
                         />
                     </div>
@@ -91,7 +87,6 @@ export const RecordingsUniversalFilters = ({
                             }
 
                             setFilters({
-                                ...filters,
                                 filter_group: {
                                     type: type,
                                     values: values,
@@ -115,12 +110,7 @@ export const RecordingsUniversalFilters = ({
                         TaxonomicFilterGroupType.PersonProperties,
                         TaxonomicFilterGroupType.SessionProperties,
                     ]}
-                    onChange={(filterGroup) => {
-                        setFilters({
-                            ...filters,
-                            filter_group: filterGroup,
-                        })
-                    }}
+                    onChange={(filterGroup) => setFilters({ filter_group: filterGroup })}
                 >
                     <RecordingsUniversalFilterGroup />
                 </UniversalFilters>
