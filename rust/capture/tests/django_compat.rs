@@ -100,7 +100,7 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
         let timesource = FixedTime { time: case.now };
 
         let redis = Arc::new(MockRedisClient::new());
-        let billing = BillingLimiter::new(Duration::weeks(1), redis.clone())
+        let billing = BillingLimiter::new(Duration::weeks(1), redis.clone(), None)
             .expect("failed to create billing limiter");
 
         let app = router(

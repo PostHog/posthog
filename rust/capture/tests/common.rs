@@ -47,6 +47,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     otel_sampling_rate: 0.0,
     otel_service_name: "capture-testing".to_string(),
     export_prometheus: false,
+    redis_key_prefix: None,
 });
 
 static TRACING_INIT: Once = Once::new();
