@@ -1,6 +1,8 @@
+import re
 import zoneinfo
 from dataclasses import dataclass
 from datetime import datetime
+from itertools import groupby
 from typing import Optional
 from unittest.mock import MagicMock, patch
 from django.test import override_settings
@@ -362,8 +364,16 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([0, 0, 1, 1, 3, 0, 0, 1, 0, 0, 0], response.results[1]["data"])
 
         # Check the timings
-        i, timing = next(((i, timing) for i, timing in enumerate(response.timings) if "series_" in timing.k))
-        assert response.timings[i - 1].k in timing.k
+        response_groups = [
+            k
+            for k, _ in groupby(
+                response.timings, key=lambda query_timing: "".join(re.findall(r"series_\d+", query_timing.k))
+            )
+        ]
+        assert response_groups[0] == ""
+        assert response_groups[1] == "series_0"
+        assert response_groups[2] == "series_1"
+        assert response_groups[3] == ""
 
     def test_formula(self):
         self._create_test_events()

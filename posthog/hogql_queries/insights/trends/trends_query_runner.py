@@ -359,8 +359,8 @@ class TrendsQueryRunner(QueryRunner):
                     )
                     for index, query in enumerate(queries)
                 ]
-                [j.start() for j in jobs]  # Start the threads
-                [j.join() for j in jobs]  # Ensure all of the threads have finished
+                [j.start() for j in jobs]  # type:ignore
+                [j.join() for j in jobs]  # type:ignore
 
         # Raise any errors raised in a seperate thread
         if len(errors) > 0:
