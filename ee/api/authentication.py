@@ -18,7 +18,7 @@ from social_core.exceptions import AuthFailed, AuthMissingParameter
 from social_django.utils import load_backend, load_strategy
 
 from posthog.constants import AvailableFeature
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import OrganizationMembershipLevel
 from posthog.models.organization_domain import OrganizationDomain
 
 
@@ -26,7 +26,7 @@ from posthog.models.organization_domain import OrganizationDomain
 def saml_metadata_view(request, *args, **kwargs):
     if (
         not request.user.organization_memberships.get(organization=request.user.organization).level
-        >= OrganizationMembership.Level.ADMIN
+        >= OrganizationMembershipLevel.ADMIN
     ):
         raise PermissionDenied("You need to be an administrator or owner to access this resource.")
 

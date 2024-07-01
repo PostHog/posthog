@@ -5,7 +5,7 @@ from ee.models.feature_flag_role_access import FeatureFlagRoleAccess
 from ee.models.organization_resource_access import OrganizationResourceAccess
 from ee.models.role import Role
 from posthog.models.feature_flag import FeatureFlag
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import OrganizationMembershipLevel
 from posthog.models.user import User
 
 
@@ -83,7 +83,7 @@ class TestFeatureFlagRoleAccessAPI(APILicensedTest):
             access_level=OrganizationResourceAccess.AccessLevel.CAN_ONLY_VIEW,
             organization=self.organization,
         )
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization.save()
         self.organization_membership.save()
         self.client.post(
@@ -118,7 +118,7 @@ class TestFeatureFlagRoleAccessAPI(APILicensedTest):
         self.assertEqual(response_flags.json()["results"][0]["can_edit"], False)
 
         # change to admin so we can mimic someone else adding us to the role and feature flag
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
 
         # Add role membership and feature flag access level
@@ -131,7 +131,7 @@ class TestFeatureFlagRoleAccessAPI(APILicensedTest):
             f"/api/projects/@current/feature_flags/{flag.id}/role_access",
             {"role_id": self.eng_role.id},
         )
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembershipLevel.MEMBER
         self.organization_membership.save()
         # Should now have edit privileges
         response_flags = self.client.get(f"/api/projects/@current/feature_flags")
@@ -146,7 +146,7 @@ class TestFeatureFlagRoleAccessAPI(APILicensedTest):
         user_a = User.objects.create_and_join(self.organization, "a@potato.com", None)
         flag = FeatureFlag.objects.create(created_by=user_a, key="flag_a", name="Flag A", team=self.team)
 
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
 
         res = self.client.post(
@@ -156,7 +156,7 @@ class TestFeatureFlagRoleAccessAPI(APILicensedTest):
 
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
 
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembershipLevel.MEMBER
         self.organization_membership.save()
 
         response = self.client.post(

@@ -14,12 +14,12 @@ from posthog.models import (
     Group,
     GroupTypeMapping,
     Organization,
-    OrganizationMembership,
     Person,
     PersonDistinctId,
     Team,
     User,
 )
+from posthog.models.organization import OrganizationMembershipLevel
 from posthog.models.utils import UUIDT
 
 from .matrix import Matrix
@@ -69,7 +69,7 @@ class MatrixManager:
                     email,
                     password,
                     first_name,
-                    OrganizationMembership.Level.ADMIN,
+                    OrganizationMembershipLevel.ADMIN,
                     is_staff=is_staff,
                 )
                 team = self.create_team(organization)

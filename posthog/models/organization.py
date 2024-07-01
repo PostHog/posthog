@@ -47,6 +47,14 @@ class OrganizationUsageInfo(TypedDict):
     period: Optional[list[str]]
 
 
+class OrganizationMembershipLevel(models.IntegerChoices):
+    """Keep in sync with TeamMembership.Level (only difference being projects not having an Owner)."""
+
+    MEMBER = 1, "member"
+    ADMIN = 8, "administrator"
+    OWNER = 15, "owner"
+
+
 class ProductFeature(TypedDict):
     key: str
     name: str
@@ -79,7 +87,7 @@ class OrganizationManager(models.Manager):
                 organization_membership = OrganizationMembership.objects.create(
                     organization=organization,
                     user=user,
-                    level=OrganizationMembership.Level.OWNER,
+                    level=OrganizationMembershipLevel.OWNER,
                 )
                 user.current_organization = organization
                 user.organization = user.current_organization  # Update cached property
@@ -147,6 +155,10 @@ class Organization(UUIDModel):
     never_drop_data: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
     # Scoring levels defined in billing::customer::TrustScores
     customer_trust_scores: models.JSONField = models.JSONField(default=dict, null=True, blank=True)
+
+    billing_access_level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
+        default=OrganizationMembershipLevel.MEMBER, choices=OrganizationMembershipLevel.choices, null=True, blank=True
+    )
 
     # DEPRECATED attributes (should be removed on next major version)
     setup_section_2_completed: models.BooleanField = models.BooleanField(default=True)
@@ -251,12 +263,7 @@ def ensure_available_product_features_sync(sender, instance: Organization, **kwa
 
 
 class OrganizationMembership(UUIDModel):
-    class Level(models.IntegerChoices):
-        """Keep in sync with TeamMembership.Level (only difference being projects not having an Owner)."""
-
-        MEMBER = 1, "member"
-        ADMIN = 8, "administrator"
-        OWNER = 15, "owner"
+    Level = OrganizationMembershipLevel
 
     organization: models.ForeignKey = models.ForeignKey(
         "posthog.Organization",
@@ -285,18 +292,18 @@ class OrganizationMembership(UUIDModel):
         ]
 
     def __str__(self):
-        return str(self.Level(self.level))
+        return str(OrganizationMembershipLevel(self.level))
 
     def validate_update(
         self,
         membership_being_updated: "OrganizationMembership",
-        new_level: Optional[Level] = None,
+        new_level: Optional[OrganizationMembershipLevel] = None,
     ) -> None:
         if new_level is not None:
             if membership_being_updated.id == self.id:
                 raise exceptions.PermissionDenied("You can't change your own access level.")
-            if new_level == OrganizationMembership.Level.OWNER:
-                if self.level != OrganizationMembership.Level.OWNER:
+            if new_level == OrganizationMembershipLevel.OWNER:
+                if self.level != OrganizationMembershipLevel.OWNER:
                     raise exceptions.PermissionDenied(
                         "You can only make another member owner if you're this organization's owner."
                     )
@@ -308,7 +315,7 @@ class OrganizationMembership(UUIDModel):
         if membership_being_updated.id != self.id:
             if membership_being_updated.organization_id != self.organization_id:
                 raise exceptions.PermissionDenied("You both need to belong to the same organization.")
-            if self.level < OrganizationMembership.Level.ADMIN:
+            if self.level < OrganizationMembershipLevel.ADMIN:
                 raise exceptions.PermissionDenied("You can only edit others if you are an admin.")
             if membership_being_updated.level > self.level:
                 raise exceptions.PermissionDenied("You can only edit others with level lower or equal to you.")
@@ -337,7 +344,7 @@ class OrganizationInvite(UUIDModel):
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     message: models.TextField = models.TextField(blank=True, null=True)
     level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
-        default=OrganizationMembership.Level.MEMBER, choices=OrganizationMembership.Level.choices
+        default=OrganizationMembershipLevel.MEMBER, choices=OrganizationMembershipLevel.choices
     )
 
     def validate(

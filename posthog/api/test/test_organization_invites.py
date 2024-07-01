@@ -8,7 +8,7 @@ from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import (
     Organization,
     OrganizationInvite,
-    OrganizationMembership,
+    OrganizationMembershipLevel,
 )
 from posthog.test.base import APIBaseTest
 
@@ -152,11 +152,11 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         count = OrganizationInvite.objects.count()
 
         response = self.client.post(
-            "/api/organizations/@current/invites/", {"target_email": email, "level": OrganizationMembership.Level.OWNER}
+            "/api/organizations/@current/invites/", {"target_email": email, "level": OrganizationMembershipLevel.OWNER}
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         obj = OrganizationInvite.objects.get(id=response.json()["id"])
-        self.assertEqual(obj.level, OrganizationMembership.Level.OWNER)
+        self.assertEqual(obj.level, OrganizationMembershipLevel.OWNER)
 
         self.assertEqual(OrganizationInvite.objects.count(), count + 1)
 
@@ -309,7 +309,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
     # Deleting invites
 
     def test_delete_organization_invite_if_plain_member(self):
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembershipLevel.MEMBER
         self.organization_membership.save()
         invite = OrganizationInvite.objects.create(organization=self.organization)
         response = self.client.delete(f"/api/organizations/@current/invites/{invite.id}")

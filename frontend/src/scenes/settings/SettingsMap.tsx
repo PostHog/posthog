@@ -1,12 +1,13 @@
+import { Billing } from 'scenes/billing/Billing'
 import { BounceRatePageViewModeSetting } from 'scenes/settings/project/BounceRatePageViewMode'
 import { PersonsJoinMode } from 'scenes/settings/project/PersonsJoinMode'
 import { PersonsOnEvents } from 'scenes/settings/project/PersonsOnEvents'
 
 import { Invites } from './organization/Invites'
-import { Members } from './organization/Members'
+import { OrgAdminConfiguration } from './organization/OrgAdminConfiguration'
 import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
+import { OrganizationMembers } from './organization/OrganizationMembers'
 import { OrganizationDisplayName } from './organization/OrgDisplayName'
-import { OrganizationEmailPreferences } from './organization/OrgEmailPreferences'
 import { PermissionsGrid } from './organization/Permissions/PermissionsGrid'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
 import { AutocaptureSettings, ExceptionAutocaptureSettings } from './project/AutocaptureSettings'
@@ -301,12 +302,12 @@ export const SettingsMap: SettingSection[] = [
             {
                 id: 'members',
                 title: 'Organization members',
-                component: <Members />,
+                component: <OrganizationMembers />,
             },
             {
-                id: 'email-members',
-                title: 'Notification preferences',
-                component: <OrganizationEmailPreferences />,
+                id: 'members-admin-config',
+                title: 'Advanced configuration',
+                component: <OrgAdminConfiguration />,
             },
         ],
     },
@@ -331,6 +332,18 @@ export const SettingsMap: SettingSection[] = [
                 id: 'organization-rbac',
                 title: 'Role-based access',
                 component: <PermissionsGrid />,
+            },
+        ],
+    },
+    {
+        level: 'organization',
+        id: 'organization-billing',
+        title: 'Billing',
+        settings: [
+            {
+                id: 'organization-billing',
+                title: 'Billing',
+                component: <Billing />,
             },
         ],
     },

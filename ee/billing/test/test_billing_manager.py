@@ -7,7 +7,7 @@ from ee.billing.billing_manager import BillingManager
 from ee.billing.billing_types import Product
 from ee.models.license import License, LicenseManager
 from posthog.cloud_utils import TEST_clear_instance_license_cache
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import OrganizationMembershipLevel
 from posthog.models.user import User
 from posthog.test.base import BaseTest
 
@@ -69,7 +69,7 @@ class TestBillingManager(BaseTest):
             organization=organization,
             email="y@x.com",
             password=None,
-            level=OrganizationMembership.Level.ADMIN,
+            level=OrganizationMembershipLevel.ADMIN,
         )
         organization.refresh_from_db()
         assert len(organization.members.values_list("distinct_id", flat=True)) == 2  # one exists in the test base
@@ -92,7 +92,7 @@ class TestBillingManager(BaseTest):
             organization=organization,
             email="y@x.com",
             password=None,
-            level=OrganizationMembership.Level.OWNER,
+            level=OrganizationMembershipLevel.OWNER,
         )
         organization.refresh_from_db()
         assert len(organization.members.values_list("distinct_id", flat=True)) == 2  # one exists in the test base
@@ -115,19 +115,19 @@ class TestBillingManager(BaseTest):
             organization=organization,
             email="y1@x.com",
             password=None,
-            level=OrganizationMembership.Level.MEMBER,
+            level=OrganizationMembershipLevel.MEMBER,
         )
         User.objects.create_and_join(
             organization=organization,
             email="y2@x.com",
             password=None,
-            level=OrganizationMembership.Level.ADMIN,
+            level=OrganizationMembershipLevel.ADMIN,
         )
         User.objects.create_and_join(
             organization=organization,
             email="y3@x.com",
             password=None,
-            level=OrganizationMembership.Level.OWNER,
+            level=OrganizationMembershipLevel.OWNER,
         )
         organization.refresh_from_db()
         BillingManager(license).update_billing_admin_emails(organization)

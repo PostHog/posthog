@@ -7,7 +7,7 @@ from typing import Optional
 from rest_framework import serializers
 
 from posthog.models import Organization, Team, User
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import OrganizationMembership, OrganizationMembershipLevel
 
 
 class UserBasicSerializer(serializers.ModelSerializer):
@@ -88,7 +88,7 @@ class OrganizationBasicSerializer(serializers.ModelSerializer):
         model = Organization
         fields = ["id", "name", "slug", "membership_level"]
 
-    def get_membership_level(self, organization: Organization) -> Optional[OrganizationMembership.Level]:
+    def get_membership_level(self, organization: Organization) -> Optional[OrganizationMembershipLevel]:
         membership = OrganizationMembership.objects.filter(
             organization=organization, user=self.context["request"].user
         ).first()

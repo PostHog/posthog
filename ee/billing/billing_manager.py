@@ -16,7 +16,7 @@ from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.models import Organization
-from posthog.models.organization import OrganizationMembership, OrganizationUsageInfo
+from posthog.models.organization import OrganizationMembership, OrganizationMembershipLevel, OrganizationUsageInfo
 
 logger = structlog.get_logger(__name__)
 
@@ -142,7 +142,7 @@ class BillingManager:
         try:
             admin_emails = list(
                 organization.members.filter(
-                    organization_membership__level__gte=OrganizationMembership.Level.ADMIN
+                    organization_membership__level__gte=OrganizationMembershipLevel.ADMIN
                 ).values_list("email", flat=True)
             )
             self.update_billing(organization, {"org_admin_emails": admin_emails})

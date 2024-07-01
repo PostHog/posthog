@@ -18,7 +18,7 @@ from posthog.models import ActivityLog, EarlyAccessFeature
 from posthog.models.async_deletion.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.dashboard import Dashboard
 from posthog.models.instance_setting import get_instance_setting
-from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembershipLevel
 from posthog.models.team import Team
 from posthog.models.team.team import get_team_in_cache
 from posthog.temporal.common.client import sync_connect
@@ -95,7 +95,7 @@ class TestTeamAPI(APIBaseTest):
             {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": AvailableFeature.ORGANIZATIONS_PROJECTS}
         ]
         self.organization.save()
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
 
         get_geoip_properties_mock.return_value = {}
@@ -127,7 +127,7 @@ class TestTeamAPI(APIBaseTest):
             self.assertEqual(Team.objects.count(), 1)
 
     def test_cant_create_a_second_project_without_license(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
         self.assertEqual(Team.objects.count(), 1)
 
@@ -257,7 +257,7 @@ class TestTeamAPI(APIBaseTest):
     @patch("posthog.api.team.delete_bulky_postgres_data")
     @patch("posthoganalytics.capture")
     def test_delete_team_activity_log(self, mock_capture: MagicMock, mock_delete_bulky_postgres_data: MagicMock):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
 
         team: Team = Team.objects.create_with_data(organization=self.organization)
@@ -300,7 +300,7 @@ class TestTeamAPI(APIBaseTest):
     @patch("posthog.api.team.delete_bulky_postgres_data")
     @patch("posthoganalytics.capture")
     def test_delete_team_own_second(self, mock_capture: MagicMock, mock_delete_bulky_postgres_data: MagicMock):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
 
         team: Team = Team.objects.create_with_data(organization=self.organization)
@@ -329,7 +329,7 @@ class TestTeamAPI(APIBaseTest):
         mock_delete_bulky_postgres_data.assert_called_once_with(team_ids=[team.pk])
 
     def test_delete_bulky_postgres_data(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
 
         team: Team = Team.objects.create_with_data(organization=self.organization)
@@ -379,7 +379,7 @@ class TestTeamAPI(APIBaseTest):
         self.assertEqual(response.status_code, 204)
 
     def test_delete_batch_exports(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
 
         team: Team = Team.objects.create_with_data(organization=self.organization)
@@ -425,7 +425,7 @@ class TestTeamAPI(APIBaseTest):
 
     @freeze_time("2022-02-08")
     def test_reset_token(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
 
         self._assert_activity_log_is_empty()
@@ -514,7 +514,7 @@ class TestTeamAPI(APIBaseTest):
 
     @patch("posthog.api.team.create_data_for_demo_team.delay")
     def test_org_member_can_create_demo_project(self, mock_create_data_for_demo_team: MagicMock):
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembershipLevel.MEMBER
         self.organization_membership.save()
         response = self.client.post("/api/projects/", {"name": "Hedgebox", "is_demo": True})
         mock_create_data_for_demo_team.assert_called_once()
@@ -559,7 +559,7 @@ class TestTeamAPI(APIBaseTest):
     def test_team_creation_is_in_activity_log(self):
         Team.objects.all().delete()
 
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
 
         team_name = str(uuid.uuid4())
@@ -592,7 +592,7 @@ class TestTeamAPI(APIBaseTest):
 
     def test_team_is_cached_on_create_and_update(self):
         Team.objects.all().delete()
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
 
         response = self.client.post("/api/projects/", {"name": "Test", "is_demo": False})

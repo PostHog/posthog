@@ -12,6 +12,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models import OrganizationMembership
 from posthog.models.feature_flag import FeatureFlag
+from posthog.models.organization import OrganizationMembershipLevel
 from posthog.models.user import User
 
 
@@ -30,7 +31,7 @@ class RolePermissions(BasePermission):
             organization=organization,
         )
 
-        if request.method in SAFE_METHODS or requesting_membership.level >= OrganizationMembership.Level.ADMIN:
+        if request.method in SAFE_METHODS or requesting_membership.level >= OrganizationMembershipLevel.ADMIN:
             return True
         return False
 

@@ -17,6 +17,7 @@ from ee.api.test.base import APILicensedTest
 from ee.models.license import License
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, User
+from posthog.models.organization import OrganizationMembershipLevel
 from posthog.models.organization_domain import OrganizationDomain
 
 SAML_MOCK_SETTINGS = {
@@ -272,7 +273,7 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         self.client.force_login(self.user)
 
         OrganizationMembership.objects.filter(organization=self.organization, user=self.user).update(
-            level=OrganizationMembership.Level.ADMIN
+            level=OrganizationMembershipLevel.ADMIN
         )
 
         response = self.client.get("/api/saml/metadata/")
@@ -435,7 +436,7 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         self.assertEqual(user.organization_memberships.count(), 1)
         self.assertEqual(
             cast(OrganizationMembership, user.organization_memberships.first()).level,
-            OrganizationMembership.Level.MEMBER,
+            OrganizationMembershipLevel.MEMBER,
         )
 
         _session = self.client.session

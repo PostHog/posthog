@@ -3,7 +3,7 @@ from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
 from ee.models.organization_resource_access import OrganizationResourceAccess
-from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembershipLevel
 from posthog.test.base import QueryMatchingTest, snapshot_postgres_queries, FuzzyInt
 
 
@@ -12,7 +12,7 @@ class TestOrganizationResourceAccessAPI(APILicensedTest, QueryMatchingTest):
         super().setUp()
 
     def test_only_organization_admins_and_higher_can_set_resource_access(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
         admin_create_res = self.client.post(
             "/api/organizations/@current/resource_access",
@@ -28,7 +28,7 @@ class TestOrganizationResourceAccessAPI(APILicensedTest, QueryMatchingTest):
             OrganizationResourceAccess.Resources.FEATURE_FLAGS,
         )
 
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembershipLevel.MEMBER
         self.organization_membership.save()
         member_create_res = self.client.post(
             "/api/organizations/@current/resource_access",
@@ -39,7 +39,7 @@ class TestOrganizationResourceAccessAPI(APILicensedTest, QueryMatchingTest):
         self.assertEqual(member_create_res.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_can_only_create_one_instance_of_each_resource_type(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
 
         create_ff_resource_access = self.client.post(
@@ -93,7 +93,7 @@ class TestOrganizationResourceAccessAPI(APILicensedTest, QueryMatchingTest):
             )
 
     def test_can_change_access_levels_for_resources(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
 
         create_res = self.client.post(
@@ -123,7 +123,7 @@ class TestOrganizationResourceAccessAPI(APILicensedTest, QueryMatchingTest):
         )
 
     def test_default_edit_access_level_for_non_existing_resources(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
         self.assertEqual(
             OrganizationResourceAccess.objects.filter(
@@ -146,7 +146,7 @@ class TestOrganizationResourceAccessAPI(APILicensedTest, QueryMatchingTest):
         self.assertEqual(get_res.json()["name"], "keropi")
 
     def test_returns_correct_results_by_organization(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
         self.client.post(
             "/api/organizations/@current/resource_access",

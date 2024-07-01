@@ -1,13 +1,13 @@
 from django.db import models
 
 from posthog.models.utils import UUIDModel, sane_repr
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import OrganizationMembershipLevel
 
 
 # We call models that grant a user access to some grouping of users a "membership"
 class ExplicitTeamMembership(UUIDModel):
     class Level(models.IntegerChoices):
-        """Keep in sync with OrganizationMembership.Level (only difference being organizations having an Owner)."""
+        """Keep in sync with OrganizationMembershipLevel (only difference being organizations having an Owner)."""
 
         MEMBER = 1, "member"
         ADMIN = 8, "administrator"
@@ -42,7 +42,7 @@ class ExplicitTeamMembership(UUIDModel):
         return str(self.Level(self.level))
 
     @property
-    def effective_level(self) -> "OrganizationMembership.Level":
+    def effective_level(self) -> "OrganizationMembershipLevel":
         """If organization level is higher than project level, then that takes precedence over explicit project level."""
         return max(self.level, self.parent_membership.level)
 

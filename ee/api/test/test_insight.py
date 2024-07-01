@@ -16,6 +16,7 @@ from posthog.models import (
     OrganizationMembership,
     User,
 )
+from posthog.models.organization import OrganizationMembershipLevel
 from posthog.test.base import FuzzyInt, snapshot_postgres_queries
 from posthog.test.db_context_capturing import capture_db_queries
 
@@ -26,7 +27,7 @@ class TestInsightEnterpriseAPI(APILicensedTest):
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
 
     def test_insight_trends_forbidden_if_project_private_and_org_member(self) -> None:
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembershipLevel.MEMBER
         self.organization_membership.save()
         self.team.access_control = True
         self.team.save()
@@ -272,7 +273,7 @@ class TestInsightEnterpriseAPI(APILicensedTest):
     def test_insight_trends_allowed_if_project_private_and_org_member_and_project_member(
         self,
     ) -> None:
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembershipLevel.MEMBER
         self.organization_membership.save()
         self.team.access_control = True
         self.team.save()
@@ -288,7 +289,7 @@ class TestInsightEnterpriseAPI(APILicensedTest):
 
     def test_cannot_update_restricted_insight_as_other_user_who_is_project_member(self):
         creator = User.objects.create_and_join(self.organization, "y@x.com", None)
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembershipLevel.MEMBER
         self.organization_membership.save()
         original_name = "Edit-restricted dashboard"
         dashboard: Dashboard = Dashboard.objects.create(
@@ -435,7 +436,7 @@ class TestInsightEnterpriseAPI(APILicensedTest):
             organization=self.organization,
             email="team2@posthog.com",
             password=None,
-            level=OrganizationMembership.Level.ADMIN,
+            level=OrganizationMembershipLevel.ADMIN,
         )
         self.client.force_login(admin)
 
@@ -525,7 +526,7 @@ class TestInsightEnterpriseAPI(APILicensedTest):
             organization=self.organization,
             email="y@x.com",
             password=None,
-            level=OrganizationMembership.Level.ADMIN,
+            level=OrganizationMembershipLevel.ADMIN,
         )
         self.client.force_login(admin)
         _, response_data = self.dashboard_api.create_insight(

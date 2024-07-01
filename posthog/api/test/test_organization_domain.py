@@ -8,12 +8,8 @@ from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
 
-from posthog.models import (
-    Organization,
-    OrganizationDomain,
-    OrganizationMembership,
-    Team,
-)
+from posthog.models import Organization, OrganizationDomain, Team
+from posthog.models.organization import OrganizationMembershipLevel
 from posthog.test.base import APIBaseTest, BaseTest
 
 
@@ -71,7 +67,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.assertEqual(retrieve_response.json(), response_data["results"][0])
 
     def test_cannot_list_or_retrieve_domains_for_other_org(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
 
         response = self.client.get(f"/api/organizations/@current/domains/{self.another_domain.id}")
@@ -85,7 +81,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
     # Create domains
 
     def test_create_domain(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization.available_product_features = [
             {"key": "automatic_provisioning", "name": "automatic_provisioning"}
         ]
@@ -117,7 +113,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.assertEqual(instance.sso_enforcement, "")
 
     def test_cant_create_domain_without_feature(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
 
         with self.is_cloud(True):
@@ -136,7 +132,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
     def test_cannot_create_duplicate_domain(self):
         OrganizationDomain.objects.create(domain="i-registered-first.com", organization=self.another_org)
         count = OrganizationDomain.objects.count()
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
 
         response = self.client.post("/api/organizations/@current/domains/", {"domain": "i-registered-first.com"})
@@ -155,7 +151,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
 
     def test_cannot_create_invalid_domain(self):
         count = OrganizationDomain.objects.count()
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
         invalid_domains = [
             "test@posthog.com",
@@ -182,7 +178,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
 
     @patch("posthog.models.organization_domain.dns.resolver.resolve")
     def test_can_request_verification_for_unverified_domains(self, mock_dns_query):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
 
         mock_dns_query.return_value = FakeDNSResponse(
@@ -217,7 +213,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
 
     @patch("posthog.models.organization_domain.dns.resolver.resolve")
     def test_domain_is_not_verified_with_missing_challenge(self, mock_dns_query):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
 
         mock_dns_query.side_effect = dns.resolver.NoAnswer()
@@ -238,7 +234,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
 
     @patch("posthog.models.organization_domain.dns.resolver.resolve")
     def test_domain_is_not_verified_with_missing_domain(self, mock_dns_query):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
 
         mock_dns_query.side_effect = dns.resolver.NXDOMAIN()
@@ -259,7 +255,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
 
     @patch("posthog.models.organization_domain.dns.resolver.resolve")
     def test_domain_is_not_verified_with_incorrect_challenge(self, mock_dns_query):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
 
         mock_dns_query.return_value = FakeDNSResponse(
@@ -289,7 +285,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         )
 
     def test_cannot_request_verification_for_verified_domains(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
         self.domain.verified_at = timezone.now()
         self.domain.save()
@@ -331,7 +327,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
     # Update domains
 
     def test_can_update_jit_provisioning_and_sso_enforcement(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization.available_product_features = [
             {"key": "automatic_provisioning", "name": "automatic_provisioning"}
         ]
@@ -353,7 +349,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.assertEqual(self.domain.jit_provisioning_enabled, True)
 
     def test_cannot_enforce_sso_or_enable_jit_provisioning_on_unverified_domain(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
 
         # SSO Enforcement
@@ -393,7 +389,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.assertEqual(self.domain.jit_provisioning_enabled, False)
 
     def test_only_allowed_parameters_can_be_updated(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
 
         response = self.client.patch(
@@ -422,7 +418,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.assertEqual(self.domain.sso_enforcement, "")
 
     def test_cannot_update_domain_for_another_org(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
         self.another_domain.verified_at = timezone.now()
         self.another_domain.save()
@@ -440,7 +436,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
     # Delete domains
 
     def test_admin_can_delete_domain(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
 
         response = self.client.delete(f"/api/organizations/@current/domains/{self.domain.id}")
@@ -459,7 +455,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.domain.refresh_from_db()
 
     def test_cannot_delete_domain_for_another_org(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
 
         response = self.client.delete(f"/api/organizations/{self.another_org.id}/domains/{self.another_domain.id}")

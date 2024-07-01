@@ -1,5 +1,5 @@
 from posthog.constants import AvailableFeature
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import OrganizationMembershipLevel
 
 
 def can_user_edit_feature_flag(request, feature_flag):
@@ -16,7 +16,7 @@ def can_user_edit_feature_flag(request, feature_flag):
             return True
         if (
             request.user.organization_memberships.get(organization=request.user.organization).level
-            >= OrganizationMembership.Level.ADMIN
+            >= OrganizationMembershipLevel.ADMIN
         ):
             return True
         all_role_memberships = request.user.role_memberships.select_related("role").all()

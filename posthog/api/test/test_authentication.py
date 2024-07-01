@@ -16,7 +16,7 @@ from two_factor.utils import totp_digits
 from posthog.api.authentication import password_reset_token_generator
 from posthog.models import User
 from posthog.models.instance_setting import set_instance_setting
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import OrganizationMembershipLevel
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
@@ -814,7 +814,7 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
 
 class TestTimeSensitivePermissions(APIBaseTest):
     def test_after_timeout_modifications_require_reauthentication(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
         now = datetime.datetime.now()
         with freeze_time(now):

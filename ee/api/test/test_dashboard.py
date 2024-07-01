@@ -6,8 +6,8 @@ from rest_framework import status
 from ee.api.test.base import APILicensedTest
 from ee.models.explicit_team_membership import ExplicitTeamMembership
 from ee.models.license import License
-from posthog.models import OrganizationMembership
 from posthog.models.dashboard import Dashboard
+from posthog.models.organization import OrganizationMembershipLevel
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 
@@ -16,7 +16,7 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
     def test_retrieve_dashboard_forbidden_for_project_outsider(self):
         self.team.access_control = True
         self.team.save()
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembershipLevel.MEMBER
         self.organization_membership.save()
         dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}")
@@ -25,7 +25,7 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
     def test_retrieve_dashboard_forbidden_for_org_admin(self):
         self.team.access_control = True
         self.team.save()
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
         dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}")
@@ -34,7 +34,7 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
     def test_retrieve_dashboard_allowed_for_project_member(self):
         self.team.access_control = True
         self.team.save()
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembershipLevel.MEMBER
         self.organization_membership.save()
         ExplicitTeamMembership.objects.create(team=self.team, parent_membership=self.organization_membership)
         dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
@@ -51,7 +51,7 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_can_set_dashboard_to_restrict_editing_as_creator_who_is_project_member(self):
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembershipLevel.MEMBER
         self.organization_membership.save()
         dashboard = Dashboard.objects.create(team=self.team, name="Edit-restricted dashboard", created_by=self.user)
 
@@ -71,7 +71,7 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
         )
 
     def test_can_set_dashboard_to_restrict_editing_as_creator_who_is_project_admin(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
         dashboard = Dashboard.objects.create(team=self.team, name="Edit-restricted dashboard", created_by=self.user)
 
@@ -92,7 +92,7 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
 
     def test_cannot_set_dashboard_to_restrict_editing_as_other_user_who_is_project_member(self):
         creator = User.objects.create_and_join(self.organization, "y@x.com", None)
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembershipLevel.MEMBER
         self.organization_membership.save()
         dashboard = Dashboard.objects.create(team=self.team, name="Edit-restricted dashboard", created_by=creator)
 
@@ -115,7 +115,7 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
 
     def test_can_set_dashboard_to_restrict_editing_as_other_user_who_is_project_admin(self):
         creator = User.objects.create_and_join(self.organization, "y@x.com", None)
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
         dashboard = Dashboard.objects.create(team=self.team, name="Edit-restricted dashboard", created_by=creator)
 
@@ -135,7 +135,7 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
         )
 
     def test_can_edit_restricted_dashboard_as_creator_who_is_project_member(self):
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembershipLevel.MEMBER
         self.organization_membership.save()
         dashboard = Dashboard.objects.create(
             team=self.team,
@@ -162,7 +162,7 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
 
     def test_cannot_edit_restricted_dashboard_as_other_user_who_is_project_member(self):
         creator = User.objects.create_and_join(self.organization, "y@x.com", None)
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembershipLevel.MEMBER
         self.organization_membership.save()
         dashboard = Dashboard.objects.create(
             team=self.team,
@@ -185,7 +185,7 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
 
     def test_can_edit_restricted_dashboard_as_other_user_who_is_project_admin(self):
         creator = User.objects.create_and_join(self.organization, "y@x.com", None)
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
         dashboard = Dashboard.objects.create(
             team=self.team,
@@ -245,7 +245,7 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
 
     def test_sharing_edits_limited_to_collaborators(self):
         creator = User.objects.create_and_join(self.organization, "y@x.com", None)
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembershipLevel.MEMBER
         self.organization_membership.save()
         dashboard = Dashboard.objects.create(
             team=self.team,

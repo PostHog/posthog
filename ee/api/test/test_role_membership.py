@@ -2,7 +2,7 @@ from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
 from ee.models.role import Role, RoleMembership
-from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembershipLevel
 from posthog.models.user import User
 
 
@@ -15,7 +15,7 @@ class TestRoleMembershipAPI(APILicensedTest):
     def test_adds_member_to_a_role(self):
         user = User.objects.create_and_join(self.organization, "a@x.com", None)
 
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
         assert RoleMembership.objects.count() == 0
 
@@ -33,7 +33,7 @@ class TestRoleMembershipAPI(APILicensedTest):
     def test_only_organization_admins_and_higher_can_add_users(self):
         user_a = User.objects.create_and_join(self.organization, "a@x.com", None)
         user_b = User.objects.create_and_join(self.organization, "b@x.com", None)
-        assert self.organization_membership.level == OrganizationMembership.Level.MEMBER
+        assert self.organization_membership.level == OrganizationMembershipLevel.MEMBER
 
         add_user_b_res = self.client.post(
             f"/api/organizations/@current/roles/{self.eng_role.id}/role_memberships",
@@ -41,7 +41,7 @@ class TestRoleMembershipAPI(APILicensedTest):
         )
         assert add_user_b_res.status_code == status.HTTP_403_FORBIDDEN
 
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
         add_user_a_res = self.client.post(
             f"/api/organizations/@current/roles/{self.eng_role.id}/role_memberships",
@@ -53,7 +53,7 @@ class TestRoleMembershipAPI(APILicensedTest):
 
     def test_user_can_belong_to_multiple_roles(self):
         user_a = User.objects.create_and_join(self.organization, "a@potato.com", None)
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
         assert RoleMembership.objects.count() == 0
 
@@ -69,7 +69,7 @@ class TestRoleMembershipAPI(APILicensedTest):
 
     def test_user_can_be_removed_from_role(self):
         user_a = User.objects.create_and_join(self.organization, "a@potato.com", None)
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
         assert RoleMembership.objects.count() == 0
 
@@ -85,7 +85,7 @@ class TestRoleMembershipAPI(APILicensedTest):
         assert RoleMembership.objects.count() == 0
 
     def test_returns_correct_results_by_organization(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
         other_org = Organization.objects.create(name="other org")
         user_a = User.objects.create_and_join(self.organization, "a@x.com", None)
