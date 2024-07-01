@@ -85,6 +85,9 @@ module.exports = {
     async postVisit(page, context) {
         ATTEMPT_COUNT_PER_ID[context.id] = (ATTEMPT_COUNT_PER_ID[context.id] || 0) + 1
         const storyContext = await getStoryContext(page, context)
+
+        console.log('test: ', storyContext.id, ' with tags: ', storyContext.tags)
+
         const viewport = storyContext.parameters?.testOptions?.viewport || DEFAULT_VIEWPORT
         await page.evaluate(
             ([retry, id]) => console.log(`[${id}] Attempt ${retry}`),
@@ -105,7 +108,6 @@ module.exports = {
             await expectStoryToMatchSnapshot(page, context, storyContext, currentBrowser)
         }
 
-        console.log(storyContext.tags)
         if(storyContext.tags.includes('also-tablet')) {
             const tabletViewport = { width: 768, height: 1024 }
             await page.setViewportSize(tabletViewport)
