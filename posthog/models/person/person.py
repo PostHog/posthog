@@ -134,6 +134,7 @@ class PersonlessDistinctId(models.Model):
             models.UniqueConstraint(fields=["team", "distinct_id"], name="unique personless distinct_id for team")
         ]
 
+    id: models.BigAutoField = models.BigAutoField(primary_key=True)
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE, db_index=False)
     distinct_id: models.CharField = models.CharField(max_length=400)
     is_merged: models.BooleanField = models.BooleanField(default=False)
