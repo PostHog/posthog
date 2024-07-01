@@ -2575,7 +2575,7 @@
                     "type": "string"
                 }
             },
-            "required": ["id", "name", "should_sync", "incremental", "status"],
+            "required": ["id", "name", "should_sync", "incremental"],
             "type": "object"
         },
         "DatabaseSchemaSource": {
