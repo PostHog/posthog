@@ -99,7 +99,7 @@ function getEventTable(service: BatchExportService['type']): DatabaseSchemaBatch
                 team_id: {
                     name: 'team_id',
                     hogql_value: service == 'Postgres' || service == 'Redshift' ? 'toInt32(team_id)' : 'team_id',
-                    type: 'number',
+                    type: 'integer',
                     schema_valid: true,
                 },
                 set: {
@@ -179,7 +179,7 @@ const personsTable: DatabaseSchemaBatchExportTable = {
         properties: {
             name: 'version',
             hogql_value: 'version',
-            type: 'number',
+            type: 'integer',
             schema_valid: true,
         },
     },

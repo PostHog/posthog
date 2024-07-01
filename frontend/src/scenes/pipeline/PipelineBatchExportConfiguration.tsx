@@ -114,10 +114,10 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
 
                             {featureFlags[FEATURE_FLAGS.PERSON_BATCH_EXPORTS] &&
                                 // Suppported destinations for Persons batch exports.
-                                // TODO: Add them all once supported
-                                (batchExportConfigForm.destination === 'S3' ||
-                                    batchExportConfigForm.destination === 'BigQuery' ||
-                                    batchExportConfigForm.destination === 'Snowflake') && (
+                                // TODO: Add configuration all once supported
+                                (configuration.destination === 'S3' ||
+                                    configuration.destination === 'BigQuery' ||
+                                    configuration.destination === 'Snowflake') && (
                                     <>
                                         <LemonField
                                             name="model"
