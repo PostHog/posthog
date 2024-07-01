@@ -18,6 +18,7 @@ from posthog.hogql.database.models import (
     LazyJoinToAdd,
 )
 from posthog.hogql.database.schema.channel_type import create_channel_type_expr, POSSIBLE_CHANNEL_TYPES
+from posthog.hogql.database.schema.sessions_v1 import null_if_empty
 from posthog.hogql.database.schema.util.where_clause_extractor import SessionMinTimestampWhereClauseExtractorV2
 from posthog.hogql.errors import ResolutionError
 from posthog.models.property_definition import PropertyType
@@ -185,20 +186,20 @@ def select_from_sessions_table_v2(
                 )
             ],
         ),
-        "$entry_current_url": arg_min_merge_field("entry_url"),
-        "$end_current_url": arg_max_merge_field("end_url"),
-        "$entry_utm_source": arg_min_merge_field("initial_utm_source"),
-        "$entry_utm_campaign": arg_min_merge_field("initial_utm_campaign"),
-        "$entry_utm_medium": arg_min_merge_field("initial_utm_medium"),
-        "$entry_utm_term": arg_min_merge_field("initial_utm_term"),
-        "$entry_utm_content": arg_min_merge_field("initial_utm_content"),
-        "$entry_referring_domain": arg_min_merge_field("initial_referring_domain"),
-        "$entry_gclid": arg_min_merge_field("initial_gclid"),
-        "$entry_gad_source": arg_min_merge_field("initial_gad_source"),
+        "$entry_current_url": null_if_empty(arg_min_merge_field("entry_url")),
+        "$end_current_url": null_if_empty(arg_max_merge_field("end_url")),
+        "$entry_utm_source": null_if_empty(arg_min_merge_field("initial_utm_source")),
+        "$entry_utm_campaign": null_if_empty(arg_min_merge_field("initial_utm_campaign")),
+        "$entry_utm_medium": null_if_empty(arg_min_merge_field("initial_utm_medium")),
+        "$entry_utm_term": null_if_empty(arg_min_merge_field("initial_utm_term")),
+        "$entry_utm_content": null_if_empty(arg_min_merge_field("initial_utm_content")),
+        "$entry_referring_domain": null_if_empty(arg_min_merge_field("initial_referring_domain")),
+        "$entry_gclid": null_if_empty(arg_min_merge_field("initial_gclid")),
+        "$entry_gad_source": null_if_empty(arg_min_merge_field("initial_gad_source")),
         "$pageview_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "pageview_count"])]),
         "$screen_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "screen_count"])]),
         "$autocapture_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "autocapture_count"])]),
-        "$last_external_click_url": arg_max_merge_field("last_external_click_url"),
+        "$last_external_click_url": null_if_empty(arg_max_merge_field("last_external_click_url")),
     }
     # Alias
     aggregate_fields["id"] = aggregate_fields["session_id"]
