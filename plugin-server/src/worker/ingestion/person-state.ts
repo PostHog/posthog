@@ -1,6 +1,8 @@
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
+import { ONE_HOUR } from 'config/constants'
 import { ProducerRecord } from 'kafkajs'
+import LRU from 'lru-cache'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 import { KafkaProducerWrapper } from 'utils/db/kafka-producer-wrapper'
@@ -56,6 +58,16 @@ const BARE_CASE_INSENSITIVE_ILLEGAL_IDS = [
     'true',
     'false',
 ]
+
+// Tracks whether we know we've already inserted a `posthog_personlessdistinctid` for the given
+// (team_id, distinct_id) pair. If we have, then we can skip the INSERT attempt.
+// TODO: Move this out of module scope, we don't currently have a clean place (outside of the Hub)
+// to stash longer lived objects like caches. For now it's not important.
+const PERSONLESS_DISTINCT_ID_INSERTED_CACHE = new LRU<string, boolean>({
+    max: 10_000,
+    maxAge: ONE_HOUR * 24, // cache up to 24h
+    updateAgeOnGet: true,
+})
 
 const BARE_CASE_SENSITIVE_ILLEGAL_IDS = ['[object Object]', 'NaN', 'None', 'none', 'null', '0', 'undefined']
 const PERSON_EVENTS = new Set(['$identify', '$create_alias', '$merge_dangerously', '$set'])
@@ -117,14 +129,24 @@ export class PersonState {
                 // to note that this Distinct ID has been used in "personless" mode. This is necessary
                 // so that later, during a merge, we can decide whether we need to write out an override
                 // or not.
-                // TODO(perf): Add a cache that tells us we can skip doing the insert
-                const personIsMerged = await this.db.addPersonlessDistinctId(this.teamId, this.distinctId)
-                if (personIsMerged) {
-                    // If `personIsMerged` comes back `true`, it means the `posthog_personlessdistinctid`
-                    // has been updated by a merge (either since we called `fetchPerson` above, plus
-                    // replication lag). We need to check `fetchPerson` again (this time using the leader)
-                    // so that we properly associate this event with the Person we got merged into.
-                    existingPerson = await this.db.fetchPerson(this.teamId, this.distinctId, { useReadReplica: false })
+
+                const personlessDistinctIdCacheKey = `${this.teamId}|${this.distinctId}`
+                if (!PERSONLESS_DISTINCT_ID_INSERTED_CACHE.get(personlessDistinctIdCacheKey)) {
+                    const personIsMerged = await this.db.addPersonlessDistinctId(this.teamId, this.distinctId)
+
+                    // We know the row is in PG now, and so future events for this Distinct ID can
+                    // skip the PG I/O.
+                    PERSONLESS_DISTINCT_ID_INSERTED_CACHE.set(personlessDistinctIdCacheKey, true)
+
+                    if (personIsMerged) {
+                        // If `personIsMerged` comes back `true`, it means the `posthog_personlessdistinctid`
+                        // has been updated by a merge (either since we called `fetchPerson` above, plus
+                        // replication lag). We need to check `fetchPerson` again (this time using the leader)
+                        // so that we properly associate this event with the Person we got merged into.
+                        existingPerson = await this.db.fetchPerson(this.teamId, this.distinctId, {
+                            useReadReplica: false,
+                        })
+                    }
                 }
             }
 
