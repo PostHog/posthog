@@ -88,7 +88,6 @@ from posthog.session_recordings.sql.session_replay_event_sql import (
     DROP_SESSION_REPLAY_EVENTS_TABLE_SQL,
     SESSION_REPLAY_EVENTS_TABLE_SQL,
 )
-from posthog.settings.utils import get_from_env, str_to_bool
 from posthog.test.assert_faster_than import assert_faster_than
 
 # Make sure freezegun ignores our utils class that times functions
@@ -445,10 +444,7 @@ def cleanup_materialized_columns():
 def also_test_with_materialized_columns(
     event_properties=None,
     person_properties=None,
-    group_properties=None,
     verify_no_jsonextract=True,
-    # :TODO: Remove this when groups-on-events is released
-    materialize_only_with_person_on_events=False,
 ):
     """
     Runs the test twice on clickhouse - once verifying it works normally, once with materialized columns.
@@ -456,8 +452,6 @@ def also_test_with_materialized_columns(
     Requires a unittest class with ClickhouseTestMixin mixed in
     """
 
-    if group_properties is None:
-        group_properties = []
     if person_properties is None:
         person_properties = []
     if event_properties is None:
@@ -466,12 +460,6 @@ def also_test_with_materialized_columns(
         from ee.clickhouse.materialized_columns.analyze import materialize
     except:
         # EE not available? Just run the main test
-        return lambda fn: fn
-
-    if materialize_only_with_person_on_events and not get_from_env(
-        "PERSON_ON_EVENTS_ENABLED", False, type_cast=str_to_bool
-    ):
-        # Don't run materialized test unless PERSON_ON_EVENTS_ENABLED
         return lambda fn: fn
 
     def decorator(fn):
@@ -486,12 +474,6 @@ def also_test_with_materialized_columns(
             for prop in person_properties:
                 materialize("person", prop)
                 materialize("events", prop, table_column="person_properties")
-            for group_type_index, prop in group_properties:
-                materialize(
-                    "events",
-                    prop,
-                    table_column=f"group{group_type_index}_properties",
-                )
 
             try:
                 with self.capture_select_queries() as sqls:

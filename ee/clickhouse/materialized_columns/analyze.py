@@ -50,13 +50,6 @@ class TeamManager:
     def person_on_events_properties(self, team_id: str) -> set[str]:
         return self._get_properties(GET_EVENT_PROPERTIES_COUNT.format(column_name="person_properties"), team_id)
 
-    @instance_memoize
-    def group_on_events_properties(self, group_type_index: int, team_id: str) -> set[str]:
-        return self._get_properties(
-            GET_EVENT_PROPERTIES_COUNT.format(column_name=f"group{group_type_index}_properties"),
-            team_id,
-        )
-
     def _get_properties(self, query, team_id) -> set[str]:
         rows = sync_execute(query, {"team_id": team_id})
         return {name for name, _ in rows}
@@ -99,11 +92,6 @@ class Query:
         person_props = team_manager.person_properties(self.team_id)
         event_props = team_manager.event_properties(self.team_id)
         person_on_events_props = team_manager.person_on_events_properties(self.team_id)
-        group0_props = team_manager.group_on_events_properties(0, self.team_id)
-        group1_props = team_manager.group_on_events_properties(1, self.team_id)
-        group2_props = team_manager.group_on_events_properties(2, self.team_id)
-        group3_props = team_manager.group_on_events_properties(3, self.team_id)
-        group4_props = team_manager.group_on_events_properties(4, self.team_id)
 
         for table_column, property in self._all_properties:
             if property in event_props:
@@ -113,16 +101,6 @@ class Query:
 
             if property in person_on_events_props and "person_properties" in table_column:
                 yield "events", "person_properties", property
-            if property in group0_props and "group0_properties" in table_column:
-                yield "events", "group0_properties", property
-            if property in group1_props and "group1_properties" in table_column:
-                yield "events", "group1_properties", property
-            if property in group2_props and "group2_properties" in table_column:
-                yield "events", "group2_properties", property
-            if property in group3_props and "group3_properties" in table_column:
-                yield "events", "group3_properties", property
-            if property in group4_props and "group4_properties" in table_column:
-                yield "events", "group4_properties", property
 
 
 def _analyze(since_hours_ago: int, min_query_time: int, team_id: Optional[int] = None) -> list[Suggestion]:

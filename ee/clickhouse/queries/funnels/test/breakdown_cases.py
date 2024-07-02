@@ -13,7 +13,6 @@ from posthog.queries.funnels.test.breakdown_cases import (
 )
 from posthog.test.base import (
     APIBaseTest,
-    also_test_with_materialized_columns,
     snapshot_clickhouse_queries,
     also_test_with_person_on_events_v2,
 )
@@ -307,10 +306,6 @@ def funnel_breakdown_group_test_factory(Funnel, FunnelPerson, _create_event, _cr
                 ],
             )
 
-        @also_test_with_materialized_columns(
-            group_properties=[(0, "industry")],
-            materialize_only_with_person_on_events=True,
-        )
         @also_test_with_person_on_events_v2
         @snapshot_clickhouse_queries
         def test_funnel_aggregate_by_groups_breakdown_group_person_on_events(self):
