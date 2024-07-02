@@ -1,5 +1,5 @@
 import { LemonSegmentedButton } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { useMemo } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -20,11 +20,13 @@ export const scene: SceneExport = {
 
 export function ErrorTrackingScene(): JSX.Element {
     const { order } = useValues(errorTrackingSceneLogic)
-    const { dateRange, filterTestAccounts, filterGroup } = useValues(errorTrackingLogic)
+    const { dateRange, filterTestAccounts, filterGroup, sparklineSelection } = useValues(errorTrackingLogic)
+
+    const { period, multiplier, unit } = sparklineSelection
 
     const query = useMemo(
-        () => errorTrackingQuery({ order, dateRange, filterTestAccounts, filterGroup }),
-        [order, dateRange, filterTestAccounts, filterGroup]
+        () => errorTrackingQuery({ order, dateRange, filterTestAccounts, filterGroup, period, multiplier, unit }),
+        [order, dateRange, filterTestAccounts, filterGroup, period, multiplier, unit]
     )
 
     const context: QueryContext = {
@@ -47,16 +49,19 @@ export function ErrorTrackingScene(): JSX.Element {
 }
 
 const CustomVolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName }) => {
+    const { sparklineSelection, sparklineOptions: options } = useValues(errorTrackingLogic)
+    const { setSparklineSelection } = useActions(errorTrackingLogic)
+
     return (
         <div className="flex justify-between items-center min-w-64">
             <div>{columnName}</div>
             <LemonSegmentedButton
                 size="xsmall"
-                value="7d"
-                options={[
-                    { value: '7d', label: '7d' },
-                    { value: '24d', label: '24d' },
-                ]}
+                value={sparklineSelection.value}
+                options={options}
+                onChange={(value) => {
+                    setSparklineSelection(options.find((o) => o.value === value))
+                }}
             />
         </div>
     )

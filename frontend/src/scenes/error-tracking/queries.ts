@@ -5,20 +5,23 @@ import { range } from 'lib/utils'
 import { DataTableNode, DateRange, ErrorTrackingOrder, EventsQuery, InsightVizNode, NodeKind } from '~/queries/schema'
 import { AnyPropertyFilter, BaseMathType, ChartDisplayType } from '~/types'
 
+import { ErrorTrackingSparklineConfig } from './errorTrackingLogic'
+
 export const errorTrackingQuery = ({
     order,
     dateRange,
     filterTestAccounts,
+    period,
+    multiplier,
+    unit,
     filterGroup,
 }: {
     order: ErrorTrackingOrder
     dateRange: DateRange
     filterTestAccounts: boolean
     filterGroup: UniversalFiltersGroup
-}): DataTableNode => {
-    const period = 24
-    const unit = 'hour'
-    const labels = generateFormattedDateLabels(period, unit)
+} & ErrorTrackingSparklineConfig): DataTableNode => {
+    const labels = generateFormattedDateLabels({ period, multiplier, unit })
 
     return {
         kind: NodeKind.DataTableNode,
@@ -27,7 +30,9 @@ export const errorTrackingQuery = ({
             select: [
                 'any(properties) as "context.columns.error"',
                 'properties.$exception_type',
-                `<Sparkline data={reverse(arrayMap(x -> countEqual(groupArray(dateDiff('${unit}', now() - INTERVAL ${period} ${unit}, timestamp)), x), range(${period})))} labels={[${labels}]} /> as "context.columns.volume"`,
+                `<Sparkline data={reverse(arrayMap(x -> countEqual(groupArray(dateDiff('${unit}', now() - INTERVAL ${period} ${unit}, timestamp)), x), range(${
+                    period * multiplier
+                })))} labels={[${labels}]} /> as "context.columns.volume"`,
                 'count() as occurrences',
                 'count(distinct $session_id) as sessions',
                 'count(distinct distinct_id) as users',
@@ -53,9 +58,9 @@ export const errorTrackingQuery = ({
     }
 }
 
-const generateFormattedDateLabels = (period: number, unit: 'hour'): string => {
+const generateFormattedDateLabels = ({ period, multiplier, unit }: ErrorTrackingSparklineConfig): string => {
     const now = dayjs().startOf(unit)
-    const formattedDates = range(period).map((idx) => now.subtract(period - idx, unit))
+    const formattedDates = range(period * multiplier).map((idx) => now.subtract(period - idx * multiplier, unit))
     const stringifiedDates = formattedDates.map((d) => `'${d.format('D MMM, YYYY HH:mm')} (UTC)'`)
     return stringifiedDates.join(',')
 }
