@@ -136,10 +136,22 @@ class RedshiftClient(PostgreSQLClient):
         and_separator = sql.SQL("AND")
         merge_condition = and_separator.join(
             sql.SQL("{final_field} = {stage_field}").format(
-                final_field=final_table_identifier + sql.Identifier(field[0]),
+                final_field=sql.Identifier("final", field[0]),
                 stage_field=sql.Identifier("stage", field[0]),
             )
             for field in merge_key
+        )
+
+        delete_query = sql.SQL("""\
+        DELETE FROM {stage_table} AS stage
+        USING {final_table} AS final
+        WHERE {merge_condition} AND stage.{stage_version_key} > final.{final_version_key};
+        """).format(
+            final_table=final_table_identifier,
+            stage_table=stage_table_identifier,
+            merge_condition=merge_condition,
+            stage_version_key=sql.Identifier(version_key),
+            final_version_key=sql.Identifier(version_key),
         )
 
         merge_query = sql.SQL("""\
@@ -155,6 +167,7 @@ class RedshiftClient(PostgreSQLClient):
 
         async with self.connection.transaction():
             async with self.connection.cursor() as cursor:
+                await cursor.execute(delete_query)
                 await cursor.execute(merge_query)
 
 
@@ -374,9 +387,9 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
             return 0
 
         known_super_columns = ["properties", "set", "set_once", "person_properties"]
-
         if inputs.properties_data_type != "varchar":
             properties_type = "SUPER"
+
         else:
             properties_type = "VARCHAR(65535)"
 
