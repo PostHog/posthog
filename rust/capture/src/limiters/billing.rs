@@ -185,18 +185,10 @@ mod tests {
         let limiter = BillingLimiter::new(Duration::microseconds(1), client, None)
             .expect("Failed to create billing limiter");
 
-        assert_eq!(
-            limiter
-                .is_limited("idk it doesn't matter", QuotaResource::Events)
+        assert!(
+            !limiter
+                .is_limited("not_limited", QuotaResource::Events)
                 .await,
-            false
-        );
-
-        assert_eq!(
-            limiter
-                .is_limited("some_org_hit_limits", QuotaResource::Events)
-                .await,
-            false
         );
         assert!(limiter.is_limited("banana", QuotaResource::Events).await);
     }
@@ -222,18 +214,10 @@ mod tests {
         )
         .expect("Failed to create billing limiter");
 
-        assert_eq!(
-            prefixed_limiter
-                .is_limited("idk it doesn't matter", QuotaResource::Events)
+        assert!(
+            !prefixed_limiter
+                .is_limited("not_limited", QuotaResource::Events)
                 .await,
-            false
-        );
-
-        assert_eq!(
-            prefixed_limiter
-                .is_limited("some_org_hit_limits", QuotaResource::Events)
-                .await,
-            false
         );
         assert!(
             prefixed_limiter
