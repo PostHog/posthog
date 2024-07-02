@@ -1,6 +1,7 @@
 import asyncio
 import datetime as dt
 import json
+import operator
 import uuid
 
 import psycopg
@@ -35,6 +36,10 @@ from posthog.temporal.tests.utils.models import (
     adelete_batch_export,
     afetch_batch_export_runs,
 )
+from posthog.temporal.tests.utils.persons import (
+    generate_test_person_distinct_id2_in_clickhouse,
+    generate_test_persons_in_clickhouse,
+)
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -53,6 +58,7 @@ async def assert_clickhouse_records_in_postgres(
     data_interval_end: dt.datetime,
     exclude_events: list[str] | None = None,
     include_events: list[str] | None = None,
+    sort_key: str = "event",
     is_backfill: bool = False,
 ):
     """Assert expected records are written to a given PostgreSQL table.
@@ -121,7 +127,7 @@ async def assert_clickhouse_records_in_postgres(
                     # bq_ingested_timestamp cannot be compared as it comes from an unstable function.
                     continue
 
-                if k in {"properties", "set", "set_once", "person_properties"} and v is not None:
+                if k in {"properties", "set", "set_once", "person_properties", "elements"} and v is not None:
                     expected_record[k] = json.loads(v)
                 elif isinstance(v, dt.datetime):
                     expected_record[k] = v.replace(tzinfo=dt.UTC)
@@ -134,6 +140,9 @@ async def assert_clickhouse_records_in_postgres(
     expected_column_names = list(expected_records[0].keys())
     inserted_column_names.sort()
     expected_column_names.sort()
+
+    inserted_records.sort(key=operator.itemgetter(sort_key))
+    expected_records.sort(key=operator.itemgetter(sort_key))
 
     assert inserted_column_names == expected_column_names
     assert len(inserted_records) == len(expected_records)
@@ -259,6 +268,87 @@ async def test_insert_into_postgres_activity_inserts_data_into_postgres_table(
         data_interval_end=data_interval_end,
         batch_export_model=model,
         exclude_events=exclude_events,
+        sort_key="person_id" if batch_export_model is not None and batch_export_model.name == "persons" else "event",
+    )
+
+
+async def test_insert_into_postgres_activity_merges_data_in_follow_up_runs(
+    clickhouse_client,
+    activity_environment,
+    postgres_connection,
+    postgres_config,
+    generate_test_data,
+    data_interval_start,
+    data_interval_end,
+    ateam,
+):
+    """Test that the `insert_into_postgres_activity` merges new versions of rows.
+
+    This unit tests looks at the mutability handling capabilities of the aforementioned activity.
+    We will generate a new entry in the persons table for half of the persons exported in a first
+    run of the activity. We expect the new entries to have replaced the old ones in PostgreSQL after
+    the second run.
+    """
+    model = BatchExportModel(name="persons", schema=None)
+
+    insert_inputs = PostgresInsertInputs(
+        team_id=ateam.pk,
+        table_name=f"test_insert_activity_mutability_table__{ateam.pk}",
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        batch_export_model=model,
+        **postgres_config,
+    )
+
+    await activity_environment.run(insert_into_postgres_activity, insert_inputs)
+
+    await assert_clickhouse_records_in_postgres(
+        postgres_connection=postgres_connection,
+        clickhouse_client=clickhouse_client,
+        schema_name=postgres_config["schema"],
+        table_name=f"test_insert_activity_mutability_table__{ateam.pk}",
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        batch_export_model=model,
+        sort_key="person_id",
+    )
+
+    _, persons_to_export_created = generate_test_data
+
+    for old_person in persons_to_export_created[: len(persons_to_export_created) // 2]:
+        new_person_id = uuid.uuid4()
+        new_person, _ = await generate_test_persons_in_clickhouse(
+            client=clickhouse_client,
+            team_id=ateam.pk,
+            start_time=data_interval_start,
+            end_time=data_interval_end,
+            person_id=new_person_id,
+            count=1,
+            properties={"utm_medium": "referral", "$initial_os": "Linux", "new_property": "Something"},
+        )
+
+        await generate_test_person_distinct_id2_in_clickhouse(
+            clickhouse_client,
+            ateam.pk,
+            person_id=uuid.UUID(new_person[0]["id"]),
+            distinct_id=old_person["distinct_id"],
+            version=old_person["version"] + 1,
+            timestamp=old_person["_timestamp"],
+        )
+
+    await activity_environment.run(insert_into_postgres_activity, insert_inputs)
+
+    await assert_clickhouse_records_in_postgres(
+        postgres_connection=postgres_connection,
+        clickhouse_client=clickhouse_client,
+        schema_name=postgres_config["schema"],
+        table_name=f"test_insert_activity_mutability_table__{ateam.pk}",
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        batch_export_model=model,
+        sort_key="person_id",
     )
 
 
@@ -377,6 +467,7 @@ async def test_postgres_export_workflow(
         data_interval_end=data_interval_end,
         batch_export_model=model,
         exclude_events=exclude_events,
+        sort_key="person_id" if batch_export_model is not None and batch_export_model.name == "persons" else "event",
     )
 
 
