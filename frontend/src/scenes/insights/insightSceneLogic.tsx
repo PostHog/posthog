@@ -28,7 +28,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
     path(['scenes', 'insights', 'insightSceneLogic']),
     connect(() => ({
         logic: [eventUsageLogic],
-        values: [teamLogic, ['currentTeam'], sceneLogic, ['activeScene'], preflightLogic, ['isDev']],
+        values: [teamLogic, ['currentTeam'], sceneLogic, ['activeScene'], preflightLogic, ['isDev', 'isE2E']],
     })),
     actions({
         setInsightId: (insightId: InsightShortId) => ({ insightId }),
@@ -206,7 +206,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             { shortId, mode, subscriptionId }, // url params
             { dashboard, ...searchParams }, // search params
             { filters: _filters, q }, // hash params
-            { method, initial }, // "location changed" event payload
+            { method }, // "location changed" event payload
             { searchParams: previousSearchParams } // previous location
         ) => {
             const insightMode =
@@ -261,24 +261,22 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             }
 
             // reset the insight's state if we have to
-            if (initial || method === 'PUSH' || filters || q) {
-                if (insightId === 'new') {
-                    const teamFilterTestAccounts = values.currentTeam?.test_account_filters_default_checked || false
-                    values.insightLogicRef?.logic.actions.setInsight(
-                        {
-                            ...createEmptyInsight('new', teamFilterTestAccounts),
-                            ...(filters ? { filters: cleanFilters(filters || {}, teamFilterTestAccounts) } : {}),
-                            ...(dashboard ? { dashboards: [dashboard] } : {}),
-                            ...(q ? { query: JSON.parse(q) } : {}),
-                        },
-                        {
-                            fromPersistentApi: false,
-                            overrideFilter: true,
-                        }
-                    )
+            if (insightId === 'new' && (method === 'PUSH' || filters || q)) {
+                const teamFilterTestAccounts = values.currentTeam?.test_account_filters_default_checked || false
+                values.insightLogicRef?.logic.actions.setInsight(
+                    {
+                        ...createEmptyInsight('new', teamFilterTestAccounts),
+                        ...(filters ? { filters: cleanFilters(filters || {}, teamFilterTestAccounts) } : {}),
+                        ...(dashboard ? { dashboards: [dashboard] } : {}),
+                        ...(q ? { query: JSON.parse(q) } : {}),
+                    },
+                    {
+                        fromPersistentApi: false,
+                        overrideFilter: true,
+                    }
+                )
 
-                    eventUsageLogic.actions.reportInsightCreated(filters?.insight || InsightType.TRENDS)
-                }
+                eventUsageLogic.actions.reportInsightCreated(filters?.insight || InsightType.TRENDS)
             }
 
             // show a warning toast if opened `/edit#filters={...}`
@@ -314,7 +312,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 return false
             }
 
-            if (values.isDev) {
+            if (values.isDev && !values.isE2E) {
                 // TRICKY: We disable beforeUnload handling in dev, but ONLY for insights
                 return false
             }
