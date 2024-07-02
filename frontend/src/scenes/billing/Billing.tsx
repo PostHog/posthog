@@ -220,6 +220,7 @@ export function Billing(): JSX.Element {
                                 htmlType="submit"
                                 to={billing.stripe_portal_url}
                                 disableClientSideRouting
+                                targetBlank
                                 center
                             >
                                 Manage card details and view past invoices
