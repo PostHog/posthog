@@ -1,5 +1,5 @@
 import { closestCenter, DndContext, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
-import { restrictToHorizontalAxis, restrictToParentElement } from '@dnd-kit/modifiers'
+import { restrictToParentElement } from '@dnd-kit/modifiers'
 import { horizontalListSortingStrategy, SortableContext, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { IconPlus } from '@posthog/icons'
@@ -73,7 +73,7 @@ export const PropertySelect = ({
     }
 
     return (
-        <div className="flex items-center flex-wrap gap-2">
+        <div className="flex flex-col gap-2">
             {selectedProperties.length > 0 && (
                 <DndContext
                     onDragEnd={({ active, over }) => {
@@ -86,14 +86,14 @@ export const PropertySelect = ({
                     }}
                     sensors={sensors}
                     collisionDetection={closestCenter}
-                    modifiers={[restrictToHorizontalAxis, restrictToParentElement]}
+                    modifiers={[restrictToParentElement]}
                 >
                     <SortableContext
                         disabled={!sortable}
                         items={selectedProperties}
                         strategy={horizontalListSortingStrategy}
                     >
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                             {selectedProperties.map((value) => (
                                 <SortableProperty
                                     key={`item-${value}`}
@@ -107,29 +107,31 @@ export const PropertySelect = ({
                 </DndContext>
             )}
 
-            <Popover
-                visible={open}
-                onClickOutside={() => setOpen(false)}
-                overlay={
-                    <TaxonomicFilter
-                        onChange={(_, value) => {
-                            handleChange(value as string)
-                            setOpen(false)
-                        }}
-                        taxonomicGroupTypes={[taxonomicFilterGroup]}
-                    />
-                }
-            >
-                <LemonButton
-                    onClick={() => setOpen(!open)}
-                    type="secondary"
-                    size="small"
-                    icon={<IconPlus />}
-                    sideIcon={null}
+            <div>
+                <Popover
+                    visible={open}
+                    onClickOutside={() => setOpen(false)}
+                    overlay={
+                        <TaxonomicFilter
+                            onChange={(_, value) => {
+                                handleChange(value as string)
+                                setOpen(false)
+                            }}
+                            taxonomicGroupTypes={[taxonomicFilterGroup]}
+                        />
+                    }
                 >
-                    {addText}
-                </LemonButton>
-            </Popover>
+                    <LemonButton
+                        onClick={() => setOpen(!open)}
+                        type="secondary"
+                        size="small"
+                        icon={<IconPlus />}
+                        sideIcon={null}
+                    >
+                        {addText}
+                    </LemonButton>
+                </Popover>
+            </div>
         </div>
     )
 }

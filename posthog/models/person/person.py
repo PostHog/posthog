@@ -6,6 +6,7 @@ from django.db.models import F, Q
 from posthog.models.utils import UUIDT
 
 from ..team import Team
+from .missing_person import uuidFromDistinctId
 
 MAX_LIMIT_DISTINCT_IDS = 2500
 
@@ -51,7 +52,9 @@ class Person(models.Model):
             self.add_distinct_id(distinct_id)
 
     def split_person(self, main_distinct_id: Optional[str], max_splits: Optional[int] = None):
-        distinct_ids = Person.objects.get(pk=self.pk).distinct_ids
+        original_person = Person.objects.get(pk=self.pk)
+        distinct_ids = original_person.distinct_ids
+        original_person_version = original_person.version or 0
         if not main_distinct_id:
             self.properties = {}
             self.save()
@@ -65,7 +68,13 @@ class Person(models.Model):
             if not distinct_id == main_distinct_id:
                 with transaction.atomic():
                     pdi = PersonDistinctId.objects.select_for_update().get(person=self, distinct_id=distinct_id)
-                    person = Person.objects.create(team_id=self.team_id)
+                    person, _ = Person.objects.get_or_create(
+                        uuid=uuidFromDistinctId(self.team_id, distinct_id),
+                        team_id=self.team_id,
+                        defaults={
+                            "version": original_person_version + 1,
+                        },
+                    )
                     pdi.person_id = str(person.id)
                     pdi.version = (pdi.version or 0) + 1
                     pdi.save(update_fields=["version", "person_id"])
@@ -83,9 +92,7 @@ class Person(models.Model):
                     version=pdi.version,
                 )
                 create_person(
-                    team_id=self.team_id,
-                    uuid=str(person.uuid),
-                    version=person.version or 0,
+                    team_id=self.team_id, uuid=str(person.uuid), version=person.version, created_at=person.created_at
                 )
 
     objects = PersonManager()
@@ -119,6 +126,19 @@ class PersonDistinctId(models.Model):
 
     # current version of the id, used to sync with ClickHouse and collapse rows correctly for new clickhouse table
     version: models.BigIntegerField = models.BigIntegerField(null=True, blank=True)
+
+
+class PersonlessDistinctId(models.Model):
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["team", "distinct_id"], name="unique personless distinct_id for team")
+        ]
+
+    id: models.BigAutoField = models.BigAutoField(primary_key=True)
+    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE, db_index=False)
+    distinct_id: models.CharField = models.CharField(max_length=400)
+    is_merged: models.BooleanField = models.BooleanField(default=False)
+    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
 
 
 class PersonOverrideMapping(models.Model):

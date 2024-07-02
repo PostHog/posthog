@@ -15,7 +15,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { tagsModel } from '~/models/tagsModel'
-import { ActionStepType, AvailableFeature } from '~/types'
+import { ActionStepType } from '~/types'
 
 import { actionEditLogic, ActionEditLogicProps, DEFAULT_ACTION_STEP } from './actionEditLogic'
 import { ActionStep } from './ActionStep'
@@ -92,7 +92,6 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                                         className="action-description"
                                         compactButtons
                                         maxLength={600} // No limit on backend model, but enforce shortish description
-                                        paywallFeature={AvailableFeature.INGESTION_TAXONOMY}
                                     />
                                 )}
                             </LemonField>
@@ -161,7 +160,7 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                     </p>
                     <LemonField name="steps">
                         {({ value: stepsValue, onChange }) => (
-                            <div className=" grid @4xl:grid-cols-2 gap-3">
+                            <div className="grid @4xl:grid-cols-2 gap-3">
                                 {stepsValue.map((step: ActionStepType, index: number) => {
                                     const identifier = String(JSON.stringify(step))
                                     return (

@@ -27,6 +27,7 @@ export default {
                 1: {
                     id: '1',
                     team_id: 1,
+                    model: 'events',
                     name: 'My S3 Exporter',
                     destination: {
                         type: 'S3',

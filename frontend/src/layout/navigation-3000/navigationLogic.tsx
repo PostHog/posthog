@@ -17,6 +17,7 @@ import {
     IconServer,
     IconTestTube,
     IconToggle,
+    IconWarning,
 } from '@posthog/icons'
 import { lemonToast, Spinner } from '@posthog/lemon-ui'
 import { captureException } from '@sentry/react'
@@ -404,10 +405,10 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                               to: isUsingSidebar ? undefined : urls.persons(),
                           },
                           {
-                              identifier: Scene.Events,
+                              identifier: Scene.Activity,
                               label: 'Activity',
                               icon: <IconLive />,
-                              to: urls.events(),
+                              to: featureFlags[FEATURE_FLAGS.LIVE_EVENTS] ? urls.activity() : urls.events(),
                           },
                       ]
                     : [
@@ -435,21 +436,27 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                 identifier: Scene.Insight,
                             },
                         },
-                        featureFlags[FEATURE_FLAGS.WEB_ANALYTICS]
-                            ? {
-                                  identifier: Scene.WebAnalytics,
-                                  label: 'Web analytics',
-                                  icon: <IconPieChart />,
-                                  to: isUsingSidebar ? undefined : urls.webAnalytics(),
-                                  tag: 'beta' as const,
-                              }
-                            : null,
+                        {
+                            identifier: Scene.WebAnalytics,
+                            label: 'Web analytics',
+                            icon: <IconPieChart />,
+                            to: isUsingSidebar ? undefined : urls.webAnalytics(),
+                            tag: 'beta' as const,
+                        },
                         {
                             identifier: Scene.Replay,
                             label: 'Session replay',
                             icon: <IconRewindPlay />,
                             to: urls.replay(),
                         },
+                        featureFlags[FEATURE_FLAGS.ERROR_TRACKING]
+                            ? {
+                                  identifier: Scene.ErrorTracking,
+                                  label: 'Error tracking',
+                                  icon: <IconWarning />,
+                                  to: urls.errorTracking(),
+                              }
+                            : null,
                         featureFlags[FEATURE_FLAGS.HEATMAPS_UI]
                             ? {
                                   identifier: Scene.Heatmaps,

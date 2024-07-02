@@ -2,6 +2,7 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { AddToDashboard } from 'lib/components/AddToDashboard/AddToDashboard'
 import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
+import { AlertsButton, AlertsModal } from 'lib/components/Alerts/AlertsModal'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -36,10 +37,16 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { setInsightMode } = useActions(insightSceneLogic)
 
     // insightLogic
-    const logic = insightLogic(insightLogicProps)
-    const { insightProps, canEditInsight, insight, insightChanged, insightSaving, hasDashboardItemId } =
-        useValues(logic)
-    const { setInsightMetadata } = useActions(logic)
+    const {
+        insightProps,
+        canEditInsight,
+        queryBasedInsight: insight,
+        legacyInsight,
+        insightChanged,
+        insightSaving,
+        hasDashboardItemId,
+    } = useValues(insightLogic(insightLogicProps))
+    const { setInsightMetadata } = useActions(insightLogic(insightLogicProps))
 
     // savedInsightsLogic
     const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
@@ -77,8 +84,14 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                     <AddToDashboardModal
                         isOpen={addToDashboardModalOpen}
                         closeModal={() => setAddToDashboardModalOpenModal(false)}
-                        insight={insight}
+                        insightProps={insightProps}
                         canEditInsight={canEditInsight}
+                    />
+                    <AlertsModal
+                        isOpen={insightMode === ItemMode.Alerts}
+                        closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
+                        insightShortId={insight.short_id as InsightShortId}
+                        alertId={subscriptionId}
                     />
                     <NewDashboardModal />
                 </>
@@ -92,7 +105,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                     {hasDashboardItemId && (
                                         <>
                                             <LemonButton
-                                                onClick={() => duplicateInsight(insight as InsightModel, true)}
+                                                onClick={() => duplicateInsight(legacyInsight as InsightModel, true)}
                                                 fullWidth
                                                 data-attr="duplicate-insight-from-insight-view"
                                             >
@@ -127,6 +140,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                 Share or embed
                                             </LemonButton>
                                             <SubscribeButton insightShortId={insight.short_id} />
+                                            <AlertsButton insight={insight} />
                                             {exportContext ? (
                                                 <ExportButton
                                                     fullWidth
@@ -203,7 +217,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                 status="danger"
                                                 onClick={() =>
                                                     void deleteWithUndo({
-                                                        object: insight,
+                                                        object: legacyInsight,
                                                         endpoint: `projects/${currentTeamId}/insights`,
                                                         callback: () => {
                                                             loadInsights()

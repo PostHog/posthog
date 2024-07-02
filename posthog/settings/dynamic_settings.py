@@ -41,16 +41,6 @@ CONSTANCE_CONFIG = {
         "Whether to use query path using person_id and person_properties on events or the old query",
         bool,
     ),
-    "HOGQL_INSIGHTS_OVERRIDE": (
-        get_from_env("HOGQL_INSIGHTS_OVERRIDE", False, type_cast=str_to_bool),
-        "Whether to use insight queries converted to use hogql internally or the old queries",
-        bool,
-    ),
-    "GROUPS_ON_EVENTS_ENABLED": (
-        get_from_env("GROUPS_ON_EVENTS_ENABLED", False, type_cast=str_to_bool),
-        "Whether to use query path using group_properties on events or the old query",
-        bool,
-    ),
     "AUTO_START_ASYNC_MIGRATIONS": (
         get_from_env("AUTO_START_ASYNC_MIGRATIONS", False, type_cast=str_to_bool),
         "Whether the earliest unapplied async migration should be triggered automatically on server startup.",
@@ -217,8 +207,6 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "ASYNC_MIGRATIONS_OPT_OUT_EMAILS",
     "PERSON_ON_EVENTS_ENABLED",
     "PERSON_ON_EVENTS_V2_ENABLED",
-    "HOGQL_INSIGHTS_OVERRIDE",
-    "GROUPS_ON_EVENTS_ENABLED",
     "STRICT_CACHING_TEAMS",
     "SLACK_APP_CLIENT_ID",
     "SLACK_APP_CLIENT_SECRET",

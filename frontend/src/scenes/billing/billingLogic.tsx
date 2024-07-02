@@ -15,7 +15,7 @@ import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { BillingProductV2Type, BillingV2PlanType, BillingV2Type, ProductKey } from '~/types'
+import { BillingPlanType, BillingProductV2Type, BillingType, ProductKey } from '~/types'
 
 import type { billingLogicType } from './billingLogicType'
 
@@ -51,7 +51,7 @@ export interface BillingError {
     action: LemonButtonPropsBase
 }
 
-const parseBillingResponse = (data: Partial<BillingV2Type>): BillingV2Type => {
+const parseBillingResponse = (data: Partial<BillingType>): BillingType => {
     if (data.billing_period) {
         data.billing_period = {
             current_period_start: dayjs(data.billing_period.current_period_start),
@@ -72,7 +72,7 @@ const parseBillingResponse = (data: Partial<BillingV2Type>): BillingV2Type => {
         data.amount_off_expires_at = data.billing_period.current_period_end
     }
 
-    return data as BillingV2Type
+    return data as BillingType
 }
 
 export const billingLogic = kea<billingLogicType>([
@@ -83,7 +83,7 @@ export const billingLogic = kea<billingLogicType>([
         setShowLicenseDirectInput: (show: boolean) => ({ show }),
         reportBillingAlertShown: (alertConfig: BillingAlertConfig) => ({ alertConfig }),
         reportBillingAlertActionClicked: (alertConfig: BillingAlertConfig) => ({ alertConfig }),
-        reportBillingV2Shown: true,
+        reportBillingShown: true,
         registerInstrumentationProps: true,
         setRedirectPath: true,
         setIsOnboarding: true,
@@ -153,44 +153,45 @@ export const billingLogic = kea<billingLogicType>([
                 setUnsubscribeError: (_, { error }) => error,
             },
         ],
-        daysRemaining: [
+        timeRemainingInSeconds: [
             0,
             {
                 loadBillingSuccess: (_, { billing }) => {
                     if (!billing?.billing_period) {
                         return 0
                     }
-                    return billing.billing_period.current_period_end.diff(dayjs(), 'days')
+                    const currentTime = dayjs()
+                    const periodEnd = dayjs(billing.billing_period.current_period_end)
+                    return periodEnd.diff(currentTime, 'second')
                 },
             },
         ],
-        daysTotal: [
+        timeTotalInSeconds: [
             0,
             {
                 loadBillingSuccess: (_, { billing }) => {
                     if (!billing?.billing_period) {
                         return 0
                     }
-                    return billing.billing_period.current_period_end.diff(
-                        billing.billing_period.current_period_start,
-                        'days'
-                    )
+                    const periodStart = dayjs(billing.billing_period.current_period_start)
+                    const periodEnd = dayjs(billing.billing_period.current_period_end)
+                    return periodEnd.diff(periodStart, 'second')
                 },
             },
         ],
     }),
     loaders(({ actions, values }) => ({
         billing: [
-            null as BillingV2Type | null,
+            null as BillingType | null,
             {
                 loadBilling: async () => {
-                    const response = await api.get('api/billing-v2')
+                    const response = await api.get('api/billing')
 
                     return parseBillingResponse(response)
                 },
 
                 updateBillingLimits: async (limits: { [key: string]: string | null }) => {
-                    const response = await api.update('api/billing-v2', { custom_limits_usd: limits })
+                    const response = await api.update('api/billing', { custom_limits_usd: limits })
 
                     lemonToast.success('Billing limits updated')
                     return parseBillingResponse(response)
@@ -205,9 +206,9 @@ export const billingLogic = kea<billingLogicType>([
 
                     actions.resetUnsubscribeError()
                     try {
-                        const response = await api.getResponse('api/billing-v2/deactivate?products=' + key)
+                        const response = await api.getResponse('api/billing/deactivate?products=' + key)
                         const jsonRes = await getJSONOrNull(response)
-                        lemonToast.success('Product unsubscribed')
+                        lemonToast.success('You have been unsubscribed')
                         actions.reportProductUnsubscribed(key)
                         return parseBillingResponse(jsonRes)
                     } catch (error: any) {
@@ -256,7 +257,7 @@ export const billingLogic = kea<billingLogicType>([
                 getInvoices: async () => {
                     // First check to see if there are open invoices
                     try {
-                        const res = await api.getResponse('api/billing-v2/get_invoices?status=open')
+                        const res = await api.getResponse('api/billing/get_invoices?status=open')
                         const jsonRes = await getJSONOrNull(res)
                         const numOpenInvoices = jsonRes['count']
                         if (numOpenInvoices > 0) {
@@ -289,7 +290,7 @@ export const billingLogic = kea<billingLogicType>([
             [] as BillingProductV2Type[],
             {
                 loadProducts: async () => {
-                    const response = await api.get('api/billing-v2/available_products')
+                    const response = await api.get('api/billing/available_products')
                     return response
                 },
             },
@@ -303,7 +304,7 @@ export const billingLogic = kea<billingLogicType>([
         ],
         projectedTotalAmountUsdWithBillingLimits: [
             (s) => [s.billing],
-            (billing: BillingV2Type): number => {
+            (billing: BillingType): number => {
                 if (!billing) {
                     return 0
                 }
@@ -345,7 +346,7 @@ export const billingLogic = kea<billingLogicType>([
         ],
         supportPlans: [
             (s) => [s.billing],
-            (billing: BillingV2Type): BillingV2PlanType[] => {
+            (billing: BillingType): BillingPlanType[] => {
                 const platformAndSupportProduct = billing?.products?.find(
                     (product) => product.type == ProductKey.PLATFORM_AND_SUPPORT
                 )
@@ -362,7 +363,7 @@ export const billingLogic = kea<billingLogicType>([
         ],
         hasSupportAddonPlan: [
             (s) => [s.billing],
-            (billing: BillingV2Type): boolean => {
+            (billing: BillingType): boolean => {
                 return !!billing?.products
                     ?.find((product) => product.type == ProductKey.PLATFORM_AND_SUPPORT)
                     ?.addons.find((addon) => addon.plans.find((plan) => plan.current_plan))
@@ -378,7 +379,7 @@ export const billingLogic = kea<billingLogicType>([
             submit: async ({ license }, breakpoint) => {
                 await breakpoint(500)
                 try {
-                    await api.update('api/billing-v2/license', {
+                    await api.update('api/billing/license', {
                         license,
                     })
 
@@ -399,7 +400,7 @@ export const billingLogic = kea<billingLogicType>([
         },
     })),
     listeners(({ actions, values }) => ({
-        reportBillingV2Shown: () => {
+        reportBillingShown: () => {
             posthog.capture('billing v2 shown')
         },
         reportBillingAlertShown: ({ alertConfig }) => {

@@ -1,3 +1,4 @@
+import asyncio
 import datetime as dt
 import uuid
 from unittest import mock
@@ -20,7 +21,6 @@ from posthog.temporal.batch_exports.backfill_batch_export import (
     backfill_range,
     backfill_schedule,
     get_schedule_frequency,
-    wait_for_schedule_backfill_in_range,
 )
 from posthog.temporal.tests.utils.datetimes import date_range
 from posthog.temporal.tests.utils.events import (
@@ -60,66 +60,66 @@ async def temporal_schedule(temporal_client, team):
     "start_at,end_at,step,expected",
     [
         (
-            dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc),
-            dt.datetime(2023, 1, 2, 0, 0, 0, tzinfo=dt.timezone.utc),
+            dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC),
+            dt.datetime(2023, 1, 2, 0, 0, 0, tzinfo=dt.UTC),
             dt.timedelta(days=1),
             [
                 (
-                    dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc),
-                    dt.datetime(2023, 1, 2, 0, 0, 0, tzinfo=dt.timezone.utc),
+                    dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC),
+                    dt.datetime(2023, 1, 2, 0, 0, 0, tzinfo=dt.UTC),
                 )
             ],
         ),
         (
-            dt.datetime(2023, 1, 1, 10, 0, 0, tzinfo=dt.timezone.utc),
-            dt.datetime(2023, 1, 1, 12, 20, 0, tzinfo=dt.timezone.utc),
+            dt.datetime(2023, 1, 1, 10, 0, 0, tzinfo=dt.UTC),
+            dt.datetime(2023, 1, 1, 12, 20, 0, tzinfo=dt.UTC),
             dt.timedelta(hours=1),
             [
                 (
-                    dt.datetime(2023, 1, 1, 10, 0, 0, tzinfo=dt.timezone.utc),
-                    dt.datetime(2023, 1, 1, 11, 0, 0, tzinfo=dt.timezone.utc),
+                    dt.datetime(2023, 1, 1, 10, 0, 0, tzinfo=dt.UTC),
+                    dt.datetime(2023, 1, 1, 11, 0, 0, tzinfo=dt.UTC),
                 ),
                 (
-                    dt.datetime(2023, 1, 1, 11, 0, 0, tzinfo=dt.timezone.utc),
-                    dt.datetime(2023, 1, 1, 12, 0, 0, tzinfo=dt.timezone.utc),
+                    dt.datetime(2023, 1, 1, 11, 0, 0, tzinfo=dt.UTC),
+                    dt.datetime(2023, 1, 1, 12, 0, 0, tzinfo=dt.UTC),
                 ),
             ],
         ),
         (
-            dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc),
-            dt.datetime(2023, 1, 2, 0, 0, 0, tzinfo=dt.timezone.utc),
+            dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC),
+            dt.datetime(2023, 1, 2, 0, 0, 0, tzinfo=dt.UTC),
             dt.timedelta(hours=12),
             [
                 (
-                    dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc),
-                    dt.datetime(2023, 1, 1, 12, 0, 0, tzinfo=dt.timezone.utc),
+                    dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC),
+                    dt.datetime(2023, 1, 1, 12, 0, 0, tzinfo=dt.UTC),
                 ),
                 (
-                    dt.datetime(2023, 1, 1, 12, 0, 0, tzinfo=dt.timezone.utc),
-                    dt.datetime(2023, 1, 2, 0, 0, 0, tzinfo=dt.timezone.utc),
+                    dt.datetime(2023, 1, 1, 12, 0, 0, tzinfo=dt.UTC),
+                    dt.datetime(2023, 1, 2, 0, 0, 0, tzinfo=dt.UTC),
                 ),
             ],
         ),
         (
-            dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc),
-            dt.datetime(2023, 1, 5, 0, 0, 0, tzinfo=dt.timezone.utc),
+            dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC),
+            dt.datetime(2023, 1, 5, 0, 0, 0, tzinfo=dt.UTC),
             dt.timedelta(days=1),
             [
                 (
-                    dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc),
-                    dt.datetime(2023, 1, 2, 0, 0, 0, tzinfo=dt.timezone.utc),
+                    dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC),
+                    dt.datetime(2023, 1, 2, 0, 0, 0, tzinfo=dt.UTC),
                 ),
                 (
-                    dt.datetime(2023, 1, 2, 0, 0, 0, tzinfo=dt.timezone.utc),
-                    dt.datetime(2023, 1, 3, 0, 0, 0, tzinfo=dt.timezone.utc),
+                    dt.datetime(2023, 1, 2, 0, 0, 0, tzinfo=dt.UTC),
+                    dt.datetime(2023, 1, 3, 0, 0, 0, tzinfo=dt.UTC),
                 ),
                 (
-                    dt.datetime(2023, 1, 3, 0, 0, 0, tzinfo=dt.timezone.utc),
-                    dt.datetime(2023, 1, 4, 0, 0, 0, tzinfo=dt.timezone.utc),
+                    dt.datetime(2023, 1, 3, 0, 0, 0, tzinfo=dt.UTC),
+                    dt.datetime(2023, 1, 4, 0, 0, 0, tzinfo=dt.UTC),
                 ),
                 (
-                    dt.datetime(2023, 1, 4, 0, 0, 0, tzinfo=dt.timezone.utc),
-                    dt.datetime(2023, 1, 5, 0, 0, 0, tzinfo=dt.timezone.utc),
+                    dt.datetime(2023, 1, 4, 0, 0, 0, tzinfo=dt.UTC),
+                    dt.datetime(2023, 1, 5, 0, 0, 0, tzinfo=dt.UTC),
                 ),
             ],
         ),
@@ -143,35 +143,64 @@ async def test_get_schedule_frequency(activity_environment, temporal_worker, tem
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_backfill_schedule_activity(activity_environment, temporal_worker, temporal_schedule):
+async def test_backfill_schedule_activity(activity_environment, temporal_worker, temporal_client, temporal_schedule):
     """Test backfill_schedule activity schedules all backfill runs."""
-    start_at = dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc)
-    end_at = dt.datetime(2023, 1, 1, 0, 10, 0, tzinfo=dt.timezone.utc)
+    start_at = dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
+    end_at = dt.datetime(2023, 1, 1, 0, 10, 0, tzinfo=dt.UTC)
 
     desc = await temporal_schedule.describe()
     inputs = BackfillScheduleInputs(
         schedule_id=desc.id,
         start_at=start_at.isoformat(),
         end_at=end_at.isoformat(),
-        buffer_limit=2,
-        wait_delay=1.0,
+        start_delay=1.0,
         frequency_seconds=desc.schedule.spec.intervals[0].every.total_seconds(),
     )
 
     await activity_environment.run(backfill_schedule, inputs)
 
-    desc = await temporal_schedule.describe()
-    result = desc.info.num_actions
-    expected = 10
+    query = f'TemporalScheduledById="{desc.id}"'
+    workflows: list[temporalio.client.WorkflowExecution] = []
 
-    assert result >= expected
+    timeout = 20
+    waited = 0
+    expected = 10
+    while len(workflows) < expected:
+        # It can take a few seconds for workflows to be query-able
+        waited += 1
+        if waited > timeout:
+            raise TimeoutError("Timed-out waiting for workflows to be query-able")
+
+        await asyncio.sleep(1)
+
+        workflows = [workflow async for workflow in temporal_client.list_workflows(query=query)]
+
+    assert len(workflows) == expected
+
+    for workflow in workflows:
+        handle = temporal_client.get_workflow_handle(workflow.id)
+        history = await handle.fetch_history()
+
+        for event in history.events:
+            if event.event_type == 1:
+                # 1 is EVENT_TYPE_WORKFLOW_EXECUTION_STARTED
+                args = await workflow.data_converter.decode(
+                    event.workflow_execution_started_event_attributes.input.payloads
+                )
+                assert args[0]["is_backfill"] is True
+            elif event.event_type == 10:
+                # 10 is EVENT_TYPE_ACTIVITY_TASK_SCHEDULED
+                args = await workflow.data_converter.decode(
+                    event.activity_task_scheduled_event_attributes.input.payloads
+                )
+                assert args[0]["is_backfill"] is True
 
 
 @pytest.mark.django_db(transaction=True)
 async def test_backfill_batch_export_workflow(temporal_worker, temporal_schedule, temporal_client, team):
     """Test BackfillBatchExportWorkflow executes all backfill runs and updates model."""
-    start_at = dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc)
-    end_at = dt.datetime(2023, 1, 1, 0, 10, 0, tzinfo=dt.timezone.utc)
+    start_at = dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
+    end_at = dt.datetime(2023, 1, 1, 0, 10, 0, tzinfo=dt.UTC)
 
     desc = await temporal_schedule.describe()
 
@@ -181,8 +210,7 @@ async def test_backfill_batch_export_workflow(temporal_worker, temporal_schedule
         batch_export_id=desc.id,
         start_at=start_at.isoformat(),
         end_at=end_at.isoformat(),
-        buffer_limit=2,
-        wait_delay=1.0,
+        start_delay=1.0,
     )
 
     handle = await temporal_client.start_workflow(
@@ -195,11 +223,41 @@ async def test_backfill_batch_export_workflow(temporal_worker, temporal_schedule
     )
     await handle.result()
 
-    desc = await temporal_schedule.describe()
-    result = desc.info.num_actions
-    expected = 10
+    query = f'TemporalScheduledById="{desc.id}"'
+    workflows: list[temporalio.client.WorkflowExecution] = []
 
-    assert result == expected
+    timeout = 20
+    waited = 0
+    expected = 10
+    while len(workflows) < expected:
+        # It can take a few seconds for workflows to be query-able
+        waited += 1
+        if waited > timeout:
+            raise TimeoutError("Timed-out waiting for workflows to be query-able")
+
+        await asyncio.sleep(1)
+
+        workflows = [workflow async for workflow in temporal_client.list_workflows(query=query)]
+
+    assert len(workflows) == expected
+
+    for workflow in workflows:
+        handle = temporal_client.get_workflow_handle(workflow.id)
+        history = await handle.fetch_history()
+
+        for event in history.events:
+            if event.event_type == 1:
+                # 1 is EVENT_TYPE_WORKFLOW_EXECUTION_STARTED
+                args = await workflow.data_converter.decode(
+                    event.workflow_execution_started_event_attributes.input.payloads
+                )
+                assert args[0]["is_backfill"] is True
+            elif event.event_type == 10:
+                # 10 is EVENT_TYPE_ACTIVITY_TASK_SCHEDULED
+                args = await workflow.data_converter.decode(
+                    event.activity_task_scheduled_event_attributes.input.payloads
+                )
+                assert args[0]["is_backfill"] is True
 
     backfills = await afetch_batch_export_backfills(batch_export_id=desc.id)
 
@@ -217,9 +275,9 @@ async def test_backfill_batch_export_workflow_no_end_at(
     """Test BackfillBatchExportWorkflow executes all backfill runs and updates model."""
 
     # Note the mocked time here, we should stop backfilling at 8 minutes and unpause the job.
-    mock_utcnow.return_value = dt.datetime(2023, 1, 1, 0, 8, 12, tzinfo=dt.timezone.utc)
+    mock_utcnow.return_value = dt.datetime(2023, 1, 1, 0, 8, 12, tzinfo=dt.UTC)
 
-    start_at = dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc)
+    start_at = dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
     end_at = None
 
     desc = await temporal_schedule.describe()
@@ -230,8 +288,7 @@ async def test_backfill_batch_export_workflow_no_end_at(
         batch_export_id=desc.id,
         start_at=start_at.isoformat(),
         end_at=end_at,
-        buffer_limit=2,
-        wait_delay=0.1,
+        start_delay=0.1,
     )
 
     batch_export = await afetch_batch_export(desc.id)
@@ -247,11 +304,41 @@ async def test_backfill_batch_export_workflow_no_end_at(
     )
     await handle.result()
 
-    desc = await temporal_schedule.describe()
-    result = desc.info.num_actions
-    expected = 8
+    query = f'TemporalScheduledById="{desc.id}"'
+    workflows: list[temporalio.client.WorkflowExecution] = []
 
-    assert result == expected
+    timeout = 20
+    waited = 0
+    expected = 8
+    while len(workflows) < expected:
+        # It can take a few seconds for workflows to be query-able
+        waited += 1
+        if waited > timeout:
+            raise TimeoutError("Timed-out waiting for workflows to be query-able")
+
+        await asyncio.sleep(1)
+
+        workflows = [workflow async for workflow in temporal_client.list_workflows(query=query)]
+
+    assert len(workflows) == expected
+
+    for workflow in workflows:
+        handle = temporal_client.get_workflow_handle(workflow.id)
+        history = await handle.fetch_history()
+
+        for event in history.events:
+            if event.event_type == 1:
+                # 1 is EVENT_TYPE_WORKFLOW_EXECUTION_STARTED
+                args = await workflow.data_converter.decode(
+                    event.workflow_execution_started_event_attributes.input.payloads
+                )
+                assert args[0]["is_backfill"] is True
+            elif event.event_type == 10:
+                # 10 is EVENT_TYPE_ACTIVITY_TASK_SCHEDULED
+                args = await workflow.data_converter.decode(
+                    event.activity_task_scheduled_event_attributes.input.payloads
+                )
+                assert args[0]["is_backfill"] is True
 
     backfills = await afetch_batch_export_backfills(batch_export_id=desc.id)
 
@@ -269,8 +356,8 @@ async def test_backfill_batch_export_workflow_fails_when_schedule_deleted(
     temporal_worker, temporal_schedule, temporal_client, team
 ):
     """Test BackfillBatchExportWorkflow fails when its underlying Temporal Schedule is deleted."""
-    start_at = dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc)
-    end_at = dt.datetime(2023, 1, 1, 0, 10, 0, tzinfo=dt.timezone.utc)
+    start_at = dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
+    end_at = dt.datetime(2023, 1, 1, 0, 10, 0, tzinfo=dt.UTC)
 
     desc = await temporal_schedule.describe()
 
@@ -280,8 +367,7 @@ async def test_backfill_batch_export_workflow_fails_when_schedule_deleted(
         batch_export_id=desc.id,
         start_at=start_at.isoformat(),
         end_at=end_at.isoformat(),
-        buffer_limit=1,
-        wait_delay=2.0,
+        start_delay=2.0,
     )
 
     handle = await temporal_client.start_workflow(
@@ -312,9 +398,8 @@ async def test_backfill_batch_export_workflow_fails_when_schedule_deleted_after_
     In this test, in contrats to the previous one, we wait until we have started running some
     backfill runs before cancelling.
     """
-    start_at = dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc)
-    end_at = dt.datetime(2023, 1, 1, 0, 10, 0, tzinfo=dt.timezone.utc)
-    now = dt.datetime.now(dt.timezone.utc)
+    start_at = dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
+    end_at = dt.datetime(2023, 1, 1, 0, 10, 0, tzinfo=dt.UTC)
 
     desc = await temporal_schedule.describe()
 
@@ -324,8 +409,7 @@ async def test_backfill_batch_export_workflow_fails_when_schedule_deleted_after_
         batch_export_id=desc.id,
         start_at=start_at.isoformat(),
         end_at=end_at.isoformat(),
-        buffer_limit=1,
-        wait_delay=2.0,
+        start_delay=2.0,
     )
 
     handle = await temporal_client.start_workflow(
@@ -336,19 +420,6 @@ async def test_backfill_batch_export_workflow_fails_when_schedule_deleted_after_
         execution_timeout=dt.timedelta(seconds=20),
         retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
     )
-    await wait_for_schedule_backfill_in_range(
-        client=temporal_client,
-        schedule_id=desc.id,
-        start_at=start_at,
-        end_at=dt.datetime(2023, 1, 1, 0, 1, 0, tzinfo=dt.timezone.utc),
-        now=now,
-        wait_delay=1.0,
-    )
-
-    desc = await temporal_schedule.describe()
-    result = desc.info.num_actions
-
-    assert result >= 1
 
     await temporal_schedule.delete()
 
@@ -400,8 +471,8 @@ async def test_backfill_batch_export_workflow_is_cancelled_on_repeated_failures(
     temporal_worker, failing_s3_batch_export, temporal_client, ateam, clickhouse_client
 ):
     """Test BackfillBatchExportWorkflow will be cancelled on repeated failures."""
-    start_at = dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc)
-    end_at = dt.datetime(2023, 1, 1, 1, 0, 0, tzinfo=dt.timezone.utc)
+    start_at = dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
+    end_at = dt.datetime(2023, 1, 1, 1, 0, 0, tzinfo=dt.UTC)
 
     # We need some data otherwise the S3 batch export will not fail as it short-circuits.
     for d in date_range(start_at, end_at, dt.timedelta(minutes=5)):
@@ -419,13 +490,12 @@ async def test_backfill_batch_export_workflow_is_cancelled_on_repeated_failures(
         batch_export_id=str(failing_s3_batch_export.id),
         start_at=start_at.isoformat(),
         end_at=end_at.isoformat(),
-        buffer_limit=2,
-        wait_delay=1.0,
+        start_delay=2.0,
     )
 
     # Need to recreate the specific ID the app would use when triggering a backfill
-    start_at_str = start_at.strftime("%Y-%m-%dT%H:%M:%S")
-    end_at_str = end_at.strftime("%Y-%m-%dT%H:%M:%S")
+    start_at_str = start_at.isoformat()
+    end_at_str = end_at.isoformat()
     backfill_id = f"{failing_s3_batch_export.id}-Backfill-{start_at_str}-{end_at_str}"
 
     handle = await temporal_client.start_workflow(
@@ -441,7 +511,7 @@ async def test_backfill_batch_export_workflow_is_cancelled_on_repeated_failures(
         await handle.result()
 
     err = exc_info.value
-    assert isinstance(err.__cause__, temporalio.exceptions.CancelledError)
+    assert isinstance(err.__cause__, temporalio.exceptions.CancelledError), err.__cause__
 
     await sync_to_async(failing_s3_batch_export.refresh_from_db)()
     assert failing_s3_batch_export.paused is True

@@ -1,7 +1,7 @@
 import os
 import time
 from contextlib import contextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from prometheus_client import Histogram
 import json
 from typing import Any, cast
@@ -28,21 +28,18 @@ from posthog.api.utils import safe_clickhouse_string
 from posthog.auth import SharingAccessTokenAuthentication
 from posthog.cloud_utils import is_cloud
 from posthog.constants import SESSION_RECORDINGS_FILTER_IDS
-from posthog.models import User
+from posthog.models import User, Team
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.person.person import PersonDistinctId
-from posthog.schema import QueryTiming
+from posthog.schema import QueryTiming, HogQLQueryModifiers
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_event import (
     SessionRecordingViewed,
 )
 
-from posthog.session_recordings.queries.session_recording_list_from_replay_summary import (
-    SessionRecordingListFromReplaySummary,
-    SessionIdEventsQuery,
-)
 from posthog.session_recordings.queries.session_recording_list_from_filters import (
     SessionRecordingListFromFilters,
+    ReplayFiltersEventsSubQuery,
 )
 from posthog.session_recordings.queries.session_recording_properties import (
     SessionRecordingProperties,
@@ -302,8 +299,21 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 "Must specify at least one event or action filter",
             )
 
-        matching_events: list[str] = SessionIdEventsQuery(filter=filter, team=self.team).matching_events()
-        return JsonResponse(data={"results": matching_events})
+        distinct_id = str(cast(User, request.user).distinct_id)
+        modifiers = safely_read_modifiers_overrides(distinct_id, self.team)
+        matching_events_query_response = ReplayFiltersEventsSubQuery(
+            filter=filter, team=self.team, hogql_query_modifiers=modifiers
+        ).get_event_ids_for_session()
+
+        response = JsonResponse(data={"results": matching_events_query_response.results})
+
+        response.headers["Server-Timing"] = ", ".join(
+            f"{key};dur={round(duration, ndigits=2)}"
+            for key, duration in _generate_timings(
+                matching_events_query_response.timings, ServerTimingsGathered()
+            ).items()
+        )
+        return response
 
     # Returns metadata about the recording
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
@@ -430,7 +440,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 # Keys are like 1619712000-1619712060
                 blob_key = full_key.replace(blob_prefix.rstrip("/") + "/", "")
                 blob_key_base = blob_key.split(".")[0]  # Remove the extension if it exists
-                time_range = [datetime.fromtimestamp(int(x) / 1000, tz=timezone.utc) for x in blob_key_base.split("-")]
+                time_range = [datetime.fromtimestamp(int(x) / 1000, tz=UTC) for x in blob_key_base.split("-")]
 
                 sources.append(
                     {
@@ -446,7 +456,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             newest_timestamp = min(sources, key=lambda k: k["end_timestamp"])["end_timestamp"]
 
             if might_have_realtime:
-                might_have_realtime = oldest_timestamp + timedelta(hours=24) > datetime.now(timezone.utc)
+                might_have_realtime = oldest_timestamp + timedelta(hours=24) > datetime.now(UTC)
         if might_have_realtime:
             sources.append(
                 {
@@ -756,20 +766,13 @@ def list_recordings(
             filter = filter.shallow_clone({SESSION_RECORDINGS_FILTER_IDS: remaining_session_ids})
 
     if (all_session_ids and filter.session_ids) or not all_session_ids:
-        has_hog_ql_filtering = request.GET.get("hog_ql_filtering", "false") == "true"
+        distinct_id = str(cast(User, request.user).distinct_id)
+        modifiers = safely_read_modifiers_overrides(distinct_id, team)
 
-        if has_hog_ql_filtering:
-            with timer("load_recordings_from_hogql"):
-                (ch_session_recordings, more_recordings_available, hogql_timings) = SessionRecordingListFromFilters(
-                    filter=filter, team=team
-                ).run()
-        else:
-            # Only go to clickhouse if we still have remaining specified IDs, or we are not specifying IDs
-            with timer("load_recordings_from_clickhouse"):
-                (
-                    ch_session_recordings,
-                    more_recordings_available,
-                ) = SessionRecordingListFromReplaySummary(filter=filter, team=team).run()
+        with timer("load_recordings_from_hogql"):
+            (ch_session_recordings, more_recordings_available, hogql_timings) = SessionRecordingListFromFilters(
+                filter=filter, team=team, hogql_query_modifiers=modifiers
+            ).run()
 
         with timer("build_recordings"):
             recordings_from_clickhouse = SessionRecording.get_or_build_from_clickhouse(team, ch_session_recordings)
@@ -822,6 +825,32 @@ def list_recordings(
         {"results": results, "has_next": more_recordings_available, "version": 3},
         all_timings,
     )
+
+
+def safely_read_modifiers_overrides(distinct_id: str, team: Team) -> HogQLQueryModifiers:
+    modifiers = HogQLQueryModifiers()
+
+    try:
+        groups = {"organization": str(team.organization.id)}
+        flag_key = "HOG_QL_ORG_QUERY_OVERRIDES"
+        flags_n_bags = posthoganalytics.get_all_flags_and_payloads(
+            distinct_id,
+            groups=groups,
+        )
+        # this loads nothing whereas the payload is available
+        # modifier_overrides = posthoganalytics.get_feature_flag_payload(
+        #     flag_key,
+        #     distinct_id,
+        #     groups=groups,
+        # )
+        modifier_overrides = (flags_n_bags or {}).get("featureFlagPayloads", {}).get(flag_key, None)
+        if modifier_overrides:
+            modifiers.optimizeJoinedFilters = json.loads(modifier_overrides).get("optimizeJoinedFilters", None)
+    except:
+        # be extra safe
+        pass
+
+    return modifiers
 
 
 def _generate_timings(hogql_timings: list[QueryTiming] | None, timer: ServerTimingsGathered) -> dict[str, float]:

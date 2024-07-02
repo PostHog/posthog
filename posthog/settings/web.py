@@ -274,6 +274,11 @@ SPECTACULAR_SETTINGS = {
         "drf_spectacular.hooks.postprocess_schema_enums",
         "posthog.api.documentation.custom_postprocessing_hook",
     ],
+    "ENUM_NAME_OVERRIDES": {
+        "DashboardRestrictionLevel": "posthog.models.dashboard.Dashboard.RestrictionLevel",
+        "OrganizationMembershipLevel": "posthog.models.organization.OrganizationMembership.Level",
+        "SurveyType": "posthog.models.feedback.survey.Survey.SurveyType",
+    },
 }
 
 EXCEPTIONS_HOG = {"EXCEPTION_REPORTING": "posthog.exceptions.exception_reporting"}
@@ -355,7 +360,7 @@ KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS = int(os.getenv("KAFKA_PRODUCE_ACK_TIMEOUT_SEC
 # We keep the number of buckets low to reduce resource usage on the Prometheus
 PROMETHEUS_LATENCY_BUCKETS = [0.1, 0.3, 0.9, 2.7, 8.1, float("inf")]
 
-SALT_KEY = os.getenv("SALT_KEY", "0123456789abcdefghijklmnopqrstuvwxyz")
+SALT_KEY = get_list(os.getenv("SALT_KEY", "0123456789abcdefghijklmnopqrstuvwxyz"))
 
 # temporary flag to control new UUID version setting in posthog-js
 # is set to v7 to test new generation but can be set to "og" to revert
@@ -373,3 +378,5 @@ PROXY_PROVISIONER_URL = get_from_env("PROXY_PROVISIONER_URL", "")  # legacy, fro
 PROXY_PROVISIONER_ADDR = get_from_env("PROXY_PROVISIONER_ADDR", "")
 PROXY_TARGET_CNAME = get_from_env("PROXY_TARGET_CNAME", "")
 PROXY_BASE_CNAME = get_from_env("PROXY_BASE_CNAME", "")
+
+LOGO_DEV_TOKEN = get_from_env("LOGO_DEV_TOKEN", "")

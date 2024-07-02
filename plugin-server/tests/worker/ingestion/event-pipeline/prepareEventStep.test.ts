@@ -59,7 +59,7 @@ describe('prepareEventStep()', () => {
 
         // :KLUDGE: We test below whether kafka messages are produced, so make sure the person exists beforehand.
         await hub.db.createPerson(person.created_at, {}, {}, {}, pluginEvent.team_id, null, false, person.uuid, [
-            'my_id',
+            { distinctId: 'my_id' },
         ])
         hub.db.kafkaProducer!.queueMessage = jest.fn()
 

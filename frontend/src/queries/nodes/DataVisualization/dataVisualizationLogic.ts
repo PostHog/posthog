@@ -298,7 +298,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
     subscriptions(({ props, actions, values }) => ({
         columns: (value: { name: string; type: string }[], oldValue: { name: string; type: string }[]) => {
             // If response is cleared, then don't update any internal values
-            if (!values.response) {
+            if (!values.response || !values.response.results) {
                 return
             }
 

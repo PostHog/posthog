@@ -54,9 +54,16 @@ class BatchExportSchema(typing.TypedDict):
     values: dict[str, str]
 
 
+@dataclass
+class BatchExportModel:
+    name: str
+    schema: BatchExportSchema | None
+
+
 class BatchExportsInputsProtocol(typing.Protocol):
     team_id: int
-    batch_export_schema: BatchExportSchema | None = None
+    batch_export_model: BatchExportModel | None = None
+    is_backfill: bool = False
 
 
 @dataclass
@@ -89,9 +96,11 @@ class S3BatchExportInputs:
     include_events: list[str] | None = None
     encryption: str | None = None
     kms_key_id: str | None = None
-    batch_export_schema: BatchExportSchema | None = None
     endpoint_url: str | None = None
     file_format: str = "JSONLines"
+    is_backfill: bool = False
+    batch_export_model: BatchExportModel | None = None
+    batch_export_schema: BatchExportSchema | None = None
 
 
 @dataclass
@@ -112,6 +121,8 @@ class SnowflakeBatchExportInputs:
     role: str | None = None
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
+    is_backfill: bool = False
+    batch_export_model: BatchExportModel | None = None
     batch_export_schema: BatchExportSchema | None = None
 
 
@@ -133,6 +144,8 @@ class PostgresBatchExportInputs:
     data_interval_end: str | None = None
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
+    is_backfill: bool = False
+    batch_export_model: BatchExportModel | None = None
     batch_export_schema: BatchExportSchema | None = None
 
 
@@ -161,6 +174,8 @@ class BigQueryBatchExportInputs:
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
     use_json_type: bool = False
+    is_backfill: bool = False
+    batch_export_model: BatchExportModel | None = None
     batch_export_schema: BatchExportSchema | None = None
 
 
@@ -176,6 +191,8 @@ class HttpBatchExportInputs:
     data_interval_end: str | None = None
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
+    is_backfill: bool = False
+    batch_export_model: BatchExportModel | None = None
     batch_export_schema: BatchExportSchema | None = None
 
 
@@ -187,6 +204,8 @@ class NoOpInputs:
     team_id: int
     interval: str = "hour"
     arg: str = ""
+    is_backfill: bool = False
+    batch_export_model: BatchExportModel | None = None
     batch_export_schema: BatchExportSchema | None = None
 
 
@@ -250,7 +269,7 @@ def pause_batch_export(temporal: Client, batch_export_id: str, note: str | None 
         raise BatchExportServiceRPCError(f"BatchExport {batch_export_id} could not be paused") from exc
 
     batch_export.paused = True
-    batch_export.last_paused_at = dt.datetime.now(dt.timezone.utc)
+    batch_export.last_paused_at = dt.datetime.now(dt.UTC)
     batch_export.save()
 
     return True
@@ -278,7 +297,7 @@ async def apause_batch_export(temporal: Client, batch_export_id: str, note: str 
         raise BatchExportServiceRPCError(f"BatchExport {batch_export_id} could not be paused") from exc
 
     batch_export.paused = True
-    batch_export.last_paused_at = dt.datetime.now(dt.timezone.utc)
+    batch_export.last_paused_at = dt.datetime.now(dt.UTC)
     await batch_export.asave()
 
     return True
@@ -336,6 +355,9 @@ def disable_and_delete_export(instance: BatchExport):
 
     instance.deleted = True
 
+    for backfill in running_backfills_for_batch_export(instance.id):
+        async_to_sync(cancel_running_batch_export_backfill)(temporal, backfill)
+
     try:
         batch_export_delete_schedule(temporal, str(instance.pk))
     except BatchExportServiceScheduleNotFound as e:
@@ -345,9 +367,6 @@ def disable_and_delete_export(instance: BatchExport):
         )
 
     instance.save()
-
-    for backfill in running_backfills_for_batch_export(instance.id):
-        async_to_sync(cancel_running_batch_export_backfill)(temporal, backfill)
 
 
 def batch_export_delete_schedule(temporal: Client, schedule_id: str) -> None:
@@ -391,7 +410,7 @@ class BackfillBatchExportInputs:
     start_at: str
     end_at: str | None
     buffer_limit: int = 1
-    wait_delay: float = 5.0
+    start_delay: float = 1.0
 
 
 def backfill_export(
@@ -436,13 +455,6 @@ def backfill_export(
 @async_to_sync
 async def start_backfill_batch_export_workflow(temporal: Client, inputs: BackfillBatchExportInputs) -> str:
     """Async call to start a BackfillBatchExportWorkflow."""
-    handle = temporal.get_schedule_handle(inputs.batch_export_id)
-    description = await handle.describe()
-
-    if description.schedule.spec.jitter is not None and inputs.end_at is not None:
-        # Adjust end_at to account for jitter if present.
-        inputs.end_at = (dt.datetime.fromisoformat(inputs.end_at) + description.schedule.spec.jitter).isoformat()
-
     workflow_id = f"{inputs.batch_export_id}-Backfill-{inputs.start_at}-{inputs.end_at}"
     await temporal.start_workflow(
         "backfill-batch-export",
@@ -609,7 +621,16 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
                     team_id=batch_export.team.id,
                     batch_export_id=str(batch_export.id),
                     interval=str(batch_export.interval),
-                    batch_export_schema=batch_export.schema,
+                    batch_export_model=BatchExportModel(
+                        name=batch_export.model or "events",
+                        schema=batch_export.schema,
+                    ),
+                    # TODO: This field is deprecated, but we still set it for backwards compatibility.
+                    # New exports created will always have `batch_export_schema` set to `None`, but existing
+                    # batch exports may still be using it.
+                    # This assignment should be removed after updating all existing exports to use
+                    # `batch_export_model` instead.
+                    batch_export_schema=None,
                     **destination_config,
                 )
             ),

@@ -107,7 +107,21 @@ export function BatchExportGeneralEditFields({
                         <LemonInput placeholder="Name your workflow for future reference" />
                     </LemonField>
                 )}
-
+                {featureFlags[FEATURE_FLAGS.PERSON_BATCH_EXPORTS] &&
+                    // Suppported destinations for Persons batch exports.
+                    // TODO: Add them all once supported
+                    (batchExportConfigForm.destination === 'S3' ||
+                        batchExportConfigForm.destination === 'BigQuery' ||
+                        batchExportConfigForm.destination === 'Snowflake') && (
+                        <LemonField name="model" label="Model" info="A model defines the data that will be exported.">
+                            <LemonSelect
+                                options={[
+                                    { value: 'events', label: 'Events' },
+                                    { value: 'persons', label: 'Persons' },
+                                ]}
+                            />
+                        </LemonField>
+                    )}
                 <div className="flex gap-2 items-start flex-wrap">
                     <LemonField
                         name="interval"
@@ -391,7 +405,7 @@ export function BatchExportsEditFields({
                         </LemonField>
 
                         <LemonField name="port" label="Port">
-                            <LemonInput placeholder="5432" type="tel" min="0" max="65535" />
+                            <LemonInput placeholder="5432" type="number" min="0" max="65535" />
                         </LemonField>
 
                         <LemonField name="database" label="Database">

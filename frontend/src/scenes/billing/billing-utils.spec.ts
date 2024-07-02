@@ -1,13 +1,14 @@
 import { dayjs } from 'lib/dayjs'
 import tk from 'timekeeper'
 
-import { billingJson } from '~/mocks/fixtures/_billing_v2'
-import billingJsonWithFlatFee from '~/mocks/fixtures/_billing_v2_with_flat_fee.json'
+import { billingJson } from '~/mocks/fixtures/_billing'
+import billingJsonWithFlatFee from '~/mocks/fixtures/_billing_with_flat_fee.json'
 
 import {
     convertAmountToUsage,
     convertLargeNumberToWords,
     convertUsageToAmount,
+    getProration,
     projectUsage,
     summarizeUsage,
 } from './billing-utils'
@@ -204,5 +205,85 @@ describe('convertLargeNumberToWords', () => {
         expect(convertLargeNumberToWords(1000, 500, true, 'survey')).toEqual('501-1k')
         expect(convertLargeNumberToWords(10000, 1000, true, 'survey')).toEqual('1-10k')
         expect(convertLargeNumberToWords(10000000, 1000000, true, 'survey')).toEqual('1-10 million')
+    })
+})
+
+describe('getProration', () => {
+    it('should return proration amount and isProrated when all values are provided', () => {
+        const result = getProration({
+            timeRemainingInSeconds: 15,
+            timeTotalInSeconds: 30,
+            amountUsd: '100',
+            hasActiveSubscription: true,
+        })
+        expect(result).toEqual({
+            isProrated: true,
+            prorationAmount: '50.00',
+        })
+    })
+
+    it('should return 0 proration amount and false isProrated when amountUsd is not provided', () => {
+        const result = getProration({
+            timeRemainingInSeconds: 15,
+            timeTotalInSeconds: 30,
+            amountUsd: null,
+            hasActiveSubscription: true,
+        })
+        expect(result).toEqual({
+            isProrated: false,
+            prorationAmount: '0.00',
+        })
+    })
+
+    it('should return proration amount and false isProrated when subscription is not active', () => {
+        const result = getProration({
+            timeRemainingInSeconds: 15,
+            timeTotalInSeconds: 30,
+            amountUsd: '100',
+            hasActiveSubscription: false,
+        })
+        expect(result).toEqual({
+            isProrated: false,
+            prorationAmount: '50.00',
+        })
+    })
+
+    it('should handle zero timeTotalInSeconds gracefully', () => {
+        const result = getProration({
+            timeRemainingInSeconds: 15,
+            timeTotalInSeconds: 0,
+            amountUsd: '100',
+            hasActiveSubscription: true,
+        })
+        expect(result).toEqual({
+            isProrated: false,
+            prorationAmount: '0.00',
+        })
+    })
+
+    it('should handle zero timeRemainingInSeconds gracefully', () => {
+        const result = getProration({
+            timeRemainingInSeconds: 0,
+            timeTotalInSeconds: 30,
+            amountUsd: '100',
+            hasActiveSubscription: true,
+        })
+        expect(result).toEqual({
+            isProrated: true,
+            prorationAmount: '0.00',
+        })
+    })
+
+    it('should return 0 proration amount and false isProrated when amountUsd is an empty string', () => {
+        const result = getProration({
+            timeRemainingInSeconds: 15,
+            timeTotalInSeconds: 30,
+            amountUsd: '',
+            hasActiveSubscription: true,
+        })
+        expect(result).toEqual({
+            isProrated: false,
+            prorationAmount: '0.00',
+        })
     })
 })

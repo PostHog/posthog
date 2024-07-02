@@ -16,7 +16,7 @@
 
     &.LemonRow--status-highlighted {
         font-weight: 600;
-        color: var(--default);
+        color: var(--text-3000);
         background: var(--primary-bg-hover);
 
         .LemonRow__icon {
@@ -43,7 +43,7 @@
     }
 
     &.LemonRow--status-muted {
-        background: var(--side);
+        background: var(--bg-3000);
     }
 
     &.LemonRow--disabled {

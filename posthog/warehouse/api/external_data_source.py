@@ -12,7 +12,6 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.warehouse.data_load.service import (
     sync_external_data_job_workflow,
-    trigger_external_data_workflow,
     delete_external_data_schedule,
     cancel_external_data_workflow,
     delete_data_import_folder,
@@ -23,12 +22,19 @@ from posthog.warehouse.models import ExternalDataSource, ExternalDataSchema, Ext
 from posthog.warehouse.api.external_data_schema import ExternalDataSchemaSerializer
 from posthog.hogql.database.database import create_hogql_database
 from posthog.temporal.data_imports.pipelines.schemas import (
+    PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING,
+    PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING,
     PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
 )
 from posthog.temporal.data_imports.pipelines.hubspot.auth import (
     get_access_token_from_code,
 )
-from posthog.warehouse.models.external_data_schema import get_postgres_schemas
+from posthog.warehouse.models.external_data_schema import (
+    filter_postgres_incremental_fields,
+    filter_snowflake_incremental_fields,
+    get_postgres_schemas,
+    get_snowflake_schemas,
+)
 
 import temporalio
 
@@ -36,16 +42,25 @@ from posthog.cloud_utils import is_cloud
 from posthog.utils import get_instance_region
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
 from sshtunnel import BaseSSHTunnelForwarderError
+from snowflake.connector.errors import ProgrammingError, DatabaseError, ForbiddenError
 
 logger = structlog.get_logger(__name__)
 
-GenericPostgresError = "Could not fetch Postgres schemas. Please check all connection details are valid."
+GenericPostgresError = "Could not connect to Postgres. Please check all connection details are valid."
+GenericSnowflakeError = "Could not connect to Snowflake. Please check all connection details are valid."
 PostgresErrors = {
     "password authentication failed for user": "Invalid user or password",
     "could not translate host name": "Could not connect to the host",
     "Is the server running on that host and accepting TCP/IP connections": "Could not connect to the host on the port given",
     'database "': "Database does not exist",
     "timeout expired": "Connection timed out. Does your database have our IP addresses allowed?",
+}
+SnowflakeErrors = {
+    "No active warehouse selected in the current session": "No warehouse found for selected role",
+    "or attempt to login with another role": "Role specified doesn't exist or is not authorized",
+    "Incorrect username or password was specified": "Incorrect username or password was specified",
+    "This session does not have a current database": "Database specified not found",
+    "Verify the account name is correct": "Can't find an account with the specified account ID",
 }
 
 
@@ -69,8 +84,18 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "prefix",
             "last_run_at",
             "schemas",
+            "sync_frequency",
         ]
-        read_only_fields = ["id", "created_by", "created_at", "status", "source_type", "last_run_at", "schemas"]
+        read_only_fields = [
+            "id",
+            "created_by",
+            "created_at",
+            "status",
+            "source_type",
+            "last_run_at",
+            "schemas",
+            "prefix",
+        ]
 
     def get_last_run_at(self, instance: ExternalDataSource) -> str:
         latest_completed_run = (
@@ -106,6 +131,12 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
     def get_schemas(self, instance: ExternalDataSource):
         schemas = instance.schemas.order_by("name").all()
         return ExternalDataSchemaSerializer(schemas, many=True, read_only=True, context=self.context).data
+
+    def update(self, instance: ExternalDataSource, validated_data: Any) -> Any:
+        updated_source: ExternalDataSource = super().update(instance, validated_data)
+        updated_source.update_schemas()
+
+        return updated_source
 
 
 class SimpleExternalDataSourceSerializers(serializers.ModelSerializer):
@@ -176,32 +207,73 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
             except Exception:
                 raise
+        elif source_type == ExternalDataSource.Type.SNOWFLAKE:
+            new_source_model, snowflake_schemas = self._handle_snowflake_source(request, *args, **kwargs)
         else:
             raise NotImplementedError(f"Source type {source_type} not implemented")
 
         payload = request.data["payload"]
-        enabled_schemas = payload.get("schemas", None)
+        schemas = payload.get("schemas", None)
         if source_type == ExternalDataSource.Type.POSTGRES:
             default_schemas = postgres_schemas
+        elif source_type == ExternalDataSource.Type.SNOWFLAKE:
+            default_schemas = snowflake_schemas
         else:
             default_schemas = list(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[source_type])
 
-        # Fallback to defaults if schemas is missing
-        if enabled_schemas is None:
-            enabled_schemas = PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[source_type]
+        if not schemas or not isinstance(schemas, list):
+            new_source_model.delete()
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Schemas not given"},
+            )
 
-        disabled_schemas = [schema for schema in default_schemas if schema not in enabled_schemas]
+        # Return 400 if we get any schema names that don't exist in our source
+        if any(schema.get("name") not in default_schemas for schema in schemas):
+            new_source_model.delete()
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Schemas given do not exist in source"},
+            )
 
         active_schemas: list[ExternalDataSchema] = []
 
-        for schema in enabled_schemas:
-            active_schemas.append(
-                ExternalDataSchema.objects.create(
-                    name=schema, team=self.team, source=new_source_model, should_sync=True
+        for schema in schemas:
+            sync_type = schema.get("sync_type")
+            is_incremental = sync_type == "incremental"
+            incremental_field = schema.get("incremental_field")
+            incremental_field_type = schema.get("incremental_field_type")
+
+            if is_incremental and incremental_field is None:
+                new_source_model.delete()
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Incremental schemas given do not have an incremental field set"},
                 )
+
+            if is_incremental and incremental_field_type is None:
+                new_source_model.delete()
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Incremental schemas given do not have an incremental field type set"},
+                )
+
+            schema_model = ExternalDataSchema.objects.create(
+                name=schema.get("name"),
+                team=self.team,
+                source=new_source_model,
+                should_sync=schema.get("should_sync"),
+                sync_type=sync_type,
+                sync_type_config={
+                    "incremental_field": incremental_field,
+                    "incremental_field_type": incremental_field_type,
+                }
+                if is_incremental
+                else {},
             )
-        for schema in disabled_schemas:
-            ExternalDataSchema.objects.create(name=schema, team=self.team, source=new_source_model, should_sync=False)
+
+            if schema.get("should_sync"):
+                active_schemas.append(schema_model)
 
         try:
             for active_schema in active_schemas:
@@ -356,6 +428,44 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return new_source_model, schemas
 
+    def _handle_snowflake_source(
+        self, request: Request, *args: Any, **kwargs: Any
+    ) -> tuple[ExternalDataSource, list[Any]]:
+        payload = request.data["payload"]
+        prefix = request.data.get("prefix", None)
+        source_type = request.data["source_type"]
+
+        account_id = payload.get("account_id")
+        database = payload.get("database")
+        warehouse = payload.get("warehouse")
+        role = payload.get("role")
+        user = payload.get("user")
+        password = payload.get("password")
+        schema = payload.get("schema")
+
+        new_source_model = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            team=self.team,
+            status="Running",
+            source_type=source_type,
+            job_inputs={
+                "account_id": account_id,
+                "database": database,
+                "warehouse": warehouse,
+                "role": role,
+                "user": user,
+                "password": password,
+                "schema": schema,
+            },
+            prefix=prefix,
+        )
+
+        schemas = get_snowflake_schemas(account_id, database, warehouse, user, password, schema, role)
+
+        return new_source_model, schemas
+
     def prefix_required(self, source_type: str) -> bool:
         source_type_exists = ExternalDataSource.objects.filter(team_id=self.team.pk, source_type=source_type).exists()
         return source_type_exists
@@ -382,9 +492,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         ).all()
         for job in all_jobs:
             try:
-                delete_data_import_folder(job.folder_path)
+                delete_data_import_folder(job.folder_path())
             except Exception as e:
-                logger.exception(f"Could not clean up data import folder: {job.folder_path}", exc_info=e)
+                logger.exception(f"Could not clean up data import folder: {job.folder_path()}", exc_info=e)
                 pass
 
         for schema in ExternalDataSchema.objects.filter(
@@ -397,7 +507,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["POST"], detail=True)
     def reload(self, request: Request, *args: Any, **kwargs: Any):
-        instance = self.get_object()
+        instance: ExternalDataSource = self.get_object()
 
         if is_any_external_data_job_paused(self.team_id):
             return Response(
@@ -410,17 +520,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         except temporalio.service.RPCError:
             # if the source schedule has been removed - trigger the schema schedules
-            for schema in ExternalDataSchema.objects.filter(
-                team_id=self.team_id, source_id=instance.id, should_sync=True
-            ).all():
-                try:
-                    trigger_external_data_workflow(schema)
-                except temporalio.service.RPCError as e:
-                    if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
-                        sync_external_data_job_workflow(schema, create=True)
-
-                except Exception as e:
-                    logger.exception(f"Could not trigger external data job for schema {schema.name}", exc_info=e)
+            instance.reload_schemas()
 
         except Exception as e:
             logger.exception("Could not trigger external data job", exc_info=e)
@@ -509,7 +609,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             try:
                 result = get_postgres_schemas(host, port, database, user, password, schema, ssh_tunnel)
-                if len(result) == 0:
+                if len(result.keys()) == 0:
                     return Response(
                         status=status.HTTP_400_BAD_REQUEST,
                         data={"message": "Postgres schema doesn't exist"},
@@ -538,18 +638,120 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     data={"message": GenericPostgresError},
                 )
 
-            result_mapped_to_options = [{"table": row, "should_sync": True} for row in result]
+            filtered_results = [
+                (table_name, filter_postgres_incremental_fields(columns)) for table_name, columns in result.items()
+            ]
+
+            result_mapped_to_options = [
+                {
+                    "table": table_name,
+                    "should_sync": False,
+                    "incremental_fields": [
+                        {"label": column_name, "type": column_type, "field": column_name, "field_type": column_type}
+                        for column_name, column_type in columns
+                    ],
+                    "incremental_available": True,
+                    "incremental_field": columns[0][0] if len(columns) > 0 and len(columns[0]) > 0 else None,
+                    "sync_type": None,
+                }
+                for table_name, columns in filtered_results
+            ]
+            return Response(status=status.HTTP_200_OK, data=result_mapped_to_options)
+        elif source_type == ExternalDataSource.Type.SNOWFLAKE:
+            account_id = request.data.get("account_id")
+            database = request.data.get("database")
+            warehouse = request.data.get("warehouse")
+            role = request.data.get("role")
+            user = request.data.get("user")
+            password = request.data.get("password")
+            schema = request.data.get("schema")
+
+            if not account_id or not warehouse or not database or not user or not password or not schema:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={
+                        "message": "Missing required parameters: account id, warehouse, database, user, password, schema"
+                    },
+                )
+
+            try:
+                result = get_snowflake_schemas(account_id, database, warehouse, user, password, schema, role)
+                if len(result.keys()) == 0:
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={"message": "Snowflake schema doesn't exist"},
+                    )
+            except (ProgrammingError, DatabaseError, ForbiddenError) as e:
+                exposed_error = self._expose_snowflake_error(e)
+
+                if exposed_error is None:
+                    capture_exception(e)
+
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": exposed_error or GenericSnowflakeError},
+                )
+            except Exception as e:
+                capture_exception(e)
+                logger.exception("Could not fetch Snowflake schemas", exc_info=e)
+
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": GenericSnowflakeError},
+                )
+
+            filtered_results = [
+                (table_name, filter_snowflake_incremental_fields(columns)) for table_name, columns in result.items()
+            ]
+
+            result_mapped_to_options = [
+                {
+                    "table": table_name,
+                    "should_sync": False,
+                    "incremental_fields": [
+                        {"label": column_name, "type": column_type, "field": column_name, "field_type": column_type}
+                        for column_name, column_type in columns
+                    ],
+                    "incremental_available": True,
+                    "incremental_field": columns[0][0] if len(columns) > 0 and len(columns[0]) > 0 else None,
+                    "sync_type": None,
+                }
+                for table_name, columns in filtered_results
+            ]
             return Response(status=status.HTTP_200_OK, data=result_mapped_to_options)
 
         # Return the possible endpoints for all other source types
         schemas = PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING.get(source_type, None)
+        incremental_schemas = PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING.get(source_type, ())
+        incremental_fields = PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING.get(source_type, {})
+
         if schemas is None:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": "Invalid parameter: source_type"},
             )
 
-        options = [{"table": row, "should_sync": True} for row in schemas]
+        options = [
+            {
+                "table": row,
+                "should_sync": False,
+                "incremental_fields": [
+                    {
+                        "label": field["label"],
+                        "type": field["type"],
+                        "field": field["field"],
+                        "field_type": field["field_type"],
+                    }
+                    for field in incremental_fields.get(row, [])
+                ],
+                "incremental_available": row in incremental_schemas,
+                "incremental_field": incremental_fields.get(row, [])[0]["field"]
+                if row in incremental_schemas
+                else None,
+                "sync_type": None,
+            }
+            for row in schemas
+        ]
         return Response(status=status.HTTP_200_OK, data=options)
 
     @action(methods=["POST"], detail=False)
@@ -572,6 +774,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         error_msg = " ".join(str(n) for n in error.args)
 
         for key, value in PostgresErrors.items():
+            if key in error_msg:
+                return value
+        return None
+
+    def _expose_snowflake_error(self, error: ProgrammingError | DatabaseError | ForbiddenError) -> str | None:
+        error_msg = error.msg or error.raw_msg or ""
+
+        for key, value in SnowflakeErrors.items():
             if key in error_msg:
                 return value
         return None

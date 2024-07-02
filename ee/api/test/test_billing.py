@@ -244,7 +244,7 @@ def create_billing_products_response(**kwargs) -> dict[str, list[CustomerProduct
 class TestUnlicensedBillingAPI(APIBaseTest):
     @patch("ee.api.billing.requests.get")
     @freeze_time("2022-01-01")
-    def test_billing_v2_calls_the_service_without_token(self, mock_request):
+    def test_billing_calls_the_service_without_token(self, mock_request):
         def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
             mock = MagicMock()
             mock.status_code = 404
@@ -264,7 +264,7 @@ class TestUnlicensedBillingAPI(APIBaseTest):
         mock_request.side_effect = mock_implementation
 
         TEST_clear_instance_license_cache()
-        res = self.client.get("/api/billing-v2")
+        res = self.client.get("/api/billing")
         assert res.status_code == 200
         assert res.json() == {
             "available_product_features": [],
@@ -273,18 +273,18 @@ class TestUnlicensedBillingAPI(APIBaseTest):
 
 
 class TestBillingAPI(APILicensedTest):
-    def test_billing_v2_fails_for_old_license_type(self):
+    def test_billing_fails_for_old_license_type(self):
         self.license.key = "test_key"
         self.license.save()
         TEST_clear_instance_license_cache()
 
-        res = self.client.get("/api/billing-v2")
+        res = self.client.get("/api/billing")
         assert res.status_code == 404
         assert res.json()["detail"] == "Billing V2 is not supported for this license type"
 
     @patch("ee.api.billing.requests.get")
     @freeze_time("2022-01-01")
-    def test_billing_v2_calls_the_service_with_appropriate_token(self, mock_request):
+    def test_billing_calls_the_service_with_appropriate_token(self, mock_request):
         def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
             mock = MagicMock()
             mock.status_code = 404
@@ -302,7 +302,7 @@ class TestBillingAPI(APILicensedTest):
 
         TEST_clear_instance_license_cache()
 
-        self.client.get("/api/billing-v2")
+        self.client.get("/api/billing")
         assert mock_request.call_args_list[0].args[0].endswith("/api/billing")
         token = mock_request.call_args_list[0].kwargs["headers"]["Authorization"].split(" ")[1]
 
@@ -325,7 +325,7 @@ class TestBillingAPI(APILicensedTest):
         }
 
     @patch("ee.api.billing.requests.get")
-    def test_billing_v2_returns_if_billing_exists(self, mock_request):
+    def test_billing_returns_if_billing_exists(self, mock_request):
         def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
             mock = MagicMock()
             mock.status_code = 404
@@ -342,7 +342,7 @@ class TestBillingAPI(APILicensedTest):
         mock_request.side_effect = mock_implementation
 
         TEST_clear_instance_license_cache()
-        response = self.client.get("/api/billing-v2")
+        response = self.client.get("/api/billing")
         assert response.status_code == status.HTTP_200_OK
 
         assert response.json() == {
@@ -375,23 +375,15 @@ class TestBillingAPI(APILicensedTest):
                             "unit_amount_usd": "0.00",
                             "up_to": 1000000,
                             "current_amount_usd": "0.00",
-                            "current_usage": 0,
-                            "flat_amount_usd": "0",
-                            "projected_amount_usd": "None",
-                            "projected_usage": None,
                         },
                         {
                             "unit_amount_usd": "0.00045",
                             "up_to": 2000000,
                             "current_amount_usd": "0.00",
-                            "current_usage": 0,
-                            "flat_amount_usd": "0",
-                            "projected_amount_usd": "None",
-                            "projected_usage": None,
                         },
                     ],
                     "tiered": True,
-                    "current_amount_usd": 0.00,
+                    "current_amount_usd": "0.00",
                     "current_usage": 0,
                     "usage_limit": None,
                     "percentage_usage": 0,
@@ -402,7 +394,7 @@ class TestBillingAPI(APILicensedTest):
                     "usage_key": "events",
                     "addons": [
                         {
-                            "current_amount_usd": 0.00,
+                            "current_amount_usd": "0.00",
                             "current_usage": 0,
                             "description": "Test Addon",
                             "free_allocation": 10000,
@@ -418,19 +410,11 @@ class TestBillingAPI(APILicensedTest):
                             "tiers": [
                                 {
                                     "current_amount_usd": "0.00",
-                                    "current_usage": 0,
-                                    "flat_amount_usd": "0",
-                                    "projected_amount_usd": "None",
-                                    "projected_usage": None,
                                     "unit_amount_usd": "0.00",
                                     "up_to": 1000000,
                                 },
                                 {
                                     "current_amount_usd": "0.00",
-                                    "current_usage": 0,
-                                    "flat_amount_usd": "0",
-                                    "projected_amount_usd": "None",
-                                    "projected_usage": None,
                                     "unit_amount_usd": "0.0000135",
                                     "up_to": 2000000,
                                 },
@@ -456,7 +440,7 @@ class TestBillingAPI(APILicensedTest):
         }
 
     @patch("ee.api.billing.requests.get")
-    def test_billing_v2_returns_if_doesnt_exist(self, mock_request):
+    def test_billing_returns_if_doesnt_exist(self, mock_request):
         def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
             mock = MagicMock()
             mock.status_code = 404
@@ -475,7 +459,7 @@ class TestBillingAPI(APILicensedTest):
 
         mock_request.side_effect = mock_implementation
 
-        response = self.client.get("/api/billing-v2")
+        response = self.client.get("/api/billing")
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {
             "customer_id": "cus_123",
@@ -592,7 +576,7 @@ class TestBillingAPI(APILicensedTest):
             }
         }
         response = self.client.patch(
-            "/api/billing-v2/license",
+            "/api/billing/license",
             {
                 "license": "test::test",
             },
@@ -612,7 +596,7 @@ class TestBillingAPI(APILicensedTest):
         mock_request.return_value.status_code = 403
         mock_request.return_value.json.return_value = {}
         response = self.client.patch(
-            "/api/billing-v2/license",
+            "/api/billing/license",
             {
                 "license": "test::test",
             },
@@ -638,7 +622,7 @@ class TestBillingAPI(APILicensedTest):
         }
 
         assert self.license.plan == "enterprise"
-        self.client.get("/api/billing-v2")
+        self.client.get("/api/billing")
         self.license.refresh_from_db()
 
         self.license.valid_until = datetime(2022, 1, 2, 0, 0, 0, tzinfo=ZoneInfo("UTC"))
@@ -656,7 +640,7 @@ class TestBillingAPI(APILicensedTest):
             "customer": create_billing_customer(),
         }
 
-        self.client.get("/api/billing-v2")
+        self.client.get("/api/billing")
         license = get_cached_instance_license()
         assert license.plan == "enterprise"
         # Should be extended by 30 days
@@ -690,7 +674,7 @@ class TestBillingAPI(APILicensedTest):
         self.organization.save()
 
         assert self.organization.available_product_features == []
-        self.client.get("/api/billing-v2")
+        self.client.get("/api/billing")
         self.organization.refresh_from_db()
         assert self.organization.available_product_features == [
             {
@@ -701,7 +685,7 @@ class TestBillingAPI(APILicensedTest):
         ]
 
     @patch("ee.api.billing.requests.get")
-    def test_organization_usage_update(self, mock_request):
+    def test_organization_update_usage(self, mock_request):
         self.organization.customer_id = None
         self.organization.usage = None
         self.organization.save()
@@ -719,7 +703,6 @@ class TestBillingAPI(APILicensedTest):
                     customer=create_billing_customer(has_active_subscription=True),
                 )
                 mock.json.return_value["customer"]["usage_summary"]["events"]["usage"] = 1000
-
             elif "api/products" in url:
                 mock.status_code = 200
                 mock.json.return_value = create_billing_products_response()
@@ -729,7 +712,7 @@ class TestBillingAPI(APILicensedTest):
         mock_request.side_effect = mock_implementation
 
         assert not self.organization.usage
-        res = self.client.get("/api/billing-v2")
+        res = self.client.get("/api/billing")
         assert res.status_code == 200
         self.organization.refresh_from_db()
         assert self.organization.usage == {
@@ -754,64 +737,19 @@ class TestBillingAPI(APILicensedTest):
         self.organization.usage = {"events": {"limit": None, "usage": 1000, "todays_usage": 1100000}}
         self.organization.save()
 
-        res = self.client.get("/api/billing-v2")
+        res = self.client.get("/api/billing")
         assert res.status_code == 200
         res_json = res.json()
         # Should update product usage to reflect today's usage
         assert res_json["products"][0]["current_usage"] == 1101000
-        assert res_json["products"][0]["current_amount_usd"] == 45.45
-        assert res_json["products"][0]["tiers"][0]["current_usage"] == 1000000
+        assert res_json["products"][0]["current_amount_usd"] == "0.00"
         assert res_json["products"][0]["tiers"][0]["current_amount_usd"] == "0.00"
-        assert res_json["products"][0]["tiers"][1]["current_usage"] == 101000
-        assert res_json["products"][0]["tiers"][1]["current_amount_usd"] == "45.45"
+        assert res_json["products"][0]["tiers"][1]["current_amount_usd"] == "0.00"
 
-        assert res_json["products"][0]["addons"][0]["current_usage"] == 1101000
-        assert res_json["products"][0]["addons"][0]["current_amount_usd"] == 1.36
-        assert res_json["products"][0]["addons"][0]["tiers"][0]["current_usage"] == 1000000
+        assert res_json["products"][0]["addons"][0]["current_usage"] == 0
+        assert res_json["products"][0]["addons"][0]["current_amount_usd"] == "0.00"
         assert res_json["products"][0]["addons"][0]["tiers"][0]["current_amount_usd"] == "0.00"
-        assert res_json["products"][0]["addons"][0]["tiers"][1]["current_usage"] == 101000
-        assert res_json["products"][0]["addons"][0]["tiers"][1]["current_amount_usd"] == "1.36"
-
-        def mock_implementation_missing_customer(url: str, headers: Any = None, params: Any = None) -> MagicMock:
-            mock = MagicMock()
-            mock.status_code = 404
-
-            if "api/billing/portal" in url:
-                mock.status_code = 200
-                mock.json.return_value = {"url": "https://billing.stripe.com/p/session/test_1234"}
-            elif "api/billing" in url:
-                mock.status_code = 200
-                mock.json.return_value = create_billing_response(customer=create_missing_billing_customer())
-            elif "api/products" in url:
-                mock.status_code = 200
-                mock.json.return_value = create_billing_products_response()
-
-            return mock
-
-        mock_request.side_effect = mock_implementation_missing_customer
-
-        # Test unsubscribed config
-        res = self.client.get("/api/billing-v2")
-        self.organization.refresh_from_db()
-        assert self.organization.usage == {
-            "events": {
-                "limit": None,
-                "todays_usage": 0,
-                "usage": 0,
-            },
-            "recordings": {
-                "limit": None,
-                "todays_usage": 0,
-                "usage": 0,
-            },
-            "rows_synced": {
-                "limit": None,
-                "todays_usage": 0,
-                "usage": 0,
-            },
-            "period": ["2022-10-07T11:12:48", "2022-11-07T11:12:48"],
-        }
-        assert self.organization.customer_id == "cus_123"
+        assert res_json["products"][0]["addons"][0]["tiers"][1]["current_amount_usd"] == "0.00"
 
     @patch("ee.api.billing.requests.get")
     def test_organization_usage_count_with_demo_project(self, mock_request, *args):
@@ -859,7 +797,7 @@ class TestBillingAPI(APILicensedTest):
             flush_persons_and_events()
 
         assert not self.organization.usage
-        res = self.client.get("/api/billing-v2")
+        res = self.client.get("/api/billing")
         assert res.status_code == 200
         self.organization.refresh_from_db()
 
@@ -894,7 +832,7 @@ class TestBillingAPI(APILicensedTest):
         self.organization.customer_trust_scores = {"recordings": 0, "events": 0, "rows_synced": 0}
         self.organization.save()
 
-        res = self.client.get("/api/billing-v2")
+        res = self.client.get("/api/billing")
         assert res.status_code == 200
         self.organization.refresh_from_db()
 

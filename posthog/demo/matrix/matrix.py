@@ -5,6 +5,7 @@ from typing import (
     Any,
     Optional,
 )
+import uuid
 
 import mimesis
 import mimesis.random
@@ -14,7 +15,7 @@ from django.utils import timezone
 from posthog.constants import GROUP_TYPES_LIMIT
 from posthog.demo.matrix.randomization import PropertiesProvider
 from posthog.models import Team, User
-from posthog.models.utils import UUIDT
+from posthog.models.utils import UUIDT, uuid7
 
 from .models import Effect, SimPerson, SimServerClient
 
@@ -178,6 +179,11 @@ class Cluster(ABC):
         if at_timestamp is None:
             at_timestamp = self.simulation_time
         return UUIDT(int(at_timestamp.timestamp() * 1000), seeded_random=self.random)
+
+    def roll_uuid_v7(self, at_timestamp: Optional[dt.datetime] = None) -> uuid.UUID:
+        if at_timestamp is None:
+            at_timestamp = self.simulation_time
+        return uuid7(int(at_timestamp.timestamp() * 1000), random=self.random)
 
 
 class Matrix(ABC):

@@ -106,14 +106,12 @@ export function AnnotationModal({
                     <LemonField name="scope" label="Scope" className="flex-1">
                         <LemonSelect
                             options={[
-                                ...(existingModalAnnotation?.scope === AnnotationScope.Insight || onSavedInsight
-                                    ? [
-                                          {
-                                              value: AnnotationScope.Insight,
-                                              label: annotationScopeToName[AnnotationScope.Insight],
-                                          },
-                                      ]
-                                    : []),
+                                {
+                                    value: AnnotationScope.Insight,
+                                    label: annotationScopeToName[AnnotationScope.Insight],
+                                    disabledReason:
+                                        !isInsightScoped && !onSavedInsight && 'You need to save the insight first.',
+                                },
                                 {
                                     value: AnnotationScope.Project,
                                     label: annotationScopeToName[AnnotationScope.Project],

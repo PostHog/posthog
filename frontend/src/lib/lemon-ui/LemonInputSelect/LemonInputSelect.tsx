@@ -33,6 +33,7 @@ export type LemonInputSelectProps = Pick<
     allowCustomValues?: boolean
     onChange?: (newValue: string[]) => void
     onBlur?: () => void
+    onFocus?: () => void
     onInputChange?: (newValue: string) => void
     'data-attr'?: string
     popoverClassName?: string
@@ -45,6 +46,7 @@ export function LemonInputSelect({
     loading,
     onChange,
     onInputChange,
+    onFocus,
     onBlur,
     mode,
     disabled,
@@ -189,6 +191,7 @@ export function LemonInputSelect({
     }
 
     const _onFocus = (): void => {
+        onFocus?.()
         setShowPopover(true)
         popoverFocusRef.current = true
     }
@@ -239,6 +242,7 @@ export function LemonInputSelect({
                         )
                         return allowCustomValues ? (
                             <Tooltip
+                                key={value}
                                 title={
                                     <>
                                         <KeyboardShortcut option /> + click to edit

@@ -2,9 +2,8 @@ import './EmptyStates.scss'
 
 // eslint-disable-next-line no-restricted-imports
 import { PlusCircleOutlined, ThunderboltFilled } from '@ant-design/icons'
-import { IconInfo, IconPlus, IconWarning } from '@posthog/icons'
+import { IconArchive, IconInfo, IconPlus, IconWarning } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-import { Empty } from 'antd'
 import { useActions, useValues } from 'kea'
 import { AnimationType } from 'lib/animations/animations'
 import { Animation } from 'lib/components/Animation/Animation'
@@ -46,9 +45,7 @@ export function InsightEmptyState({
     return (
         <div className="insight-empty-state">
             <div className="empty-state-inner">
-                <div className="illustration-main">
-                    <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="" />
-                </div>
+                <IconArchive className="text-5xl mb-2 text-secondary-3000" />
                 <h2 className="text-xl leading-tight">{heading}</h2>
                 <p className="text-sm text-center text-balance">{detail}</p>
             </div>
@@ -118,6 +115,7 @@ export function InsightLoadingStateWithLoadingBar({
         return () => clearInterval(interval)
     }, [insightPollResponse])
     const bytesPerSecond = (bytesRead / (secondsElapsed || 1)) * 1000
+    const estimatedRows = insightPollResponse?.status?.query_progress?.estimated_rows_total
 
     const cpuUtilization =
         (insightPollResponse?.status?.query_progress?.active_cpu_time || 0) /
@@ -132,7 +130,11 @@ export function InsightLoadingStateWithLoadingBar({
                 <p className="mx-auto text-center text-xs">
                     {rowsRead > 0 && bytesRead > 0 && (
                         <>
-                            {humanFriendlyNumber(rowsRead || 0, 0)} rows
+                            {humanFriendlyNumber(rowsRead || 0, 0)}{' '}
+                            {estimatedRows && estimatedRows >= rowsRead
+                                ? `/ ${humanFriendlyNumber(estimatedRows)} `
+                                : null}{' '}
+                            rows
                             <br />
                             {humanFileSize(bytesRead || 0)} ({humanFileSize(bytesPerSecond || 0)}/s)
                             <br />
@@ -140,7 +142,7 @@ export function InsightLoadingStateWithLoadingBar({
                         </>
                     )}
                 </p>
-                <div className="p-4 rounded bg-mid flex gap-x-2 max-w-120">
+                <div className="p-4 rounded bg-bg-3000 flex gap-x-2 max-w-120">
                     <div className="flex">
                         <IconInfo className="w-4 h-4" />
                     </div>
@@ -188,7 +190,7 @@ export function InsightLoadingState({
             <Animation type={AnimationType.LaptopHog} />
             <div className="empty-state-inner">
                 <p className="mx-auto text-center">Crunching through hogloads of data...</p>
-                <div className="p-4 rounded bg-mid flex gap-x-2 max-w-120">
+                <div className="p-4 rounded bg-bg-3000 flex gap-x-2 max-w-120">
                     <div className="flex">
                         <IconInfo className="w-4 h-4" />
                     </div>
@@ -229,7 +231,7 @@ export function InsightTimeoutState({ queryId }: { queryId?: string | null }): J
                     </div>
                     <h2 className="text-xl leading-tight mb-6">Your query took too long to complete</h2>
                 </>
-                <div className="p-4 rounded bg-mid flex gap-x-2 max-w-120">
+                <div className="p-4 rounded bg-bg-3000 flex gap-x-2 max-w-120">
                     <div className="flex">
                         <IconInfo className="w-4 h-4" />
                     </div>

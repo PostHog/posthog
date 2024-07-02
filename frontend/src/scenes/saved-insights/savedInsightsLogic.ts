@@ -15,7 +15,7 @@ import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
-import { InsightModel, LayoutView, SavedInsightsTabs } from '~/types'
+import { InsightModel, LayoutView, QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import type { savedInsightsLogicType } from './savedInsightsLogicType'
@@ -73,7 +73,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             merge: boolean = true,
             debounce: boolean = true
         ) => ({ filters, merge, debounce }),
-        updateFavoritedInsight: (insight: InsightModel, favorited: boolean) => ({ insight, favorited }),
+        updateFavoritedInsight: (insight: QueryBasedInsightModel, favorited: boolean) => ({ insight, favorited }),
         renameInsight: (insight: InsightModel) => ({ insight }),
         duplicateInsight: (insight: InsightModel, redirectToInsight = false) => ({
             insight,
@@ -95,7 +95,6 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 const params = {
                     ...values.paramsFromFilters,
                     basic: true,
-                    include_query_insights: true,
                 }
 
                 const response = await api.get(
@@ -105,7 +104,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 if (filters.search && String(filters.search).match(/^[0-9]+$/)) {
                     try {
                         const insight: InsightModel = await api.get(
-                            `api/projects/${teamLogic.values.currentTeamId}/insights/${filters.search}/?include_query_insights=true`
+                            `api/projects/${teamLogic.values.currentTeamId}/insights/${filters.search}/`
                         )
                         return {
                             ...response,

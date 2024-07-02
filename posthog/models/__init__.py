@@ -13,6 +13,7 @@ from ..session_recordings.models.session_recording_playlist_item import (
 )
 from ..warehouse.models import DataWarehouseTable
 from ._deprecated_prompts import Prompt, PromptSequence, UserPromptState
+from .alert import Alert
 from .action import Action
 from .action.action_step import ActionStep
 from .activity_logging.activity_log import ActivityLog
@@ -39,6 +40,7 @@ from .feedback.survey import Survey
 from .filters import Filter, RetentionFilter
 from .group import Group
 from .group_type_mapping import GroupTypeMapping
+from .hog_functions import HogFunction
 from .insight import Insight, InsightViewed
 from .insight_caching_state import InsightCachingState
 from .instance_setting import InstanceSetting
@@ -71,6 +73,7 @@ from .user import User, UserManager
 from .user_scene_personalisation import UserScenePersonalisation
 
 __all__ = [
+    "Alert",
     "Action",
     "ActionStep",
     "ActivityLog",
@@ -101,6 +104,7 @@ __all__ = [
     "Filter",
     "Group",
     "GroupTypeMapping",
+    "HogFunction",
     "Insight",
     "InsightCachingState",
     "InsightViewed",

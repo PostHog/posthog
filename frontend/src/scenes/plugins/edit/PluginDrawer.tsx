@@ -82,7 +82,7 @@ export function PluginDrawer(): JSX.Element {
             form.resetFields()
         }
         updateInvisibleAndRequiredFields()
-    }, [editingPlugin?.id, editingPlugin?.config_schema, editingPlugin?.pluginConfig?.match_action])
+    }, [editingPlugin?.id, editingPlugin?.config_schema])
 
     return (
         <>

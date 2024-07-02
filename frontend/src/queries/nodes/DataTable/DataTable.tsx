@@ -4,11 +4,13 @@ import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useCallback, useState } from 'react'
-import { EventDetails } from 'scenes/events/EventDetails'
+import { EventDetails } from 'scenes/activity/explore/EventDetails'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
 import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
@@ -63,6 +65,8 @@ import {
     taxonomicPersonFilterToHogQL,
 } from '~/queries/utils'
 import { EventType, InsightLogicProps } from '~/types'
+
+import { DataTableOpenEditor } from './DataTableOpenEditor'
 
 interface DataTableProps {
     uniqueKey?: string | number
@@ -126,6 +130,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
     const { dataTableRows, columnsInQuery, columnsInResponse, queryWithDefaults, canSort, sourceFeatures } = useValues(
         dataTableLogic(dataTableLogicProps)
     )
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const {
         showActions,
@@ -428,9 +433,10 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
         ) : null,
     ].filter((x) => !!x)
 
+    const isAutoReloadAvailable = !featureFlags[FEATURE_FLAGS.LIVE_EVENTS]
     const secondRowLeft = [
         showReload ? <Reload key="reload" /> : null,
-        showReload && canLoadNewData ? <AutoLoad key="auto-load" /> : null,
+        showReload && canLoadNewData && isAutoReloadAvailable ? <AutoLoad key="auto-load" /> : null,
         showElapsedTime ? <ElapsedTime key="elapsed-time" showTimings={showTimings} /> : null,
     ].filter((x) => !!x)
 
@@ -440,6 +446,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
             <ColumnConfigurator key="column-configurator" query={query} setQuery={setQuery} />
         ) : null,
         showExport ? <DataTableExport key="data-table-export" query={query} setQuery={setQuery} /> : null,
+        showOpenEditorButton ? <DataTableOpenEditor key="data-table-export" query={query} setQuery={setQuery} /> : null,
     ].filter((x) => !!x)
 
     const showFirstRow = !isReadOnly && (firstRowLeft.length > 0 || firstRowRight.length > 0)

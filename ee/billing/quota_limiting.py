@@ -56,27 +56,27 @@ def replace_limited_team_tokens(
     resource: QuotaResource, tokens: Mapping[str, int], cache_key: QuotaLimitingCaches
 ) -> None:
     pipe = get_client().pipeline()
-    pipe.delete(f"{cache_key}{resource.value}")
+    pipe.delete(f"{cache_key.value}{resource.value}")
     if tokens:
-        pipe.zadd(f"{cache_key}{resource.value}", tokens)  # type: ignore # (zadd takes a Mapping[str, int] but the derived Union type is wrong)
+        pipe.zadd(f"{cache_key.value}{resource.value}", tokens)  # type: ignore # (zadd takes a Mapping[str, int] but the derived Union type is wrong)
     pipe.execute()
 
 
 def add_limited_team_tokens(resource: QuotaResource, tokens: Mapping[str, int], cache_key: QuotaLimitingCaches) -> None:
     redis_client = get_client()
-    redis_client.zadd(f"{cache_key}{resource.value}", tokens)  # type: ignore # (zadd takes a Mapping[str, int] but the derived Union type is wrong)
+    redis_client.zadd(f"{cache_key.value}{resource.value}", tokens)  # type: ignore # (zadd takes a Mapping[str, int] but the derived Union type is wrong)
 
 
 def remove_limited_team_tokens(resource: QuotaResource, tokens: list[str], cache_key: QuotaLimitingCaches) -> None:
     redis_client = get_client()
-    redis_client.zrem(f"{cache_key}{resource.value}", *tokens)
+    redis_client.zrem(f"{cache_key.value}{resource.value}", *tokens)
 
 
 @cache_for(timedelta(seconds=30), background_refresh=True)
 def list_limited_team_attributes(resource: QuotaResource, cache_key: QuotaLimitingCaches) -> list[str]:
     now = timezone.now()
     redis_client = get_client()
-    results = redis_client.zrangebyscore(f"{cache_key}{resource.value}", min=now.timestamp(), max="+inf")
+    results = redis_client.zrangebyscore(f"{cache_key.value}{resource.value}", min=now.timestamp(), max="+inf")
     return [x.decode("utf-8") for x in results]
 
 
@@ -309,8 +309,11 @@ def set_org_usage_summary(
         if todays_usage:
             resource_usage["todays_usage"] = todays_usage.get(field, 0)
         else:
+            org_usage_data = organization.usage or {}
+            org_field_usage = org_usage_data.get(field, {}) or {}
+            org_usage = org_field_usage.get("usage")
             # TRICKY: If we are not explictly setting todays_usage, we want to reset it to 0 IF the incoming new_usage is different
-            if (organization.usage or {}).get(field, {}).get("usage") != resource_usage.get("usage"):
+            if org_usage != resource_usage.get("usage"):
                 resource_usage["todays_usage"] = 0
             else:
                 resource_usage["todays_usage"] = organization.usage.get(field, {}).get("todays_usage") or 0
