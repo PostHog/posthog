@@ -23,6 +23,16 @@ def batch_insert_personless_distinct_ids(data, batch_size=1000):
     ON CONFLICT (team_id, distinct_id) DO NOTHING
     """
 
+    team_ids = {d[0] for d in data}
+    existing_team_ids = set(Team.objects.filter(id__in=team_ids).values_list("id", flat=True))
+    missing_team_ids = team_ids - existing_team_ids
+    original_len = len(data)
+    data = [d for d in data if d[0] in existing_team_ids]
+    if missing_team_ids:
+        logger.info(
+            f"Skipping team ids {missing_team_ids!r} because they no longer exist, skipping {original_len - len(data)} records"
+        )
+
     def chunks(lst, n):
         for i in range(0, len(lst), n):
             yield lst[i : i + n]
@@ -69,7 +79,7 @@ class BackfillTeam:
         else:
             distinct_ids = ch_execute(query, parameters, settings=settings)
             batch_insert_personless_distinct_ids(distinct_ids)
-            logger.info("Completed %r!", self)
+            logger.info("Completed %r (%d rows)!", self, len(distinct_ids))
 
 
 @dataclass
@@ -103,7 +113,7 @@ class BackfillShard:
         else:
             distinct_ids = ch_execute(query, parameters, settings=settings)
             batch_insert_personless_distinct_ids(distinct_ids)
-            logger.info("Completed %r!", self)
+            logger.info("Completed %r (%d rows)!", self, len(distinct_ids))
 
 
 class Command(BaseCommand):
