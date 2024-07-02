@@ -41,10 +41,10 @@ type integer = number
  * This file acts as the source of truth for:
  *
  * - frontend/src/queries/schema.json
- *   - generated from typescript via "pnpm run generate:schema:json"
+ *   - generated from typescript via "pnpm run schema:build:json"
  *
  * - posthog/schema.py
- *   - generated from json the above json via "pnpm run generate:schema:python"
+ *   - generated from json the above json via "pnpm run schema:build:python"
  * */
 
 export enum NodeKind {
@@ -1430,7 +1430,7 @@ export interface DatabaseSchemaSchema {
     name: string
     should_sync: boolean
     incremental: boolean
-    status: string
+    status?: string
     last_synced_at?: string
 }
 

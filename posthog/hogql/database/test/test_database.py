@@ -161,8 +161,8 @@ class TestDatabase(BaseTest):
             source=source,
             table=warehouse_table,
             should_sync=True,
-            status=ExternalDataSchema.Status.COMPLETED,
             last_synced_at="2024-01-01",
+            # No status but should be completed because a data warehouse table already exists
         )
 
         database = create_hogql_database(team_id=self.team.pk)
@@ -183,7 +183,7 @@ class TestDatabase(BaseTest):
         assert table.schema_.name == "table_1"
         assert table.schema_.should_sync is True
         assert table.schema_.incremental is False
-        assert table.schema_.status == "Completed"
+        assert table.schema_.status is None
         assert table.schema_.last_synced_at == "2024-01-01 00:00:00+00:00"
 
         field = table.fields.get("id")
