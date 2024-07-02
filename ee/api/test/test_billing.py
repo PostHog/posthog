@@ -849,3 +849,93 @@ class TestPortalBillingAPI(APILicensedTest):
 
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         self.assertIn("https://billing.stripe.com/p/session/test_1234", response.url)
+
+
+class TestActivateBillingAPI(APILicensedTest):
+    def test_activate_success(self):
+        url = "/api/billing/activate"
+        data = {"products": "product_1:plan_1,product_2:plan_2", "redirect_path": "custom/path"}
+
+        response = self.client.get(url, data=data)
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+
+        self.assertIn("/activate", response.url)
+        self.assertIn("products=product_1:plan_1,product_2:plan_2", response.url)
+        url_pattern = r"redirect_uri=http://[^/]+/custom/path"
+        self.assertRegex(response.url, url_pattern)
+
+    def test_deprecated_activation_success(self):
+        url = "/api/billing/activate"
+        data = {"products": "product_1:plan_1,product_2:plan_2", "redirect_path": "custom/path"}
+
+        response = self.client.get(url, data=data)
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+
+        self.assertIn("/activate", response.url)
+        self.assertIn("products=product_1:plan_1,product_2:plan_2", response.url)
+        url_pattern = r"redirect_uri=http://[^/]+/custom/path"
+        self.assertRegex(response.url, url_pattern)
+
+    def test_activate_with_default_redirect_path(self):
+        url = "/api/billing/activate"
+        data = {
+            "products": "product_1:plan_1,product_2:plan_2",
+        }
+
+        response = self.client.get(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertIn("products=product_1:plan_1,product_2:plan_2", response.url)
+        url_pattern = r"redirect_uri=http://[^/]+/organization/billing"
+        self.assertRegex(response.url, url_pattern)
+
+    def test_activate_failure(self):
+        url = "/api/billing/activate"
+        data = {"none": "nothing"}
+
+        response = self.client.get(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_activate_with_plan_error(self):
+        url = "/api/billing/activate"
+        data = {"plan": "plan"}
+
+        response = self.client.get(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "attr": "plan",
+                "code": "invalid_input",
+                "detail": "The 'plan' parameter is no longer supported. Please use the 'products' parameter instead.",
+                "type": "validation_error",
+            },
+        )
+
+    @patch("ee.billing.billing_manager.BillingManager.deactivate_products")
+    @patch("ee.billing.billing_manager.BillingManager.get_billing")
+    def test_deactivate_success(self, mock_get_billing, mock_deactivate_products):
+        mock_deactivate_products.return_value = MagicMock()
+        mock_get_billing.return_value = {
+            "available_features": [],
+            "products": [],
+        }
+
+        url = "/api/billing/deactivate"
+        data = {"products": "product_1"}
+
+        response = self.client.get(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_deactivate_products.assert_called_once_with(self.organization, "product_1")
+        mock_get_billing.assert_called_once_with(self.organization, None)
+
+    def test_deactivate_failure(self):
+        url = "/api/billing/deactivate"
+        data = {"none": "nothing"}
+
+        response = self.client.get(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
