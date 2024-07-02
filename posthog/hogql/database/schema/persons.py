@@ -181,7 +181,12 @@ class RawPersonsTable(Table):
 # It pulls any "persons.id in ()" statement inside of the argmax subselect
 # This is useful when executing a query for a large team.
 class PersonsTable(LazyTable):
-    fields: dict[str, FieldOrTable] = PERSONS_FIELDS
+    # fields: dict[str, FieldOrTable] = PERSONS_FIELDS
+    fields: dict[str, FieldOrTable] = {
+        **PERSONS_FIELDS,
+        "is_deleted": BooleanDatabaseField(name="is_deleted"),
+        "version": IntegerDatabaseField(name="version"),
+    }
     filter: Optional[Expr] = None
 
     @staticmethod

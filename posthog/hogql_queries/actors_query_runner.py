@@ -5,6 +5,7 @@ from collections.abc import Sequence, Iterator
 import orjson
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import has_aggregation
 from posthog.hogql_queries.actor_strategies import ActorStrategy, PersonStrategy, GroupStrategy
@@ -97,6 +98,7 @@ class ActorsQueryRunner(QueryRunner):
             team=self.team,
             timings=self.timings,
             modifiers=self.modifiers,
+            settings=HogQLGlobalSettings(allow_experimental_analyzer=True),
         )
         input_columns = self.input_columns()
         missing_actors_count = None
@@ -106,6 +108,8 @@ class ActorsQueryRunner(QueryRunner):
         for column_name in enrich_columns:
             enriched = [None] * len(results)
             index = len(enriched) - 1
+            # Todo: Handle missing actors
+            # Todo: Correctly calculate recordings
             while len(results):
                 result = results.pop()
                 actor_column_index = input_columns.index(column_name)
@@ -201,9 +205,10 @@ class ActorsQueryRunner(QueryRunner):
                     s = """
                         concat('{',
                         '"id":"', persons.id, '",'
-                        , '"is_identified":' , if(persons.is_identified = 0, 'false', 'true') , ','
-                        , '"properties":' , persons.properties , ','
-                        , '"created_at":"' , persons.created_at , '"'
+                        , '"is_identified":' , if(persons.is_identified = 0, 'false', 'true')
+                        , ',"properties":' , persons.properties
+                        , ',"created_at":"' , persons.created_at , '"'
+                        , ',"distinct_ids":["' , arrayStringConcat(groupArray(person_distinct_ids.distinct_id), '","'), '"]'
                         , '}')
                     """
                     column = parse_expr(s)
@@ -303,15 +308,30 @@ class ActorsQueryRunner(QueryRunner):
                             expr=join_on,
                             constraint_type="ON",
                         ),
+                        next_join=ast.JoinExpr(
+                            table=ast.Field(chain=["person_distinct_ids"]),
+                            join_type="INNER JOIN",
+                            constraint=ast.JoinConstraint(
+                                expr=parse_expr("persons.id = person_distinct_ids.person_id"), constraint_type="ON"
+                            ),
+                        ),
                     ),
                 )
+
+        group_by = [
+            ast.Field(chain=["persons", "id"]),
+            ast.Field(chain=["persons", "is_identified"]),
+            ast.Field(chain=["persons", "properties"]),
+            ast.Field(chain=["persons", "created_at"]),
+            *(group_by if has_any_aggregation else []),
+        ]
 
         return ast.SelectQuery(
             select=columns,
             select_from=join_expr,
             where=where,
             having=having,
-            group_by=group_by if has_any_aggregation else None,
+            group_by=group_by,
             order_by=order_by,
         )
 
