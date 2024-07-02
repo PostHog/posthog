@@ -158,6 +158,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
         updateTileColor: (tileId: number, color: string | null) => ({ tileId, color }),
         removeTile: (tile: DashboardTile) => ({ tile }),
+        refreshDashboardItem: (payload: { tile: DashboardTile }) => payload,
         refreshAllDashboardItems: (payload: {
             tiles?: DashboardTile[]
             action: string
@@ -960,6 +961,29 @@ export const dashboardLogic = kea<dashboardLogicType>([
             // reset auto refresh interval
             actions.resetInterval()
             actions.loadDashboard({ action: 'refresh' })
+        },
+        refreshDashboardItem: async ({ tile }) => {
+            const dashboardId: number = props.id
+            const insight = tile.insight
+
+            if (!insight) {
+                return
+            }
+
+            actions.setRefreshStatus(insight.short_id, true, true)
+
+            const apiUrl = `api/projects/${values.currentTeamId}/insights/${insight.id}/?${toParams({
+                refresh: 'force_async',
+                from_dashboard: dashboardId, // needed to load insight in correct context
+                client_query_id: uuid(),
+                session_id: currentSessionId(),
+            })}`
+            const refreshedInsightResponse = await api.getResponse(apiUrl)
+            const refreshedInsight = await getJSONOrNull(refreshedInsightResponse)
+
+            dashboardsModel.actions.updateDashboardInsight(refreshedInsight, [], props.id ? [props.id] : undefined)
+            // Start polling for results
+            actions.refreshAllDashboardItems({ tiles: [tile], action: 'refresh' })
         },
         refreshAllDashboardItems: async ({ tiles, action, initialLoad, dashboardQueryId = uuid() }, breakpoint) => {
             const dashboardId: number = props.id
