@@ -1921,7 +1921,7 @@
   WHERE team_id = 2
     AND cohort_id = 2
     AND version < 1
-    AND sign = 1
+    AND sign = 1 SETTINGS optimize_aggregation_in_order = 1
   '''
 # ---
 # name: TestExperimentAuxiliaryEndpoints.test_create_exposure_cohort_for_experiment_with_custom_action_filters_exposure.1
@@ -1992,6 +1992,6 @@
   WHERE team_id = 2
     AND cohort_id = 2
     AND version < 1
-    AND sign = 1
+    AND sign = 1 SETTINGS optimize_aggregation_in_order = 1
   '''
 # ---
