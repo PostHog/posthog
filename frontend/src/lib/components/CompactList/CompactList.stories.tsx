@@ -21,8 +21,7 @@ export default meta
 export function CompactList_({ loading }: { loading: boolean }): JSX.Element {
     return (
         <div className="flex">
-            {/* eslint-disable-next-line react/forbid-dom-props */}
-            <div style={{ width: 350 }}>
+            <div className="w-80">
                 <CompactList
                     loading={loading}
                     title="Recent persons"
@@ -44,8 +43,7 @@ export function CompactList_({ loading }: { loading: boolean }): JSX.Element {
                     )}
                 />
             </div>
-            {/* eslint-disable-next-line react/forbid-dom-props */}
-            <div style={{ width: 350, marginLeft: 30 }}>
+            <div className="w-80 ml-8">
                 <CompactList
                     loading={loading}
                     title="Recordings"

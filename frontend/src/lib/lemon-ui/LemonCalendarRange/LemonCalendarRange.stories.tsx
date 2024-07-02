@@ -22,8 +22,7 @@ const BasicTemplate: StoryFn<typeof LemonCalendarRange> = (props: LemonCalendarR
     const [visible, setVisible] = useState(true)
 
     return (
-        // eslint-disable-next-line react/forbid-dom-props
-        <div style={{ paddingBottom: 500 }}>
+        <div className="pb-[30rem]">
             <Popover
                 actionable
                 overlay={
