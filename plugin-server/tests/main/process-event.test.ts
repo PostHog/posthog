@@ -2441,8 +2441,10 @@ test('person and group properties on events', async () => {
     const events = await hub.db.fetchEvents()
     const event = [...events].find((e: any) => e['event'] === 'test event')
     expect(event?.person_properties).toEqual({ pineapple: 'on', pizza: 1, new: 5 })
-    expect(event?.group0_properties).toEqual({ foo: 'bar' })
-    expect(event?.group1_properties).toEqual({ pineapple: 'yummy' })
+    expect(event?.properties.$group_0).toEqual('org:5')
+    expect(event?.properties.$group_1).toEqual('second_key')
+    expect(event?.group0_properties).toEqual({}) // We stopped writing these to the event as queries don't use them
+    expect(event?.group1_properties).toEqual({}) // We stopped writing these to the event as queries don't use them
 })
 
 test('set and set_once on the same key', async () => {

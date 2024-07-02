@@ -7,5 +7,5 @@ export async function createEventStep(
     person: Person,
     processPerson: boolean
 ): Promise<[RawClickHouseEvent, Promise<void>]> {
-    return await runner.hub.eventsProcessor.createEvent(event, person, processPerson)
+    return runner.hub.eventsProcessor.createEvent(event, person, processPerson)
 }
