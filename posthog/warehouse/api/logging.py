@@ -47,7 +47,7 @@ class ExternalDataSchemaLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         level_filter = [LogEntryLevel[t.upper()] for t in (request.GET.getlist("level_filter", []))]
 
         latest_job = ExternalDataJob.objects.filter(
-            team_id=self.team_id, external_data_schema_id=self.parents_query_dict["external_data_schema_id"]
+            team_id=self.team_id, schema_id=self.parents_query_dict["external_data_schema_id"]
         ).latest("created_at")
 
         data = fetch_log_entries(
