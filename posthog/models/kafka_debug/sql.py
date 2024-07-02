@@ -21,7 +21,7 @@ class KafkaDebugKafkaTable:
         payload String
       )
       ENGINE={kafka_engine(kafka_host=",".join(self.brokers), topic=self.topic, group=self.consumer_group)}
-      SETTINGS input_format_values_interpret_expressions=0, kafka_skip_broken_messages = 100
+      SETTINGS input_format_values_interpret_expressions=0
     """
 
     def get_drop_table_sql(self) -> str:
@@ -39,7 +39,7 @@ class KafkaDebugTable:
         return f"{self.topic}_debug"
 
     def get_create_table_sql(self) -> str:
-        engine = MergeTreeEngine(self.table_name, ver="timestamp")
+        engine = MergeTreeEngine(self.table_name)
         return f"""
       CREATE TABLE IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.{self.table_name} ON CLUSTER '{CLICKHOUSE_CLUSTER}' (
         payload String,
