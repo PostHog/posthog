@@ -2,6 +2,8 @@ import itertools
 from typing import Optional
 from collections.abc import Sequence, Iterator
 
+import orjson
+
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import has_aggregation
@@ -102,16 +104,28 @@ class ActorsQueryRunner(QueryRunner):
 
         enrich_columns = filter(lambda column: column in ("person", "group", "actor"), input_columns)
         for column_name in enrich_columns:
-            actor_column_index = input_columns.index(column_name)
-            actor_ids = (row[actor_column_index] for row in self.paginator.results)
-            actors_lookup = self.strategy.get_actors(actor_ids)
+            enriched = [None] * len(results)
+            index = len(enriched) - 1
+            while len(results):
+                result = results.pop()
+                actor_column_index = input_columns.index(column_name)
+                new_row = (
+                    (result[: actor_column_index - 1] if actor_column_index > 0 else ())
+                    + (orjson.loads(result[actor_column_index]),)
+                    + result[actor_column_index + 1 :]
+                )
+                enriched[index] = new_row
+                index -= 1
+            results = enriched
+            # actor_ids = (row[actor_column_index] for row in self.paginator.results)
+            # actors_lookup = self.strategy.get_actors(actor_ids)
 
-            recordings_column_index, recordings_lookup = self.prepare_recordings(column_name, input_columns)
+            # recordings_column_index, recordings_lookup = self.prepare_recordings(column_name, input_columns)
 
-            missing_actors_count = len(self.paginator.results) - len(actors_lookup)
-            results = self._enrich_with_actors(
-                results, actor_column_index, actors_lookup, recordings_column_index, recordings_lookup
-            )
+            # missing_actors_count = len(self.paginator.results) - len(actors_lookup)
+            # results = self._enrich_with_actors(
+            #    results, actor_column_index, actors_lookup, recordings_column_index, recordings_lookup
+            # )
 
         return ActorsQueryResponse(
             results=results,
@@ -185,6 +199,18 @@ class ActorsQueryRunner(QueryRunner):
                     column = ast.Constant(value=1)
                 elif expr == self.strategy.field or expr == "actor":
                     column = ast.Field(chain=[self.strategy.origin_id])
+                    # want to modify this to return errrthang
+                    s = """
+                        concat('{',
+                        '"id":', persons.id, ','
+                        , '"is_identified":' , if(persons.is_identified = 0, 'false', 'true') , ','
+                        , '"properties":' , persons.properties , ','
+                        , '"created_at":"' , persons.created_at , '"'
+                        , '}')
+                    """
+                    column = parse_expr(s)
+                    column.args[1].value = column.args[1].value + '"'
+                    column.args[3].value = '"' + column.args[3].value
                 elif expr == "matched_recordings":
                     # the underlying query used to match recordings compares to a selection of "matched events"
                     # like `groupUniqArray(100)(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS matching_events`
