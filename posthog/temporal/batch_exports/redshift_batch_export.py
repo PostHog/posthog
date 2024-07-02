@@ -93,7 +93,7 @@ class RedshiftClient(PostgreSQLClient):
         psycopg._encodings._py_codecs["UNICODE"] = "utf-8"
         psycopg._encodings.py_codecs.update((k.encode(), v) for k, v in psycopg._encodings._py_codecs.items())
 
-        async with self.connect():
+        async with super().connect():
             self.connection.prepare_threshold = None
             yield self
 
