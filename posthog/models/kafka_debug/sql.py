@@ -9,6 +9,7 @@ class KafkaDebugKafkaTable:
     brokers: list[str]
     topic: str
     consumer_group: str = "debug"
+    serialization: str = "LineAsString"
 
     @property
     def table_name(self) -> str:
@@ -20,7 +21,12 @@ class KafkaDebugKafkaTable:
       (
         payload String
       )
-      ENGINE={kafka_engine(kafka_host=",".join(self.brokers), topic=self.topic, group=self.consumer_group)}
+      ENGINE={kafka_engine(
+          kafka_host=",".join(self.brokers),
+          topic=self.topic,
+          group=self.consumer_group,
+          serialization=self.serialization
+          )}
       SETTINGS input_format_values_interpret_expressions=0, kafka_handle_error_mode='stream'
     """
 
@@ -54,6 +60,11 @@ class KafkaDebugTable:
       PARTITION BY toStartOfHour(_timestamp)
       ORDER BY (_partition, _offset)
       TTL _timestamp + INTERVAL 14 DAY
+    """
+
+    def get_drop_table_sql(self) -> str:
+        return f"""
+      DROP TABLE IF EXISTS `{CLICKHOUSE_DATABASE}`.{self.table_name} ON CLUSTER '{CLICKHOUSE_CLUSTER}' SYNC
     """
 
 
