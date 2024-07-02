@@ -529,12 +529,12 @@ export class PersonState {
                 'mergeDistinctIds-OneExists',
                 async (tx) => {
                     // See comment above about `distinctIdVersion`
-                    const _insertedDistinctId = await this.db.addPersonlessDistinctIdForMerge(
+                    const insertedDistinctId = await this.db.addPersonlessDistinctIdForMerge(
                         this.teamId,
                         distinctIdToAdd,
                         tx
                     )
-                    const distinctIdVersion = 1 // TODO: Once `posthog_personlessdistinctid` is backfilled: insertedDistinctId ? 0 : 1
+                    const distinctIdVersion = insertedDistinctId ? 0 : 1
 
                     await this.db.addDistinctId(existingPerson, distinctIdToAdd, distinctIdVersion, tx)
                     return [existingPerson, Promise.resolve()]
@@ -584,7 +584,7 @@ export class PersonState {
                     // whether we can optimize away an override by doing a swap, or whether we
                     // need to actually write an override. (But mostly we're being verbose for
                     // documentation purposes)
-                    let distinctId2Version = 1 // TODO: Once `posthog_personlessdistinctid` is backfilled, this should be = 0
+                    let distinctId2Version = 0
                     if (insertedDistinctId1 && insertedDistinctId2) {
                         // We were the first to insert both (neither was used for Personless), so we
                         // can use either as the primary Person UUID and create no overrides.
