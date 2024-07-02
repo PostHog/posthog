@@ -37,7 +37,7 @@ class Test0064(ClickhouseDestroyTablesMixin):
                 'a:differentattr-text="text2"',
             ],
         )
-        resp = sync_execute("select mat_ec_texts from events where mat_ec_texts[1] != ''")
+        resp = sync_execute("select elements_chain_texts from events where elements_chain_texts[1] != ''")
         self.assertCountEqual(
             [row[0] for row in resp], [["easy_text"], ["cutoff"], ["text3"], ["text4", "text5"]], resp
         )
@@ -56,7 +56,7 @@ class Test0064(ClickhouseDestroyTablesMixin):
                 'b:differentattr-text="text2"',
             ],
         )
-        resp = sync_execute("select mat_ec_elements from events where length(mat_ec_elements) > 0")
+        resp = sync_execute("select elements_chain_elements from events where length(elements_chain_elements) > 0")
         self.assertCountEqual(
             [row[0] for row in resp],
             [

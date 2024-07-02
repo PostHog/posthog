@@ -6,18 +6,18 @@ from posthog.settings import CLICKHOUSE_CLUSTER
 
 ADD_COLUMNS_SHARDED_EVENTS = """
 ALTER TABLE {table} ON CLUSTER {cluster}
-ADD COLUMN IF NOT EXISTS mat_ec_href String MATERIALIZED extract(elements_chain, '(?::|\")href="(.*?)"'),
-ADD COLUMN IF NOT EXISTS mat_ec_texts Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|\")text="(.*?)"')),
-ADD COLUMN IF NOT EXISTS mat_ec_ids Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|\")id="(.*?)"')),
-ADD COLUMN IF NOT EXISTS mat_ec_elements Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label')) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?:^|;)(a|button|form|input|select|textarea|label)(?:\\.|$|:)'))
+ADD COLUMN IF NOT EXISTS elements_chain_href String MATERIALIZED extract(elements_chain, '(?::|\")href="(.*?)"'),
+ADD COLUMN IF NOT EXISTS elements_chain_texts Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|\")text="(.*?)"')),
+ADD COLUMN IF NOT EXISTS elements_chain_ids Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|\")id="(.*?)"')),
+ADD COLUMN IF NOT EXISTS elements_chain_elements Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label')) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?:^|;)(a|button|form|input|select|textarea|label)(?:\\.|$|:)'))
 """
 
 ADD_COLUMNS_EVENTS = """
 ALTER TABLE {table} ON CLUSTER {cluster}
-ADD COLUMN IF NOT EXISTS mat_ec_href String COMMENT 'column_materializer::elements_chain::href',
-ADD COLUMN IF NOT EXISTS mat_ec_texts Array(String) COMMENT 'column_materializer::elements_chain::texts',
-ADD COLUMN IF NOT EXISTS mat_ec_ids Array(String) COMMENT 'column_materializer::elements_chain::ids',
-ADD COLUMN IF NOT EXISTS mat_ec_elements Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label')) COMMENT 'column_materializer::elements_chain::elements'
+ADD COLUMN IF NOT EXISTS elements_chain_href String COMMENT 'column_materializer::elements_chain::href',
+ADD COLUMN IF NOT EXISTS elements_chain_texts Array(String) COMMENT 'column_materializer::elements_chain::texts',
+ADD COLUMN IF NOT EXISTS elements_chain_ids Array(String) COMMENT 'column_materializer::elements_chain::ids',
+ADD COLUMN IF NOT EXISTS elements_chain_elements Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label')) COMMENT 'column_materializer::elements_chain::elements'
 """
 
 
