@@ -75,8 +75,8 @@ class KafkaDebugMaterializedView:
         _timestamp_ms,
         _partition,
         _offset,
-        _error String,
-        _raw_message String
+        _error,
+        _raw_message
       FROM `{CLICKHOUSE_DATABASE}`.{self.from_table.table_name}
     """
 
