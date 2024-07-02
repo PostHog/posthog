@@ -21,7 +21,16 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
-import { Group as IGroup, NotebookNodeType, PersonsTabType, PropertyDefinitionType } from '~/types'
+import {
+    ActionFilter,
+    FilterLogicalOperator,
+    Group as IGroup,
+    NotebookNodeType,
+    PersonsTabType,
+    PropertyDefinitionType,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
 interface GroupSceneProps {
     groupTypeIndex?: string
@@ -145,6 +154,36 @@ export function Group(): JSX.Element {
                                         <SessionRecordingsPlaylist
                                             logicKey="groups-recordings"
                                             updateSearchParams
+                                            universalFilters={{
+                                                duration: [
+                                                    {
+                                                        type: PropertyFilterType.Recording,
+                                                        key: 'duration',
+                                                        value: 1,
+                                                        operator: PropertyOperator.GreaterThan,
+                                                    },
+                                                ],
+                                                filter_group: {
+                                                    type: FilterLogicalOperator.And,
+                                                    values: [
+                                                        {
+                                                            type: FilterLogicalOperator.And,
+                                                            values: [
+                                                                {
+                                                                    type: 'events',
+                                                                    name: 'All events',
+                                                                    properties: [
+                                                                        {
+                                                                            key: `$group_${groupTypeIndex} = '${groupKey}'`,
+                                                                            type: 'hogql',
+                                                                        },
+                                                                    ],
+                                                                } as ActionFilter,
+                                                            ],
+                                                        },
+                                                    ],
+                                                },
+                                            }}
                                             advancedFilters={{
                                                 events: [
                                                     {
@@ -160,8 +199,8 @@ export function Group(): JSX.Element {
                                                     },
                                                 ],
                                             }}
-                                            onFiltersChange={(filters) => {
-                                                const stillHasGroupFilter = filters.events?.some((event) => {
+                                            onFiltersChange={(_, legacyFilters) => {
+                                                const stillHasGroupFilter = legacyFilters.events?.some((event) => {
                                                     return event.properties.some(
                                                         (prop: Record<string, any>) =>
                                                             prop.key === `$group_${groupTypeIndex} = '${groupKey}'`
