@@ -2575,7 +2575,7 @@
                     "type": "string"
                 }
             },
-            "required": ["id", "name", "should_sync", "incremental", "status"],
+            "required": ["id", "name", "should_sync", "incremental"],
             "type": "object"
         },
         "DatabaseSchemaSource": {
@@ -3217,19 +3217,33 @@
                     "type": "array"
                 },
                 "aggregation_group_type_index": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "breakdown": {
                     "$ref": "#/definitions/BreakdownKeyType"
                 },
                 "breakdown_group_type_index": {
-                    "type": ["number", "null"]
+                    "anyOf": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 },
                 "breakdown_hide_other_aggregation": {
                     "type": ["boolean", "null"]
                 },
                 "breakdown_limit": {
-                    "type": "integer"
+                    "anyOf": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 },
                 "breakdown_normalize_url": {
                     "type": "boolean"
@@ -4054,7 +4068,14 @@
             "additionalProperties": false,
             "properties": {
                 "group_type_index": {
-                    "type": ["number", "null"]
+                    "anyOf": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 },
                 "key": {
                     "type": "string"
@@ -4089,6 +4110,10 @@
                 }
             ]
         },
+        "HogLanguage": {
+            "enum": ["hog", "hogQL", "hogQLExpr", "hogTemplate"],
+            "type": "string"
+        },
         "HogQLAutocomplete": {
             "additionalProperties": false,
             "properties": {
@@ -4100,27 +4125,39 @@
                     "$ref": "#/definitions/HogQLFilters",
                     "description": "Table to validate the expression against"
                 },
+                "globals": {
+                    "description": "Global values in scope",
+                    "type": "object"
+                },
                 "kind": {
                     "const": "HogQLAutocomplete",
                     "type": "string"
+                },
+                "language": {
+                    "$ref": "#/definitions/HogLanguage",
+                    "description": "Language to validate"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "query": {
+                    "description": "Query to validate",
+                    "type": "string"
+                },
                 "response": {
                     "$ref": "#/definitions/HogQLAutocompleteResponse"
                 },
-                "select": {
-                    "description": "Full select query to validate",
-                    "type": "string"
+                "sourceQuery": {
+                    "$ref": "#/definitions/AnyDataNode",
+                    "description": "Query in whose context to validate."
                 },
                 "startPosition": {
                     "description": "Start position of the editor word",
                     "type": "integer"
                 }
             },
-            "required": ["endPosition", "kind", "select", "startPosition"],
+            "required": ["endPosition", "kind", "language", "query", "startPosition"],
             "type": "object"
         },
         "HogQLAutocompleteResponse": {
@@ -4180,43 +4217,39 @@
                     "description": "Enable more verbose output, usually run from the /debug page",
                     "type": "boolean"
                 },
-                "expr": {
-                    "description": "HogQL expression to validate (use `select` or `expr`, but not both)",
-                    "type": "string"
-                },
-                "exprSource": {
-                    "$ref": "#/definitions/AnyDataNode",
-                    "description": "Query within which \"expr\" is validated. Defaults to \"select * from events\""
-                },
                 "filters": {
                     "$ref": "#/definitions/HogQLFilters",
                     "description": "Extra filters applied to query via {filters}"
+                },
+                "globals": {
+                    "description": "Extra globals for the query",
+                    "type": "object"
                 },
                 "kind": {
                     "const": "HogQLMetadata",
                     "type": "string"
                 },
+                "language": {
+                    "$ref": "#/definitions/HogLanguage",
+                    "description": "Language to validate"
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
-                "program": {
-                    "description": "Full Hog program",
+                "query": {
+                    "description": "Query to validate",
                     "type": "string"
                 },
                 "response": {
                     "$ref": "#/definitions/HogQLMetadataResponse"
                 },
-                "select": {
-                    "description": "Full select query to validate (use `select` or `expr`, but not both)",
-                    "type": "string"
-                },
-                "table": {
-                    "description": "Table to validate the expression against",
-                    "type": "string"
+                "sourceQuery": {
+                    "$ref": "#/definitions/AnyDataNode",
+                    "description": "Query within which \"expr\" and \"template\" are validated. Defaults to \"select * from events\""
                 }
             },
-            "required": ["kind"],
+            "required": ["kind", "language", "query"],
             "type": "object"
         },
         "HogQLMetadataResponse": {
@@ -4227,15 +4260,6 @@
                         "$ref": "#/definitions/HogQLNotice"
                     },
                     "type": "array"
-                },
-                "inputExpr": {
-                    "type": "string"
-                },
-                "inputProgram": {
-                    "type": "string"
-                },
-                "inputSelect": {
-                    "type": "string"
                 },
                 "isValid": {
                     "type": "boolean"
@@ -4248,6 +4272,9 @@
                         "$ref": "#/definitions/HogQLNotice"
                     },
                     "type": "array"
+                },
+                "query": {
+                    "type": "string"
                 },
                 "warnings": {
                     "items": {
@@ -5292,7 +5319,7 @@
             "type": "object"
         },
         "NodeKind": {
-            "description": "PostHog Query Schema definition.\n\nThis file acts as the source of truth for:\n\n- frontend/src/queries/schema.json   - generated from typescript via \"pnpm run generate:schema:json\"\n\n- posthog/schema.py   - generated from json the above json via \"pnpm run generate:schema:python\"",
+            "description": "PostHog Query Schema definition.\n\nThis file acts as the source of truth for:\n\n- frontend/src/queries/schema.json   - generated from typescript via \"pnpm run schema:build:json\"\n\n- posthog/schema.py   - generated from json the above json via \"pnpm run schema:build:python\"",
             "enum": [
                 "EventsNode",
                 "ActionsNode",
@@ -6145,15 +6172,6 @@
                             },
                             "type": "array"
                         },
-                        "inputExpr": {
-                            "type": "string"
-                        },
-                        "inputProgram": {
-                            "type": "string"
-                        },
-                        "inputSelect": {
-                            "type": "string"
-                        },
                         "isValid": {
                             "type": "boolean"
                         },
@@ -6165,6 +6183,9 @@
                                 "$ref": "#/definitions/HogQLNotice"
                             },
                             "type": "array"
+                        },
+                        "query": {
+                            "type": "string"
                         },
                         "warnings": {
                             "items": {
@@ -7046,6 +7067,12 @@
                 },
                 "id": {
                     "type": "string"
+                },
+                "labels": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "query_async": {
                     "const": true,
@@ -8035,6 +8062,10 @@
                 "smoothingIntervals": {
                     "default": 1,
                     "type": "integer"
+                },
+                "yAxisScaleType": {
+                    "enum": ["log10", "linear"],
+                    "type": "string"
                 }
             },
             "type": "object"
@@ -8097,6 +8128,10 @@
                 },
                 "smoothing_intervals": {
                     "type": "number"
+                },
+                "y_axis_scale_type": {
+                    "enum": ["log10", "linear"],
+                    "type": "string"
                 }
             },
             "type": "object"
@@ -8382,6 +8417,7 @@
                 "InitialUTMMedium",
                 "InitialUTMTerm",
                 "InitialUTMContent",
+                "InitialUTMSourceMediumCampaign",
                 "Browser",
                 "OS",
                 "DeviceType",

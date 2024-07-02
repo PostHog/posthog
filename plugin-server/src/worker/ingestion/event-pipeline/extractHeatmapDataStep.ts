@@ -20,7 +20,7 @@ type HeatmapDataItem = {
 
 type HeatmapData = Record<string, HeatmapDataItem[]>
 
-export function extractHeatmapDataStep(
+export async function extractHeatmapDataStep(
     runner: EventPipelineRunner,
     event: PreIngestionEvent
 ): Promise<[PreIngestionEvent, Promise<void>[]]> {
@@ -29,17 +29,21 @@ export function extractHeatmapDataStep(
     let acks: Promise<void>[] = []
 
     try {
-        const heatmapEvents = extractScrollDepthHeatmapData(event) ?? []
+        const team = await runner.hub.teamManager.fetchTeam(teamId)
 
-        // eslint-disable-next-line @typescript-eslint/no-floating-promises
-        acks = heatmapEvents.map((rawEvent) => {
-            return runner.hub.kafkaProducer.produce({
-                topic: runner.hub.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
-                key: eventUuid,
-                value: Buffer.from(JSON.stringify(rawEvent)),
-                waitForAck: true,
+        if (team?.heatmaps_opt_in !== false) {
+            const heatmapEvents = extractScrollDepthHeatmapData(event) ?? []
+
+            // eslint-disable-next-line @typescript-eslint/no-floating-promises
+            acks = heatmapEvents.map((rawEvent) => {
+                return runner.hub.kafkaProducer.produce({
+                    topic: runner.hub.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
+                    key: eventUuid,
+                    value: Buffer.from(JSON.stringify(rawEvent)),
+                    waitForAck: true,
+                })
             })
-        })
+        }
     } catch (e) {
         acks.push(
             captureIngestionWarning(runner.hub.kafkaProducer, teamId, 'invalid_heatmap_data', {
@@ -51,7 +55,7 @@ export function extractHeatmapDataStep(
     // We don't want to ingest this data to the events table
     delete event.properties['$heatmap_data']
 
-    return Promise.resolve([event, acks])
+    return [event, acks]
 }
 
 function replacePathInUrl(url: string, newPath: string): string {

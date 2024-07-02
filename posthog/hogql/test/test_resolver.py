@@ -1,4 +1,4 @@
-from datetime import timezone, datetime, date
+from datetime import datetime, date, UTC
 from typing import Optional, cast
 import pytest
 from django.test import override_settings
@@ -97,7 +97,7 @@ class TestResolver(BaseTest):
                 "SELECT 1, 'boo', true, 1.1232, null, {date}, {datetime}, {uuid}, {array}, {array12}, {tuple}",
                 placeholders={
                     "date": ast.Constant(value=date(2020, 1, 10)),
-                    "datetime": ast.Constant(value=datetime(2020, 1, 10, 0, 0, 0, tzinfo=timezone.utc)),
+                    "datetime": ast.Constant(value=datetime(2020, 1, 10, 0, 0, 0, tzinfo=UTC)),
                     "uuid": ast.Constant(value=UUID("00000000-0000-4000-8000-000000000000")),
                     "array": ast.Constant(value=[]),
                     "array12": ast.Constant(value=[1, 2]),
@@ -253,7 +253,8 @@ class TestResolver(BaseTest):
 
     def test_ctes_with_union_all(self):
         self.assertEqual(
-            self._print_hogql("""
+            self._print_hogql(
+                """
                     WITH cte1 AS (SELECT 1 AS a)
                     SELECT 1 AS a
                     UNION ALL
@@ -261,14 +262,17 @@ class TestResolver(BaseTest):
                     SELECT * FROM cte2
                     UNION ALL
                     SELECT * FROM cte1
-                        """),
-            self._print_hogql("""
+                        """
+            ),
+            self._print_hogql(
+                """
                     SELECT 1 AS a
                     UNION ALL
                     SELECT * FROM (SELECT 2 AS a) AS cte2
                     UNION ALL
                     SELECT * FROM (SELECT 1 AS a) AS cte1
-                        """),
+                        """
+            ),
         )
 
     def test_join_using(self):
@@ -422,6 +426,53 @@ class TestResolver(BaseTest):
 
         assert hogql == expected
 
+    def test_visit_hogqlx_sparkline(self):
+        node = self._select("select <Sparkline data={[1,2,3]} />")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        expected = ast.SelectQuery(
+            select=[
+                ast.Tuple(
+                    exprs=[
+                        ast.Constant(value="__hx_tag"),
+                        ast.Constant(value="Sparkline"),
+                        ast.Constant(value="data"),
+                        ast.Tuple(
+                            exprs=[
+                                ast.Constant(value=1),
+                                ast.Constant(value=2),
+                                ast.Constant(value=3),
+                            ]
+                        ),
+                    ]
+                )
+            ],
+        )
+        assert clone_expr(node, clear_types=True) == expected
+
+    def test_visit_hogqlx_object(self):
+        node = self._select("select {'key': {'key': 'value'}}")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        expected = ast.SelectQuery(
+            select=[
+                ast.Tuple(
+                    exprs=[
+                        ast.Constant(value="__hx_tag"),
+                        ast.Constant(value="__hx_obj"),
+                        ast.Constant(value="key"),
+                        ast.Tuple(
+                            exprs=[
+                                ast.Constant(value="__hx_tag"),
+                                ast.Constant(value="__hx_obj"),
+                                ast.Constant(value="key"),
+                                ast.Constant(value="value"),
+                            ]
+                        ),
+                    ]
+                )
+            ],
+        )
+        assert clone_expr(node, clear_types=True) == expected
+
     def _assert_first_columm_is_type(self, node: ast.SelectQuery, type: ast.ConstantType):
         column_type = node.select[0].type
         assert column_type is not None
@@ -498,3 +549,47 @@ class TestResolver(BaseTest):
         node = self._select("select plus(1, 2) from events")
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
         self._assert_first_columm_is_type(node, ast.IntegerType(nullable=False))
+
+    def test_sparkline_tag(self):
+        node: ast.SelectQuery = self._select("select <Sparkline data={[1,2,3]} />")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+
+        node2 = self._select("select sparkline((1,2,3))")
+        node2 = cast(ast.SelectQuery, resolve_types(node2, self.context, dialect="clickhouse"))
+        assert node == node2
+
+    def test_globals(self):
+        context = HogQLContext(
+            team_id=self.team.pk, database=self.database, globals={"globalVar": 1}, enable_select_queries=True
+        )
+        node: ast.SelectQuery = self._select("select globalVar from events")
+        node = cast(ast.SelectQuery, resolve_types(node, context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.IntegerType(nullable=False))
+        assert isinstance(node.select[0], ast.Constant)
+        assert node.select[0].value == 1
+        query = print_prepared_ast(node, context, "hogql")
+        assert "SELECT 1 FROM events LIMIT " in query
+
+    def test_globals_nested(self):
+        context = HogQLContext(
+            team_id=self.team.pk,
+            database=self.database,
+            globals={"globalVar": {"nestedVar": "banana"}},
+            enable_select_queries=True,
+        )
+        node: ast.SelectQuery = self._select("select globalVar.nestedVar from events")
+        node = cast(ast.SelectQuery, resolve_types(node, context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.StringType(nullable=False))
+        assert isinstance(node.select[0], ast.Constant)
+        assert node.select[0].value == "banana"
+        query = print_prepared_ast(node, context, "hogql")
+        assert "SELECT 'banana' FROM events LIMIT " in query
+
+    def test_globals_nested_error(self):
+        context = HogQLContext(
+            team_id=self.team.pk, database=self.database, globals={"globalVar": 1}, enable_select_queries=True
+        )
+        node: ast.SelectQuery = self._select("select globalVar.nested from events")
+        with self.assertRaises(QueryError) as ctx:
+            node = cast(ast.SelectQuery, resolve_types(node, context, dialect="clickhouse"))
+        self.assertEqual(str(ctx.exception), "Cannot resolve field: globalVar.nested")

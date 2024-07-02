@@ -315,6 +315,25 @@ class FunnelBase(ABC):
     def extra_event_fields_and_properties(self):
         return self._extra_event_fields + self._extra_event_properties
 
+    @property
+    def _absolute_actors_step(self) -> Optional[int]:
+        """The actor query's 1-indexed target step converted to our 0-indexed SQL form. Never a negative integer."""
+        if self.context.actorsQuery is None or self.context.actorsQuery.funnelStep is None:
+            return None
+
+        target_step = self.context.actorsQuery.funnelStep
+        if target_step < 0:
+            if target_step == -1:
+                raise ValueError(
+                    "The first valid drop-off argument for funnelStep is -2. -2 refers to persons who performed "
+                    "the first step but never made it to the second."
+                )
+            return abs(target_step) - 2
+        elif target_step == 0:
+            raise ValueError("Funnel steps are 1-indexed, so step 0 doesn't exist")
+        else:
+            return target_step - 1
+
     def _get_inner_event_query(
         self,
         entities: list[EntityNode] | None = None,
@@ -626,19 +645,14 @@ class FunnelBase(ABC):
             and self.context.actorsQuery is not None
             and self.context.actorsQuery.includeRecordings
         ):
-            step_num = self.context.actorsQuery.funnelStep
             if self.context.includeFinalMatchingEvents:
                 # Always returns the user's final step of the funnel
                 return [parse_expr("final_matching_events as matching_events")]
-            elif step_num is None:
+
+            absolute_actors_step = self._absolute_actors_step
+            if absolute_actors_step is None:
                 raise ValueError("Missing funnelStep actors query property")
-            if step_num >= 0:
-                # None drop off case
-                matching_events_step_num = step_num - 1
-            else:
-                # Drop off case if negative number
-                matching_events_step_num = abs(step_num) - 2
-            return [parse_expr(f"step_{matching_events_step_num}_matching_events as matching_events")]
+            return [parse_expr(f"step_{absolute_actors_step}_matching_events as matching_events")]
         return []
 
     def _get_count_columns(self, max_steps: int) -> list[ast.Expr]:
@@ -765,29 +779,13 @@ class FunnelBase(ABC):
         Returns timestamp selectors for the target step and optionally the preceding step.
         In the former case, always returns the timestamp for the first and last step as well.
         """
-        actorsQuery, max_steps = (
-            self.context.actorsQuery,
-            self.context.max_steps,
-        )
-        if not actorsQuery:
+        target_step = self._absolute_actors_step
+
+        if target_step is None:
             return [], []
 
-        target_step = actorsQuery.funnelStep
-        final_step = max_steps - 1
+        final_step = self.context.max_steps - 1
         first_step = 0
-
-        if not target_step:
-            return [], []
-
-        if target_step < 0:
-            # the first valid dropoff argument for funnel_step is -2
-            # -2 refers to persons who performed the first step but never made it to the second
-            if target_step == -1:
-                raise ValueError("To request dropoff of initial step use -2")
-
-            target_step = abs(target_step) - 2
-        else:
-            target_step -= 1
 
         if self.context.includePrecedingTimestamp:
             if target_step == 0:
@@ -1024,9 +1022,7 @@ class FunnelBase(ABC):
                 )
             ),
             group_by=group_by_columns,
-            having=ast.CompareOperation(
-                left=ast.Field(chain=["steps"]), right=ast.Field(chain=["max_steps"]), op=ast.CompareOperationOp.Eq
-            ),
+            having=parse_expr("steps = max(max_steps)"),
         )
 
     def actor_query(

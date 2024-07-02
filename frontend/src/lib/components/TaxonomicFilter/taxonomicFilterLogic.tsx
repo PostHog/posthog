@@ -206,8 +206,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getIcon: getEventDefinitionIcon,
                     },
                     {
-                        name: 'Data Warehouse',
-                        searchPlaceholder: 'data warehouse table name',
+                        name: 'Data warehouse tables',
+                        searchPlaceholder: 'data warehouse tables',
                         type: TaxonomicFilterGroupType.DataWarehouse,
                         logic: dataWarehouseSceneLogic,
                         value: 'dataWarehouseTablesAndViews',
@@ -217,8 +217,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getIcon: () => <IconServer />,
                     },
                     {
-                        name: 'Data Warehouse Properties',
-                        searchPlaceholder: 'data warehouse property',
+                        name: 'Data warehouse properties',
+                        searchPlaceholder: 'data warehouse properties',
                         type: TaxonomicFilterGroupType.DataWarehouseProperties,
                         options: schemaColumns,
                         getName: (col: DatabaseSchemaField) => col.name,
@@ -227,8 +227,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getIcon: () => <IconServer />,
                     },
                     {
-                        name: 'Extended Person Properties',
-                        searchPlaceholder: 'person properties from tables joined on persons',
+                        name: 'Extended person properties',
+                        searchPlaceholder: 'extended person properties',
                         type: TaxonomicFilterGroupType.DataWarehousePersonProperties,
                         logic: dataWarehouseJoinsLogic,
                         value: 'columnsJoinedToPersons',
@@ -485,11 +485,11 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getIcon: getPropertyDefinitionIcon,
                     },
                     {
-                        name: 'HogQL',
-                        searchPlaceholder: 'HogQL',
+                        name: 'HogQL expression',
+                        searchPlaceholder: null,
                         type: TaxonomicFilterGroupType.HogQLExpression,
                         render: InlineHogQLEditor,
-                        getPopoverHeader: () => 'HogQL',
+                        getPopoverHeader: () => 'HogQL expression',
                         componentProps: { metadataSource },
                     },
                     {
@@ -596,12 +596,14 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             !type.startsWith(TaxonomicFilterGroupType.GroupNamesPrefix)
                     )
                 }
-                const names = searchGroupTypes.map((type) => {
-                    const taxonomicGroup = allTaxonomicGroups.find(
-                        (tGroup) => tGroup.type == type
-                    ) as TaxonomicFilterGroup
-                    return taxonomicGroup.searchPlaceholder
-                })
+                const names = searchGroupTypes
+                    .map((type) => {
+                        const taxonomicGroup = allTaxonomicGroups.find(
+                            (tGroup) => tGroup.type == type
+                        ) as TaxonomicFilterGroup
+                        return taxonomicGroup.searchPlaceholder
+                    })
+                    .filter(Boolean)
                 return names
                     .filter((a) => !!a)
                     .map(

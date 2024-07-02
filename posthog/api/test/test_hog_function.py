@@ -95,6 +95,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "filters": {"bytecode": ["_h", 29]},
             "icon_url": None,
             "template": None,
+            "status": {"ratings": [], "state": 0, "states": []},
         }
 
     @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
@@ -332,3 +333,76 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 2,
             ],
         }
+
+    @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
+    def test_loads_status_when_enabled_and_available(self, *args):
+        with patch("posthog.plugins.plugin_server_api.requests.get") as mock_get:
+            mock_get.return_value.status_code = status.HTTP_200_OK
+            mock_get.return_value.json.return_value = {"state": 1, "states": [], "ratings": []}
+
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    "name": "Fetch URL",
+                    "description": "Test description",
+                    "hog": "fetch(inputs.url);",
+                    "template_id": template_webhook.id,
+                    "enabled": True,
+                },
+            )
+            assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+            response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{response.json()['id']}")
+            assert response.json()["status"] == {"state": 1, "states": [], "ratings": []}
+
+    @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
+    def test_does_not_crash_when_status_not_available(self, *args):
+        with patch("posthog.plugins.plugin_server_api.requests.get") as mock_get:
+            # Mock the api actually throwing fully
+            mock_get.side_effect = lambda x: Exception("oh no")
+
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    "name": "Fetch URL",
+                    "description": "Test description",
+                    "hog": "fetch(inputs.url);",
+                    "template_id": template_webhook.id,
+                    "enabled": True,
+                },
+            )
+            assert response.status_code == status.HTTP_201_CREATED, response.json()
+            response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{response.json()['id']}")
+            assert response.json()["status"] == {"ratings": [], "state": 0, "states": []}
+
+    @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
+    def test_patches_status_on_enabled_update(self, *args):
+        with patch("posthog.plugins.plugin_server_api.requests.get") as mock_get:
+            with patch("posthog.plugins.plugin_server_api.requests.patch") as mock_patch:
+                mock_get.return_value.status_code = status.HTTP_200_OK
+                mock_get.return_value.json.return_value = {"state": 4, "states": [], "ratings": []}
+
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/hog_functions/",
+                    data={"name": "Fetch URL", "hog": "fetch(inputs.url);", "enabled": True},
+                )
+
+                assert response.json()["status"]["state"] == 4
+
+                self.client.patch(
+                    f"/api/projects/{self.team.id}/hog_functions/{response.json()['id']}/",
+                    data={"enabled": False},
+                )
+
+                assert mock_patch.call_count == 0
+
+                self.client.patch(
+                    f"/api/projects/{self.team.id}/hog_functions/{response.json()['id']}/",
+                    data={"enabled": True},
+                )
+
+                assert mock_patch.call_count == 1
+                mock_patch.assert_called_once_with(
+                    f"http://localhost:6738/api/projects/{self.team.id}/hog_functions/{response.json()['id']}/status",
+                    json={"state": 2},
+                )

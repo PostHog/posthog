@@ -170,7 +170,11 @@ def property_to_expr(
         else:
             chain = ["properties"]
 
-        properties_field = ast.Field(chain=chain)
+        if property.type == "session":
+            properties_field = None
+        else:
+            properties_field = ast.Field(chain=chain)
+
         field = ast.Field(chain=[*chain, property.key])
 
         if isinstance(value, list):
@@ -219,7 +223,7 @@ def property_to_expr(
                 ]
                 + (
                     []
-                    if properties_field == field
+                    if not properties_field or properties_field == field
                     else [
                         ast.Not(
                             expr=ast.Call(

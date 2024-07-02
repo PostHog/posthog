@@ -4,7 +4,6 @@ import { actions, connect, kea, key, listeners, path, props, propsChanged, reduc
 import { combineUrl } from 'kea-router'
 import api from 'lib/api'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 // Note: we can only import types and not values from monaco-editor, because otherwise some Monaco code breaks
 // auto reload in development. Specifically, on this line:
 // `export const suggestWidgetStatusbarMenu = new MenuId('suggestWidgetStatusBar')`
@@ -16,7 +15,7 @@ import type { editor } from 'monaco-editor'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
-import { HogQLQuery, NodeKind } from '~/queries/schema'
+import { DataNode, HogQLQuery, NodeKind } from '~/queries/schema'
 
 import type { hogQLQueryEditorLogicType } from './hogQLQueryEditorLogicType'
 
@@ -27,6 +26,7 @@ export interface HogQLQueryEditorLogicProps {
     onChange?: (query: string) => void
     monaco?: Monaco | null
     editor?: editor.IStandaloneCodeEditor | null
+    metadataSource?: DataNode
 }
 
 export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
@@ -38,18 +38,9 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
             actions.setQueryInput(props.query.query)
         }
     }),
-    connect((props: HogQLQueryEditorLogicProps) => ({
-        values: [
-            codeEditorLogic({
-                key: `hogQLQueryEditor/${key}`,
-                query: props.query.query,
-                language: 'hogql',
-                metadataFilters: props.query.filters,
-            }),
-            ['hasErrors', 'error', 'isValidView'],
-        ],
+    connect({
         actions: [dataWarehouseViewsLogic, ['createDataWarehouseSavedQuery']],
-    })),
+    }),
     actions({
         saveQuery: true,
         setQueryInput: (queryInput: string) => ({ queryInput }),

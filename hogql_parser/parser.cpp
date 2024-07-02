@@ -2547,8 +2547,23 @@ parser_state* get_module_state(PyObject* module) {
     HogQLParser::PASCAL_CASE##Context* parse_tree;                                                                     \
     try {                                                                                                              \
       parse_tree = parser->CAMEL_CASE();                                                                               \
-    } catch HANDLE_HOGQL_ERROR(SyntaxError, delete error_listener; delete parser; delete stream; delete lexer; \
-                                   delete input_stream;);                                                              \
+    } catch HANDLE_HOGQL_ERROR(SyntaxError, delete error_listener; delete parser; delete stream; delete lexer;         \
+                                  delete input_stream;)                                                                \
+    catch (const antlr4::EmptyStackException &e) {                                                                     \
+      delete error_listener; delete parser; delete stream; delete lexer; delete input_stream;                          \
+      PyObject* error_type = PyObject_GetAttrString(state->errors_module, "SyntaxError");                              \
+      if (error_type) {                                                                                                \
+        PyErr_SetString(error_type, "Unmatched curly bracket");                                                        \
+      }                                                                                                                \
+      return NULL;                                                                                                     \
+    } catch (...) {                                                                                                    \
+      delete error_listener; delete parser; delete stream; delete lexer; delete input_stream;                          \
+      PyObject* error_type = PyObject_GetAttrString(state->errors_module, "ParsingError");                             \
+      if (error_type) {                                                                                                \
+        PyErr_SetString(error_type, "Unexpected Antlr exception in C++ parser");                                       \
+      }                                                                                                                \
+      return NULL;                                                                                                     \
+    };                                                                                                                 \
     HogQLParseTreeConverter converter = HogQLParseTreeConverter(state, internal == 1);                                 \
     PyObject* result_node = converter.visitAsPyObjectFinal(parse_tree);                                                \
     delete error_listener;                                                                                             \

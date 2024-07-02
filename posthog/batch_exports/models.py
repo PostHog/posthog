@@ -1,7 +1,7 @@
 import collections.abc
 import dataclasses
 import datetime as dt
-from enum import Enum
+import enum
 import typing
 from datetime import timedelta
 
@@ -254,7 +254,7 @@ class BatchExport(UUIDModel):
         raise ValueError(f"Invalid interval: '{self.interval}'")
 
 
-class BatchExportLogEntryLevel(str, Enum):
+class BatchExportLogEntryLevel(enum.StrEnum):
     """Enumeration of batch export log levels."""
 
     DEBUG = "DEBUG"

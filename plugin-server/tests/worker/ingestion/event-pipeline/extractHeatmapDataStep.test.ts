@@ -132,6 +132,10 @@ describe('extractHeatmapDataStep()', () => {
             hub: {
                 kafkaProducer: {
                     produce: jest.fn((e) => Promise.resolve(e)),
+                    queueMessage: jest.fn((e) => Promise.resolve(e)),
+                },
+                teamManager: {
+                    fetchTeam: jest.fn(() => Promise.resolve({ heatmaps_opt_in: true })),
                 },
             },
             nextStep: (...args: any[]) => args,
@@ -207,6 +211,15 @@ describe('extractHeatmapDataStep()', () => {
               "y": 14,
             }
         `)
+    })
+
+    it('drops if the associated team has explicit opt out', async () => {
+        runner.hub.teamManager.fetchTeam = jest.fn(() => Promise.resolve({ heatmaps_opt_in: false }))
+        const response = await extractHeatmapDataStep(runner, event)
+        expect(response[0]).toEqual(event)
+        expect(response[0].properties.$heatmap_data).toBeUndefined()
+        expect(response[1]).toHaveLength(0)
+        expect(runner.hub.kafkaProducer.produce).toBeCalledTimes(0)
     })
 
     describe('validation', () => {

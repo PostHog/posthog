@@ -215,7 +215,7 @@ def get_from_insights_api(exported_asset: ExportedAsset, limit: int, resource: d
             response = make_api_call(access_token, body, limit, method, next_url, path)
         except HTTPError as e:
             if "Query size exceeded" not in e.response.text:
-                raise e
+                raise
 
             if limit <= CSV_EXPORT_BREAKDOWN_LIMIT_LOW:
                 break  # Already tried with the lowest limit, so return what we have
@@ -398,4 +398,4 @@ def export_tabular(exported_asset: ExportedAsset, limit: Optional[int] = None) -
 
         logger.error("csv_exporter.failed", exception=e, exc_info=True)
         EXPORT_FAILED_COUNTER.labels(type="csv").inc()
-        raise e
+        raise

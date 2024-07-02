@@ -3,7 +3,7 @@ import type { codeEditorLogicType } from 'lib/monaco/codeEditorLogicType'
 import { languages } from 'monaco-editor'
 
 import { performQuery } from '~/queries/query'
-import { AutocompleteCompletionItem, HogQLAutocomplete, NodeKind } from '~/queries/schema'
+import { AutocompleteCompletionItem, HogLanguage, HogQLAutocomplete, NodeKind } from '~/queries/schema'
 
 const convertCompletionItemKind = (kind: AutocompleteCompletionItem['kind']): languages.CompletionItemKind => {
     switch (kind) {
@@ -78,13 +78,17 @@ const kindToSortText = (kind: AutocompleteCompletionItem['kind'], label: string)
     return `3-${label}`
 }
 
-export const hogQLAutocompleteProvider = (
-    logic: BuiltLogic<codeEditorLogicType>
-): languages.CompletionItemProvider => ({
-    triggerCharacters: [' ', ',', '.'],
+export const hogQLAutocompleteProvider = (type: HogLanguage): languages.CompletionItemProvider => ({
+    triggerCharacters: [' ', ',', '.', '{'],
     provideCompletionItems: async (model, position) => {
+        const logic: BuiltLogic<codeEditorLogicType> | undefined = (model as any).codeEditorLogic
+        if (!logic || !logic.isMounted()) {
+            return {
+                suggestions: [],
+                incomplete: false,
+            }
+        }
         const word = model.getWordUntilPosition(position)
-
         const startOffset = model.getOffsetAt({
             lineNumber: position.lineNumber,
             column: word.startColumn,
@@ -93,17 +97,19 @@ export const hogQLAutocompleteProvider = (
             lineNumber: position.lineNumber,
             column: word.endColumn,
         })
-
-        const response = await performQuery<HogQLAutocomplete>({
+        const query: HogQLAutocomplete = {
             kind: NodeKind.HogQLAutocomplete,
-            select: model.getValue(), // Use the text from the model instead of logic due to a race condition on the logic values updating quick enough
+            language: type,
+            // Use the text from the model instead of logic due to a race condition on the logic values updating quick enough
+            query: model.getValue(),
             filters: logic.isMounted() ? logic.props.metadataFilters : undefined,
+            globals: logic.isMounted() ? logic.props.globals : undefined,
+            sourceQuery: logic.isMounted() ? logic.props.sourceQuery : undefined,
             startPosition: startOffset,
             endPosition: endOffset,
-        })
-
+        }
+        const response = await performQuery<HogQLAutocomplete>(query)
         const completionItems = response.suggestions
-
         const suggestions = completionItems.map<languages.CompletionItem>((item) => {
             const kind = convertCompletionItemKind(item.kind)
             const sortText = kindToSortText(item.kind, item.label)

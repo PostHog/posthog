@@ -1,5 +1,5 @@
 import posthogEE from '@posthog/ee/exports'
-import { EventType, eventWithTime } from '@rrweb/types'
+import { customEvent, EventType, eventWithTime } from '@rrweb/types'
 import { captureException } from '@sentry/react'
 import {
     actions,
@@ -16,6 +16,7 @@ import {
     selectors,
 } from 'kea'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
@@ -476,6 +477,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
                     const { person } = values.sessionPlayerData
 
+                    let loadedProperties: Record<string, any> = existingEvent.properties
                     // TODO: Move this to an optimised HogQL query when available...
                     try {
                         const res: any = await api.query({
@@ -492,7 +494,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         const result = res.results.find((x: any) => x[1] === event.timestamp)
 
                         if (result) {
-                            existingEvent.properties = JSON.parse(result[0])
+                            loadedProperties = JSON.parse(result[0])
+                            existingEvent.properties = loadedProperties
                             existingEvent.fullyLoaded = true
                         }
                     } catch (e) {
@@ -501,7 +504,18 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         captureException(e)
                     }
 
-                    return values.sessionEventsData
+                    // here we map the events list because we want the result to be a new instance to trigger downstream recalculation
+                    return !values.sessionEventsData
+                        ? values.sessionEventsData
+                        : values.sessionEventsData.map((x) => {
+                              return x.id === event.id
+                                  ? ({
+                                        ...x,
+                                        properties: loadedProperties,
+                                        fullyLoaded: true,
+                                    } as RecordingEventType)
+                                  : x
+                          })
                 },
             },
         ],
@@ -662,6 +676,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         },
     })),
     selectors(({ cache }) => ({
+        webVitalsEvents: [
+            (s) => [s.sessionEventsData],
+            (sessionEventsData): RecordingEventType[] =>
+                (sessionEventsData || []).filter((e) => e.event === '$web_vitals'),
+        ],
+
         sessionPlayerData: [
             (s, p) => [
                 s.sessionPlayerMetaData,
@@ -835,9 +855,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     })
                 }
 
-                const minutesSinceRecording = start.diff(dayjs(), 'minute')
-
-                return everyWindowMissingFullSnapshot && minutesSinceRecording <= 5
+                return everyWindowMissingFullSnapshot
             },
         ],
 
@@ -883,6 +901,23 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 })
             },
         ],
+
+        customRRWebEvents: [
+            (s) => [s.snapshots],
+            (snapshots): customEvent[] => {
+                return snapshots.filter((snapshot) => snapshot.type === EventType.Custom).map((x) => x as customEvent)
+            },
+        ],
+    })),
+    subscriptions(({ actions }) => ({
+        webVitalsEvents: (value: RecordingEventType[]) => {
+            value.forEach((item) => {
+                // we preload all web vitals data, so it can be used before user interaction
+                if (!item.fullyLoaded) {
+                    actions.loadFullEventData(item)
+                }
+            })
+        },
     })),
     afterMount(({ cache }) => {
         resetTimingsCache(cache)

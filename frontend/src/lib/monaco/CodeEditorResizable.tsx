@@ -1,17 +1,23 @@
+import clsx from 'clsx'
 import { CodeEditor, CodeEditorProps } from 'lib/monaco/CodeEditor'
 import { useEffect, useRef, useState } from 'react'
 import AutoSizer from 'react-virtualized/dist/es/AutoSizer'
+
+export interface CodeEditorResizableProps extends Omit<CodeEditorProps, 'height'> {
+    height?: number
+    minHeight?: string | number
+    maxHeight?: string | number
+    editorClassName?: string
+}
 
 export function CodeEditorResizeable({
     height: defaultHeight,
     minHeight = '5rem',
     maxHeight = '90vh',
+    className,
+    editorClassName,
     ...props
-}: Omit<CodeEditorProps, 'height'> & {
-    height?: number
-    minHeight?: string | number
-    maxHeight?: string | number
-}): JSX.Element {
+}: CodeEditorResizableProps): JSX.Element {
     const [height, setHeight] = useState(defaultHeight)
     const [manualHeight, setManualHeight] = useState<number | undefined>(defaultHeight)
 
@@ -27,7 +33,7 @@ export function CodeEditorResizeable({
     return (
         <div
             ref={ref}
-            className="CodeEditorResizeable relative border rounded"
+            className={clsx('CodeEditorResizeable relative border rounded w-full', className)}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 minHeight,
@@ -39,6 +45,7 @@ export function CodeEditorResizeable({
                 {({ height }) => (
                     <CodeEditor
                         {...props}
+                        className={editorClassName}
                         height={height - 2} // Account for border
                     />
                 )}
