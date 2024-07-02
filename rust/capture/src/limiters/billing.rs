@@ -35,7 +35,7 @@ pub enum QuotaResource {
 }
 
 impl QuotaResource {
-    fn as_str(&self) -> &'static str {
+    pub fn as_str(&self) -> &'static str {
         match self {
             Self::Events => "events",
             Self::Recordings => "recordings",
@@ -178,7 +178,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_dynamic_limited() {
-        let client = MockRedisClient::new().zrangebyscore_ret("@posthog/quota-limits/events",vec![String::from("banana")]);
+        let client = MockRedisClient::new()
+            .zrangebyscore_ret("@posthog/quota-limits/events", vec![String::from("banana")]);
         let client = Arc::new(client);
 
         let limiter = BillingLimiter::new(Duration::microseconds(1), client, None)
@@ -202,7 +203,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_custom_key_prefix() {
-        let client = MockRedisClient::new().zrangebyscore_ret("prefix//@posthog/quota-limits/events",vec![String::from("banana")]);
+        let client = MockRedisClient::new().zrangebyscore_ret(
+            "prefix//@posthog/quota-limits/events",
+            vec![String::from("banana")],
+        );
         let client = Arc::new(client);
 
         // Default lookup without prefix fails
@@ -211,8 +215,12 @@ mod tests {
         assert!(!limiter.is_limited("banana", QuotaResource::Events).await);
 
         // Limiter using the correct prefix
-        let prefixed_limiter = BillingLimiter::new(Duration::microseconds(1), client, Some("prefix//".to_string()))
-            .expect("Failed to create billing limiter");
+        let prefixed_limiter = BillingLimiter::new(
+            Duration::microseconds(1),
+            client,
+            Some("prefix//".to_string()),
+        )
+        .expect("Failed to create billing limiter");
 
         assert_eq!(
             prefixed_limiter
@@ -227,6 +235,10 @@ mod tests {
                 .await,
             false
         );
-        assert!(prefixed_limiter.is_limited("banana", QuotaResource::Events).await);
+        assert!(
+            prefixed_limiter
+                .is_limited("banana", QuotaResource::Events)
+                .await
+        );
     }
 }

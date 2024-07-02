@@ -49,7 +49,7 @@ impl Client for RedisClient {
 // mockall got really annoying with async and results so I'm just gonna do my own
 #[derive(Clone)]
 pub struct MockRedisClient {
-    zrangebyscore_ret: HashMap<String,Vec<String>>,
+    zrangebyscore_ret: HashMap<String, Vec<String>>,
 }
 
 impl MockRedisClient {
