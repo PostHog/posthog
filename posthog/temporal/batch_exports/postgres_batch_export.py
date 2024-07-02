@@ -153,14 +153,12 @@ class PostgreSQLClient:
             primary_key_clause = sql.SQL(", PRIMARY KEY ({fields})").format(
                 fields=sql.SQL(",").join(sql.Identifier(field[0]) for field in primary_key)
             )
-        else:
-            primary_key_clause = sql.SQL("")
 
         async with self.connection.transaction():
             async with self.connection.cursor() as cursor:
                 await cursor.execute(
                     sql.SQL(base_query).format(
-                        pkey=primary_key_clause,
+                        pkey=primary_key_clause if primary_key else sql.SQL(""),
                         table=table_identifier,
                         fields=sql.SQL(",").join(
                             sql.SQL("{field} {type}").format(
