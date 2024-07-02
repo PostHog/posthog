@@ -1,23 +1,20 @@
 from datetime import datetime
-from typing import cast
+from typing import Any, cast
 
 from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
+from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-from posthog.models.filters import Filter
 from posthog.schema import FunnelsQuery
 from posthog.test.base import APIBaseTest
 from posthog.test.test_journeys import journeys_for
 
 
-def funnel_conversion_time_test_factory(funnel_order_type: FunnelOrderType, FunnelPerson):
+def funnel_conversion_time_test_factory(funnel_order_type: FunnelOrderType):
     class TestFunnelConversionTime(APIBaseTest):
-        def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
-            filter = Filter(data=filter, team=self.team)
-            person_filter = filter.shallow_clone({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
-            _, serialized_result, _ = FunnelPerson(person_filter, self.team).get_actors()
-
-            return [val["id"] for val in serialized_result]
+        def _get_actor_ids_at_step(self, filters, funnelStep, funnelStepBreakdown=None):
+            results = get_actors(filters, self.team, funnelStep=funnelStep, funnelStepBreakdown=funnelStepBreakdown)
+            return [val[1]["id"] for val in results]
 
         def test_funnel_with_multiple_incomplete_tries(self):
             filters = {
@@ -65,6 +62,7 @@ def funnel_conversion_time_test_factory(funnel_order_type: FunnelOrderType, Funn
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(results[0]["count"], 1)
             self.assertEqual(
@@ -111,6 +109,7 @@ def funnel_conversion_time_test_factory(funnel_order_type: FunnelOrderType, Funn
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(results[0]["average_conversion_time"], None)
             self.assertEqual(results[1]["average_conversion_time"], 6000)
@@ -166,6 +165,7 @@ def funnel_conversion_time_test_factory(funnel_order_type: FunnelOrderType, Funn
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(results[0]["count"], 3)
             self.assertEqual(results[1]["count"], 2)
@@ -191,12 +191,13 @@ def funnel_conversion_time_test_factory(funnel_order_type: FunnelOrderType, Funn
             filters = {**filters, "funnel_window_interval": 5, "funnel_window_interval_unit": "minute"}
 
             query = cast(FunnelsQuery, filter_to_query(filters))
-            result4 = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            results4 = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            results4 = cast(list[dict[str, Any]], results4)
 
-            self.assertNotEqual(results, result4)
-            self.assertEqual(result4[0]["count"], 3)
-            self.assertEqual(result4[1]["count"], 1)
-            self.assertEqual(result4[1]["average_conversion_time"], 300)
+            self.assertNotEqual(results, results4)
+            self.assertEqual(results4[0]["count"], 3)
+            self.assertEqual(results4[1]["count"], 1)
+            self.assertEqual(results4[1]["average_conversion_time"], 300)
 
             self.assertCountEqual(
                 self._get_actor_ids_at_step(filters, 1),

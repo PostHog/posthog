@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import cast
+from typing import Any, cast
 
 from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
@@ -12,11 +12,10 @@ from posthog.hogql_queries.insights.funnels.test.breakdown_cases import (
     funnel_breakdown_group_test_factory,
     assert_funnel_results_equal,
 )
+from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models.action import Action
-from posthog.models.filters import Filter
 from posthog.models.instance_setting import override_instance_config
-from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
 from posthog.schema import FunnelsQuery
 from posthog.test.base import (
     APIBaseTest,
@@ -42,7 +41,6 @@ class TestFunnelStrictStepsBreakdown(
     ClickhouseTestMixin,
     funnel_breakdown_test_factory(  # type: ignore
         FunnelOrderType.STRICT,
-        ClickhouseFunnelStrictActors,
         _create_action,
         _create_person,
     ),
@@ -108,6 +106,7 @@ class TestFunnelStrictStepsBreakdown(
 
         query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        results = cast(list[list[dict[str, Any]]], results)
 
         assert_funnel_results_equal(
             results[0],
@@ -185,12 +184,13 @@ class TestStrictFunnelGroupBreakdown(
         ClickhouseFunnelStrictActors,
     ),
 ):
+    maxDiff = None
     pass
 
 
 class TestFunnelStrictStepsConversionTime(
     ClickhouseTestMixin,
-    funnel_conversion_time_test_factory(FunnelOrderType.ORDERED, ClickhouseFunnelStrictActors),  # type: ignore
+    funnel_conversion_time_test_factory(FunnelOrderType.ORDERED),  # type: ignore
 ):
     maxDiff = None
     pass
@@ -199,12 +199,9 @@ class TestFunnelStrictStepsConversionTime(
 class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
-    def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
-        filter = Filter(data=filter, team=self.team)
-        person_filter = filter.shallow_clone({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
-        _, serialized_result, _ = ClickhouseFunnelStrictActors(person_filter, self.team).get_actors()
-
-        return [val["id"] for val in serialized_result]
+    def _get_actor_ids_at_step(self, filters, funnelStep, funnelStepBreakdown=None):
+        results = get_actors(filters, self.team, funnelStep=funnelStep, funnelStepBreakdown=funnelStepBreakdown)
+        return [val[1]["id"] for val in results]
 
     def test_basic_strict_funnel(self):
         filters = {
@@ -306,6 +303,7 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
 
         query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        results = cast(list[dict[str, Any]], results)
 
         self.assertEqual(results[0]["name"], "user signed up")
         self.assertEqual(results[1]["name"], "$pageview")
@@ -334,6 +332,7 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
 
         with override_instance_config("AGGREGATE_BY_DISTINCT_IDS_TEAMS", f"{self.team.pk}"):
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            results = cast(list[dict[str, Any]], results)
             self.assertEqual(results[0]["name"], "user signed up")
             self.assertEqual(results[1]["name"], "$pageview")
             self.assertEqual(results[2]["name"], "insight viewed")
@@ -490,6 +489,7 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
 
         query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        results = cast(list[dict[str, Any]], results)
 
         self.assertEqual(results[0]["name"], "user signed up")
         self.assertEqual(results[1]["name"], "sign up")
@@ -591,6 +591,7 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
 
         query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        results = cast(list[dict[str, Any]], results)
 
         self.assertEqual(results[0]["name"], "user signed up")
         self.assertEqual(results[1]["name"], "$pageview")
