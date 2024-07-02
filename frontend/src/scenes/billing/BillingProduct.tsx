@@ -166,14 +166,14 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         </div>
                     </div>
                 </div>
-                <div className="px-8">
+                <div className="px-8 pb-8 sm:pb-0">
                     {product.percentage_usage > 1 && (
                         <LemonBanner className="mt-6" type="error">
                             You have exceeded the {customLimitUsd ? 'billing limit' : 'free tier limit'} for this
                             product.
                         </LemonBanner>
                     )}
-                    <div className="flex w-full items-center gap-x-8">
+                    <div className="sm:flex w-full items-center gap-x-8">
                         {product.contact_support && (!product.subscribed || isUnlicensedDebug) ? (
                             <div className="py-8">
                                 {!billing?.has_active_subscription && (
@@ -197,19 +197,25 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                 <>
                                     {product.tiered ? (
                                         <>
-                                            {product.subscribed && (
-                                                <LemonButton
-                                                    icon={
-                                                        showTierBreakdown ? <IconChevronDown /> : <IconChevronRight />
-                                                    }
-                                                    onClick={() => setShowTierBreakdown(!showTierBreakdown)}
-                                                />
-                                            )}
-                                            <div className="grow">
-                                                <BillingGauge items={billingGaugeItems} product={product} />
+                                            <div className="flex w-full">
+                                                {product.subscribed && (
+                                                    <LemonButton
+                                                        icon={
+                                                            showTierBreakdown ? (
+                                                                <IconChevronDown />
+                                                            ) : (
+                                                                <IconChevronRight />
+                                                            )
+                                                        }
+                                                        onClick={() => setShowTierBreakdown(!showTierBreakdown)}
+                                                    />
+                                                )}
+                                                <div className="grow">
+                                                    <BillingGauge items={billingGaugeItems} product={product} />
+                                                </div>
                                             </div>
                                             {product.subscribed ? (
-                                                <div className="flex justify-end gap-8 flex-wrap items-end">
+                                                <div className="flex justify-end gap-8 flex-wrap items-end shrink-0">
                                                     <Tooltip
                                                         title={`The current ${
                                                             billing?.discount_percent ? 'discounted ' : ''
