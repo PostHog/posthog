@@ -13,10 +13,7 @@ from posthog.api.test.batch_exports.operations import (
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
-from posthog.batch_exports.models import (
-    BatchExportLogEntryLevel,
-    fetch_batch_export_log_entries,
-)
+from posthog.logging.log_entry import LogEntryLevel, fetch_log_entries
 from posthog.client import sync_execute
 from posthog.temporal.common.client import sync_connect
 
@@ -27,7 +24,7 @@ def create_batch_export_log_entry(
     batch_export_id: str,
     run_id: str | None,
     message: str,
-    level: BatchExportLogEntryLevel,
+    level: LogEntryLevel,
 ):
     from posthog.clickhouse.log_entries import INSERT_LOG_ENTRY_SQL
 
@@ -107,10 +104,10 @@ def test_simple_log_is_fetched(batch_export, team):
             batch_export_id=str(batch_export["id"]),
             run_id=None,
             message="Test log. Much INFO.",
-            level=BatchExportLogEntryLevel.INFO,
+            level=LogEntryLevel.INFO,
         )
 
-        results = fetch_batch_export_log_entries(
+        results = fetch_log_entries(
             team_id=team.pk,
             batch_export_id=batch_export["id"],
             after=dt.datetime(2023, 9, 22, 0, 59, 59),
@@ -119,7 +116,7 @@ def test_simple_log_is_fetched(batch_export, team):
 
     assert len(results) == 1
     assert results[0].message == "Test log. Much INFO."
-    assert results[0].level == BatchExportLogEntryLevel.INFO
+    assert results[0].level == LogEntryLevel.INFO
     assert results[0].batch_export_id == str(batch_export["id"])
 
 
@@ -127,10 +124,10 @@ def test_simple_log_is_fetched(batch_export, team):
 @pytest.mark.parametrize(
     "level",
     [
-        BatchExportLogEntryLevel.INFO,
-        BatchExportLogEntryLevel.WARNING,
-        BatchExportLogEntryLevel.ERROR,
-        BatchExportLogEntryLevel.DEBUG,
+        LogEntryLevel.INFO,
+        LogEntryLevel.WARNING,
+        LogEntryLevel.ERROR,
+        LogEntryLevel.DEBUG,
     ],
 )
 def test_log_level_filter(batch_export, team, level):
@@ -150,7 +147,7 @@ def test_log_level_filter(batch_export, team, level):
     start = dt.datetime.now(dt.UTC)
 
     while not results:
-        results = fetch_batch_export_log_entries(
+        results = fetch_log_entries(
             team_id=team.pk,
             batch_export_id=batch_export["id"],
             level_filter=[level],
@@ -175,10 +172,10 @@ def test_log_level_filter(batch_export, team, level):
 @pytest.mark.parametrize(
     "level",
     [
-        BatchExportLogEntryLevel.INFO,
-        BatchExportLogEntryLevel.WARNING,
-        BatchExportLogEntryLevel.ERROR,
-        BatchExportLogEntryLevel.DEBUG,
+        LogEntryLevel.INFO,
+        LogEntryLevel.WARNING,
+        LogEntryLevel.ERROR,
+        LogEntryLevel.DEBUG,
     ],
 )
 def test_log_level_filter_with_lowercase(batch_export, team, level):
@@ -198,7 +195,7 @@ def test_log_level_filter_with_lowercase(batch_export, team, level):
     start = dt.datetime.now(dt.UTC)
 
     while not results:
-        results = fetch_batch_export_log_entries(
+        results = fetch_log_entries(
             team_id=team.pk,
             batch_export_id=batch_export["id"],
             level_filter=[level],
@@ -227,14 +224,14 @@ def test_batch_export_log_api(client, batch_export, team):
         batch_export_id=str(batch_export["id"]),
         run_id=str(uuid.uuid4()),
         message="Test log. Much INFO.",
-        level=BatchExportLogEntryLevel.INFO,
+        level=LogEntryLevel.INFO,
     )
     create_batch_export_log_entry(
         team_id=team.pk,
         batch_export_id=str(batch_export["id"]),
         run_id=str(uuid.uuid4()),
         message="Test log. Much ERROR.",
-        level=BatchExportLogEntryLevel.ERROR,
+        level=LogEntryLevel.ERROR,
     )
 
     response = get_batch_export_log_entries(
@@ -251,10 +248,10 @@ def test_batch_export_log_api(client, batch_export, team):
     assert len(results) == 2
     # Logs are ordered by timestamp DESC, so ERROR log comes first.
     assert results[0]["message"] == "Test log. Much ERROR."
-    assert results[0]["level"] == BatchExportLogEntryLevel.ERROR
+    assert results[0]["level"] == LogEntryLevel.ERROR
     assert results[0]["batch_export_id"] == str(batch_export["id"])
     assert results[1]["message"] == "Test log. Much INFO."
-    assert results[1]["level"] == BatchExportLogEntryLevel.INFO
+    assert results[1]["level"] == LogEntryLevel.INFO
     assert results[1]["batch_export_id"] == str(batch_export["id"])
 
 
@@ -268,7 +265,7 @@ def test_batch_export_run_log_api(client, batch_export, team):
         batch_export_id=str(batch_export["id"]),
         run_id=run_id,
         message="Test log. Much INFO.",
-        level=BatchExportLogEntryLevel.INFO,
+        level=LogEntryLevel.INFO,
     )
 
     create_batch_export_log_entry(
@@ -277,7 +274,7 @@ def test_batch_export_run_log_api(client, batch_export, team):
         # Logs from a different run shouldn't be in results.
         run_id=str(uuid.uuid4()),
         message="Test log. Much INFO.",
-        level=BatchExportLogEntryLevel.INFO,
+        level=LogEntryLevel.INFO,
     )
 
     response = get_batch_export_run_log_entries(
@@ -294,7 +291,7 @@ def test_batch_export_run_log_api(client, batch_export, team):
     assert json_response["count"] == 1
     assert len(results) == 1
     assert results[0]["message"] == "Test log. Much INFO."
-    assert results[0]["level"] == BatchExportLogEntryLevel.INFO
+    assert results[0]["level"] == LogEntryLevel.INFO
     assert results[0]["batch_export_id"] == str(batch_export["id"])
 
 
@@ -308,7 +305,7 @@ def test_batch_export_run_log_api_with_level_filter(client, batch_export, team):
         batch_export_id=str(batch_export["id"]),
         run_id=run_id,
         message="Test log. Much INFO.",
-        level=BatchExportLogEntryLevel.INFO,
+        level=LogEntryLevel.INFO,
     )
 
     create_batch_export_log_entry(
@@ -316,7 +313,7 @@ def test_batch_export_run_log_api_with_level_filter(client, batch_export, team):
         batch_export_id=str(batch_export["id"]),
         run_id=run_id,
         message="Test log. Much DEBUG.",
-        level=BatchExportLogEntryLevel.DEBUG,
+        level=LogEntryLevel.DEBUG,
     )
 
     response = get_batch_export_run_log_entries(
@@ -334,5 +331,5 @@ def test_batch_export_run_log_api_with_level_filter(client, batch_export, team):
     assert json_response["count"] == 1
     assert len(results) == 1
     assert results[0]["message"] == "Test log. Much INFO."
-    assert results[0]["level"] == BatchExportLogEntryLevel.INFO
+    assert results[0]["level"] == LogEntryLevel.INFO
     assert results[0]["batch_export_id"] == str(batch_export["id"])

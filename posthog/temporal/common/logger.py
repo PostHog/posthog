@@ -198,7 +198,7 @@ def get_temporal_context() -> dict[str, str | int]:
         log_source_id = workflow_id.split("-Backfill")[0]
         log_source = "batch_exports_backfill"
     elif workflow_type == "external-data-job":
-        # This works because the WorkflowID is made up like f"{external_data_source_id}-{data_interval_end}"
+        # This works because the WorkflowID is made up like f"{external_data_schema_id}-{data_interval_end}"
         log_source_id = workflow_id.rsplit("-", maxsplit=3)[0]
         log_source = "external_data_jobs"
     else:

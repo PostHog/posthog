@@ -19,10 +19,8 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.batch_exports.models import (
     BATCH_EXPORT_INTERVALS,
-    BatchExportLogEntry,
-    BatchExportLogEntryLevel,
-    fetch_batch_export_log_entries,
 )
+from posthog.logging.log_entry import LogEntry, LogEntryLevel, fetch_log_entries
 from posthog.batch_exports.service import (
     BatchExportIdError,
     BatchExportSchema,
@@ -449,8 +447,10 @@ class BatchExportOrganizationViewSet(BatchExportViewSet):
 
 
 class BatchExportLogEntrySerializer(DataclassSerializer):
+    batch_export_id = serializers.CharField(source="log_source_id")
+
     class Meta:
-        dataclass = BatchExportLogEntry
+        dataclass = LogEntry
 
 
 class BatchExportLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -478,8 +478,8 @@ class BatchExportLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if before_raw is not None:
             before = dt.datetime.fromisoformat(before_raw.replace("Z", "+00:00"))
 
-        level_filter = [BatchExportLogEntryLevel[t.upper()] for t in (request.GET.getlist("level_filter", []))]
-        data = fetch_batch_export_log_entries(
+        level_filter = [LogEntryLevel[t.upper()] for t in (request.GET.getlist("level_filter", []))]
+        data = fetch_log_entries(
             team_id=self.team_id,
             batch_export_id=self.parents_query_dict["batch_export_id"],
             run_id=self.parents_query_dict.get("run_id", None),
