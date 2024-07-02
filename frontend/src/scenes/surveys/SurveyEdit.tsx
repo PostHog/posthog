@@ -724,22 +724,28 @@ export default function SurveyEdit(): JSX.Element {
                                                         />
                                                         {surveyRepeatedActivationAvailable && (
                                                             <div className="flex flex-row gap-2 items-center">
-                                                                How often should this survey be shown on events?
+                                                                Survey display frequency
                                                                 <LemonSelect
                                                                     onChange={(value) => {
                                                                         setSurveyValue('conditions', {
                                                                             ...survey.conditions,
-                                                                            repeatedActivation: value,
+                                                                            events: {
+                                                                                ...survey.conditions?.events,
+                                                                                repeatedActivation: value,
+                                                                            },
                                                                         })
                                                                     }}
-                                                                    value={survey.conditions?.repeatedActivation}
+                                                                    value={
+                                                                        survey.conditions?.events?.repeatedActivation ||
+                                                                        false
+                                                                    }
                                                                     options={[
                                                                         {
-                                                                            label: 'Just once on any of the above events',
+                                                                            label: 'Just once',
                                                                             value: false,
                                                                         },
                                                                         {
-                                                                            label: 'Every time any of the above events are observed',
+                                                                            label: 'Every time any of the above events are captured',
                                                                             value: true,
                                                                         },
                                                                     ]}
