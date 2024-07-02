@@ -141,7 +141,9 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
                     key: 'rows_synced',
                     tooltip: 'Total number of rows synced across all schemas in this source',
                     render: function RenderRowsSynced(_, source) {
-                        return source.schemas.reduce((acc, schema) => acc + (schema.table?.row_count ?? 0), 0)
+                        return source.schemas
+                            .reduce((acc, schema) => acc + (schema.table?.row_count ?? 0), 0)
+                            .toLocaleString()
                     },
                 },
                 {
@@ -392,7 +394,7 @@ const SchemaTable = ({ schemas }: SchemaTableProps): JSX.Element => {
                         title: 'Rows Synced',
                         key: 'rows_synced',
                         render: function Render(_, schema) {
-                            return schema.table?.row_count ?? ''
+                            return (schema.table?.row_count ?? 0).toLocaleString()
                         },
                     },
                     {
