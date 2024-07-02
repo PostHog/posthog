@@ -58,7 +58,7 @@ class KafkaDebugTable:
 @dataclass
 class KafkaDebugMaterializedView:
     to_table: KafkaDebugTable
-    from_table: KafkaDebugTable
+    from_table: KafkaDebugKafkaTable
 
     @property
     def view_name(self) -> str:
