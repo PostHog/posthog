@@ -694,7 +694,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                          * at least paints the "played" portion of the recording correctly
                          **/
                         actions.setPause()
-                    }, 100)
+                    }, 400)
                 }
             }
         },
