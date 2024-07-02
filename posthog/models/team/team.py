@@ -300,6 +300,22 @@ class Team(UUIDClassicModel):
         return modifiers.model_dump()
 
     @property
+    def actors_skip_enrichment(self) -> bool:
+        return posthoganalytics.feature_enabled(
+            "actors-skip-enrichment",
+            str(self.uuid),
+            groups={"organization": str(self.organization_id)},
+            group_properties={
+                "organization": {
+                    "id": str(self.organization_id),
+                    "created_at": self.organization.created_at,
+                }
+            },
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+
+    @property
     def person_on_events_mode(self) -> PersonsOnEventsMode:
         if self._person_on_events_person_id_override_properties_on_events:
             tag_queries(person_on_events_mode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS)

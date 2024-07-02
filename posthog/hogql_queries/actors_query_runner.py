@@ -5,7 +5,6 @@ from collections.abc import Sequence, Iterator
 import orjson
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import has_aggregation
 from posthog.hogql_queries.actor_strategies import ActorStrategy, PersonStrategy, GroupStrategy
@@ -98,7 +97,6 @@ class ActorsQueryRunner(QueryRunner):
             team=self.team,
             timings=self.timings,
             modifiers=self.modifiers,
-            settings=HogQLGlobalSettings(allow_experimental_analyzer=True),
         )
         input_columns = self.input_columns()
         missing_actors_count = None
@@ -106,30 +104,32 @@ class ActorsQueryRunner(QueryRunner):
 
         enrich_columns = filter(lambda column: column in ("person", "group", "actor"), input_columns)
         for column_name in enrich_columns:
-            enriched = [None] * len(results)
-            index = len(enriched) - 1
-            # Todo: Handle missing actors
-            # Todo: Correctly calculate recordings
-            while len(results):
-                result = results.pop()
-                actor_column_index = input_columns.index(column_name)
-                new_row = (
-                    (result[: actor_column_index - 1] if actor_column_index > 0 else ())
-                    + (orjson.loads(result[actor_column_index]),)
-                    + result[actor_column_index + 1 :]
+            if self.team.actors_skip_enrichment:
+                enriched = [None] * len(results)
+                index = len(enriched) - 1
+                # Todo: Handle missing actors
+                # Todo: Correctly calculate recordings
+                while len(results):
+                    result = results.pop()
+                    actor_column_index = input_columns.index(column_name)
+                    new_row = (
+                        (result[: actor_column_index - 1] if actor_column_index > 0 else ())
+                        + (orjson.loads(result[actor_column_index]),)
+                        + result[actor_column_index + 1 :]
+                    )
+                    enriched[index] = new_row
+                    index -= 1
+                results = enriched
+            else:
+                actor_ids = (row[actor_column_index] for row in self.paginator.results)
+                actors_lookup = self.strategy.get_actors(actor_ids)
+
+                recordings_column_index, recordings_lookup = self.prepare_recordings(column_name, input_columns)
+
+                missing_actors_count = len(self.paginator.results) - len(actors_lookup)
+                results = self._enrich_with_actors(
+                    results, actor_column_index, actors_lookup, recordings_column_index, recordings_lookup
                 )
-                enriched[index] = new_row
-                index -= 1
-            results = enriched
-            # actor_ids = (row[actor_column_index] for row in self.paginator.results)
-            # actors_lookup = self.strategy.get_actors(actor_ids)
-
-            # recordings_column_index, recordings_lookup = self.prepare_recordings(column_name, input_columns)
-
-            # missing_actors_count = len(self.paginator.results) - len(actors_lookup)
-            # results = self._enrich_with_actors(
-            #    results, actor_column_index, actors_lookup, recordings_column_index, recordings_lookup
-            # )
 
         return ActorsQueryResponse(
             results=results,
@@ -202,16 +202,17 @@ class ActorsQueryRunner(QueryRunner):
                 if expr == "person.$delete":
                     column = ast.Constant(value=1)
                 elif expr == self.strategy.field or expr == "actor":
-                    s = """
-                        concat('{',
-                        '"id":"', persons.id, '",'
-                        , '"is_identified":' , if(persons.is_identified = 0, 'false', 'true')
-                        , ',"properties":' , persons.properties
-                        , ',"created_at":"' , persons.created_at , '"'
-                        , ',"distinct_ids":["' , arrayStringConcat(groupArray(person_distinct_ids.distinct_id), '","'), '"]'
-                        , '}')
-                    """
-                    column = parse_expr(s)
+                    column = ast.Field(chain=[self.strategy.origin_id])
+                    if self.team.actors_skip_enrichment:
+                        column = parse_expr("""
+                            concat('{',
+                            '"id":"', persons.id, '",'
+                            , '"is_identified":' , if(persons.is_identified = 0, 'false', 'true')
+                            , ',"properties":' , persons.properties
+                            , ',"created_at":"' , persons.created_at , '"'
+                            , ',"distinct_ids":["' , arrayStringConcat(groupArray(person_distinct_ids.distinct_id), '","'), '"]'
+                            , '}')
+                        """)
                 elif expr == "matched_recordings":
                     # the underlying query used to match recordings compares to a selection of "matched events"
                     # like `groupUniqArray(100)(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS matching_events`
