@@ -9,6 +9,7 @@ import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
@@ -563,7 +564,9 @@ describe('insightLogic', () => {
                 cachedInsight: insight,
             })
             theEmptyFiltersLogic.mount()
+            silenceKeaLoadersErrors()
         })
+        afterEach(resumeKeaLoadersErrors)
 
         it('does not call the api on update when empty filters and no query', async () => {
             await expectLogic(theEmptyFiltersLogic, () => {
