@@ -676,8 +676,23 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
                 if (router.values.searchParams.pause) {
                     setTimeout(() => {
-                        // KLUDGE: when loaded for visual regression tests we want to pause the player
-                        // but only after it has had time to buffer and show the frame
+                        /** KLUDGE: when loaded for visual regression tests we want to pause the player
+                         ** but only after it has had time to buffer and show the frame
+                         *
+                         * Frustratingly if we start paused we never process the data,
+                         * so the player frame is just a black square.
+                         *
+                         * If we play (the default behaviour) and then stop after its processed the data
+                         * then we see the player screen
+                         * and can assert that _at least_ the full snapshot has been processed
+                         * (i.e. we didn't completely break rrweb playback)
+                         *
+                         * We have to be paused so that the visual regression snapshot doesn't flap
+                         * (because of the seekbar timestamp changing)
+                         *
+                         * And don't want to be at 0, so we can see that the seekbar
+                         * at least paints the "played" portion of the recording correctly
+                         **/
                         actions.setPause()
                     }, 100)
                 }
