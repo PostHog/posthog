@@ -1447,5 +1447,5 @@
     "discount_amount_usd": null,
     "amount_off_expires_at": null,
     "never_drop_data": false,
-    "stripe_portal_url": "https://billing.stripe.com/p/session/live_YWNjdF8xSElNRERFdUlhdFJYU2R6LF9PeG9wUmZuUFpmcTlvaWVjeUd0ZlhFN2hHbjJUWDR30100sm6GDMjx"
+    "stripe_portal_url": "http://localhost:8000/api/billing/portal"
 }
