@@ -339,6 +339,7 @@ describe('insightLogic', () => {
                     .toMatchValues({
                         legacyInsight: insight,
                         queryBasedInsight: {
+                            short_id: Insight42,
                             query: {
                                 kind: 'InsightVizNode',
                                 source: {
