@@ -136,20 +136,28 @@ class RedshiftClient(PostgreSQLClient):
         and_separator = sql.SQL("AND")
         merge_condition = and_separator.join(
             sql.SQL("{final_field} = {stage_field}").format(
-                final_field=sql.Identifier("final", field[0]),
+                final_field=sql.Identifier(schema, final_table_name, field[0]),
                 stage_field=sql.Identifier("stage", field[0]),
             )
             for field in merge_key
         )
 
+        delete_condition = and_separator.join(
+            sql.SQL("{final_field} = {stage_field}").format(
+                final_field=sql.Identifier("final", field[0]),
+                stage_field=sql.Identifier(schema, stage_table_name, field[0]),
+            )
+            for field in merge_key
+        )
+
         delete_query = sql.SQL("""\
-        DELETE FROM {stage_table} AS stage
+        DELETE FROM {stage_table}
         USING {final_table} AS final
-        WHERE {merge_condition} AND stage.{stage_version_key} > final.{final_version_key};
+        WHERE {merge_condition} AND {stage_table}.{stage_version_key} > final.{final_version_key};
         """).format(
             final_table=final_table_identifier,
             stage_table=stage_table_identifier,
-            merge_condition=merge_condition,
+            merge_condition=delete_condition,
             stage_version_key=sql.Identifier(version_key),
             final_version_key=sql.Identifier(version_key),
         )
@@ -194,7 +202,9 @@ def redshift_default_fields() -> list[BatchExportField]:
     return batch_export_fields
 
 
-def get_redshift_fields_from_record_schema(record_schema: pa.Schema, known_super_columns: list[str]) -> Fields:
+def get_redshift_fields_from_record_schema(
+    record_schema: pa.Schema, known_super_columns: list[str], use_super: bool = False
+) -> Fields:
     """Generate a list of supported Redshift fields from PyArrow schema.
 
     This function is used to map custom schemas to Redshift-supported types. Some loss of precision is
@@ -206,7 +216,7 @@ def get_redshift_fields_from_record_schema(record_schema: pa.Schema, known_super
         pa_field = record_schema.field(name)
 
         if pa.types.is_string(pa_field.type) or isinstance(pa_field.type, JsonType):
-            if pa_field.name in known_super_columns:
+            if pa_field.name in known_super_columns and use_super is True:
                 pg_type = "SUPER"
             else:
                 pg_type = "TEXT"
@@ -294,7 +304,6 @@ async def insert_records_to_redshift(
             nonlocal total_rows_exported
 
             values = b",".join(batch).replace(b" E'", b" '")
-
             await cursor.execute(pre_query_str + values)
             rows_exported.add(len(batch))
             total_rows_exported += len(batch)
@@ -411,7 +420,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
             column_names = [column for column in first_record_batch.schema.names if column != "_inserted_at"]
             record_schema = first_record_batch.select(column_names).schema
             table_fields = get_redshift_fields_from_record_schema(
-                record_schema, known_super_columns=known_super_columns
+                record_schema, known_super_columns=known_super_columns, use_super=properties_type == "SUPER"
             )
 
         requires_merge = (

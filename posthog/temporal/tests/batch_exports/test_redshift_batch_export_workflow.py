@@ -322,6 +322,7 @@ async def test_insert_into_redshift_activity_inserts_data_into_redshift_table(
         data_interval_end=data_interval_end,
         batch_export_model=model,
         exclude_events=exclude_events,
+        sort_key="person_id" if batch_export_model is not None and batch_export_model.name == "persons" else "event",
     )
 
 
@@ -442,6 +443,7 @@ async def test_redshift_export_workflow(
         data_interval_end=data_interval_end,
         batch_export_model=model,
         exclude_events=exclude_events,
+        sort_key="person_id" if batch_export_model is not None and batch_export_model.name == "persons" else "event",
     )
 
 
