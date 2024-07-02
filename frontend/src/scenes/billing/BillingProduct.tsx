@@ -197,7 +197,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                 <>
                                     {product.tiered ? (
                                         <>
-                                            <div className="flex w-full">
+                                            <div className="flex w-full items-center gap-x-8">
                                                 {product.subscribed && (
                                                     <LemonButton
                                                         icon={
