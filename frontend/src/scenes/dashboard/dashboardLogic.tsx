@@ -849,7 +849,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.loadDashboardSuccess(props.dashboard)
                 } else {
                     actions.loadDashboard({
-                        refresh: values.featureFlags[FEATURE_FLAGS.HOGQL_DASHBOARD_ASYNC] ? 'async' : 'force_cache',
+                        refresh: values.featureFlags[FEATURE_FLAGS.HOGQL_DASHBOARD_ASYNC]
+                            ? 'lazy_async'
+                            : 'force_cache',
                         action: 'initial_load',
                     })
                 }
@@ -1022,7 +1024,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 const queryId = `${dashboardQueryId}::${uuid()}`
                 const queryStartTime = performance.now()
                 const apiUrl = `api/projects/${values.currentTeamId}/insights/${insight.id}/?${toParams({
-                    refresh: hardRefreshWithoutCache ? 'force_async' : 'async',
+                    refresh: hardRefreshWithoutCache ? 'async' : 'lazy_async',
                     from_dashboard: dashboardId, // needed to load insight in correct context
                     client_query_id: queryId,
                     session_id: currentSessionId(),

@@ -2,7 +2,6 @@ from abc import ABC, abstractmethod
 from datetime import datetime, timedelta, UTC
 from enum import IntEnum
 from typing import Any, Generic, Optional, TypeVar, Union, cast, TypeGuard
-from zoneinfo import ZoneInfo
 
 import structlog
 from django.conf import settings
@@ -12,7 +11,7 @@ from pydantic import BaseModel, ConfigDict
 from sentry_sdk import capture_exception, push_scope
 
 from posthog.cache_utils import OrjsonJsonSerializer
-from posthog.caching.utils import is_stale
+from posthog.caching.utils import is_stale, last_refresh_from_cached_result, ThresholdMode
 from posthog.clickhouse.client.execute_async import enqueue_process_query_task
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql import ast
@@ -443,9 +442,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 cached_response.query_status = query_status_response.query_status
                 return cached_response
             elif execution_mode == ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE:
-                # We're allowed to calculate if the cache is older than 24 hours, but we'll do it asynchronously
+                # We're allowed to calculate if the lazy check fails, but we'll do it asynchronously
                 assert isinstance(cached_response, CachedResponse)
-                if datetime.now(UTC) - cached_response.last_refresh > EXTENDED_CACHE_AGE:
+                if self._is_stale(cached_response, lazy=True):
                     query_status_response = self.enqueue_async_calculation(cache_key=cache_key, user=user)
                     cached_response.query_status = query_status_response.query_status
                 return cached_response
@@ -542,9 +541,13 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def get_cache_key(self) -> str:
         return generate_cache_key(f"query_{bytes.decode(to_json(self.get_cache_payload()))}")
 
-    def _is_stale(self, cached_result_package):
-        # Default is to have the result valid for at 1 minute
-        return is_stale(self.team, datetime.now(tz=ZoneInfo("UTC")), "minute", cached_result_package)
+    def _is_stale(self, cached_result_package, lazy: bool = False) -> bool:
+        last_refresh = last_refresh_from_cached_result(cached_result_package)
+        query_date_range = getattr(self, "query_date_range", None)
+        date_to = query_date_range.date_to() if query_date_range else None
+        interval = query_date_range.interval_name if query_date_range else "minute"
+        mode = ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT
+        return is_stale(self.team, date_to=date_to, interval=interval, last_refresh=last_refresh, mode=mode)
 
     def _refresh_frequency(self) -> timedelta:
         return timedelta(minutes=1)
