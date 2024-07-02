@@ -359,7 +359,7 @@ class TestBillingAPI(APILicensedTest):
             "available_product_features": [],
             "custom_limits_usd": {},
             "has_active_subscription": True,
-            "stripe_portal_url": "https://billing.stripe.com/p/session/test_1234",
+            "stripe_portal_url": "http://localhost:8000/api/billing/portal",
             "current_total_amount_usd": "100.00",
             "deactivated": False,
             "products": [
@@ -562,7 +562,7 @@ class TestBillingAPI(APILicensedTest):
             "free_trial_until": None,
             "current_total_amount_usd": "0.00",
             "deactivated": False,
-            "stripe_portal_url": "https://billing.stripe.com/p/session/test_1234",
+            "stripe_portal_url": "http://localhost:8000/api/billing/portal",
         }
 
     @patch("ee.api.billing.requests.get")
@@ -837,6 +837,18 @@ class TestBillingAPI(APILicensedTest):
         self.organization.refresh_from_db()
 
         assert self.organization.customer_trust_scores == {"recordings": 0, "events": 15, "rows_synced": 0}
+
+
+class TestPortalBillingAPI(APILicensedTest):
+    @patch("ee.api.billing.requests.get")
+    def test_portal_success(self, mock_request):
+        mock_request.return_value.status_code = 200
+        mock_request.return_value.json.return_value = {"url": "https://billing.stripe.com/p/session/test_1234"}
+
+        response = self.client.get("/api/billing/portal")
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertIn("https://billing.stripe.com/p/session/test_1234", response.url)
 
 
 class TestActivateBillingAPI(APILicensedTest):
