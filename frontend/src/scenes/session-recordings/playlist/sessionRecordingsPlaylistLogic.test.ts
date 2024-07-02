@@ -612,7 +612,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
 
         it('resets console log filters', async () => {
             await expectLogic(logic, () => {
-                logic.actions.setUniversalFilters({
+                logic.actions.setAdvancedFilters({
                     console_logs: ['warn', 'error'],
                 } satisfies Partial<RecordingFilters>)
                 logic.actions.resetFilters()
