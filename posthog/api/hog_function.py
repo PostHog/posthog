@@ -16,12 +16,18 @@ from posthog.api.shared import UserBasicSerializer
 
 from posthog.cdp.services.icons import CDPIconsService
 from posthog.cdp.validation import compile_hog, validate_inputs, validate_inputs_schema
-from posthog.models.hog_functions.hog_function import HogFunction
+from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionState
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.plugins.plugin_server_api import create_hog_invocation_test
 
 
 logger = structlog.get_logger(__name__)
+
+
+class HogFunctionStatusSerializer(serializers.Serializer):
+    state = serializers.ChoiceField(choices=[state.value for state in HogFunctionState])
+    states: serializers.ListField = serializers.ListField(child=serializers.DictField())
+    ratings: serializers.ListField = serializers.ListField(child=serializers.DictField())
 
 
 class HogFunctionMinimalSerializer(serializers.ModelSerializer):
@@ -46,6 +52,7 @@ class HogFunctionMinimalSerializer(serializers.ModelSerializer):
 
 class HogFunctionSerializer(HogFunctionMinimalSerializer):
     template = HogFunctionTemplateSerializer(read_only=True)
+    status = HogFunctionStatusSerializer(read_only=True)
 
     class Meta:
         model = HogFunction
@@ -66,6 +73,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "icon_url",
             "template",
             "template_id",
+            "status",
         ]
         read_only_fields = [
             "id",
@@ -74,6 +82,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "updated_at",
             "bytecode",
             "template",
+            "status",
         ]
         extra_kwargs = {
             "template_id": {"write_only": True},
@@ -104,6 +113,14 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         request = self.context["request"]
         validated_data["created_by"] = request.user
         return super().create(validated_data=validated_data)
+
+    def update(self, instance: HogFunction, validated_data: dict, *args, **kwargs) -> HogFunction:
+        res: HogFunction = super().update(instance, validated_data)
+
+        if res.enabled and res.status.get("state", 0) >= HogFunctionState.DISABLED_TEMPORARILY.value:
+            res.set_function_status(HogFunctionState.OVERFLOWED.value)
+
+        return res
 
 
 class HogFunctionInvocationSerializer(serializers.Serializer):

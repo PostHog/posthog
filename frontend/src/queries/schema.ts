@@ -41,10 +41,10 @@ type integer = number
  * This file acts as the source of truth for:
  *
  * - frontend/src/queries/schema.json
- *   - generated from typescript via "pnpm run generate:schema:json"
+ *   - generated from typescript via "pnpm run schema:build:json"
  *
  * - posthog/schema.py
- *   - generated from json the above json via "pnpm run generate:schema:python"
+ *   - generated from json the above json via "pnpm run schema:build:python"
  * */
 
 export enum NodeKind {
@@ -271,10 +271,7 @@ export interface HogQLNotice {
 }
 
 export interface HogQLMetadataResponse {
-    inputExpr?: string
-    inputSelect?: string
-    inputProgram?: string
-    inputTemplate?: string
+    query?: string
     isValid?: boolean
     isValidView?: boolean
     errors: HogQLNotice[]
@@ -346,20 +343,23 @@ export interface HogQLAutocompleteResponse {
     timings?: QueryTiming[]
 }
 
+export enum HogLanguage {
+    hog = 'hog',
+    hogQL = 'hogQL',
+    hogQLExpr = 'hogQLExpr',
+    hogTemplate = 'hogTemplate',
+}
+
 export interface HogQLMetadata extends DataNode<HogQLMetadataResponse> {
     kind: NodeKind.HogQLMetadata
-    /** Hog program to validate */
-    program?: string
-    /** Template string to validate */
-    template?: string
-    /** Select query to validate */
-    select?: string
-    /** HogQL expression to validate */
-    expr?: string
+    /** Language to validate */
+    language: HogLanguage
+    /** Query to validate */
+    query: string
     /** Query within which "expr" and "template" are validated. Defaults to "select * from events" */
-    exprSource?: AnyDataNode
-    /** Table to validate the expression against */
-    table?: string
+    sourceQuery?: AnyDataNode
+    /** Extra globals for the query */
+    globals?: Record<string, any>
     /** Extra filters applied to query via {filters} */
     filters?: HogQLFilters
     /** Enable more verbose output, usually run from the /debug page */
@@ -368,14 +368,14 @@ export interface HogQLMetadata extends DataNode<HogQLMetadataResponse> {
 
 export interface HogQLAutocomplete extends DataNode<HogQLAutocompleteResponse> {
     kind: NodeKind.HogQLAutocomplete
-    /** HogQL string template to validate */
-    template?: string
-    /** Select query to validate */
-    select?: string
-    /** HogQL expression to validate */
-    expr?: string
-    /** Query within which "expr" and "template" are validated. Defaults to "select * from events" */
-    exprSource?: string
+    /** Language to validate */
+    language: HogLanguage
+    /** Query to validate */
+    query: string
+    /** Query in whose context to validate. */
+    sourceQuery?: AnyDataNode
+    /** Global values in scope */
+    globals?: Record<string, any>
     /** Table to validate the expression against */
     filters?: HogQLFilters
     /**
@@ -704,6 +704,7 @@ export type TrendsFilter = {
     showLabelsOnSeries?: TrendsFilterLegacy['show_labels_on_series']
     /** @default false */
     showPercentStackView?: TrendsFilterLegacy['show_percent_stack_view']
+    yAxisScaleType?: TrendsFilterLegacy['y_axis_scale_type']
     hiddenLegendIndexes?: integer[]
 }
 
@@ -720,6 +721,7 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'showValuesOnSeries',
     'showLabelsOnSeries',
     'showPercentStackView',
+    'yAxisScaleType',
     'hiddenLegendIndexes',
 ])
 
@@ -1070,6 +1072,7 @@ export type QueryStatus = {
     expiration_time?: string
     task_id?: string
     query_progress?: ClickhouseQueryProgress
+    labels?: string[]
 }
 
 export interface LifecycleQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}
@@ -1427,7 +1430,7 @@ export interface DatabaseSchemaSchema {
     name: string
     should_sync: boolean
     incremental: boolean
-    status: string
+    status?: string
     last_synced_at?: string
 }
 

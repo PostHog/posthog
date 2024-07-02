@@ -97,8 +97,10 @@ class FunnelsQueryRunner(QueryRunner):
             modifiers=self.modifiers,
             limit_context=self.limit_context,
             settings=HogQLGlobalSettings(
-                max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY
-            ),  # Make sure funnel queries never OOM
+                # Make sure funnel queries never OOM
+                max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY,
+                allow_experimental_analyzer=True,
+            ),
         )
 
         results = self.funnel_class._format_results(response.results)

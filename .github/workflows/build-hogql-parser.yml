@@ -73,7 +73,7 @@ jobs:
             - if: ${{ !endsWith(matrix.os, '-arm') }}
               uses: actions/setup-python@v4
               with:
-                  python-version: '3.10'
+                  python-version: '3.11'
 
             # Compiling Python 3.11 from source on ARM. We tried using the "deadsnakes" ARM repo, but it was flakey.
             - if: ${{ endsWith(matrix.os, '-arm') }}

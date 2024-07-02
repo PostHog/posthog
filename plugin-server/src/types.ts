@@ -17,7 +17,6 @@ import { Kafka } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { Job } from 'node-schedule'
 import { VM } from 'vm2'
-import { RustyHook } from 'worker/rusty-hook'
 
 import { ObjectStorage } from './main/services/object_storage'
 import { DB } from './utils/db/db'
@@ -27,9 +26,11 @@ import { UUID } from './utils/utils'
 import { ActionManager } from './worker/ingestion/action-manager'
 import { ActionMatcher } from './worker/ingestion/action-matcher'
 import { AppMetrics } from './worker/ingestion/app-metrics'
+import { GroupTypeManager } from './worker/ingestion/group-type-manager'
 import { OrganizationManager } from './worker/ingestion/organization-manager'
 import { EventsProcessor } from './worker/ingestion/process-event'
 import { TeamManager } from './worker/ingestion/team-manager'
+import { RustyHook } from './worker/rusty-hook'
 import { PluginsApiKeyManager } from './worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './worker/vm/extensions/helpers/root-acess-manager'
 import { LazyPluginVM } from './worker/vm/lazy'
@@ -83,6 +84,7 @@ export enum PluginServerMode {
     person_overrides = 'person-overrides',
     cdp_processed_events = 'cdp-processed-events',
     cdp_function_callbacks = 'cdp-function-callbacks',
+    cdp_function_overflow = 'cdp-function-overflow',
 }
 
 export const stringToPluginServerMode = Object.fromEntries(
@@ -92,7 +94,18 @@ export const stringToPluginServerMode = Object.fromEntries(
     ])
 ) as Record<string, PluginServerMode>
 
-export interface PluginsServerConfig {
+export type CdpConfig = {
+    CDP_WATCHER_OBSERVATION_PERIOD: number
+    CDP_WATCHER_DISABLED_PERIOD: number
+    CDP_WATCHER_MAX_RECORDED_STATES: number
+    CDP_WATCHER_MAX_RECORDED_RATINGS: number
+    CDP_WATCHER_MAX_ALLOWED_TEMPORARY_DISABLED: number
+    CDP_WATCHER_MIN_OBSERVATIONS: number
+    CDP_WATCHER_OVERFLOW_RATING_THRESHOLD: number
+    CDP_WATCHER_DISABLED_RATING_THRESHOLD: number
+}
+
+export interface PluginsServerConfig extends CdpConfig {
     WORKER_CONCURRENCY: number // number of concurrent worker threads
     TASKS_PER_WORKER: number // number of parallel tasks per worker thread
     INGESTION_CONCURRENCY: number // number of parallel event ingestion queues per batch
@@ -286,6 +299,7 @@ export interface Hub extends PluginsServerConfig {
     actionMatcher: ActionMatcher
     appMetrics: AppMetrics
     rustyHook: RustyHook
+    groupTypeManager: GroupTypeManager
     // geoip database, setup in workers
     mmdb?: ReaderModel
     // diagnostics
@@ -317,6 +331,7 @@ export interface PluginServerCapabilities {
     sessionRecordingBlobOverflowIngestion?: boolean
     cdpProcessedEvents?: boolean
     cdpFunctionCallbacks?: boolean
+    cdpFunctionOverflow?: boolean
     personOverrides?: boolean
     appManagementSingleton?: boolean
     preflightSchedules?: boolean // Used for instance health checks on hobby deploy, not useful on cloud
@@ -585,6 +600,7 @@ export interface Team {
     api_token: string
     slack_incoming_webhook: string | null
     session_recording_opt_in: boolean
+    heatmaps_opt_in: boolean | null
     ingested_event: boolean
     person_display_name_properties: string[] | null
     test_account_filters:

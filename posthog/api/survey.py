@@ -4,7 +4,7 @@ from urllib.parse import urlparse
 
 import nh3
 from django.db.models import Min
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
 from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
 from nanoid import generate
@@ -467,6 +467,9 @@ class SurveyAPISerializer(serializers.ModelSerializer):
 def surveys(request: Request):
     token = get_token(None, request)
 
+    if request.method == "OPTIONS":
+        return cors_response(request, HttpResponse(""))
+
     if not token:
         return cors_response(
             request,
@@ -521,7 +524,7 @@ def create_flag_with_survey_errors():
                 detail=original_detail.replace("feature flags", "surveys"),
                 code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
             )
-        raise e
+        raise
 
 
 def nh3_clean_with_allow_list(to_clean: str):

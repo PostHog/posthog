@@ -3816,7 +3816,7 @@ GROUP BY
     aggregation_target,
     steps
 HAVING
-    equals(steps, max_steps)
+    equals(steps, max(max_steps))
 LIMIT 100""",
         )
 
@@ -3887,6 +3887,6 @@ FROM
         aggregation_target,
         steps
     HAVING
-        equals(steps, max_steps))
+        equals(steps, max(max_steps)))
 LIMIT 100""",
         )
