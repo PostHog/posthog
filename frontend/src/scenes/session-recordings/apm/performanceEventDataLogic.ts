@@ -1,8 +1,8 @@
 import { connect, kea, key, path, props, selectors } from 'kea'
 import {
+    getPerformanceEvents,
     initiatorToAssetTypeMapping,
     itemSizeInfo,
-    matchNetworkEvents,
 } from 'scenes/session-recordings/apm/performance-event-utils'
 import { InspectorListItemBase } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
@@ -11,7 +11,7 @@ import {
     SessionRecordingDataLogicProps,
 } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 
-import { PerformanceEvent, SessionRecordingPlayerTab } from '~/types'
+import { PerformanceEvent, RecordingEventType, SessionRecordingPlayerTab } from '~/types'
 
 import type { performanceEventDataLogicType } from './performanceEventDataLogicType'
 
@@ -24,18 +24,75 @@ export interface PerformanceEventDataLogicProps extends SessionRecordingDataLogi
     key?: string
 }
 
+/** it's pretty quick to sort an already sorted list */
+function sortPerformanceEvents(events: PerformanceEvent[]): PerformanceEvent[] {
+    return events.sort((a, b) => (a.timestamp.valueOf() > b.timestamp.valueOf() ? 1 : -1))
+}
+
 /**
  * If we have paint events we should add them to the appropriate navigation event
  * this makes it easier to draw performance cards for navigation events
  */
 function matchPaintEvents(performanceEvents: PerformanceEvent[]): PerformanceEvent[] {
-    // KLUDGE: this assumes that the input is sorted by timestamp and relies on the identity of the events to mutate them
+    // NB: this relies on the input being sorted by timestamp and relies on the identity of the events to mutate them
     let lastNavigationEvent: PerformanceEvent | null = null
-    for (const event of performanceEvents) {
+    for (const event of sortPerformanceEvents(performanceEvents)) {
         if (event.entry_type === 'navigation') {
             lastNavigationEvent = event
         } else if (event.entry_type === 'paint' && event.name === 'first-contentful-paint' && lastNavigationEvent) {
             lastNavigationEvent.first_contentful_paint = event.start_time
+        }
+    }
+
+    return performanceEvents
+}
+
+function matchWebVitalsEvents(
+    performanceEvents: PerformanceEvent[],
+    webVitalsEvents: RecordingEventType[]
+): PerformanceEvent[] {
+    // NB: this relies on the input being sorted by timestamp and relies on the identity of the events to mutate them
+
+    if (!webVitalsEvents.length) {
+        return performanceEvents
+    }
+
+    // first we get the timestamps of each navigation event,
+    // any web vitals events that occur between these timestamps
+    // can be associated to the navigation event
+    const navigationTimestamps: number[] = []
+    for (const event of performanceEvents) {
+        if (event.entry_type === 'navigation') {
+            // TRICKY: this is typed as string|number but it is always number
+            // TODO: fix this in the types
+            navigationTimestamps.push(event.timestamp as number)
+        }
+    }
+
+    let lastNavigationEvent: PerformanceEvent | null = null
+    let nextTimestamp: number | null = null
+    for (const event of sortPerformanceEvents(performanceEvents)) {
+        if (event.entry_type === 'navigation') {
+            lastNavigationEvent = event
+            nextTimestamp = navigationTimestamps.find((t) => t > event.timestamp) ?? null
+        } else {
+            if (!lastNavigationEvent) {
+                continue
+            }
+
+            for (const webVital of webVitalsEvents) {
+                if (webVital.properties.$current_url !== lastNavigationEvent.name) {
+                    continue
+                }
+
+                const webVitalUnixTimestamp = new Date(webVital.timestamp).valueOf()
+                const isAfterLastNavigation = webVitalUnixTimestamp > lastNavigationEvent.timestamp
+                const isBeforeNextNavigation = webVitalUnixTimestamp < (nextTimestamp ?? Infinity)
+                if (isAfterLastNavigation && isBeforeNextNavigation) {
+                    lastNavigationEvent.web_vitals = lastNavigationEvent.web_vitals || new Set()
+                    lastNavigationEvent.web_vitals.add(webVital)
+                }
+            }
         }
     }
 
@@ -52,32 +109,25 @@ export const performanceEventDataLogic = kea<performanceEventDataLogicType>([
             playerSettingsLogic,
             ['showOnlyMatching', 'tab', 'miniFiltersByKey', 'searchQuery'],
             sessionRecordingDataLogic(props),
-            [
-                'sessionPlayerData',
-                'sessionPlayerMetaDataLoading',
-                'snapshotsLoading',
-                'sessionEventsData',
-                'sessionEventsDataLoading',
-                'windowIds',
-                'start',
-                'end',
-                'durationMs',
-            ],
+            ['sessionPlayerData', 'webVitalsEvents'],
         ],
     })),
     selectors(() => ({
         allPerformanceEvents: [
-            (s) => [s.sessionPlayerData],
-            (sessionPlayerData): PerformanceEvent[] => {
+            (s) => [s.sessionPlayerData, s.webVitalsEvents],
+            (sessionPlayerData, webVitalsEvents): PerformanceEvent[] => {
+                // TRICKY: we listen to webVitalsEventsLoading to trigger a recompute once all the data is present
+
                 // performanceEvents used to come from the API,
                 // but we decided to instead store them in the recording data
                 // we gather more info than rrweb, so we mix the two back together here
 
-                return matchPaintEvents(
-                    deduplicatePerformanceEvents(
-                        filterUnwanted(matchNetworkEvents(sessionPlayerData.snapshotsByWindowId))
-                    ).sort((a, b) => (a.timestamp.valueOf() > b.timestamp.valueOf() ? 1 : -1))
-                )
+                const performanceEvents = getPerformanceEvents(sessionPlayerData.snapshotsByWindowId)
+                const filteredPerformanceEvents = filterUnwanted(performanceEvents)
+                const deduplicatedPerformanceEvents = deduplicatePerformanceEvents(filteredPerformanceEvents)
+                const sortedEvents = sortPerformanceEvents(deduplicatedPerformanceEvents)
+                const withMatchedPaintEvents = matchPaintEvents(sortedEvents)
+                return matchWebVitalsEvents(withMatchedPaintEvents, webVitalsEvents)
             },
         ],
         sizeBreakdown: [

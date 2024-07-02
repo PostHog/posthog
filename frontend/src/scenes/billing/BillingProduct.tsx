@@ -15,7 +15,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useRef } from 'react'
 import { getProductIcon } from 'scenes/products/Products'
 
-import { BillingProductV2AddonType, BillingProductV2Type, BillingV2TierType } from '~/types'
+import { BillingProductV2AddonType, BillingProductV2Type, BillingTierType } from '~/types'
 
 import { convertLargeNumberToWords, getUpgradeProductLink, summarizeUsage } from './billing-utils'
 import { BillingGauge } from './BillingGauge'
@@ -29,7 +29,7 @@ import { ProductPricingModal } from './ProductPricingModal'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 
 export const getTierDescription = (
-    tiers: BillingV2TierType[],
+    tiers: BillingTierType[],
     i: number,
     product: BillingProductV2Type | BillingProductV2AddonType,
     interval: string

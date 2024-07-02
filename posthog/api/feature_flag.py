@@ -23,6 +23,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.dashboards.dashboard import Dashboard
+from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.constants import FlagRequestType
 from posthog.event_usage import report_user_action
@@ -88,6 +89,9 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
     filters = serializers.DictField(source="get_filters", required=False)
     is_simple_flag = serializers.SerializerMethodField()
     rollout_percentage = serializers.SerializerMethodField()
+
+    ensure_experience_continuity = ClassicBehaviorBooleanFieldSerializer()
+    has_enriched_analytics = ClassicBehaviorBooleanFieldSerializer()
 
     experiment_set: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
     surveys: serializers.SerializerMethodField = serializers.SerializerMethodField()
@@ -242,10 +246,17 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
                             detail=f"Invalid date value: {prop.value}", code="invalid_date"
                         )
 
-                # make sure regex and icontains properties have string values
-                if prop.operator in ["regex", "icontains", "not_regex", "not_icontains"] and not isinstance(
-                    prop.value, str
-                ):
+                # make sure regex, icontains, gte, lte, lt, and gt properties have string values
+                if prop.operator in [
+                    "regex",
+                    "icontains",
+                    "not_regex",
+                    "not_icontains",
+                    "gte",
+                    "lte",
+                    "gt",
+                    "lt",
+                ] and not isinstance(prop.value, str):
                     raise serializers.ValidationError(
                         detail=f"Invalid value for operator {prop.operator}: {prop.value}", code="invalid_value"
                     )
