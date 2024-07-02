@@ -383,8 +383,29 @@ async def test_make_sure_deletions_occur(team, stripe_balance_transaction):
         mock_data_response=stripe_balance_transaction["data"],
     )
 
-    # run twice more
-    with mock.patch("posthog.warehouse.models.external_data_job.get_s3_client") as mock_get_deletion_jobs:
+    @sync_to_async
+    def get_jobs():
+        job_ids = (
+            ExternalDataJob.objects.filter(
+                team_id=team.pk,
+                pipeline_id=inputs.external_data_source_id,
+            )
+            .order_by("-created_at")
+            .values_list("id", flat=True)
+        )
+
+        return [str(job_id) for job_id in job_ids]
+
+    with mock.patch("posthog.warehouse.models.external_data_job.get_s3_client") as mock_s3_client:
+        s3_client_mock = mock.Mock()
+        mock_s3_client.return_value = s3_client_mock
+
+        await _execute_run(workflow_id, inputs, stripe_balance_transaction["data"])
         await _execute_run(workflow_id, inputs, stripe_balance_transaction["data"])
 
-        assert mock_get_deletion_jobs.call_count == 1
+        job_ids = await get_jobs()
+        latest_job = job_ids[0]
+        assert s3_client_mock.exists.call_count == 3
+
+        for call in s3_client_mock.exists.call_args_list:
+            assert latest_job not in call[0][0]
