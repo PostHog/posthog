@@ -241,7 +241,6 @@ test.describe('changes on dashboard are reflected in insight', () => {
         // create an insight and add it to a new dashboard
         await insightPage.createNew()
         await insightPage.addToNewDashboard()
-        await page.pause()
 
         // rename the dashboard
         const newName = randomString('new-name')
@@ -258,5 +257,24 @@ test.describe('changes on dashboard are reflected in insight', () => {
         })
     })
 
-    // add insight
+    // :FIXME: For an unknown reason the app behaves differently in the test
+    // compare to doing the steps manually i.e. it displays a "Save" button
+    // for the insight instead of the expected "Save and add to dashboard".
+    test.skip('adding a new insight', async ({ page }) => {
+        const insightPage = new InsightPage(page)
+        const dashboardName = randomString('my-dashboard')
+        const dashboardPage = new DashboardPage(page)
+        await dashboardPage.createNew()
+
+        await page.locator('.dashboard').getByTestId('dashboard-add-graph-header').click()
+        await insightPage.saveButton.click()
+        await page.goBack()
+
+        // verify the dashboard is present in the insight
+        await insightPage.withReload(async () => {
+            await insightPage.dashboardButton.click()
+            await page.getByTestId('dashboard-searchfield').fill(dashboardName)
+            await expect(page.getByText(dashboardName)).toBeVisible()
+        })
+    })
 })
