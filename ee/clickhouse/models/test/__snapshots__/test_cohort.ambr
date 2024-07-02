@@ -32,7 +32,7 @@
   WHERE team_id = 2
     AND cohort_id = 2
     AND version < 0
-    AND sign = 1
+    AND sign = 1 SETTINGS optimize_aggregation_in_order = 1
   '''
 # ---
 # name: TestCohort.test_cohortpeople_with_not_in_cohort_operator
@@ -66,7 +66,7 @@
   WHERE team_id = 2
     AND cohort_id = 2
     AND version < 0
-    AND sign = 1
+    AND sign = 1 SETTINGS optimize_aggregation_in_order = 1
   '''
 # ---
 # name: TestCohort.test_cohortpeople_with_not_in_cohort_operator.1
@@ -126,7 +126,7 @@
   WHERE team_id = 2
     AND cohort_id = 2
     AND version < 0
-    AND sign = 1
+    AND sign = 1 SETTINGS optimize_aggregation_in_order = 1
   '''
 # ---
 # name: TestCohort.test_cohortpeople_with_not_in_cohort_operator_and_no_precalculation
@@ -222,7 +222,7 @@
   WHERE team_id = 2
     AND cohort_id = 2
     AND version < 0
-    AND sign = 1
+    AND sign = 1 SETTINGS optimize_aggregation_in_order = 1
   '''
 # ---
 # name: TestCohort.test_cohortpeople_with_not_in_cohort_operator_for_behavioural_cohorts.1
@@ -268,7 +268,7 @@
   WHERE team_id = 2
     AND cohort_id = 2
     AND version < 0
-    AND sign = 1
+    AND sign = 1 SETTINGS optimize_aggregation_in_order = 1
   '''
 # ---
 # name: TestCohort.test_static_cohort_precalculated
