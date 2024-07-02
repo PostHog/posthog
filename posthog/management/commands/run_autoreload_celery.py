@@ -20,10 +20,10 @@ class Command(BaseCommand):
         celery_type = options.get("celery_type")
 
         if celery_type == "worker":
-            print("Starting celery worker with autoreload...")
+            print("Starting celery worker with autoreload...")  # noqa: T201
             autoreload.run_with_reloader(self.run_celery_worker)
         elif celery_type == "heartbeat":
-            print("Starting celery heartbeat with autoreload...")
+            print("Starting celery heartbeat with autoreload...")  # noqa: T201
             autoreload.run_with_reloader(self.run_celery_heartbeat)
         else:
             raise Exception("Celery type invalid")
