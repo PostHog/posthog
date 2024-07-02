@@ -311,7 +311,7 @@ class Team(UUIDClassicModel):
                     "created_at": self.organization.created_at,
                 }
             },
-            only_evaluate_locally=True,
+            only_evaluate_locally=False,
             send_feature_flag_events=False,
         )
 

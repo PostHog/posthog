@@ -89,15 +89,7 @@ class PersonStrategy(ActorStrategy):
         return RecordingsHelper(self.team).get_recordings(matching_events)
 
     def input_columns(self) -> list[str]:
-        # have to add pdis
-        return [
-            "person",
-            "id",
-            "created_at",
-            "person.$delete",
-            ast.Field(chain=["persons", "properties"]),
-            ast.Field(chain=["persons", "is_identified"]),
-        ]
+        return ["person", "id", "created_at", "person.$delete"]
 
     def filter_conditions(self) -> list[ast.Expr]:
         where_exprs: list[ast.Expr] = []

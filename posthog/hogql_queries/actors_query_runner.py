@@ -115,6 +115,7 @@ class ActorsQueryRunner(QueryRunner):
 
         enrich_columns = filter(lambda column: column in ("person", "group", "actor"), input_columns)
         for column_name in enrich_columns:
+            actor_column_index = input_columns.index(column_name)
             if self.team.actors_skip_enrichment:
                 enriched = [None] * len(results)
                 index = len(enriched) - 1
@@ -122,7 +123,6 @@ class ActorsQueryRunner(QueryRunner):
                 # Todo: Correctly calculate recordings
                 while len(results):
                     result = results.pop()
-                    actor_column_index = input_columns.index(column_name)
                     new_row = (
                         (result[: actor_column_index - 1] if actor_column_index > 0 else ())
                         + (orjson.loads(result[actor_column_index]),)
@@ -145,7 +145,9 @@ class ActorsQueryRunner(QueryRunner):
         return ActorsQueryResponse(
             results=results,
             timings=response.timings,
-            types=[t for _, t in response.types] if response.types else None,
+            types=["DONKEY"]
+            if self.team.actors_skip_enrichment
+            else ([t for _, t in response.types] if response.types else None),
             columns=input_columns,
             hogql=response.hogql,
             modifiers=self.modifiers,
@@ -330,13 +332,16 @@ class ActorsQueryRunner(QueryRunner):
                     ),
                 )
 
-        group_by = [
-            ast.Field(chain=["persons", "id"]),
-            ast.Field(chain=["persons", "is_identified"]),
-            ast.Field(chain=["persons", "properties"]),
-            ast.Field(chain=["persons", "created_at"]),
-            *(group_by if has_any_aggregation else []),
-        ]
+        if self.team.actors_skip_enrichment:
+            group_by = [
+                ast.Field(chain=["persons", "id"]),
+                ast.Field(chain=["persons", "is_identified"]),
+                ast.Field(chain=["persons", "properties"]),
+                ast.Field(chain=["persons", "created_at"]),
+                *(group_by if has_any_aggregation else []),
+            ]
+        else:
+            group_by = group_by if has_any_aggregation else None
 
         return ast.SelectQuery(
             select=columns,

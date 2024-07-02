@@ -210,6 +210,7 @@ export const FEATURE_FLAGS = {
     SURVEYS_BRANCHING_LOGIC: 'surveys-branching-logic', // owner: @jurajmajerik #team-feature-success
     WEB_ANALYTICS_LIVE_USER_COUNT: 'web-analytics-live-user-count', // owner: @robbie-c
     SETTINGS_SESSION_TABLE_VERSION: 'settings-session-table-version', // owner: @robbie-c
+    ACTORS_SKIP_ENRICHMENT: 'actors-skip-enrichment', //owner: @aspicer
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
