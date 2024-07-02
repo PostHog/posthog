@@ -362,10 +362,19 @@ export const insightLogic = kea<insightLogicType>([
     listeners(({ actions, values }) => ({
         saveInsight: async ({ redirectToViewMode }) => {
             const insightNumericId =
-                values.legacyInsight.id ||
-                (values.legacyInsight.short_id ? await getInsightId(values.legacyInsight.short_id) : undefined)
-            const { name, description, favorited, filters, query, deleted, dashboards, tags } = values.legacyInsight
+                values.queryBasedInsight.id ||
+                (values.queryBasedInsight.short_id ? await getInsightId(values.queryBasedInsight.short_id) : undefined)
+            const { name, description, favorited, deleted, dashboards, tags } = values.legacyInsight
+
             let savedInsight: InsightModel
+            let filters
+            let query
+
+            if (!values.queryBasedInsightSaving && isInsightVizNode(values.queryBasedInsight.query)) {
+                filters = queryNodeToFilter(values.queryBasedInsight.query.source)
+            } else {
+                query = values.queryBasedInsight.query
+            }
 
             try {
                 // We don't want to send ALL the insight properties back to the API, so only grabbing fields that might have changed
@@ -375,7 +384,7 @@ export const insightLogic = kea<insightLogicType>([
                     description,
                     favorited,
                     filters,
-                    query: query ? query : null,
+                    query,
                     deleted,
                     saved: true,
                     dashboards,
