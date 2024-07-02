@@ -34,6 +34,7 @@ from posthog.temporal.batch_exports.postgres_batch_export import (
     Fields,
     PostgresInsertInputs,
     PostgreSQLClient,
+    PostgreSQLField,
 )
 from posthog.temporal.batch_exports.utils import JsonType, apeek_first_and_rewind, set_status_to_running_task
 from posthog.temporal.common.clickhouse import get_client
@@ -120,6 +121,8 @@ class RedshiftClient(PostgreSQLClient):
         stage_table_name: str,
         schema: str,
         merge_key: Fields,
+        update_when_matched: Fields,
+        version_key: str = "version",
     ) -> None:
         """Merge two identical tables in PostgreSQL."""
         if schema:
@@ -184,7 +187,7 @@ def get_redshift_fields_from_record_schema(record_schema: pa.Schema, known_super
     This function is used to map custom schemas to Redshift-supported types. Some loss of precision is
     expected.
     """
-    pg_schema: Fields = []
+    pg_schema: list[PostgreSQLField] = []
 
     for name in record_schema.names:
         pa_field = record_schema.field(name)
@@ -448,6 +451,19 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
                     inputs.schema,
                     redshift_stage_table if requires_merge else redshift_table,
                 )
+
+                if requires_merge:
+                    merge_key: Fields = (
+                        ("team_id", "INT"),
+                        ("distinct_id", "TEXT"),
+                    )
+                    await redshift_client.amerge_identical_tables(
+                        final_table_name=redshift_table,
+                        stage_table_name=redshift_stage_table,
+                        schema=inputs.schema,
+                        update_when_matched=table_fields,
+                        merge_key=merge_key,
+                    )
 
                 return records_completed
 
