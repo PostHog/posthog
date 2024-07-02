@@ -240,7 +240,7 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(a, b)
         # Want to make sure this returns 0, not false. Clickhouse uses UInt8s primarily for booleans.
-        assert a.exprs[1].args[1].value == 0
+        assert a.exprs[1].args[1].value is 0
         # negative
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "is_not"}),
