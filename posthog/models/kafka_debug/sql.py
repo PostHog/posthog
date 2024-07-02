@@ -21,7 +21,7 @@ class KafkaDebugKafkaTable:
         payload String
       )
       ENGINE={kafka_engine(kafka_host=",".join(self.brokers), topic=self.topic, group=self.consumer_group)}
-      SETTINGS input_format_values_interpret_expressions=0
+      SETTINGS input_format_values_interpret_expressions=0, kafka_handle_error_mode='stream'
     """
 
     def get_drop_table_sql(self) -> str:
@@ -46,7 +46,9 @@ class KafkaDebugTable:
         _timestamp DateTime,
         _timestamp_ms Nullable(DateTime64(3)),
         _partition UInt64,
-        _offset UInt64
+        _offset UInt64,
+        _error String,
+        _raw_message String
       )
       ENGINE = {engine}
       PARTITION BY toStartOfHour(_timestamp)
@@ -72,7 +74,9 @@ class KafkaDebugMaterializedView:
         _timestamp,
         _timestamp_ms,
         _partition,
-        _offset
+        _offset,
+        _error String,
+        _raw_message String
       FROM `{CLICKHOUSE_DATABASE}`.{self.from_table.table_name}
     """
 
