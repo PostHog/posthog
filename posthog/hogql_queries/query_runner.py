@@ -103,6 +103,20 @@ def execution_mode_from_refresh(refresh_requested: bool | str | None) -> Executi
     return ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
 
 
+def shared_insights_execution_mode(execution_mode: ExecutionMode) -> ExecutionMode:
+    shared_mode_whitelist = {
+        # Cache only is default refresh mode - remap to async so shared insights stay fresh
+        ExecutionMode.CACHE_ONLY_NEVER_CALCULATE: ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
+        # Legacy refresh=true - but on shared insights, we don't give the ability to refresh at will
+        # TODO: Adjust once shared insights can poll for async query_status
+        ExecutionMode.CALCULATE_BLOCKING_ALWAYS: ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+        # Allow regular async
+        ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE: ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+        # - All others fall back to extended cache -
+    }
+    return shared_mode_whitelist.get(execution_mode, ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE)
+
+
 RunnableQueryNode = Union[
     TrendsQuery,
     FunnelsQuery,

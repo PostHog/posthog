@@ -252,9 +252,6 @@ export const CLOUD_HOSTNAMES = {
 
 export const SESSION_RECORDINGS_PLAYLIST_FREE_COUNT = 5
 
-// If _any_ item on a dashboard is older than this, dashboard is automatically reloaded
-export const AUTO_REFRESH_DASHBOARD_THRESHOLD_HOURS = 20
-
 export const GENERATED_DASHBOARD_PREFIX = 'Generated Dashboard'
 
 export const ACTIVITY_PAGE_SIZE = 20
