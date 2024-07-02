@@ -8,9 +8,9 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { isInsightVizNode, isTrendsQuery } from '~/queries/utils'
-import { ChartDisplayType, InsightShortId, QueryBasedInsightModel } from '~/types'
+import { InsightShortId, QueryBasedInsightModel } from '~/types'
 
+import { areAlertsSupportedForInsight } from './alertsLogic'
 import { EditAlert } from './views/EditAlert'
 import { ManageAlerts } from './views/ManageAlerts'
 
@@ -61,13 +61,7 @@ export function AlertsButton({ insight }: AlertsButtonProps): JSX.Element {
     if (!showAlerts) {
         return <></>
     }
-    const isAlertAvailableForInsight =
-        isInsightVizNode(insight.query) &&
-        isTrendsQuery(insight.query.source) &&
-        insight.query.source.trendsFilter != null &&
-        insight.query.source.trendsFilter.display == ChartDisplayType.BoldNumber
-
-    if (!isAlertAvailableForInsight) {
+    if (!areAlertsSupportedForInsight(insight.query)) {
         return (
             <LemonButton
                 data-attr="disabled-alerts-button"
