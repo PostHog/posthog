@@ -78,6 +78,9 @@ FLAGS+=("-n node@%h")
 
 [[ -n "${CELERY_WORKER_PREFETCH_MULTIPLIER}" ]] && FLAGS+=" --prefetch-multiplier $CELERY_WORKER_PREFETCH_MULTIPLIER"
 
+[[ -n "${CELERY_TASK_TRACK_STARTED}" ]] && FLAGS+=" --task_track_started $CELERY_TASK_TRACK_STARTED"
+[[ -n "${CELERY_TASK_ACKS_LATE}" ]] && FLAGS+=" --task_acks_late $CELERY_TASK_ACKS_LATE"
+
 if [[ -z "${CELERY_WORKER_QUEUES}" ]]; then
   source ./bin/celery-queues.env
 fi
