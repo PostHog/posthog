@@ -235,12 +235,14 @@ class TestProperty(BaseTest):
             self._parse_expr("properties.a ilike '%b%' or properties.a ilike '%c%'"),
         )
         a = self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "regex"})
-        b = self._parse_expr(
-            "ifNull(match(toString(properties.a), 'b'), 0) or ifNull(match(toString(properties.a), 'c'), 0)"
+        self.assertEqual(
+            a,
+            self._parse_expr(
+                "ifNull(match(toString(properties.a), 'b'), 0) or ifNull(match(toString(properties.a), 'c'), 0)"
+            ),
         )
-        self.assertEqual(a, b)
         # Want to make sure this returns 0, not false. Clickhouse uses UInt8s primarily for booleans.
-        assert a.exprs[1].args[1].value is 0
+        assert a.exprs[1].args[1].value == 0
         # negative
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "is_not"}),
@@ -257,19 +259,21 @@ class TestProperty(BaseTest):
             ),
             self._parse_expr("properties.a not ilike '%b%' and properties.a not ilike '%c%'"),
         )
+        a = self._property_to_expr(
+            {
+                "type": "event",
+                "key": "a",
+                "value": ["b", "c"],
+                "operator": "not_regex",
+            }
+        )
         self.assertEqual(
-            self._property_to_expr(
-                {
-                    "type": "event",
-                    "key": "a",
-                    "value": ["b", "c"],
-                    "operator": "not_regex",
-                }
-            ),
+            a,
             self._parse_expr(
-                "ifNull(not(match(toString(properties.a), 'b')), true) and ifNull(not(match(toString(properties.a), 'c')), true)"
+                "ifNull(not(match(toString(properties.a), 'b')), 1) and ifNull(not(match(toString(properties.a), 'c')), 1)"
             ),
         )
+        assert a.exprs[1].args[1].value == 1
 
     def test_property_to_expr_feature(self):
         self.assertEqual(
