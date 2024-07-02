@@ -651,12 +651,14 @@ def replace_with_warning(event: dict[str, Any]) -> dict[str, Any] | None:
         if not isinstance(first_item, dict) or ("$window_id" not in first_item and "timestamp" not in first_item):
             return None
 
+        only_meta_events = [x for x in snapshot_items if isinstance(x, dict) and ("type" in x and x["type"] == 4)]
         return {
             **event,
             "properties": {
                 **properties,
                 "$snapshot_bytes": 0,
                 "$snapshot_items": [
+                    *only_meta_events,
                     {
                         "type": 5,
                         "data": {
@@ -664,7 +666,7 @@ def replace_with_warning(event: dict[str, Any]) -> dict[str, Any] | None:
                         },
                         "$window_id": first_item.get("$window_id"),
                         "timestamp": first_item.get("timestamp"),
-                    }
+                    },
                 ],
             },
         }

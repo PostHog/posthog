@@ -62,7 +62,8 @@
         "mobile-replay:web:schema:build:json": "ts-json-schema-generator -f tsconfig.json --path 'node_modules/@rrweb/types/dist/index.d.ts' --type 'eventWithTime' --expose all --no-top-ref --out ee/frontend/mobile-replay/schema/web/rr-web-schema.json && prettier --write ee/frontend/mobile-replay/schema/web/rr-web-schema.json",
         "mobile-replay:mobile:schema:build:json": "ts-json-schema-generator -f tsconfig.json --path 'ee/frontend/mobile-replay/mobile.types.ts' --type 'mobileEventWithTime' --expose all --no-top-ref --out ee/frontend/mobile-replay/schema/mobile/rr-mobile-schema.json && prettier --write ee/frontend/mobile-replay/schema/mobile/rr-mobile-schema.json",
         "mobile-replay:schema:build:json": "pnpm mobile-replay:web:schema:build:json && pnpm mobile-replay:mobile:schema:build:json",
-        "visualize-toolbar-bundle": "pnpm exec esbuild-visualizer --metadata ./toolbar-esbuild-meta.json --filename=toolbar-esbuild-bundle-visualization.html"
+        "visualize-toolbar-bundle": "pnpm exec esbuild-visualizer --metadata ./toolbar-esbuild-meta.json --filename=toolbar-esbuild-bundle-visualization.html",
+        "mypy-baseline-sync": "mypy -p posthog | mypy-baseline sync"
     },
     "dependencies": {
         "@ant-design/icons": "^4.7.0",

@@ -1,3 +1,4 @@
+use metrics::gauge;
 use std::{collections::HashSet, ops::Sub, sync::Arc};
 
 use crate::redis::Client;
@@ -86,9 +87,9 @@ impl BillingLimiter {
     #[instrument(skip_all)]
     async fn fetch_limited(
         client: &Arc<dyn Client + Send + Sync>,
-        resource: QuotaResource,
+        resource: &QuotaResource,
     ) -> anyhow::Result<Vec<String>> {
-        let now = time::OffsetDateTime::now_utc().unix_timestamp();
+        let now = OffsetDateTime::now_utc().unix_timestamp();
 
         client
             .zrangebyscore(
@@ -130,12 +131,17 @@ impl BillingLimiter {
             // On prod atm we call this around 15 times per second at peak times, and it usually
             // completes in <1ms.
 
-            let set = Self::fetch_limited(&self.redis, resource).await;
+            let set = Self::fetch_limited(&self.redis, &resource).await;
 
             tracing::debug!("fetched set from redis, caching");
 
             if let Ok(set) = set {
                 let set = HashSet::from_iter(set.iter().cloned());
+                gauge!(
+                    "capture_billing_limits_loaded_tokens",
+                    "resource" => resource.as_str(),
+                )
+                .set(set.len() as f64);
 
                 let mut limited = self.limited.write().await;
                 *limited = set;

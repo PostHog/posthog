@@ -240,9 +240,16 @@ def empty_or_null_with_value_q(
     else:
         parsed_value = None
         if operator in ("gt", "gte", "lt", "lte"):
+            if isinstance(value, list):
+                # If the value is a list for these operators,
+                # we should not return any results, as we can't compare a list to a single value
+                # TODO: should we try and parse each value in the list and return results based on that?
+                return Q(pk__isnull=True)
+
+            # At this point, we know that the value is not a list, so we can safely parse it
+            # There might still be exceptions, but we're catching them below
             try:
-                # try to parse even if arrays can't be parsed, the catch will handle it
-                parsed_value = float(value)  # type: ignore
+                parsed_value = float(value)
             except Exception:
                 pass
 

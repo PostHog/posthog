@@ -456,7 +456,13 @@ class TestCapture(BaseTest):
 
         response = self._send_august_2023_version_session_recording_event(
             event_data=[
-                {"type": 2, "data": {"lots": "of data"}, "$window_id": "the window id", "timestamp": 1234567890}
+                {
+                    "type": 4,
+                    "data": {"href": "https://keepme.io"},
+                    "$window_id": "the window id",
+                    "timestamp": 1234567890,
+                },
+                {"type": 2, "data": {"lots": "of data"}, "$window_id": "the window id", "timestamp": 1234567890},
             ]
         )
         assert response.status_code == 200
@@ -465,11 +471,17 @@ class TestCapture(BaseTest):
             snapshot_bytes=0,
             event_data=[
                 {
+                    "type": 4,
+                    "data": {"href": "https://keepme.io"},
+                    "$window_id": "the window id",
+                    "timestamp": 1234567890,
+                },
+                {
                     "type": 5,
                     "data": {"tag": "Message too large"},
                     "timestamp": 1234567890,
                     "$window_id": "the window id",
-                }
+                },
             ],
         )
         assert {

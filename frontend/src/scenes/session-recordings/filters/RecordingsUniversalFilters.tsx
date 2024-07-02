@@ -23,8 +23,8 @@ export const RecordingsUniversalFilters = (): JSX.Element => {
 
     return (
         <div className="divide-y bg-bg-light rounded border">
-            <div className="flex justify-between px-2 py-1.5">
-                <div className="flex space-x-2">
+            <div className="flex justify-between px-2 py-1.5 flex-wrap gap-1">
+                <div className="flex flex-wrap gap-2">
                     <DateFilter
                         dateFrom={universalFilters.date_from ?? '-3d'}
                         dateTo={universalFilters.date_to}
@@ -57,17 +57,20 @@ export const RecordingsUniversalFilters = (): JSX.Element => {
                         durationTypeFilter={durationFilter.key}
                         pageKey="session-recordings"
                     />
-                    <TestAccountFilter
-                        filters={universalFilters}
-                        onChange={(testFilters) =>
-                            setUniversalFilters({
-                                ...universalFilters,
-                                filter_test_accounts: testFilters.filter_test_accounts,
-                            })
-                        }
-                    />
+                    <div>
+                        <TestAccountFilter
+                            size="small"
+                            filters={universalFilters}
+                            onChange={(testFilters) =>
+                                setUniversalFilters({
+                                    ...universalFilters,
+                                    filter_test_accounts: testFilters.filter_test_accounts,
+                                })
+                            }
+                        />
+                    </div>
                 </div>
-                <div>
+                <div className="flex items-center">
                     <AndOrFilterSelect
                         value={universalFilters.filter_group.type}
                         onChange={(type) => {

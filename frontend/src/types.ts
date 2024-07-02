@@ -345,7 +345,7 @@ export interface OrganizationType extends OrganizationBasicType {
     updated_at: string
     plugins_access_level: PluginsAccessLevel
     teams: TeamBasicType[]
-    available_product_features: BillingV2FeatureType[]
+    available_product_features: BillingFeatureType[]
     is_member_join_email_enabled: boolean
     customer_id: string | null
     enforce_2fa: boolean | null
@@ -1466,6 +1466,7 @@ export interface PerformanceEvent {
     first_contentful_paint?: number // https://web.dev/fcp/
     time_to_interactive?: number // https://web.dev/tti/
     total_blocking_time?: number // https://web.dev/tbt/
+    web_vitals?: Set<RecordingEventType>
 
     // request/response capture - merged in from rrweb/network@1 payloads
     request_headers?: Record<string, string>
@@ -1489,7 +1490,7 @@ export interface CurrentBillCycleType {
     current_period_end: number
 }
 
-export type BillingV2FeatureType = {
+export type BillingFeatureType = {
     key: AvailableFeatureUnion
     name: string
     description?: string | null
@@ -1505,7 +1506,7 @@ export type BillingV2FeatureType = {
     type?: 'primary' | 'secondary' | null
 }
 
-export interface BillingV2TierType {
+export interface BillingTierType {
     flat_amount_usd: string
     unit_amount_usd: string
     current_amount_usd: string | null
@@ -1528,7 +1529,7 @@ export interface BillingProductV2Type {
     docs_url: string
     free_allocation?: number | null
     subscribed: boolean | null
-    tiers?: BillingV2TierType[] | null
+    tiers?: BillingTierType[] | null
     tiered: boolean
     current_usage?: number
     projected_amount_usd?: string | null
@@ -1540,10 +1541,10 @@ export interface BillingProductV2Type {
     has_exceeded_limit: boolean
     unit: string | null
     unit_amount_usd: string | null
-    plans: BillingV2PlanType[]
+    plans: BillingPlanType[]
     contact_support: boolean | null
     inclusion_only: any
-    features: BillingV2FeatureType[]
+    features: BillingFeatureType[]
     addons: BillingProductV2AddonType[]
     // addons-only: if this addon is included with the base product and not subscribed individually. for backwards compatibility.
     included_with_main_product?: boolean
@@ -1557,7 +1558,7 @@ export interface BillingProductV2AddonType {
     icon_key?: string
     docs_url: string | null
     type: string
-    tiers: BillingV2TierType[] | null
+    tiers: BillingTierType[] | null
     tiered: boolean
     subscribed: boolean
     // sometimes addons are included with the base product, but they aren't subscribed individually
@@ -1570,15 +1571,15 @@ export interface BillingProductV2AddonType {
     current_usage: number
     projected_usage: number | null
     projected_amount_usd: string | null
-    plans: BillingV2PlanType[]
+    plans: BillingPlanType[]
     usage_key?: string
     free_allocation?: number | null
     percentage_usage?: number
-    features: BillingV2FeatureType[]
+    features: BillingFeatureType[]
     included_if?: 'no_active_subscription' | 'has_subscription' | null
     usage_limit?: number | null
 }
-export interface BillingV2Type {
+export interface BillingType {
     customer_id: string
     has_active_subscription: boolean
     subscription_level: 'free' | 'paid' | 'custom'
@@ -1600,15 +1601,15 @@ export interface BillingV2Type {
     license?: {
         plan: LicensePlan
     }
-    available_plans?: BillingV2PlanType[]
+    available_plans?: BillingPlanType[]
     discount_percent?: number
     discount_amount_usd?: string
     amount_off_expires_at?: Dayjs
 }
 
-export interface BillingV2PlanType {
+export interface BillingPlanType {
     free_allocation?: number | null
-    features: BillingV2FeatureType[]
+    features: BillingFeatureType[]
     name: string
     description: string
     is_free?: boolean
@@ -1620,7 +1621,7 @@ export interface BillingV2PlanType {
     flat_rate: boolean
     product_key: ProductKeyUnion
     current_plan?: boolean | null
-    tiers?: BillingV2TierType[] | null
+    tiers?: BillingTierType[] | null
     unit_amount_usd: string | null
     included_if?: 'no_active_subscription' | 'has_subscription' | null
     initial_billing_limit?: number
@@ -2606,7 +2607,7 @@ export interface Survey {
             }[]
         } | null
     } | null
-    appearance: SurveyAppearance
+    appearance: SurveyAppearance | null
     questions: (BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion)[]
     created_at: string
     created_by: UserBasicType | null
