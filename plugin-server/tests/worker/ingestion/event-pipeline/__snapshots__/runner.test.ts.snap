@@ -96,6 +96,21 @@ Array [
     ],
   ],
   Array [
+    "enrichExceptionEventStep",
+    Array [
+      Object {
+        "distinctId": "my_id",
+        "elementsList": Array [],
+        "event": "$pageview",
+        "eventUuid": "uuid1",
+        "ip": "127.0.0.1",
+        "properties": Object {},
+        "teamId": 2,
+        "timestamp": "2020-02-23T02:15:00.000Z",
+      },
+    ],
+  ],
+  Array [
     "createEventStep",
     Array [
       Object {
