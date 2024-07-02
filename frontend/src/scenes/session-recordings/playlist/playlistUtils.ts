@@ -10,7 +10,7 @@ import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
 import { toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 import { DEFAULT_RECORDING_FILTERS } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
-import { PLAYLIST_LIMIT_REACHED_MESSAGE } from 'scenes/session-recordings/sessionRecordingsLogic'
+import { PLAYLIST_LIMIT_REACHED_MESSAGE } from 'scenes/session-recordings/sessionReplaySceneLogic'
 import { urls } from 'scenes/urls'
 
 import { cohortsModelType } from '~/models/cohortsModelType'

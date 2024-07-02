@@ -1,4 +1,4 @@
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Literal, Optional, Union
 from dataclasses import dataclass, field
 
@@ -47,7 +47,7 @@ class Statement(Declaration):
 
 @dataclass(kw_only=True)
 class ExprStatement(Statement):
-    expr: Expr
+    expr: Optional[Expr]
 
 
 @dataclass(kw_only=True)
@@ -65,6 +65,14 @@ class IfStatement(Statement):
 @dataclass(kw_only=True)
 class WhileStatement(Statement):
     expr: Expr
+    body: Statement
+
+
+@dataclass(kw_only=True)
+class ForStatement(Statement):
+    initializer: Optional[VariableDeclaration | VariableAssignment | Expr]
+    condition: Optional[Expr]
+    increment: Optional[Expr]
     body: Statement
 
 
@@ -386,7 +394,7 @@ class UUIDType(ConstantType):
 @dataclass(kw_only=True)
 class ArrayType(ConstantType):
     data_type: ConstantDataType = field(default="array", init=False)
-    item_type: ConstantType = UnknownType()
+    item_type: ConstantType = field(default_factory=UnknownType)
 
     def print_type(self) -> str:
         return "Array"
@@ -546,7 +554,7 @@ class Alias(Expr):
     hidden: bool = False
 
 
-class ArithmeticOperationOp(str, Enum):
+class ArithmeticOperationOp(StrEnum):
     Add = "+"
     Sub = "-"
     Mult = "*"
@@ -573,7 +581,7 @@ class Or(Expr):
     type: Optional[ConstantType] = None
 
 
-class CompareOperationOp(str, Enum):
+class CompareOperationOp(StrEnum):
     Eq = "=="
     NotEq = "!="
     Gt = ">"

@@ -14,7 +14,8 @@ import { AvailableFeature, BatchExportService, HogFunctionTemplateType, Pipeline
 
 import { pipelineDestinationsLogic } from './destinationsLogic'
 import { frontendAppsLogic } from './frontendAppsLogic'
-import { PipelineHogFunctionConfiguration } from './hogfunctions/PipelineHogFunctionConfiguration'
+import { HogFunctionConfiguration } from './hogfunctions/HogFunctionConfiguration'
+import { HogFunctionIcon } from './hogfunctions/HogFunctionIcon'
 import { PipelineBatchExportConfiguration } from './PipelineBatchExportConfiguration'
 import { PIPELINE_TAB_TO_NODE_STAGE } from './PipelineNode'
 import { pipelineNodeNewLogic, PipelineNodeNewLogicProps } from './pipelineNodeNewLogic'
@@ -86,7 +87,7 @@ function convertHogFunctionToTableEntry(hogFunction: HogFunctionTemplateType): T
         id: `hog-${hogFunction.id}`, // TODO: This weird identifier thing isn't great
         name: hogFunction.name,
         description: hogFunction.description,
-        icon: <span>🦔</span>,
+        icon: <HogFunctionIcon size="small" src={hogFunction.icon_url} />,
     }
 }
 
@@ -117,7 +118,7 @@ export function PipelineNodeNew(params: { stage?: string; id?: string } = {}): J
     }
 
     if (hogFunctionId) {
-        const res = <PipelineHogFunctionConfiguration templateId={hogFunctionId} />
+        const res = <HogFunctionConfiguration templateId={hogFunctionId} />
         if (stage === PipelineStage.Destination) {
             return <PayGateMini feature={AvailableFeature.DATA_PIPELINES}>{res}</PayGateMini>
         }

@@ -52,7 +52,7 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 30
         container:
-            image: mcr.microsoft.com/playwright:v1.41.2
+            image: mcr.microsoft.com/playwright:v1.45.0
         strategy:
             fail-fast: false
             matrix:

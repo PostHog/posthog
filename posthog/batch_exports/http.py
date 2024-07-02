@@ -5,7 +5,7 @@ import posthoganalytics
 import structlog
 from django.db import transaction
 from django.utils.timezone import now
-from rest_framework import request, response, serializers, viewsets, filters
+from rest_framework import filters, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import (
     NotAuthenticated,
@@ -76,11 +76,11 @@ def validate_date_input(date_input: Any, team: Team | None = None) -> dt.datetim
 
     if parsed.tzinfo is None:
         if team:
-            parsed = parsed.replace(tzinfo=team.timezone_info).astimezone(dt.timezone.utc)
+            parsed = parsed.replace(tzinfo=team.timezone_info).astimezone(dt.UTC)
         else:
-            parsed = parsed.replace(tzinfo=dt.timezone.utc)
+            parsed = parsed.replace(tzinfo=dt.UTC)
     else:
-        parsed = parsed.astimezone(dt.timezone.utc)
+        parsed = parsed.astimezone(dt.UTC)
 
     return parsed
 
@@ -199,6 +199,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
             "id",
             "team_id",
             "name",
+            "model",
             "destination",
             "interval",
             "paused",

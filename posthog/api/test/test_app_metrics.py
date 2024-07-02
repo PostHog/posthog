@@ -88,6 +88,7 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
                 "prefix": "posthog-events/",
                 "aws_access_key_id": "abc123",
                 "aws_secret_access_key": "secret",
+                "include_events": ["test-event"],
             },
         }
 
@@ -99,7 +100,7 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
 
         temporal = sync_connect()
 
-        now = dt.datetime(2021, 12, 5, 13, 23, 0, tzinfo=dt.timezone.utc)
+        now = dt.datetime(2021, 12, 5, 13, 23, 0, tzinfo=dt.UTC)
         with start_test_worker(temporal):
             response = create_batch_export_ok(
                 self.client,
@@ -119,17 +120,30 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
                         data_interval_end=last_updated_at,
                         data_interval_start=last_updated_at - dt.timedelta(hours=1),
                         status=BatchExportRun.Status.COMPLETED,
-                        records_completed=3,
-                        records_total_count=3,
                     )
-
+                    BatchExportRun.objects.create(
+                        batch_export_id=batch_export_id,
+                        data_interval_end=last_updated_at,
+                        data_interval_start=last_updated_at - dt.timedelta(hours=1),
+                        status=BatchExportRun.Status.COMPLETED,
+                    )
+                    BatchExportRun.objects.create(
+                        batch_export_id=batch_export_id,
+                        data_interval_end=last_updated_at,
+                        data_interval_start=last_updated_at - dt.timedelta(hours=1),
+                        status=BatchExportRun.Status.COMPLETED,
+                    )
                     BatchExportRun.objects.create(
                         batch_export_id=batch_export_id,
                         data_interval_end=last_updated_at - dt.timedelta(hours=2),
                         data_interval_start=last_updated_at - dt.timedelta(hours=3),
                         status=BatchExportRun.Status.FAILED,
-                        records_completed=0,
-                        records_total_count=5,
+                    )
+                    BatchExportRun.objects.create(
+                        batch_export_id=batch_export_id,
+                        data_interval_end=last_updated_at - dt.timedelta(hours=2),
+                        data_interval_start=last_updated_at - dt.timedelta(hours=3),
+                        status=BatchExportRun.Status.FAILED_RETRYABLE,
                     )
 
             response = self.client.get(f"/api/projects/@current/app_metrics/{batch_export_id}?date_from=-7d")
@@ -149,8 +163,8 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
                         ],
                         "successes": [3, 3, 3, 3, 3, 3, 3],
                         "successes_on_retry": [0, 0, 0, 0, 0, 0, 0],
-                        "failures": [5, 5, 5, 5, 5, 5, 5],
-                        "totals": {"successes": 21, "successes_on_retry": 0, "failures": 35},
+                        "failures": [2, 2, 2, 2, 2, 2, 2],
+                        "totals": {"successes": 21, "successes_on_retry": 0, "failures": 14},
                     },
                     "errors": None,
                 },
@@ -166,6 +180,7 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
                 "prefix": "posthog-events/",
                 "aws_access_key_id": "abc123",
                 "aws_secret_access_key": "secret",
+                "exclude_events": ["exclude-me"],
             },
         }
 
@@ -176,7 +191,7 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
         }
 
         temporal = sync_connect()
-        now = dt.datetime(2021, 12, 5, 13, 23, 0, tzinfo=dt.timezone.utc)
+        now = dt.datetime(2021, 12, 5, 13, 23, 0, tzinfo=dt.UTC)
 
         with start_test_worker(temporal):
             response = create_batch_export_ok(
@@ -197,8 +212,6 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
                         data_interval_end=last_updated_at,
                         data_interval_start=last_updated_at - dt.timedelta(hours=1),
                         status=BatchExportRun.Status.COMPLETED,
-                        records_completed=1,
-                        records_total_count=1,
                     )
 
             response = self.client.get(f"/api/projects/@current/app_metrics/{batch_export_id}?date_from=-7d")

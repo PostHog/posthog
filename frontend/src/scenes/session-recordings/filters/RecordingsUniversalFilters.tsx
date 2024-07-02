@@ -1,7 +1,7 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
+import UniversalFilters, { UniversalFiltersGroup } from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
@@ -23,8 +23,8 @@ export const RecordingsUniversalFilters = (): JSX.Element => {
 
     return (
         <div className="divide-y bg-bg-light rounded border">
-            <div className="flex justify-between px-2 py-1.5">
-                <div className="flex space-x-2">
+            <div className="flex justify-between px-2 py-1.5 flex-wrap gap-1">
+                <div className="flex flex-wrap gap-2">
                     <DateFilter
                         dateFrom={universalFilters.date_from ?? '-3d'}
                         dateTo={universalFilters.date_to}
@@ -57,29 +57,40 @@ export const RecordingsUniversalFilters = (): JSX.Element => {
                         durationTypeFilter={durationFilter.key}
                         pageKey="session-recordings"
                     />
-                    <TestAccountFilter
-                        filters={universalFilters}
-                        onChange={(testFilters) =>
-                            setUniversalFilters({
-                                ...universalFilters,
-                                filter_test_accounts: testFilters.filter_test_accounts,
-                            })
-                        }
-                    />
+                    <div>
+                        <TestAccountFilter
+                            size="small"
+                            filters={universalFilters}
+                            onChange={(testFilters) =>
+                                setUniversalFilters({
+                                    ...universalFilters,
+                                    filter_test_accounts: testFilters.filter_test_accounts,
+                                })
+                            }
+                        />
+                    </div>
                 </div>
-                <div>
+                <div className="flex items-center">
                     <AndOrFilterSelect
                         value={universalFilters.filter_group.type}
                         onChange={(type) => {
+                            let values = universalFilters.filter_group.values
+
+                            // set the type on the nested child when only using a single filter group
+                            const hasSingleGroup = universalFilters.filter_group.values.length === 1
+                            if (hasSingleGroup) {
+                                const group = universalFilters.filter_group.values[0] as UniversalFiltersGroup
+                                values = [{ ...group, type }]
+                            }
+
                             setUniversalFilters({
                                 ...universalFilters,
                                 filter_group: {
                                     type: type,
-                                    values: universalFilters.filter_group.values,
+                                    values: values,
                                 },
                             })
                         }}
-                        disabledReason="'Or' filtering is not supported yet"
                         topLevelFilter={true}
                         suffix={['filter', 'filters']}
                     />
@@ -121,7 +132,7 @@ const RecordingsUniversalFilterGroup = (): JSX.Element => {
                 return isUniversalGroupFilterLike(filterOrGroup) ? (
                     <UniversalFilters.Group key={index} index={index} group={filterOrGroup}>
                         <RecordingsUniversalFilterGroup />
-                        <UniversalFilters.AddFilterButton />
+                        <UniversalFilters.AddFilterButton size="small" type="secondary" />
                     </UniversalFilters.Group>
                 ) : (
                     <UniversalFilters.Value

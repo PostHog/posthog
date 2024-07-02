@@ -48,6 +48,8 @@ from posthog.tasks.tasks import (
     update_quota_limiting,
     verify_persons_data_in_sync,
     update_survey_iteration,
+    replay_count_metrics,
+    calculate_external_data_rows_synced,
 )
 from posthog.utils import get_crontab
 
@@ -200,6 +202,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         pg_plugin_server_query_timing.s(),
         name="PG plugin server query timing",
     )
+
     add_periodic_task_with_expiry(
         sender,
         60,
@@ -220,6 +223,8 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         process_scheduled_changes.s(),
         name="process scheduled changes",
     )
+
+    add_periodic_task_with_expiry(sender, 3600, replay_count_metrics.s(), name="replay_count_metrics")
 
     if clear_clickhouse_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON):
         sender.add_periodic_task(
@@ -317,4 +322,11 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*/20"),
         check_data_import_row_limits.s(),
         name="check external data rows synced",
+    )
+    # Every 20 minutes try to retrieve and calculate total rows synced in period
+
+    sender.add_periodic_task(
+        crontab(minute="*/20"),
+        calculate_external_data_rows_synced.s(),
+        name="calculate external data rows synced",
     )

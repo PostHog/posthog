@@ -16,7 +16,6 @@ import {
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import api, { ApiMethodOptions } from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual, shouldCancelQuery, uuid } from 'lib/utils'
@@ -28,7 +27,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { dataNodeCollectionLogic, DataNodeCollectionProps } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
-import { query } from '~/queries/query'
+import { performQuery } from '~/queries/query'
 import { QueryStatus } from '~/queries/schema'
 import {
     ActorsQuery,
@@ -76,7 +75,7 @@ export interface DataNodeLogicProps {
 export const AUTOLOAD_INTERVAL = 30000
 const LOAD_MORE_ROWS_LIMIT = 10000
 
-const concurrencyController = new ConcurrencyController(Infinity)
+const concurrencyController = new ConcurrencyController(1)
 
 /** Compares two queries for semantic equality to prevent double-fetching of data. */
 const queryEqual = (a: DataNode, b: DataNode): boolean => {
@@ -205,12 +204,11 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                 try {
                                     breakpoint()
                                     const data =
-                                        (await query<DataNode>(
+                                        (await performQuery<DataNode>(
                                             addModifiers(props.query, props.modifiers),
                                             methodOptions,
                                             refresh,
                                             queryId,
-                                            undefined,
                                             actions.setPollResponse
                                         )) ?? null
                                     const duration = performance.now() - now
@@ -248,7 +246,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     if (isEventsQuery(props.query) && values.newQuery) {
                         const now = performance.now()
                         const newResponse =
-                            (await query(
+                            (await performQuery(
                                 addModifiers(values.newQuery, props.modifiers),
                                 undefined,
                                 props.alwaysRefresh
@@ -277,7 +275,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     const now = performance.now()
                     if (isEventsQuery(props.query) || isActorsQuery(props.query)) {
                         const newResponse =
-                            (await query(
+                            (await performQuery(
                                 addModifiers(values.nextQuery, props.modifiers),
                                 undefined,
                                 props.alwaysRefresh
@@ -291,7 +289,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         }
                     } else if (isPersonsNode(props.query)) {
                         const newResponse =
-                            (await query(
+                            (await performQuery(
                                 addModifiers(values.nextQuery, props.modifiers),
                                 undefined,
                                 props.alwaysRefresh
@@ -662,11 +660,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         actions.loadNewData()
                     }
                 }, AUTOLOAD_INTERVAL)
-            }
-        },
-        featureFlags: (flags) => {
-            if (flags[FEATURE_FLAGS.DATANODE_CONCURRENCY_LIMIT]) {
-                concurrencyController.setConcurrencyLimit(1)
             }
         },
     })),

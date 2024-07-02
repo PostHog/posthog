@@ -11,6 +11,7 @@ import {
     AnyPartialFilterType,
     AppMetricsUrlParams,
     DashboardType,
+    DataWarehouseSettingsTab,
     FilterType,
     InsightShortId,
     PipelineNodeTab,
@@ -114,6 +115,7 @@ export const urls = {
     replaySingle: (id: string, filters?: Partial<FilterType>): string =>
         combineUrl(`/replay/${id}`, filters ? { filters } : {}).url,
     replayFilePlayback: (): string => combineUrl('/replay/file-playback').url,
+
     personByDistinctId: (id: string, encode: boolean = true): string =>
         encode ? `/person/${encodeURIComponent(id)}` : `/person/${id}`,
     personByUUID: (uuid: string, encode: boolean = true): string =>
@@ -155,9 +157,12 @@ export const urls = {
     /** @param id A UUID or 'new'. ':id' for routing. */
     survey: (id: string): string => `/surveys/${id}`,
     surveyTemplates: (): string => '/survey_templates',
-    dataWarehouse: (): string => '/data-warehouse',
+    dataWarehouse: (query?: string | Record<string, any>): string =>
+        combineUrl('/data-warehouse', {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {})
+            .url,
     dataWarehouseTable: (): string => `/data-warehouse/new`,
-    dataWarehouseSettings: (): string => '/data-warehouse/settings',
+    dataWarehouseSettings: (tab?: DataWarehouseSettingsTab | ':tab'): string =>
+        `/data-warehouse/settings/${tab ? tab : DataWarehouseSettingsTab.Managed}`,
     dataWarehouseRedirect: (kind: string): string => `/data-warehouse/${kind}/redirect`,
     annotations: (): string => '/data-management/annotations',
     annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,

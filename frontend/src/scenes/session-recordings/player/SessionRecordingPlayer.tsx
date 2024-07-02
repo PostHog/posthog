@@ -1,26 +1,28 @@
 import './SessionRecordingPlayer.scss'
 
-import { LemonSegmentedButton, LemonSegmentedButtonOption, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonSegmentedButton, LemonSegmentedButtonOption, LemonTag } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { BuilderHog2 } from 'lib/components/hedgehogs'
+import { dayjs } from 'lib/dayjs'
 import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import { HotkeysInterface, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { useMemo, useRef, useState } from 'react'
+import { useMemo, useRef } from 'react'
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
-import { PlayerController } from 'scenes/session-recordings/player/controller/PlayerController'
-import { PlayerInspector } from 'scenes/session-recordings/player/inspector/PlayerInspector'
-import { PlayerFrame } from 'scenes/session-recordings/player/PlayerFrame'
 import { RecordingNotFound } from 'scenes/session-recordings/player/RecordingNotFound'
 import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { urls } from 'scenes/urls'
 
 import { NetworkView } from '../apm/NetworkView'
+import { PlayerController } from './controller/PlayerController'
+import { PlayerInspector } from './inspector/PlayerInspector'
+import { PlayerFrame } from './PlayerFrame'
 import { PlayerFrameOverlay } from './PlayerFrameOverlay'
 import { PlayerMeta } from './PlayerMeta'
 import { PlayerPersonMeta } from './PlayerPersonMeta'
+import { PlaybackViewMode, playerSettingsLogic } from './playerSettingsLogic'
 import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
 import {
     ONE_FRAME_MS,
@@ -42,8 +44,6 @@ enum InspectorStacking {
     Vertical = 'vertical',
     Horizontal = 'horizontal',
 }
-
-type PlaybackViewType = 'waterfall' | 'playback' | 'inspector'
 
 export const createPlaybackSpeedKey = (action: (val: number) => void): HotkeysInterface => {
     return PLAYBACK_SPEEDS.map((x, i) => ({ key: `${i}`, value: x })).reduce(
@@ -93,11 +93,14 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         setSpeed,
         closeExplorer,
     } = useActions(sessionRecordingPlayerLogic(logicProps))
-    const { isNotFound } = useValues(sessionRecordingDataLogic(logicProps))
-    const { isFullScreen, explorerMode, isBuffering } = useValues(sessionRecordingPlayerLogic(logicProps))
+    const { isNotFound, snapshotsInvalid, start } = useValues(sessionRecordingDataLogic(logicProps))
+    const { loadSnapshots } = useActions(sessionRecordingDataLogic(logicProps))
+    const { isFullScreen, explorerMode, isBuffering, messageTooLargeWarnings } = useValues(
+        sessionRecordingPlayerLogic(logicProps)
+    )
     const speedHotkeys = useMemo(() => createPlaybackSpeedKey(setSpeed), [setSpeed])
-
-    const allowWaterfallView = useFeatureFlag('SESSION_REPLAY_NETWORK_VIEW')
+    const { preferredInspectorStacking, playbackViewMode } = useValues(playerSettingsLogic)
+    const { setPreferredInspectorStacking, setPlaybackViewMode } = useActions(playerSettingsLogic)
 
     useKeyboardHotkeys(
         {
@@ -161,14 +164,12 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         }
     )
 
-    const isWidescreen = !isFullScreen && size === 'wide'
-
-    const [preferredInspectorStacking, setPreferredInspectorStacking] = useState(InspectorStacking.Horizontal)
-    const [playerView, setPlayerView] = useState<PlaybackViewType>(isWidescreen ? 'inspector' : 'playback')
-
     const compactLayout = size === 'small'
     const layoutStacking = compactLayout ? InspectorStacking.Vertical : preferredInspectorStacking
     const isVerticallyStacked = layoutStacking === InspectorStacking.Vertical
+
+    const lessThanFiveMinutesOld = dayjs().diff(start, 'minute') <= 5
+    const cannotPlayback = snapshotsInvalid && lessThanFiveMinutesOld && !messageTooLargeWarnings
 
     const { draggable, elementProps } = useNotebookDrag({ href: urls.replaySingle(sessionRecordingId) })
 
@@ -180,19 +181,22 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         )
     }
 
-    const viewOptions: LemonSegmentedButtonOption<PlaybackViewType>[] = [
-        { value: 'playback', label: 'Playback', 'data-attr': 'session-recording-player-view-choice-playback' },
+    const viewOptions: LemonSegmentedButtonOption<PlaybackViewMode>[] = [
+        {
+            value: PlaybackViewMode.Playback,
+            label: 'Playback',
+            'data-attr': 'session-recording-player-view-choice-playback',
+        },
     ]
     if (!noInspector) {
         viewOptions.push({
-            value: 'inspector',
+            value: PlaybackViewMode.Inspector,
             label: 'Inspector',
             'data-attr': 'session-recording-player-view-choice-inspector',
         })
-    }
-    if (allowWaterfallView) {
+
         viewOptions.push({
-            value: 'waterfall',
+            value: PlaybackViewMode.Waterfall,
             label: (
                 <div className="space-x-1">
                     <span>Waterfall</span>
@@ -228,12 +232,12 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
 
                                 <LemonSegmentedButton
                                     size="xsmall"
-                                    value={playerView}
-                                    onChange={setPlayerView}
+                                    value={playbackViewMode}
+                                    onChange={setPlaybackViewMode}
                                     options={viewOptions}
                                 />
                             </div>
-                            {playerView === 'waterfall' ? (
+                            {playbackViewMode === PlaybackViewMode.Waterfall ? (
                                 <NetworkView sessionRecordingId={sessionRecordingId} />
                             ) : (
                                 <div
@@ -242,35 +246,52 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                     })}
                                     ref={playerMainRef}
                                 >
-                                    <div className="SessionRecordingPlayer__main">
-                                        {!noMeta || isFullScreen ? <PlayerMeta /> : null}
-
-                                        <div
-                                            className="SessionRecordingPlayer__body"
-                                            draggable={draggable}
-                                            {...elementProps}
-                                        >
-                                            <PlayerFrame />
-                                            <PlayerFrameOverlay />
+                                    {cannotPlayback ? (
+                                        <div className="flex flex-1 flex-col items-center justify-center">
+                                            <BuilderHog2 height={200} />
+                                            <h1>We're still working on it</h1>
+                                            <p>
+                                                This recording hasn't been fully ingested yet. It should be ready to
+                                                watch in a few minutes.
+                                            </p>
+                                            <LemonButton type="secondary" onClick={loadSnapshots}>
+                                                Reload
+                                            </LemonButton>
                                         </div>
-                                        <PlayerController linkIconsOnly={playerMainSize === 'small'} />
-                                    </div>
+                                    ) : (
+                                        <>
+                                            <div className="SessionRecordingPlayer__main">
+                                                {!noMeta || isFullScreen ? <PlayerMeta /> : null}
 
-                                    {playerView === 'inspector' && (
-                                        <PlayerInspector
-                                            onClose={() => setPlayerView('playback')}
-                                            isVerticallyStacked={isVerticallyStacked}
-                                            toggleLayoutStacking={
-                                                compactLayout
-                                                    ? undefined
-                                                    : () =>
-                                                          setPreferredInspectorStacking(
-                                                              preferredInspectorStacking === InspectorStacking.Vertical
-                                                                  ? InspectorStacking.Horizontal
-                                                                  : InspectorStacking.Vertical
-                                                          )
-                                            }
-                                        />
+                                                <div
+                                                    className="SessionRecordingPlayer__body"
+                                                    draggable={draggable}
+                                                    {...elementProps}
+                                                >
+                                                    <PlayerFrame />
+                                                    <PlayerFrameOverlay />
+                                                </div>
+                                                <PlayerController linkIconsOnly={playerMainSize === 'small'} />
+                                            </div>
+
+                                            {playbackViewMode === PlaybackViewMode.Inspector && (
+                                                <PlayerInspector
+                                                    onClose={() => setPlaybackViewMode(PlaybackViewMode.Playback)}
+                                                    isVerticallyStacked={isVerticallyStacked}
+                                                    toggleLayoutStacking={
+                                                        compactLayout
+                                                            ? undefined
+                                                            : () =>
+                                                                  setPreferredInspectorStacking(
+                                                                      preferredInspectorStacking ===
+                                                                          InspectorStacking.Vertical
+                                                                          ? InspectorStacking.Horizontal
+                                                                          : InspectorStacking.Vertical
+                                                                  )
+                                                    }
+                                                />
+                                            )}
+                                        </>
                                     )}
                                 </div>
                             )}

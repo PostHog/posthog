@@ -41,6 +41,8 @@ from posthog.tasks.usage_report import (
     capture_event,
     get_instance_metadata,
     send_all_org_usage_reports,
+    OrgReport,
+    _add_team_report_to_org_reports,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -673,8 +675,13 @@ class ReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTable
         report = _get_team_report(all_reports, self.team)
 
         assert report.recording_count_in_period == 5
-
         assert report.mobile_recording_count_in_period == 0
+
+        org_reports: dict[str, OrgReport] = {}
+        _add_team_report_to_org_reports(org_reports, self.team, report, period_start)
+
+        assert org_reports[str(self.organization.id)].recording_count_in_period == 5
+        assert org_reports[str(self.organization.id)].mobile_recording_count_in_period == 0
 
     def test_usage_report_replay_with_mobile(self) -> None:
         _setup_replay_data(self.team.pk, include_mobile_replay=True)
@@ -688,6 +695,12 @@ class ReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTable
         # but we do split them out of the daily usage since that field is used
         assert report.recording_count_in_period == 5
         assert report.mobile_recording_count_in_period == 1
+
+        org_reports: dict[str, OrgReport] = {}
+        _add_team_report_to_org_reports(org_reports, self.team, report, period_start)
+
+        assert org_reports[str(self.organization.id)].recording_count_in_period == 5
+        assert org_reports[str(self.organization.id)].mobile_recording_count_in_period == 1
 
 
 class HogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
@@ -1071,11 +1084,11 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
             start_time = (now() - relativedelta(hours=i)).strftime("%Y-%m-%dT%H:%M:%SZ")
             _create_event(
                 distinct_id="3",
-                event="external data sync job",
+                event="$data_sync_job_completed",
                 properties={
                     "count": 10,
                     "job_id": 10924,
-                    "startTime": start_time,
+                    "start_time": start_time,
                 },
                 timestamp=now() - relativedelta(hours=i),
                 team=self.analytics_team,
@@ -1083,11 +1096,11 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
             # identical job id should be deduped and not counted
             _create_event(
                 distinct_id="3",
-                event="external data sync job",
+                event="$data_sync_job_completed",
                 properties={
                     "count": 10,
                     "job_id": 10924,
-                    "startTime": start_time,
+                    "start_time": start_time,
                 },
                 timestamp=now() - relativedelta(hours=i, minutes=i),
                 team=self.analytics_team,
@@ -1096,11 +1109,11 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
         for i in range(5):
             _create_event(
                 distinct_id="4",
-                event="external data sync job",
+                event="$data_sync_job_completed",
                 properties={
                     "count": 10,
                     "job_id": 10924,
-                    "startTime": (now() - relativedelta(hours=i)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "start_time": (now() - relativedelta(hours=i)).strftime("%Y-%m-%dT%H:%M:%SZ"),
                 },
                 timestamp=now() - relativedelta(hours=i),
                 team=self.analytics_team,

@@ -1,4 +1,5 @@
 import { lemonToast } from '@posthog/lemon-ui'
+import { customEvent } from '@rrweb/types'
 import { captureException } from '@sentry/react'
 import {
     actions,
@@ -19,7 +20,7 @@ import { subscriptions } from 'kea-subscriptions'
 import { delay } from 'kea-test-utils'
 import { now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { clamp, downloadFile, fromParamsGivenUrl } from 'lib/utils'
+import { clamp, downloadFile } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { wrapConsole } from 'lib/utils/wrapConsole'
 import posthog from 'posthog-js'
@@ -107,6 +108,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'sessionPlayerMetaData',
                 'sessionPlayerMetaDataLoading',
                 'createExportJSON',
+                'customRRWebEvents',
+                'fullyLoaded',
             ],
             playerSettingsLogic,
             ['speed', 'skipInactivitySetting'],
@@ -178,9 +181,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setIsFullScreen: (isFullScreen: boolean) => ({ isFullScreen }),
         skipPlayerForward: (rrWebPlayerTime: number, skip: number) => ({ rrWebPlayerTime, skip }),
         incrementClickCount: true,
-        // the error is emitted from code we don't control in rrweb so we can't guarantee it's really an Error
+        // the error is emitted from code we don't control in rrweb, so we can't guarantee it's really an Error
         playerErrorSeen: (error: any) => ({ error }),
         fingerprintReported: (fingerprint: string) => ({ fingerprint }),
+        reportMessageTooLargeWarningSeen: (sessionRecordingId: string) => ({ sessionRecordingId }),
     }),
     reducers(() => ({
         reportedReplayerErrors: [
@@ -345,6 +349,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 setIsFullScreen: (_, { isFullScreen }) => isFullScreen,
             },
         ],
+        messageTooLargeWarningSeen: [
+            null as string | null,
+            {
+                reportMessageTooLargeWarningSeen: (_, { sessionRecordingId }) => sessionRecordingId,
+            },
+        ],
     })),
     selectors({
         // Prop references for use by other logics
@@ -463,6 +473,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     }
                     return null
                 }
+            },
+        ],
+
+        messageTooLargeWarnings: [
+            (s) => [s.customRRWebEvents],
+            (customRRWebEvents: customEvent[]) => {
+                return customRRWebEvents.filter((event) => event.data.tag === 'Message too large')
             },
         ],
     }),
@@ -604,7 +621,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 // Check for the "t" search param in the url on first load
                 if (!cache.hasInitialized) {
                     cache.hasInitialized = true
-                    const searchParams = fromParamsGivenUrl(window.location.search)
+                    const searchParams = router.values.searchParams
                     if (searchParams.timestamp) {
                         const desiredStartTime = Number(searchParams.timestamp)
                         actions.seekToTimestamp(desiredStartTime, true)
@@ -656,6 +673,29 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (props.autoPlay) {
                 // Autoplay assumes we are playing immediately so lets go ahead and load more data
                 actions.setPlay()
+
+                if (router.values.searchParams.pause) {
+                    setTimeout(() => {
+                        /** KLUDGE: when loaded for visual regression tests we want to pause the player
+                         ** but only after it has had time to buffer and show the frame
+                         *
+                         * Frustratingly if we start paused we never process the data,
+                         * so the player frame is just a black square.
+                         *
+                         * If we play (the default behaviour) and then stop after its processed the data
+                         * then we see the player screen
+                         * and can assert that _at least_ the full snapshot has been processed
+                         * (i.e. we didn't completely break rrweb playback)
+                         *
+                         * We have to be paused so that the visual regression snapshot doesn't flap
+                         * (because of the seekbar timestamp changing)
+                         *
+                         * And don't want to be at 0, so we can see that the seekbar
+                         * at least paints the "played" portion of the recording correctly
+                         **/
+                        actions.setPause()
+                    }, 400)
+                }
             }
         },
 
@@ -974,9 +1014,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 await document.exitFullscreen()
             }
         },
+
+        reportMessageTooLargeWarningSeen: async ({ sessionRecordingId }) => {
+            posthog.capture('message too large warning seen', { sessionRecordingId })
+        },
     })),
 
-    subscriptions(({ actions, values }) => ({
+    subscriptions(({ actions, values, props }) => ({
         sessionPlayerData: (next, prev) => {
             const hasSnapshotChanges = next?.snapshotsByWindowId !== prev?.snapshotsByWindowId
 
@@ -995,6 +1039,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             if (rrwebPlayerTime !== undefined && values.currentPlayerState === SessionPlayerState.PLAY) {
                 actions.skipPlayerForward(rrwebPlayerTime, values.roughAnimationFPS)
+            }
+        },
+        messageTooLargeWarnings: (next) => {
+            if (
+                values.messageTooLargeWarningSeen !== values.sessionRecordingId &&
+                next.length > 0 &&
+                props.mode !== SessionRecordingPlayerMode.Preview
+            ) {
+                actions.reportMessageTooLargeWarningSeen(values.sessionRecordingId)
             }
         },
     })),

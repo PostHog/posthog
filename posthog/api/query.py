@@ -45,6 +45,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     # Special case for query - these are all essentially read actions
     scope_object_read_actions = ["retrieve", "create", "list", "destroy"]
     scope_object_write_actions: list[str] = []
+    sharing_enabled_actions = ["retrieve"]
 
     def get_throttles(self):
         if self.action == "draft_sql":
@@ -92,7 +93,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         except Exception as e:
             self.handle_column_ch_error(e)
             capture_exception(e)
-            raise e
+            raise
 
     @extend_schema(
         description="(Experimental)",

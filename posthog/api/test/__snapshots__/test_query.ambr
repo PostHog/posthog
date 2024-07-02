@@ -15,9 +15,10 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_ast_elements=2000000,
+                    max_expanded_ast_elements=2000000,
+                    max_query_size=1048576,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestQuery.test_event_property_filter.1
@@ -36,9 +37,10 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_ast_elements=2000000,
+                    max_expanded_ast_elements=2000000,
+                    max_query_size=1048576,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestQuery.test_event_property_filter.2
@@ -57,9 +59,10 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_ast_elements=2000000,
+                    max_expanded_ast_elements=2000000,
+                    max_query_size=1048576,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestQuery.test_event_property_filter_materialized
@@ -78,9 +81,10 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_ast_elements=2000000,
+                    max_expanded_ast_elements=2000000,
+                    max_query_size=1048576,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestQuery.test_event_property_filter_materialized.1
@@ -99,9 +103,10 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_ast_elements=2000000,
+                    max_expanded_ast_elements=2000000,
+                    max_query_size=1048576,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestQuery.test_event_property_filter_materialized.2
@@ -120,9 +125,10 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_ast_elements=2000000,
+                    max_expanded_ast_elements=2000000,
+                    max_query_size=1048576,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestQuery.test_events_query_all_time_date
@@ -137,9 +143,10 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_ast_elements=2000000,
+                    max_expanded_ast_elements=2000000,
+                    max_query_size=1048576,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestQuery.test_events_query_all_time_date.1
@@ -154,9 +161,10 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_ast_elements=2000000,
+                    max_expanded_ast_elements=2000000,
+                    max_query_size=1048576,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestQuery.test_events_query_all_time_date.2
@@ -171,9 +179,10 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_ast_elements=2000000,
+                    max_expanded_ast_elements=2000000,
+                    max_query_size=1048576,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestQuery.test_full_hogql_query
@@ -190,9 +199,10 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_ast_elements=2000000,
+                    max_expanded_ast_elements=2000000,
+                    max_query_size=1048576,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestQuery.test_full_hogql_query_async
@@ -234,9 +244,10 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_ast_elements=2000000,
+                    max_expanded_ast_elements=2000000,
+                    max_query_size=1048576,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestQuery.test_full_hogql_query_view
@@ -253,9 +264,10 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_ast_elements=2000000,
+                    max_expanded_ast_elements=2000000,
+                    max_query_size=1048576,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestQuery.test_full_hogql_query_view.1
@@ -276,9 +288,10 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_ast_elements=2000000,
+                    max_expanded_ast_elements=2000000,
+                    max_query_size=1048576,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestQuery.test_hogql_property_filter
@@ -297,9 +310,10 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_ast_elements=2000000,
+                    max_expanded_ast_elements=2000000,
+                    max_query_size=1048576,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestQuery.test_hogql_property_filter.1
@@ -318,9 +332,10 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_ast_elements=2000000,
+                    max_expanded_ast_elements=2000000,
+                    max_query_size=1048576,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestQuery.test_hogql_property_filter.2
@@ -339,9 +354,10 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_ast_elements=2000000,
+                    max_expanded_ast_elements=2000000,
+                    max_query_size=1048576,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestQuery.test_hogql_property_filter.3
@@ -360,9 +376,10 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_ast_elements=2000000,
+                    max_expanded_ast_elements=2000000,
+                    max_query_size=1048576,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestQuery.test_hogql_property_filter_materialized
@@ -381,9 +398,10 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_ast_elements=2000000,
+                    max_expanded_ast_elements=2000000,
+                    max_query_size=1048576,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestQuery.test_hogql_property_filter_materialized.1
@@ -402,9 +420,10 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_ast_elements=2000000,
+                    max_expanded_ast_elements=2000000,
+                    max_query_size=1048576,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestQuery.test_hogql_property_filter_materialized.2
@@ -423,9 +442,10 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_ast_elements=2000000,
+                    max_expanded_ast_elements=2000000,
+                    max_query_size=1048576,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestQuery.test_hogql_property_filter_materialized.3
@@ -444,9 +464,10 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_ast_elements=2000000,
+                    max_expanded_ast_elements=2000000,
+                    max_query_size=1048576,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestQuery.test_person_property_filter
@@ -465,7 +486,7 @@
      FROM person_distinct_id2
      WHERE equals(person_distinct_id2.team_id, 2)
      GROUP BY person_distinct_id2.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
   LEFT JOIN
     (SELECT person.id AS id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
@@ -475,7 +496,7 @@
                                                        FROM person
                                                        WHERE equals(person.team_id, 2)
                                                        GROUP BY person.id
-                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id)
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id)
   WHERE and(equals(events.team_id, 2), ifNull(equals(events__pdi__person.properties___email, 'tom@posthog.com'), 0), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
@@ -483,9 +504,10 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_ast_elements=2000000,
+                    max_expanded_ast_elements=2000000,
+                    max_query_size=1048576,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestQuery.test_person_property_filter_materialized
@@ -504,7 +526,7 @@
      FROM person_distinct_id2
      WHERE equals(person_distinct_id2.team_id, 2)
      GROUP BY person_distinct_id2.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
   LEFT JOIN
     (SELECT person.id AS id,
             nullIf(nullIf(person.pmat_email, ''), 'null') AS properties___email
@@ -514,7 +536,7 @@
                                                        FROM person
                                                        WHERE equals(person.team_id, 2)
                                                        GROUP BY person.id
-                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id)
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id)
   WHERE and(equals(events.team_id, 2), ifNull(equals(events__pdi__person.properties___email, 'tom@posthog.com'), 0), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
@@ -522,9 +544,10 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_ast_elements=2000000,
+                    max_expanded_ast_elements=2000000,
+                    max_query_size=1048576,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestQuery.test_property_filter_aggregations
@@ -541,9 +564,10 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_ast_elements=2000000,
+                    max_expanded_ast_elements=2000000,
+                    max_query_size=1048576,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestQuery.test_property_filter_aggregations.1
@@ -561,9 +585,10 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_ast_elements=2000000,
+                    max_expanded_ast_elements=2000000,
+                    max_query_size=1048576,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestQuery.test_property_filter_aggregations_materialized
@@ -580,9 +605,10 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_ast_elements=2000000,
+                    max_expanded_ast_elements=2000000,
+                    max_query_size=1048576,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestQuery.test_property_filter_aggregations_materialized.1
@@ -600,9 +626,10 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_ast_elements=2000000,
+                    max_expanded_ast_elements=2000000,
+                    max_query_size=1048576,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestQuery.test_select_event_person
@@ -619,9 +646,10 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_ast_elements=2000000,
+                    max_expanded_ast_elements=2000000,
+                    max_query_size=1048576,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestQuery.test_select_hogql_expressions
@@ -639,9 +667,10 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_ast_elements=2000000,
+                    max_expanded_ast_elements=2000000,
+                    max_query_size=1048576,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestQuery.test_select_hogql_expressions.1
@@ -657,9 +686,10 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_ast_elements=2000000,
+                    max_expanded_ast_elements=2000000,
+                    max_query_size=1048576,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestQuery.test_select_hogql_expressions.2
@@ -676,9 +706,10 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_ast_elements=2000000,
+                    max_expanded_ast_elements=2000000,
+                    max_query_size=1048576,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestQuery.test_select_hogql_expressions.3
@@ -695,8 +726,9 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_ast_elements=2000000,
+                    max_expanded_ast_elements=2000000,
+                    max_query_size=1048576,
+                    max_bytes_before_external_group_by=0
   '''
 # ---

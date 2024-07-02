@@ -8,10 +8,17 @@ interface EventSelectProps {
     onChange: (names: string[]) => void
     selectedEvents: string[]
     addElement: JSX.Element
+    filterGroupTypes?: TaxonomicFilterGroupType[]
 }
 
-export const EventSelect = ({ onChange, selectedEvents, addElement }: EventSelectProps): JSX.Element => {
+export const EventSelect = ({
+    onChange,
+    selectedEvents,
+    addElement,
+    filterGroupTypes,
+}: EventSelectProps): JSX.Element => {
     const [open, setOpen] = useState<boolean>(false)
+    const eventSelectFilterGroupTypes = filterGroupTypes || [TaxonomicFilterGroupType.Events]
 
     const handleChange = (name: string): void => {
         onChange(Array.from(new Set(selectedEvents.concat([name]))))
@@ -41,7 +48,7 @@ export const EventSelect = ({ onChange, selectedEvents, addElement }: EventSelec
                             handleChange(value as string)
                             setOpen(false)
                         }}
-                        taxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
+                        taxonomicGroupTypes={eventSelectFilterGroupTypes}
                     />
                 }
             >

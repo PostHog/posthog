@@ -7,7 +7,6 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
-import { Sparkline } from 'lib/lemon-ui/Sparkline'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { autoCaptureEventToDescription } from 'lib/utils'
@@ -16,6 +15,7 @@ import { PersonDisplay, PersonDisplayProps } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
 import { errorColumn, loadingColumn } from '~/queries/nodes/DataTable/dataTableLogic'
+import { renderHogQLX } from '~/queries/nodes/HogQLX/render'
 import { DeletePersonButton } from '~/queries/nodes/PersonsNode/DeletePersonButton'
 import { DataTableNode, EventsQueryPersonColumn, HasPropertiesNode } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
@@ -49,6 +49,8 @@ export function renderColumn(
                 </span>
             </Tooltip>
         )
+    } else if (typeof value === 'object' && Array.isArray(value) && value[0] === '__hx_tag') {
+        return renderHogQLX(value)
     } else if (isHogQLQuery(query.source)) {
         if (typeof value === 'string') {
             try {
@@ -73,32 +75,12 @@ export function renderColumn(
             } catch (e) {
                 // do nothing
             }
-            if (value.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{3}/)) {
+            if (value.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3,6})?(?:Z|[+-]\d{2}:\d{2})?$/)) {
                 return <TZLabel time={value} showSeconds />
             }
         }
         if (typeof value === 'object') {
             if (Array.isArray(value)) {
-                if (value[0] === '__hogql_chart_type' && value[1] === 'sparkline') {
-                    const object: Record<string, any> = {}
-                    for (let i = 0; i < value.length; i += 2) {
-                        object[value[i]] = value[i + 1]
-                    }
-                    if ('results' in object && Array.isArray(object.results)) {
-                        // TODO: If results aren't an array of numbers, show a helpful message on using sparkline()
-                        return (
-                            <Sparkline
-                                data={[
-                                    {
-                                        name: key.includes('__hogql_chart_type') ? 'Data' : key,
-                                        values: object.results.map((v: any) => Number(v)),
-                                    },
-                                ]}
-                            />
-                        )
-                    }
-                }
-
                 return <JSONViewer src={value} name={key} collapsed={value.length > 10 ? 0 : 1} />
             }
             return <JSONViewer src={value} name={key} collapsed={Object.keys(value).length > 10 ? 0 : 1} />
@@ -110,17 +92,16 @@ export function renderColumn(
 
         if (value === '$autocapture' && eventRecord) {
             return autoCaptureEventToDescription(eventRecord)
-        } else {
-            const content = <PropertyKeyInfo value={value} type={TaxonomicFilterGroupType.Events} />
-            const $sentry_url = eventRecord?.properties?.$sentry_url
-            return $sentry_url ? (
-                <Link to={$sentry_url} target="_blank">
-                    {content}
-                </Link>
-            ) : (
-                content
-            )
         }
+        const content = <PropertyKeyInfo value={value} type={TaxonomicFilterGroupType.Events} />
+        const $sentry_url = eventRecord?.properties?.$sentry_url
+        return $sentry_url ? (
+            <Link to={$sentry_url} target="_blank">
+                {content}
+            </Link>
+        ) : (
+            content
+        )
     } else if (key === 'timestamp' || key === 'created_at' || key === 'session_start' || key === 'session_end') {
         return <TZLabel time={value} showSeconds />
     } else if (!Array.isArray(record) && key.startsWith('properties.')) {
@@ -250,6 +231,9 @@ export function renderColumn(
         const columnName = trimQuotes(key.substring(16)) // 16 = "context.columns.".length
         const Component = context?.columns?.[columnName]?.render
         return Component ? <Component record={record} columnName={columnName} value={value} query={query} /> : ''
+    } else if (context?.columns?.[key]) {
+        const Component = context?.columns?.[key]?.render
+        return Component ? <Component record={record} columnName={key} value={value} query={query} /> : ''
     } else if (key === 'id' && (isPersonsNode(query.source) || isActorsQuery(query.source))) {
         return (
             <CopyToClipboardInline
@@ -263,25 +247,18 @@ export function renderColumn(
     } else if (key.startsWith('user.') && isTimeToSeeDataSessionsQuery(query.source)) {
         const [parent, child] = key.split('.')
         return typeof record === 'object' ? record[parent][child] : 'unknown'
-    } else {
-        if (typeof value === 'object') {
-            return <JSONViewer src={value} name={null} collapsed={Object.keys(value).length > 10 ? 0 : 1} />
-        } else if (
-            typeof value === 'string' &&
-            ((value.startsWith('{') && value.endsWith('}')) || (value.startsWith('[') && value.endsWith(']')))
-        ) {
-            try {
-                return (
-                    <JSONViewer
-                        src={JSON.parse(value)}
-                        name={null}
-                        collapsed={Object.keys(value).length > 10 ? 0 : 1}
-                    />
-                )
-            } catch (e) {
-                // do nothing
-            }
-        }
-        return String(value)
     }
+    if (typeof value === 'object') {
+        return <JSONViewer src={value} name={null} collapsed={Object.keys(value).length > 10 ? 0 : 1} />
+    } else if (
+        typeof value === 'string' &&
+        ((value.startsWith('{') && value.endsWith('}')) || (value.startsWith('[') && value.endsWith(']')))
+    ) {
+        try {
+            return <JSONViewer src={JSON.parse(value)} name={null} collapsed={Object.keys(value).length > 10 ? 0 : 1} />
+        } catch (e) {
+            // do nothing
+        }
+    }
+    return String(value)
 }

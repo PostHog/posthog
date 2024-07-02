@@ -1,5 +1,9 @@
 import pytest
-from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
+from posthog.hogql_queries.legacy_compatibility.filter_to_query import (
+    hidden_legend_keys_to_breakdowns,
+    hidden_legend_keys_to_indexes,
+    filter_to_query,
+)
 from posthog.schema import (
     ActionsNode,
     AggregationAxisFormat,
@@ -47,6 +51,7 @@ from posthog.schema import (
     StickinessFilter,
     LifecycleFilter,
     TrendsQuery,
+    CompareFilter,
 )
 from posthog.test.base import BaseTest
 
@@ -1318,6 +1323,17 @@ class TestFilterToQuery(BaseTest):
             BreakdownFilter(breakdown_type=BreakdownType.EVENT, breakdown="$browser"),
         )
 
+    def test_compare(self):
+        filter = {"compare": True, "compare_to": "-5w"}
+
+        query = filter_to_query(filter)
+
+        assert isinstance(query, TrendsQuery)
+        self.assertEqual(
+            query.compareFilter,
+            CompareFilter(**filter),
+        )
+
     def test_breakdown_converts_multi(self):
         filter = {"breakdowns": [{"type": "event", "property": "$browser"}]}
 
@@ -1343,7 +1359,6 @@ class TestFilterToQuery(BaseTest):
     def test_trends_filter(self):
         filter = {
             "smoothing_intervals": 2,
-            "compare": True,
             "aggregation_axis_format": "duration_ms",
             "aggregation_axis_prefix": "pre",
             "aggregation_axis_postfix": "post",
@@ -1362,7 +1377,6 @@ class TestFilterToQuery(BaseTest):
             query.trendsFilter,
             TrendsFilter(
                 smoothingIntervals=2,
-                compare=True,
                 aggregationAxisFormat=AggregationAxisFormat.DURATION_MS,
                 aggregationAxisPrefix="pre",
                 aggregationAxisPostfix="post",
@@ -1576,7 +1590,6 @@ class TestFilterToQuery(BaseTest):
     def test_stickiness_filter(self):
         filter = {
             "insight": "STICKINESS",
-            "compare": True,
             "show_legend": True,
             "show_values_on_series": True,
             "shown_as": "Stickiness",
@@ -1587,7 +1600,7 @@ class TestFilterToQuery(BaseTest):
         assert isinstance(query, StickinessQuery)
         self.assertEqual(
             query.stickinessFilter,
-            StickinessFilter(compare=True, showLegend=True, showValuesOnSeries=True),
+            StickinessFilter(showLegend=True, showValuesOnSeries=True),
         )
 
     def test_lifecycle_filter(self):
@@ -1608,3 +1621,67 @@ class TestFilterToQuery(BaseTest):
                 toggledLifecycles=[LifecycleToggle.NEW, LifecycleToggle.DORMANT],
             ),
         )
+
+
+class TestHiddenLegendKeysToIndexes(BaseTest):
+    def test_converts_legend_keys(self):
+        hidden_legend_keys = {"1": True, "2": False, 3: None, 4: True}
+
+        indexes = hidden_legend_keys_to_indexes(hidden_legend_keys)
+
+        self.assertEqual(indexes, [1, 4])
+
+    def test_converts_missing_legend_keys(self):
+        hidden_legend_keys = None
+
+        indexes = hidden_legend_keys_to_indexes(hidden_legend_keys)
+
+        self.assertEqual(indexes, None)
+
+    def test_converts_invalid_keys(self):
+        hidden_legend_keys = {
+            "Opera": True,
+            "events/$pageview/0/Baseline": True,
+            1: True,
+        }
+
+        indexes = hidden_legend_keys_to_indexes(hidden_legend_keys)
+
+        self.assertEqual(indexes, [1])
+
+
+class TestHiddenLegendKeysToBreakdowns(BaseTest):
+    def test_converts_legend_keys(self):
+        hidden_legend_keys = {"Chrome": True, "Chrome iOS": True, "Firefix": False, "Safari": None}
+
+        breakdowns = hidden_legend_keys_to_breakdowns(hidden_legend_keys)
+
+        self.assertEqual(breakdowns, ["Chrome", "Chrome iOS"])
+
+    def test_converts_missing_legend_keys(self):
+        hidden_legend_keys = None
+
+        breakdowns = hidden_legend_keys_to_breakdowns(hidden_legend_keys)
+
+        self.assertEqual(breakdowns, None)
+
+    def test_converts_legacy_format(self):
+        hidden_legend_keys = {
+            "Opera": True,
+            "events/$pageview/0/Baseline": True,
+            1: True,
+        }
+
+        indexes = hidden_legend_keys_to_breakdowns(hidden_legend_keys)
+
+        self.assertEqual(indexes, ["Opera", "Baseline"])
+
+    def test_ignores_digit_only_keys(self):
+        hidden_legend_keys = {
+            "Opera": True,
+            1: True,
+        }
+
+        indexes = hidden_legend_keys_to_breakdowns(hidden_legend_keys)
+
+        self.assertEqual(indexes, ["Opera"])

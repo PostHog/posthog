@@ -3,6 +3,7 @@ import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea
 import { forms } from 'kea-forms'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
+import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -12,6 +13,8 @@ import {
     ExternalDataSourceCreatePayload,
     ExternalDataSourceSyncSchema,
     ExternalDataSourceType,
+    manualLinkSources,
+    ManualLinkSourceType,
     PipelineTab,
     SourceConfig,
     SourceFieldConfig,
@@ -44,14 +47,14 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
         fields: [
             {
                 name: 'account_id',
-                label: 'Account ID',
+                label: 'Account id',
                 type: 'text',
                 required: true,
                 placeholder: 'acct_...',
             },
             {
                 name: 'client_secret',
-                label: 'Client Secret',
+                label: 'Client secret',
                 type: 'password',
                 required: true,
                 placeholder: 'sk_live_...',
@@ -166,6 +169,13 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
                                 value: 'keypair',
                                 fields: [
                                     {
+                                        name: 'username',
+                                        label: 'Tunnel username',
+                                        type: 'text',
+                                        required: false,
+                                        placeholder: 'User1',
+                                    },
+                                    {
                                         name: 'private_key',
                                         label: 'Tunnel private key',
                                         type: 'textarea',
@@ -198,7 +208,7 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
         fields: [
             {
                 name: 'account_id',
-                label: 'Account ID',
+                label: 'Account id',
                 type: 'text',
                 required: true,
                 placeholder: '',
@@ -258,31 +268,26 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
         fields: [
             {
                 name: 'subdomain',
-                label: 'Zendesk Subdomain',
+                label: 'Zendesk subdomain',
                 type: 'text',
                 required: true,
                 placeholder: '',
             },
             {
                 name: 'api_key',
-                label: 'API Key',
+                label: 'API key',
                 type: 'text',
                 required: true,
                 placeholder: '',
             },
             {
                 name: 'email_address',
-                label: 'Zendesk Email Address',
+                label: 'Zendesk email address',
                 type: 'email',
                 required: true,
                 placeholder: '',
             },
         ],
-    },
-    Manual: {
-        name: 'Manual',
-        caption: <>If you have a data source that isn't listed here, you can manually link it to PostHog.</>,
-        fields: [],
     },
 }
 
@@ -327,7 +332,11 @@ export const buildKeaFormDefaultFromSourceDetails = (
     return formDefault
 }
 
-export type ManualLinkProvider = 'aws' | 'google-cloud' | 'cloudflare-r2'
+const manualLinkSourceMap: Record<ManualLinkSourceType, string> = {
+    aws: 'S3',
+    'google-cloud': 'Google Cloud Storage',
+    'cloudflare-r2': 'Cloudflare R2',
+}
 
 export const sourceWizardLogic = kea<sourceWizardLogicType>([
     path(['scenes', 'data-warehouse', 'external', 'sourceWizardLogic']),
@@ -341,6 +350,17 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         onSubmit: true,
         setDatabaseSchemas: (schemas: ExternalDataSourceSyncSchema[]) => ({ schemas }),
         toggleSchemaShouldSync: (schema: ExternalDataSourceSyncSchema, shouldSync: boolean) => ({ schema, shouldSync }),
+        updateSchemaSyncType: (
+            schema: ExternalDataSourceSyncSchema,
+            syncType: ExternalDataSourceSyncSchema['sync_type'],
+            incrementalField: string | null,
+            incrementalFieldType: string | null
+        ) => ({
+            schema,
+            syncType,
+            incrementalField,
+            incrementalFieldType,
+        }),
         clearSource: true,
         updateSource: (source: Partial<ExternalDataSourceCreatePayload>) => ({ source }),
         createSource: true,
@@ -350,7 +370,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         cancelWizard: true,
         setStep: (step: number) => ({ step }),
         getDatabaseSchemas: true,
-        setManualLinkingProvider: (provider: ManualLinkProvider) => ({ provider }),
+        setManualLinkingProvider: (provider: ManualLinkSourceType) => ({ provider }),
+        openSyncMethodModal: (schema: ExternalDataSourceSyncSchema) => ({ schema }),
+        cancelSyncMethodModal: true,
     }),
     connect({
         values: [
@@ -370,7 +392,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
     }),
     reducers({
         manualLinkingProvider: [
-            null as ManualLinkProvider | null,
+            null as ManualLinkSourceType | null,
             {
                 setManualLinkingProvider: (_, { provider }) => provider,
             },
@@ -407,6 +429,16 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     }))
                     return newSchema
                 },
+                updateSchemaSyncType: (state, { schema, syncType, incrementalField, incrementalFieldType }) => {
+                    const newSchema = state.map((s) => ({
+                        ...s,
+                        sync_type: s.table === schema.table ? syncType : s.sync_type,
+                        incremental_field: s.table === schema.table ? incrementalField : s.incremental_field,
+                        incremental_field_type:
+                            s.table === schema.table ? incrementalFieldType : s.incremental_field_type,
+                    }))
+                    return newSchema
+                },
             },
         ],
         source: [
@@ -440,6 +472,26 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 setSourceId: (_, { sourceId }) => sourceId,
             },
         ],
+        syncMethodModalOpen: [
+            false as boolean,
+            {
+                openSyncMethodModal: () => true,
+                cancelSyncMethodModal: () => false,
+            },
+        ],
+        currentSyncMethodModalSchema: [
+            null as ExternalDataSourceSyncSchema | null,
+            {
+                openSyncMethodModal: (_, { schema }) => schema,
+                cancelSyncMethodModal: () => null,
+                updateSchemaSyncType: (_, { schema, syncType, incrementalField, incrementalFieldType }) => ({
+                    ...schema,
+                    sync_type: syncType,
+                    incremental_field: incrementalField,
+                    incremental_field_type: incrementalFieldType,
+                }),
+            },
+        ],
     }),
     selectors({
         isManualLinkingSelected: [(s) => [s.selectedConnector], (selectedConnector): boolean => !selectedConnector],
@@ -450,16 +502,18 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
         ],
         canGoNext: [
-            (s) => [s.currentStep, s.dataWarehouseSources, s.sourceId, s.isManualLinkingSelected],
-            (currentStep, allSources, sourceId, isManualLinkingSelected): boolean => {
-                if (isManualLinkingSelected && currentStep == 2) {
+            (s) => [s.currentStep, s.isManualLinkingSelected, s.databaseSchema],
+            (currentStep, isManualLinkingSelected, databaseSchema): boolean => {
+                if (isManualLinkingSelected && currentStep === 1) {
                     return false
                 }
 
-                const source = allSources?.results.find((n) => n.id === sourceId)
+                if (!isManualLinkingSelected && currentStep === 3) {
+                    if (databaseSchema.filter((n) => n.should_sync).length === 0) {
+                        return false
+                    }
 
-                if (currentStep === 4) {
-                    return source !== undefined && source.status === 'Completed'
+                    return databaseSchema.filter((n) => n.should_sync && !n.sync_type).length === 0
                 }
 
                 return true
@@ -483,7 +537,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 }
 
                 if (currentStep === 4) {
-                    return 'Finish'
+                    return 'Return to settings'
                 }
 
                 return 'Next'
@@ -515,6 +569,14 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                             : null,
                 }))
             },
+        ],
+        manualConnectors: [
+            () => [],
+            () =>
+                manualLinkSources.map((source) => ({
+                    name: manualLinkSourceMap[source],
+                    type: source,
+                })),
         ],
         addToHubspotButtonUrl: [
             (s) => [s.preflight],
@@ -548,7 +610,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             (s) => [s.currentStep],
             (currentStep) => {
                 if (currentStep === 1) {
-                    return 'Select a data source to get started'
+                    return ''
                 }
                 if (currentStep === 2) {
                     return 'Link your data source'
@@ -573,7 +635,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 }
 
                 if (currentStep === 4) {
-                    return "Sit tight as we import your data! After it's done, we'll show you a few examples to help you make the most of using the data within PostHog."
+                    return "Sit tight as we import your data! After it's done, you will be able to query it in PostHog."
                 }
 
                 return ''
@@ -603,20 +665,26 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
             if (values.currentStep === 2 && values.selectedConnector?.name) {
                 actions.submitSourceConnectionDetails()
+            } else if (values.currentStep === 2 && values.isManualLinkFormVisible) {
+                dataWarehouseTableLogic.actions.submitTable()
+                posthog.capture('source created', { sourceType: 'Manual' })
             }
 
             if (values.currentStep === 3 && values.selectedConnector?.name) {
                 actions.updateSource({
                     payload: {
-                        schemas: values.databaseSchema
-                            .filter((schema) => schema.should_sync)
-                            .map((schema) => schema.table),
+                        schemas: values.databaseSchema.map((schema) => ({
+                            name: schema.table,
+                            should_sync: schema.should_sync,
+                            sync_type: schema.sync_type,
+                            incremental_field: schema.incremental_field,
+                            incremental_field_type: schema.incremental_field_type,
+                        })),
                     },
                 })
                 actions.setIsLoading(true)
                 actions.createSource()
-            } else if (values.currentStep === 3 && values.isManualLinkFormVisible) {
-                dataWarehouseTableLogic.actions.submitTable()
+                posthog.capture('source created', { sourceType: values.selectedConnector.name })
             }
 
             if (values.currentStep === 4) {
@@ -624,16 +692,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             }
         },
         createTableSuccess: () => {
-            actions.onClear()
-            actions.clearSource()
-            actions.loadSources(null)
-            actions.resetSourceConnectionDetails()
+            actions.cancelWizard()
         },
         closeWizard: () => {
-            actions.onClear()
-            actions.clearSource()
-            actions.loadSources(null)
-            actions.resetSourceConnectionDetails()
+            actions.cancelWizard()
 
             if (router.values.location.pathname.includes(urls.dataWarehouseTable())) {
                 router.actions.push(urls.dataWarehouseSettings())
@@ -643,8 +705,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         },
         cancelWizard: () => {
             actions.onClear()
-            actions.setStep(1)
+            actions.clearSource()
             actions.loadSources(null)
+            actions.resetSourceConnectionDetails()
         },
         createSource: async () => {
             if (values.selectedConnector === null) {

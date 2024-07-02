@@ -1,22 +1,35 @@
+import { DateTime } from 'luxon'
+
 import { HogExecutor } from '../../src/cdp/hog-executor'
 import { HogFunctionManager } from '../../src/cdp/hog-function-manager'
-import { defaultConfig } from '../../src/config/config'
-import { PluginsServerConfig } from '../../src/types'
-import { RustyHook } from '../../src/worker/rusty-hook'
+import {
+    HogFunctionInvocationAsyncResponse,
+    HogFunctionInvocationResult,
+    HogFunctionLogEntry,
+    HogFunctionType,
+} from '../../src/cdp/types'
+import { TimestampFormat } from '../../src/types'
+import { castTimestampOrNow } from '../../src/utils/utils'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './examples'
 import { createHogExecutionGlobals, createHogFunction, insertHogFunction as _insertHogFunction } from './fixtures'
 
-const config: PluginsServerConfig = {
-    ...defaultConfig,
-}
-
-jest.mock('../../src/utils/fetch', () => {
+const simulateMockFetchAsyncResponse = (result: HogFunctionInvocationResult): HogFunctionInvocationAsyncResponse => {
     return {
-        trackedFetch: jest.fn(() => Promise.resolve({ status: 200, text: () => Promise.resolve({}) })),
+        ...result,
+        asyncFunctionResponse: {
+            timings: [
+                {
+                    kind: 'async_function',
+                    duration_ms: 100,
+                },
+            ],
+            vmResponse: {
+                status: 200,
+                body: 'success',
+            },
+        },
     }
-})
-
-const mockFetch = require('../../src/utils/fetch').trackedFetch
+}
 
 describe('Hog Executor', () => {
     jest.setTimeout(1000)
@@ -25,103 +38,258 @@ describe('Hog Executor', () => {
     const mockFunctionManager = {
         reloadAllHogFunctions: jest.fn(),
         getTeamHogFunctions: jest.fn(),
-    }
-
-    const mockRustyHook = {
-        enqueueIfEnabledForTeam: jest.fn(() => true),
+        getTeamHogFunction: jest.fn(),
     }
 
     beforeEach(() => {
         jest.useFakeTimers()
         jest.setSystemTime(new Date('2024-06-07T12:00:00.000Z').getTime())
-        executor = new HogExecutor(
-            config,
-            mockFunctionManager as any as HogFunctionManager,
-            mockRustyHook as any as RustyHook
-        )
+        executor = new HogExecutor(mockFunctionManager as any as HogFunctionManager)
     })
 
     describe('general event processing', () => {
-        /**
-         * Tests here are somewhat expensive so should mostly simulate happy paths and the more e2e scenarios
-         */
-        it('can parse incoming messages correctly', async () => {
-            const fn = createHogFunction({
+        let hogFunction: HogFunctionType
+        beforeEach(() => {
+            hogFunction = createHogFunction({
+                name: 'Test hog function',
                 ...HOG_EXAMPLES.simple_fetch,
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
                 ...HOG_FILTERS_EXAMPLES.no_filters,
             })
 
-            mockFunctionManager.getTeamHogFunctions.mockReturnValue({
-                [1]: fn,
-            })
-
-            // Create a message that should be processed by this function
-            // Run the function and check that it was executed
-            await executor.executeMatchingFunctions({
-                globals: createHogExecutionGlobals(),
-            })
-
-            expect(mockFetch).toHaveBeenCalledTimes(1)
-            expect(mockFetch.mock.calls[0]).toMatchInlineSnapshot(`
-                Array [
-                  "https://example.com/posthog-webhook",
-                  Object {
-                    "body": "{
-                    \\"event\\": {
-                        \\"uuid\\": \\"uuid\\",
-                        \\"name\\": \\"test\\",
-                        \\"distinct_id\\": \\"distinct_id\\",
-                        \\"url\\": \\"http://localhost:8000/events/1\\",
-                        \\"properties\\": {
-                            \\"$lib_version\\": \\"1.2.3\\"
-                        },
-                        \\"timestamp\\": \\"2024-06-07T12:00:00.000Z\\"
-                    },
-                    \\"groups\\": null,
-                    \\"nested\\": {
-                        \\"foo\\": \\"http://localhost:8000/events/1\\"
-                    },
-                    \\"person\\": null,
-                    \\"event_url\\": \\"http://localhost:8000/events/1-test\\"
-                }",
-                    "headers": Object {
-                      "version": "v=1.2.3",
-                    },
-                    "method": "POST",
-                    "timeout": 10000,
-                  },
-                ]
-            `)
+            mockFunctionManager.getTeamHogFunctions.mockReturnValue([hogFunction])
+            mockFunctionManager.getTeamHogFunction.mockReturnValue(hogFunction)
         })
-        // NOTE: Will be fixed in follow up
-        it('can filters incoming messages correctly', async () => {
+
+        it('can parse incoming messages correctly', () => {
+            const globals = createHogExecutionGlobals()
+            const results = executor
+                .findMatchingFunctions(createHogExecutionGlobals())
+                .functions.map((x) => executor.executeFunction(globals, x) as HogFunctionInvocationResult)
+            expect(results).toHaveLength(1)
+            expect(results[0]).toMatchObject({
+                id: expect.any(String),
+                hogFunctionId: hogFunction.id,
+            })
+        })
+
+        it('collects logs from the function', () => {
+            const globals = createHogExecutionGlobals()
+            const results = executor
+                .findMatchingFunctions(createHogExecutionGlobals())
+                .functions.map((x) => executor.executeFunction(globals, x) as HogFunctionInvocationResult)
+            expect(results[0].logs).toMatchObject([
+                {
+                    team_id: 1,
+                    log_source: 'hog_function',
+                    log_source_id: hogFunction.id,
+                    instance_id: results[0].id,
+                    timestamp: expect.any(DateTime),
+                    level: 'debug',
+                    message: 'Executing function',
+                },
+                {
+                    team_id: 1,
+                    log_source: 'hog_function',
+                    log_source_id: hogFunction.id,
+                    instance_id: results[0].id,
+                    timestamp: expect.any(DateTime),
+                    level: 'debug',
+                    message: "Suspending function due to async function call 'fetch'",
+                },
+            ])
+
+            expect(castTimestampOrNow(results[0].logs[0].timestamp, TimestampFormat.ClickHouse)).toEqual(
+                '2024-06-07 12:00:00.000'
+            )
+            // Ensure the second log is one more
+            expect(castTimestampOrNow(results[0].logs[1].timestamp, TimestampFormat.ClickHouse)).toEqual(
+                '2024-06-07 12:00:00.001'
+            )
+        })
+
+        it('queues up an async function call', () => {
+            const globals = createHogExecutionGlobals()
+            const results = executor
+                .findMatchingFunctions(createHogExecutionGlobals())
+                .functions.map((x) => executor.executeFunction(globals, x) as HogFunctionInvocationResult)
+            expect(results[0]).toMatchObject({
+                id: results[0].id,
+                globals: {
+                    project: { id: 1, name: 'test', url: 'http://localhost:8000/projects/1' },
+                    event: {
+                        uuid: 'uuid',
+                        name: 'test',
+                        distinct_id: 'distinct_id',
+                        url: 'http://localhost:8000/events/1',
+                        properties: { $lib_version: '1.2.3' },
+                        timestamp: '2024-06-07T12:00:00.000Z',
+                    },
+                    source: {
+                        name: 'Test hog function',
+                        url: `http://localhost:8000/projects/1/pipeline/destinations/hog-${hogFunction.id}/configuration/`,
+                    },
+                },
+                teamId: 1,
+                hogFunctionId: hogFunction.id,
+                asyncFunctionRequest: {
+                    name: 'fetch',
+                    args: [
+                        'https://example.com/posthog-webhook',
+                        {
+                            headers: { version: 'v=1.2.3' },
+                            body: {
+                                event: {
+                                    uuid: 'uuid',
+                                    name: 'test',
+                                    distinct_id: 'distinct_id',
+                                    url: 'http://localhost:8000/events/1',
+                                    properties: { $lib_version: '1.2.3' },
+                                    timestamp: '2024-06-07T12:00:00.000Z',
+                                },
+                                groups: null,
+                                nested: { foo: 'http://localhost:8000/events/1' },
+                                person: null,
+                                event_url: 'http://localhost:8000/events/1-test',
+                            },
+                            method: 'POST',
+                        },
+                    ],
+                    vmState: expect.any(Object),
+                },
+                timings: [
+                    {
+                        kind: 'hog',
+                        duration_ms: 0,
+                    },
+                ],
+            })
+        })
+
+        it('executes the full function in a loop', () => {
+            const logs: HogFunctionLogEntry[] = []
+            const globals = createHogExecutionGlobals()
+            const results = executor
+                .findMatchingFunctions(createHogExecutionGlobals())
+                .functions.map((x) => executor.executeFunction(globals, x) as HogFunctionInvocationResult)
+            const splicedLogs = results[0].logs.splice(0, 100)
+            logs.push(...splicedLogs)
+
+            const asyncExecResult = executor.executeAsyncResponse(simulateMockFetchAsyncResponse(results[0]))
+
+            logs.push(...asyncExecResult.logs)
+            expect(asyncExecResult.error).toBeUndefined()
+            expect(asyncExecResult.finished).toBe(true)
+            expect(logs.map((log) => log.message)).toEqual([
+                'Executing function',
+                "Suspending function due to async function call 'fetch'",
+                'Resuming function',
+                'Fetch response:, {"status":200,"body":"success"}',
+                'Function completed. Processing time 100ms',
+            ])
+        })
+    })
+
+    describe('filtering', () => {
+        it('can filters incoming messages correctly', () => {
             const fn = createHogFunction({
                 ...HOG_EXAMPLES.simple_fetch,
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
                 ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
             })
 
-            mockFunctionManager.getTeamHogFunctions.mockReturnValue({
-                [1]: fn,
-            })
+            mockFunctionManager.getTeamHogFunctions.mockReturnValue([fn])
 
-            const resultsShouldntMatch = await executor.executeMatchingFunctions({
-                globals: createHogExecutionGlobals(),
-            })
-            expect(resultsShouldntMatch).toHaveLength(0)
+            const resultsShouldntMatch = executor.findMatchingFunctions(createHogExecutionGlobals())
+            expect(resultsShouldntMatch.functions).toHaveLength(0)
+            expect(resultsShouldntMatch.total).toBe(1)
+            expect(resultsShouldntMatch.matching).toBe(0)
 
-            const resultsShouldMatch = await executor.executeMatchingFunctions({
-                globals: createHogExecutionGlobals({
+            const resultsShouldMatch = executor.findMatchingFunctions(
+                createHogExecutionGlobals({
                     event: {
                         name: '$pageview',
                         properties: {
                             $current_url: 'https://posthog.com',
                         },
                     } as any,
-                }),
+                })
+            )
+            expect(resultsShouldMatch.functions).toHaveLength(1)
+            expect(resultsShouldMatch.total).toBe(1)
+            expect(resultsShouldMatch.matching).toBe(1)
+        })
+    })
+
+    describe('async function responses', () => {
+        it('prevents large looped fetch calls', () => {
+            const fn = createHogFunction({
+                ...HOG_EXAMPLES.recursive_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
             })
-            expect(resultsShouldMatch).toHaveLength(1)
+
+            mockFunctionManager.getTeamHogFunctions.mockReturnValue([fn])
+
+            // Simulate the recusive loop
+            const globals = createHogExecutionGlobals()
+            const results = executor
+                .findMatchingFunctions(createHogExecutionGlobals())
+                .functions.map((x) => executor.executeFunction(globals, x) as HogFunctionInvocationResult)
+            expect(results).toHaveLength(1)
+
+            // Run the result one time simulating a successful fetch
+            const asyncResult1 = executor.executeAsyncResponse(simulateMockFetchAsyncResponse(results[0]))
+            expect(asyncResult1.finished).toBe(false)
+            expect(asyncResult1.error).toBe(undefined)
+            expect(asyncResult1.asyncFunctionRequest).toBeDefined()
+
+            // Run the result one more time simulating a second successful fetch
+            const asyncResult2 = executor.executeAsyncResponse(simulateMockFetchAsyncResponse(asyncResult1))
+            // This time we should see an error for hitting the loop limit
+            expect(asyncResult2.finished).toBe(false)
+            expect(asyncResult2.error).toEqual('Function exceeded maximum async steps')
+            expect(asyncResult2.logs.map((log) => log.message)).toEqual(['Function exceeded maximum async steps'])
+        })
+    })
+
+    describe('slow functions', () => {
+        beforeEach(() => {
+            // We need to use real timers for this test as the timeout is based on real time
+            jest.useRealTimers()
+        })
+        it('limits the execution time and exits appropriately', () => {
+            const fn = createHogFunction({
+                ...HOG_EXAMPLES.malicious_function,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+
+            mockFunctionManager.getTeamHogFunctions.mockReturnValue([fn])
+
+            const globals = createHogExecutionGlobals()
+            const results = executor
+                .findMatchingFunctions(createHogExecutionGlobals())
+                .functions.map((x) => executor.executeFunction(globals, x) as HogFunctionInvocationResult)
+            expect(results).toHaveLength(1)
+            expect(results[0].error).toContain('Execution timed out after 0.1 seconds. Performed ')
+
+            expect(results[0].logs.map((log) => log.message)).toEqual([
+                'Executing function',
+                'I AM FIBONACCI',
+                'I AM FIBONACCI',
+                'I AM FIBONACCI',
+                'I AM FIBONACCI',
+                'I AM FIBONACCI',
+                'I AM FIBONACCI',
+                'I AM FIBONACCI',
+                'I AM FIBONACCI',
+                'I AM FIBONACCI',
+                'Function exceeded maximum log entries. No more logs will be collected.',
+                expect.stringContaining(
+                    'Error executing function: Error: Execution timed out after 0.1 seconds. Performed'
+                ),
+            ])
         })
     })
 })

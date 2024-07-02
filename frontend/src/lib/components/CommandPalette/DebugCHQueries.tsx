@@ -237,11 +237,11 @@ function DebugCHQueries(): JSX.Element {
                                                 <td>Page cache hit rate</td>
                                                 <td>
                                                     {event['OSReadBytes'] != null && event['OSReadChars'] != null ? (
-                                                        `${
+                                                        `${Math.round(
                                                             ((event['OSReadChars'] - event['OSReadBytes']) /
                                                                 event['OSReadChars']) *
-                                                            100
-                                                        }%`
+                                                                100
+                                                        )}%`
                                                     ) : (
                                                         <i>unknown</i>
                                                     )}

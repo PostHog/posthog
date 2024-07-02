@@ -50,7 +50,7 @@ export async function createPerson(
         null,
         false,
         new UUIDT().toString(),
-        distinctIds
+        distinctIds.map((distinctId) => ({ distinctId }))
     )
 }
 
@@ -396,6 +396,7 @@ test('capture new person', async () => {
             properties: personInitialAndUTMProperties({
                 distinct_id: 2,
                 token: team.api_token,
+                x: 123,
                 utm_medium: 'instagram',
                 $current_url: 'https://test.com/pricing',
                 $browser_version: 80,
@@ -404,6 +405,9 @@ test('capture new person', async () => {
                     { tag_name: 'a', nth_child: 1, nth_of_type: 2, attr__class: 'btn btn-sm' },
                     { tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' },
                 ],
+                $set: {
+                    x: 123, // to make sure update happens
+                },
             }),
         } as any as PluginEvent,
         team.id,
@@ -417,6 +421,7 @@ test('capture new person', async () => {
     expect(persons.length).toEqual(1)
     expect(persons[0].version).toEqual(1)
     expectedProps = {
+        x: 123,
         $creator_event_uuid: uuid,
         $initial_browser: 'Chrome',
         $initial_browser_version: '95',
@@ -448,6 +453,7 @@ test('capture new person', async () => {
     expect(JSON.parse(chPeople2[0].properties)).toEqual(expectedProps)
 
     expect(events[1].properties.$set).toEqual({
+        x: 123,
         utm_medium: 'instagram',
         $browser: 'Firefox',
         $browser_version: 80,
@@ -492,6 +498,9 @@ test('capture new person', async () => {
                     { tag_name: 'a', nth_child: 1, nth_of_type: 2, attr__class: 'btn btn-sm' },
                     { tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' },
                 ],
+                $set: {
+                    x: 123, // to make sure update happens
+                },
             }),
         } as any as PluginEvent,
         team.id,
@@ -508,6 +517,7 @@ test('capture new person', async () => {
     expect(persons[0].version).toEqual(1)
 
     expect(events[2].properties.$set).toEqual({
+        x: 123,
         $browser: 'Firefox',
         $current_url: 'https://test.com/pricing',
 
@@ -1754,7 +1764,8 @@ describe('when handling $identify', () => {
         // completing before continuing with the first identify.
         const originalCreatePerson = hub.db.createPerson.bind(hub.db)
         const createPersonMock = jest.fn(async (...args) => {
-            const result = await originalCreatePerson(...args)
+            // We need to slice off the txn arg, or else we conflict with the `identify` below.
+            const result = await originalCreatePerson(...args.slice(0, -1))
 
             if (createPersonMock.mock.calls.length === 1) {
                 // On second invocation, make another identify call
