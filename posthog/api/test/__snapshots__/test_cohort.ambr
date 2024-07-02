@@ -62,7 +62,7 @@
   WHERE team_id = 2
     AND cohort_id = 2
     AND version < 1
-    AND sign = 1
+    AND sign = 1 SETTINGS optimize_aggregation_in_order = 1
   '''
 # ---
 # name: TestCohort.test_async_deletion_of_cohort.10
@@ -144,7 +144,7 @@
   WHERE team_id = 2
     AND cohort_id = 2
     AND version < 2
-    AND sign = 1
+    AND sign = 1 SETTINGS optimize_aggregation_in_order = 1
   '''
 # ---
 # name: TestCohort.test_async_deletion_of_cohort.6
