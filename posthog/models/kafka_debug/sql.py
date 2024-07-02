@@ -43,7 +43,8 @@ class KafkaDebugTable:
         return f"""
       CREATE TABLE IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.{self.table_name} ON CLUSTER '{CLICKHOUSE_CLUSTER}' (
         payload String,
-        _timestamp DateTime64(6, 'UTC'),
+        _timestamp Nullable(DateTime)
+        _timestamp_ms Nullable(DateTime64(3))
         _partition UInt64,
         _offset UInt64
       )
@@ -69,6 +70,7 @@ class KafkaDebugMaterializedView:
       AS SELECT
         payload,
         _timestamp,
+        _timestamp_ms,
         _partition,
         _offset
       FROM `{CLICKHOUSE_DATABASE}`.{self.from_table.table_name}
