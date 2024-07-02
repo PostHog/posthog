@@ -22,7 +22,7 @@ test.describe('changes to insight are reflected on dashboard', () => {
         // await dashboardPage.withReload(async () => {
         //     await expect(page.getByTestId('insight-card-title')).toHaveText(insightName)
         // })
-        await page.reload()
+        await page.reload({ waitUntil: 'networkidle' })
         await expect(page.getByTestId('insight-card-title')).toHaveText(insightName)
 
         // open the insight and remove it from the dashboard
