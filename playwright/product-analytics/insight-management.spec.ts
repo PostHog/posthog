@@ -159,7 +159,7 @@ test('requires confirmation to navigate away from changed insight (dismissed)', 
     // add an autocapture series
     await insight.edit()
     // :FIXME: Reload shouldn't be necessary to trigger the confirmation dialog
-    await page.reload()
+    await page.reload({ waitUntil: 'networkidle' })
     await insight.waitForDetailsTable()
     // END FIXME
     await insight.addEntityButton.click()
@@ -182,7 +182,7 @@ test('requires confirmation to navigate away from changed insight (accepted)', a
     // add an autocapture series
     await insight.edit()
     // :FIXME: Reload shouldn't be necessary to trigger the confirmation dialog
-    await page.reload()
+    await page.reload({ waitUntil: 'networkidle' })
     await insight.waitForDetailsTable()
     // END FIXME
     await insight.addEntityButton.click()
@@ -203,7 +203,7 @@ test("doesn't require confirmation to navigate away from unchanged insight", asy
     const insight = await new InsightPage(page).createNew()
 
     // :FIXME: Reload shouldn't be necessary to trigger the confirmation dialog
-    await page.reload()
+    await page.reload({ waitUntil: 'networkidle' })
     await insight.waitForDetailsTable()
     // END FIXME
 
@@ -221,7 +221,7 @@ test("doesn't require confirmation to navigate away from unchanged new insight",
     const insight = await new InsightPage(page).goToNew()
 
     // :FIXME: Reload shouldn't be necessary to trigger the confirmation dialog
-    await page.reload()
+    await page.reload({ waitUntil: 'networkidle' })
     await insight.waitForDetailsTable()
     // END FIXME
 

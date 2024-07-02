@@ -29,7 +29,7 @@ export class DashboardPage {
     async withReload(callback: () => Promise<void>, beforeFn?: () => Promise<void>): Promise<void> {
         await beforeFn?.()
         await callback()
-        await this.page.reload()
+        await this.page.reload({ waitUntil: 'networkidle' })
         await callback()
     }
 

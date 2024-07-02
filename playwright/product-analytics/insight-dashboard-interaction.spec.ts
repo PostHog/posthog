@@ -33,7 +33,7 @@ test.describe('changes to insight are reflected on dashboard', () => {
         // :FIXME: this is currently broken and needs a page reload
         await expect(toast.container, 'displays toast').toContainText('Insight removed from dashboard')
         await page.goBack()
-        await page.reload()
+        await page.reload({ waitUntil: 'networkidle' })
         await expect(page.getByText('Dashboard empty')).toBeVisible()
         // await dashboardPage.withReload(
         //     async () => {
@@ -66,7 +66,7 @@ test.describe('changes to insight are reflected on dashboard', () => {
         // await dashboardPage.withReload(async () => {
         //     await expect(page.getByTestId('insight-card-title')).toHaveText('new name')
         // })
-        await page.reload()
+        await page.reload({ waitUntil: 'networkidle' })
         await expect(page.getByTestId('insight-card-title')).toHaveText('new name')
     })
 
@@ -85,7 +85,7 @@ test.describe('changes to insight are reflected on dashboard', () => {
         // :FIXME: This reload is necessary as the in-memory insight does not
         // yet have the dashboard. Saving without the reload would remove the
         // backend side connection as well.
-        await page.reload()
+        await page.reload({ waitUntil: 'networkidle' })
         await insightPage.withEdit(async () => {
             await insightPage.addEntityButton.click()
             await insightPage.secondEntity.click()
@@ -98,7 +98,7 @@ test.describe('changes to insight are reflected on dashboard', () => {
         // await dashboardPage.withReload(async () => {
         //     await expect(page.getByTestId('insight-card-title')).toHaveText('new name')
         // })
-        await page.reload()
+        await page.reload({ waitUntil: 'networkidle' })
         await page.locator('.CardMeta').getByText('Show details').click()
         const entities = await page.locator('.PropertyKeyInfo').allInnerTexts()
         expect(entities).toEqual(['Pageview', 'Autocapture'])
