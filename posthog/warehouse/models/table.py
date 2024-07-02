@@ -181,8 +181,11 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             else:
                 clickhouse_type = type["clickhouse"]
 
+            is_nullable = False
+
             if clickhouse_type.startswith("Nullable("):
                 clickhouse_type = clickhouse_type.replace("Nullable(", "")[:-1]
+                is_nullable = True
 
             # TODO: remove when addressed https://github.com/ClickHouse/ClickHouse/issues/37594
             if clickhouse_type.startswith("Array("):
@@ -194,7 +197,10 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
                 column_invalid = False
 
             if not column_invalid or (modifiers is not None and modifiers.s3TableUseInvalidColumns):
-                structure.append(f"`{column}` {clickhouse_type}")
+                if is_nullable:
+                    structure.append(f"`{column}` Nullable({clickhouse_type})")
+                else:
+                    structure.append(f"`{column}` {clickhouse_type}")
 
             # Support for 'old' style columns
             if isinstance(type, str):
@@ -203,7 +209,7 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             else:
                 hogql_type = STR_TO_HOGQL_MAPPING[type["hogql"]]
 
-            fields[column] = hogql_type(name=column)
+            fields[column] = hogql_type(name=column, nullable=is_nullable)
 
         # Replace fields with any redefined fields if they exist
         external_table_fields = external_tables.get(self.table_name_without_prefix())
