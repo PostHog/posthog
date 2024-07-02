@@ -2602,6 +2602,7 @@ export interface Survey {
         seenSurveyWaitPeriodInDays?: number
         urlMatchType?: SurveyUrlMatchType
         events: {
+            repeatedActivation?: boolean
             values: {
                 name: string
             }[]
