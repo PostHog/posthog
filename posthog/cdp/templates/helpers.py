@@ -11,15 +11,19 @@ class BaseHogFunctionTemplateTest(BaseTest):
     compiled_hog: Any
     mock_fetch = MagicMock()
     mock_print = MagicMock()
+    mock_posthog_capture = MagicMock()
 
     def setUp(self):
         super().setUp()
-        self.compiled_hog = compile_hog(self.template.hog, supported_functions={"fetch", "print"})
+        self.compiled_hog = compile_hog(self.template.hog, supported_functions={"fetch", "print", "postHogCapture"})
 
         self.mock_print = MagicMock(side_effect=lambda *args: print("[DEBUG HogFunctionPrint]", *args))  # noqa: T201
         # Side effect - log the fetch call and return  with sensible output
         self.mock_fetch = MagicMock(
             side_effect=lambda *args: print("[DEBUG HogFunctionFetch]", *args) or self.mock_fetch_response(*args)  # noqa: T201
+        )
+        self.mock_posthog_capture = MagicMock(
+            side_effect=lambda *args: print("[DEBUG HogFunctionPosthogCapture]", *args)  # noqa: T201
         )
 
     mock_fetch_response = lambda *args: {"status": 200, "body": {}}
@@ -32,9 +36,28 @@ class BaseHogFunctionTemplateTest(BaseTest):
         # Return a simple array which is easier to debug
         return [call.args for call in self.mock_print.mock_calls]
 
+    def get_mock_posthog_capture_calls(self):
+        # Return a simple array which is easier to debug
+        return [call.args for call in self.mock_posthog_capture.mock_calls]
+
     def createHogGlobals(self, globals=None) -> dict:
         # Return an object simulating the
-        return {}
+        data = {
+            "event": {
+                "id": "event-id",
+                "distinct_id": "distinct-id",
+                "properties": {"$current_url": "https://example.com"},
+            },
+            "person": {"id": "person-id", "properties": {"email": "example@posthog.com"}},
+        }
+
+        if globals:
+            if globals.get("event"):
+                data["event"].update(globals["event"])
+            if globals.get("person"):
+                data["person"].update(globals["person"])
+
+        return data
 
     def run_function(self, inputs: dict, globals=None):
         # Create the globals object
@@ -46,5 +69,9 @@ class BaseHogFunctionTemplateTest(BaseTest):
         return execute_bytecode(
             self.compiled_hog,
             globals,
-            functions={"fetch": self.mock_fetch, "print": self.mock_print},
+            functions={
+                "fetch": self.mock_fetch,
+                "print": self.mock_print,
+                "postHogCapture": self.mock_posthog_capture,
+            },
         )

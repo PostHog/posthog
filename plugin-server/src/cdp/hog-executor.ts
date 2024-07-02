@@ -233,6 +233,7 @@ export class HogExecutor {
             ...invocation,
             asyncFunctionRequest: undefined,
             finished: false,
+            capturedPostHogEvents: [],
         }
 
         if (!state) {
@@ -292,6 +293,18 @@ export class HogExecutor {
                                 message = message.slice(0, MAX_LOG_LENGTH) + '... (truncated)'
                             }
                             addLog(result, 'info', message)
+                        },
+                        postHogCapture: (event) => {
+                            if (typeof event.event !== 'string') {
+                                throw new Error("[HogFunction] - postHogCapture call missing 'event' property")
+                            }
+                            result.capturedPostHogEvents!.push({
+                                team_id: invocation.teamId,
+                                timestamp: DateTime.now(),
+                                distinct_id: event.distinct_id || invocation.globals.event.distinct_id,
+                                event: event.event,
+                                properties: event.properties,
+                            })
                         },
                     },
                 })
