@@ -10,7 +10,6 @@ import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { DataWarehouseBetaNotice } from '../DataWarehouseBetaNotice'
 import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 import { DataWarehouseTables } from './DataWarehouseTables'
 
@@ -72,7 +71,6 @@ export function DataWarehouseExternalScene(): JSX.Element {
                     </div>
                 }
             />
-            <DataWarehouseBetaNotice />
             <BindLogic logic={insightSceneLogic} props={{}}>
                 <DataWarehouseTables />
             </BindLogic>

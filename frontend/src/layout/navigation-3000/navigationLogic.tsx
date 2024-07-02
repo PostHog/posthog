@@ -486,22 +486,18 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             icon: <IconChat />,
                             to: urls.surveys(),
                         },
+                        {
+                            identifier: Scene.DataWarehouse,
+                            label: 'Data warehouse',
+                            icon: <IconServer />,
+                            to: isUsingSidebar ? undefined : urls.dataWarehouse(),
+                        },
                         featureFlags[FEATURE_FLAGS.PRODUCT_INTRO_PAGES] !== 'test' || hasOnboardedFeatureFlags
                             ? {
                                   identifier: Scene.EarlyAccessFeatures,
                                   label: 'Early access features',
                                   icon: <IconRocket />,
                                   to: urls.earlyAccessFeatures(),
-                              }
-                            : null,
-                        hasOnboardedAnyProduct
-                            ? {
-                                  identifier: Scene.DataWarehouse,
-                                  label: 'Data warehouse',
-                                  icon: <IconServer />,
-                                  to: urls.dataWarehouse(),
-                                  featureFlag: FEATURE_FLAGS.DATA_WAREHOUSE,
-                                  tag: 'beta' as const,
                               }
                             : null,
                         hasOnboardedAnyProduct

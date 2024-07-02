@@ -6,7 +6,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { ManualLinkSourceType, SourceConfig } from '~/types'
 
-import { DataWarehouseBetaNotice } from '../DataWarehouseBetaNotice'
 import PostgresSchemaForm from '../external/forms/PostgresSchemaForm'
 import SourceForm from '../external/forms/SourceForm'
 import { SyncProgressStep } from '../external/forms/SyncProgressStep'
@@ -16,14 +15,43 @@ import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
 import { sourceWizardLogic } from './sourceWizardLogic'
 
 export const scene: SceneExport = {
-    component: NewSourceWizard,
+    component: NewSourceWizardScene,
     logic: sourceWizardLogic,
 }
-export function NewSourceWizard(): JSX.Element {
-    const { modalTitle, modalCaption } = useValues(sourceWizardLogic)
-    const { onBack, onSubmit, closeWizard } = useActions(sourceWizardLogic)
-    const { currentStep, isLoading, canGoBack, canGoNext, nextButtonText, showSkipButton } =
-        useValues(sourceWizardLogic)
+export function NewSourceWizardScene(): JSX.Element {
+    const { closeWizard } = useActions(sourceWizardLogic)
+
+    return (
+        <>
+            <PageHeader
+                buttons={
+                    <>
+                        <LemonButton
+                            type="secondary"
+                            center
+                            data-attr="source-form-cancel-button"
+                            onClick={closeWizard}
+                        >
+                            Cancel
+                        </LemonButton>
+                    </>
+                }
+            />
+            <NewSourcesWizard />
+        </>
+    )
+}
+
+interface NewSourcesWizardProps {
+    onComplete?: () => void
+}
+
+export function NewSourcesWizard({ onComplete }: NewSourcesWizardProps): JSX.Element {
+    const wizardLogic = sourceWizardLogic({ onComplete })
+
+    const { modalTitle, modalCaption } = useValues(wizardLogic)
+    const { onBack, onSubmit } = useActions(wizardLogic)
+    const { currentStep, isLoading, canGoBack, canGoNext, nextButtonText, showSkipButton } = useValues(wizardLogic)
     const { tableLoading: manualLinkIsLoading } = useValues(dataWarehouseTableLogic)
 
     const footer = useCallback(() => {
@@ -58,30 +86,13 @@ export function NewSourceWizard(): JSX.Element {
 
     return (
         <>
-            <PageHeader
-                buttons={
-                    <>
-                        <LemonButton
-                            type="secondary"
-                            center
-                            data-attr="source-form-cancel-button"
-                            onClick={closeWizard}
-                        >
-                            Cancel
-                        </LemonButton>
-                    </>
-                }
-            />
-            <DataWarehouseBetaNotice />
-            <>
-                <h3>{modalTitle}</h3>
-                <p>{modalCaption}</p>
-                <FirstStep />
-                <SecondStep />
-                <ThirdStep />
-                <FourthStep />
-                {footer()}
-            </>
+            <h3>{modalTitle}</h3>
+            <p>{modalCaption}</p>
+            <FirstStep />
+            <SecondStep />
+            <ThirdStep />
+            <FourthStep />
+            {footer()}
         </>
     )
 }
