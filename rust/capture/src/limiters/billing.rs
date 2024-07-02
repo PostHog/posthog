@@ -131,7 +131,7 @@ impl BillingLimiter {
             // On prod atm we call this around 15 times per second at peak times, and it usually
             // completes in <1ms.
 
-            let set = Self::fetch_limited(&self.redis, &self.redis_key_prefix, resource).await;
+            let set = Self::fetch_limited(&self.redis, &self.redis_key_prefix, &resource).await;
 
             tracing::debug!("fetched set from redis, caching");
 
