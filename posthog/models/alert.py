@@ -1,19 +1,4 @@
 from django.db import models
-from typing import Optional
-from dataclasses import dataclass
-
-
-@dataclass
-class AbsoluteThreshold:
-    lower: Optional[float] = None
-    upper: Optional[float] = None
-
-
-class AnomalyCondition:
-    absolute_threshold: AbsoluteThreshold
-
-    def __init__(self, absoluteThreshold: dict):
-        self.absolute_threshold = AbsoluteThreshold(**absoluteThreshold)
 
 
 class Alert(models.Model):

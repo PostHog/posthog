@@ -4273,6 +4273,7 @@ export type HogFunctionStatus = {
     }[]
 }
 
+// TODO: move to schema.ts
 export interface AnomalyCondition {
     absoluteThreshold: {
         lower?: number

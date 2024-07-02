@@ -1,14 +1,15 @@
-from typing import cast
-
 import structlog
 from celery import shared_task
 from django.utils import timezone
 
+from posthog.api.services.query import ExecutionMode
+from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.email import EmailMessage
-from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-from posthog.hogql_queries.query_runner import get_query_runner
-from posthog.models import Alert, AnomalyCondition
-from posthog.schema import HogQLQueryResponse
+from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import (
+    conversion_to_query_based,
+)
+from posthog.models import Alert
+from posthog.schema import AnomalyCondition
 
 logger = structlog.get_logger(__name__)
 
@@ -17,24 +18,31 @@ def check_all_alerts() -> None:
     alerts = Alert.objects.all().only("id")
     for alert in alerts:
         logger.info("scheduling alert", alert_id=alert.id)
-        check_alert.delay(alert.id)
+        _check_alert_task.delay(alert.id)
 
 
 @shared_task(ignore_result=True)
-def check_alert(id: int) -> None:
+def _check_alert_task(id: int) -> None:
+    _check_alert(id)
+
+
+def _check_alert(id: int) -> None:
     alert = Alert.objects.get(pk=id)
     insight = alert.insight
-    if not insight.query:
-        insight.query = filter_to_query(insight.filters)
-    query_runner = get_query_runner(insight.query, alert.team)
-    response = cast(HogQLQueryResponse, query_runner.calculate())
-    if not response.results:
+    with conversion_to_query_based(insight):
+        calculation_result = calculate_for_query_based_insight(
+            insight,
+            execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+            user=None,
+        )
+
+    if not calculation_result.result:
         raise RuntimeError(f"no results for alert {alert.id}")
 
-    anomaly_condition = AnomalyCondition(**alert.anomaly_condition)
-    thresholds = anomaly_condition.absolute_threshold
+    anomaly_condition = AnomalyCondition.model_validate(alert.anomaly_condition)
+    thresholds = anomaly_condition.absoluteThreshold
 
-    result = response.results[0]
+    result = calculation_result.result[0]
     aggregated_value = result["aggregated_value"]
     anomalies_descriptions = []
 
@@ -51,6 +59,11 @@ def check_alert(id: int) -> None:
         logger.info("no anomalies", alert_id=alert.id)
         return
 
+    _send_notifications(alert, anomalies_descriptions)
+
+
+# TODO: make it a task
+def _send_notifications(alert: Alert, anomalies_descriptions: list[str]) -> None:
     subject = f"PostHog alert {alert.name} has anomalies"
     campaign_key = f"alert-anomaly-notification-{alert.id}-{timezone.now().timestamp()}"
     insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"

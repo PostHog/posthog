@@ -79,7 +79,7 @@ export function EditAlert({ id, insightShortId, onCancel, onDelete }: EditAlertP
                                 </LemonField>
                                 <LemonField
                                     name="upper"
-                                    label="Upper threshold "
+                                    label="Upper threshold"
                                     help="Notify if the value is strictly above"
                                 >
                                     <LemonInput type="number" className="w-20" data-attr="alert-upper-threshold" />

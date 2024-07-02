@@ -72,7 +72,7 @@ class TestDetectAlertsAnomaliesTasks(APIBaseTest, ClickhouseDestroyTablesMixin):
 
         assert len(mocked_email_messages) == 1
         assert self.get_recepients(mocked_email_messages) == [["a@b.c", "d@e.f"]]
-        assert "The trend value (1) is above the upper threshold (0)" in mocked_email_messages[0].html_body
+        assert "The trend value (1) is above the upper threshold (0.0)" in mocked_email_messages[0].html_body
 
     def test_alert_is_not_triggered_for_events_beyond_interval(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
@@ -97,7 +97,7 @@ class TestDetectAlertsAnomaliesTasks(APIBaseTest, ClickhouseDestroyTablesMixin):
         check_all_alerts()
 
         assert len(mocked_email_messages) == 1
-        assert "The trend value (0) is below the lower threshold (1)" in mocked_email_messages[0].html_body
+        assert "The trend value (0) is below the lower threshold (1.0)" in mocked_email_messages[0].html_body
 
     def test_alert_is_not_triggered_for_normal_values(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
@@ -148,8 +148,8 @@ class TestDetectAlertsAnomaliesTasks(APIBaseTest, ClickhouseDestroyTablesMixin):
         check_all_alerts()
 
         assert len(mocked_email_messages) == 2
-        assert "The trend value (0) is below the lower threshold (1)" in mocked_email_messages[0].html_body
-        assert "The trend value (0) is below the lower threshold (1)" in mocked_email_messages[1].html_body
+        assert "The trend value (0) is below the lower threshold (1.0)" in mocked_email_messages[0].html_body
+        assert "The trend value (0) is below the lower threshold (1.0)" in mocked_email_messages[1].html_body
         assert self.get_recepients(mocked_email_messages) == [["a@b.c", "d@e.f"], ["email@address.com"]]
 
     def test_alert_with_insight_with_filter(self, MockEmailMessage: MagicMock) -> None:
@@ -164,4 +164,4 @@ class TestDetectAlertsAnomaliesTasks(APIBaseTest, ClickhouseDestroyTablesMixin):
         check_all_alerts()
 
         assert len(mocked_email_messages) == 1
-        assert "The trend value (0) is below the lower threshold (1)" in mocked_email_messages[0].html_body
+        assert "The trend value (0) is below the lower threshold (1.0)" in mocked_email_messages[0].html_body

@@ -1,6 +1,19 @@
 {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "definitions": {
+        "AbsoluteThreshold": {
+            "additionalProperties": false,
+            "properties": {
+                "lower": {
+                    "type": ["number", "null"]
+                },
+                "upper": {
+                    "type": ["number", "null"]
+                }
+            },
+            "required": ["lower", "upper"],
+            "type": "object"
+        },
         "ActionsNode": {
             "additionalProperties": false,
             "properties": {
@@ -178,6 +191,16 @@
         "AggregationAxisFormat": {
             "enum": ["numeric", "duration", "duration_ms", "percentage", "percentage_scaled"],
             "type": "string"
+        },
+        "AnomalyCondition": {
+            "additionalProperties": false,
+            "properties": {
+                "absoluteThreshold": {
+                    "$ref": "#/definitions/AbsoluteThreshold"
+                }
+            },
+            "required": ["absoluteThreshold"],
+            "type": "object"
         },
         "AnyDataNode": {
             "anyOf": [

@@ -13,7 +13,7 @@ from ..session_recordings.models.session_recording_playlist_item import (
 )
 from ..warehouse.models import DataWarehouseTable
 from ._deprecated_prompts import Prompt, PromptSequence, UserPromptState
-from .alert import Alert, AbsoluteThreshold, AnomalyCondition
+from .alert import Alert
 from .action import Action
 from .action.action_step import ActionStep
 from .activity_logging.activity_log import ActivityLog
@@ -73,13 +73,11 @@ from .user import User, UserManager
 from .user_scene_personalisation import UserScenePersonalisation
 
 __all__ = [
-    "AbsoluteThreshold",
     "Alert",
     "Action",
     "ActionStep",
     "ActivityLog",
     "Annotation",
-    "AnomalyCondition",
     "AsyncDeletion",
     "AsyncMigration",
     "AsyncMigrationError",
