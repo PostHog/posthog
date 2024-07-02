@@ -536,6 +536,12 @@ class _Printer(Visitor):
     def visit_array(self, node: ast.Array):
         return f"[{', '.join([self.visit(expr) for expr in node.exprs])}]"
 
+    def visit_dict(self, node: ast.Dict):
+        str = "tuple('__hx_tag', '__hx_obj'"
+        for key, value in node.items:
+            str += f", {self.visit(key)}, {self.visit(value)}"
+        return str + ")"
+
     def visit_lambda(self, node: ast.Lambda):
         identifiers = [self._print_identifier(arg) for arg in node.args]
         if len(identifiers) == 0:

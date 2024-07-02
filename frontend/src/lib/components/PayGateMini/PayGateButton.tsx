@@ -4,14 +4,14 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
-import { BillingProductV2AddonType, BillingProductV2Type, BillingV2FeatureType, BillingV2Type } from '~/types'
+import { BillingFeatureType, BillingProductV2AddonType, BillingProductV2Type, BillingType } from '~/types'
 
 interface PayGateButtonProps {
     gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null
     productWithFeature: BillingProductV2AddonType | BillingProductV2Type
-    featureInfo: BillingV2FeatureType
+    featureInfo: BillingFeatureType
     onCtaClick: () => void
-    billing: BillingV2Type | null
+    billing: BillingType | null
     isAddonProduct?: boolean
     scrollToProduct: boolean
 }
@@ -50,9 +50,9 @@ export const PayGateButton = ({
 const getCtaLink = (
     gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
     productWithFeature: BillingProductV2AddonType | BillingProductV2Type,
-    featureInfo: BillingV2FeatureType,
+    featureInfo: BillingFeatureType,
     featureFlags: FeatureFlagsSet,
-    subscriptionLevel?: BillingV2Type['subscription_level'],
+    subscriptionLevel?: BillingType['subscription_level'],
     isAddonProduct?: boolean,
     scrollToProduct: boolean = true
 ): string | undefined => {
@@ -77,7 +77,7 @@ const getCtaLink = (
 
 const getCtaLabel = (
     gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
-    billing: BillingV2Type | null,
+    billing: BillingType | null,
     featureFlags: FeatureFlagsSet
 ): string => {
     if (

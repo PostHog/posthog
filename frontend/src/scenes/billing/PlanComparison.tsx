@@ -13,7 +13,7 @@ import React, { useState } from 'react'
 import { getProductIcon } from 'scenes/products/Products'
 import useResizeObserver from 'use-resize-observer'
 
-import { BillingProductV2AddonType, BillingProductV2Type, BillingV2FeatureType, BillingV2PlanType } from '~/types'
+import { BillingFeatureType, BillingPlanType, BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
 import { convertLargeNumberToWords, getProration, getUpgradeProductLink } from './billing-utils'
 import { billingLogic } from './billingLogic'
@@ -25,7 +25,7 @@ export function PlanIcon({
     className,
     timeDenominator,
 }: {
-    feature?: BillingV2FeatureType
+    feature?: BillingFeatureType
     className?: string
     timeDenominator?: string
 }): JSX.Element {
@@ -58,7 +58,7 @@ const PricingTiers = ({
     plan,
     product,
 }: {
-    plan: BillingV2PlanType
+    plan: BillingPlanType
     product: BillingProductV2Type | BillingProductV2AddonType
 }): JSX.Element => {
     const { width, ref: tiersRef } = useResizeObserver()
@@ -426,7 +426,7 @@ export const PlanComparison = ({
                                             </th>
                                         </tr>
                                         {includedPlans
-                                            .find((plan: BillingV2PlanType) => plan.included_if == 'has_subscription')
+                                            .find((plan: BillingPlanType) => plan.included_if == 'has_subscription')
                                             ?.features?.map((feature, i) => (
                                                 <tr key={`tr-${feature.key}`}>
                                                     <th
@@ -513,13 +513,7 @@ export const PlanComparisonModal = ({
     )
 }
 
-const AddonPlanTiers = ({
-    plan,
-    addon,
-}: {
-    plan: BillingV2PlanType
-    addon: BillingProductV2AddonType
-}): JSX.Element => {
+const AddonPlanTiers = ({ plan, addon }: { plan: BillingPlanType; addon: BillingProductV2AddonType }): JSX.Element => {
     const [showTiers, setShowTiers] = useState(false)
 
     return showTiers ? (

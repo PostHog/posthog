@@ -3,9 +3,11 @@ from typing import Optional
 from collections.abc import Sequence, Iterator
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import has_aggregation
 from posthog.hogql_queries.actor_strategies import ActorStrategy, PersonStrategy, GroupStrategy
+from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
@@ -89,12 +91,21 @@ class ActorsQueryRunner(QueryRunner):
         return column_index_events, self.strategy.get_recordings(matching_events_list)
 
     def calculate(self) -> ActorsQueryResponse:
+        # Funnel queries require the experimental analyzer to run correctly
+        # Can remove once clickhouse moves to version 24.3 or above
+        settings = None
+        if isinstance(self.source_query_runner, InsightActorsQueryRunner) and isinstance(
+            self.source_query_runner.source_runner, FunnelsQueryRunner
+        ):
+            settings = HogQLGlobalSettings(allow_experimental_analyzer=True)
+
         response = self.paginator.execute_hogql_query(
             query_type="ActorsQuery",
             query=self.to_query(),
             team=self.team,
             timings=self.timings,
             modifiers=self.modifiers,
+            settings=settings,
         )
         input_columns = self.input_columns()
         missing_actors_count = None

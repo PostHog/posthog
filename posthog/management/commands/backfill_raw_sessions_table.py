@@ -69,18 +69,16 @@ AND and(
             )
 
         if dry_run:
-            count_query = f"SELECT count(), uniq(session_id_v7) FROM ({select_query()})"
+            count_query = f"SELECT count(), uniq(session_id_v7) FROM ({select_query(team_id=self.team_id)})"
             [(events_count, sessions_count)] = sync_execute(count_query, settings=SETTINGS)
             logger.info(f"{events_count} events and {sessions_count} sessions to backfill for")
-            logger.info(f"The first select query to run would be:\n{select_query(self.end_date)}")
+            logger.info(f"The first select query to run would be:\n{select_query(self.end_date, team_id=self.team_id)}")
             return
 
         for i in reversed(range(num_days)):
             date = self.start_date + timedelta(days=i)
             logging.info("Writing the sessions for day %s", date.strftime("%Y-%m-%d"))
-            insert_query = (
-                f"""INSERT INTO {TARGET_TABLE} {select_query(select_date=date)} SETTINGS max_execution_time=3600"""
-            )
+            insert_query = f"""INSERT INTO {TARGET_TABLE} {select_query(select_date=date, team_id=self.team_id)} SETTINGS max_execution_time=3600"""
             sync_execute(
                 query=insert_query,
                 workload=Workload.OFFLINE if self.use_offline_workload else Workload.DEFAULT,

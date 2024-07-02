@@ -3,6 +3,7 @@ import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea
 import { forms } from 'kea-forms'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
+import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -666,6 +667,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 actions.submitSourceConnectionDetails()
             } else if (values.currentStep === 2 && values.isManualLinkFormVisible) {
                 dataWarehouseTableLogic.actions.submitTable()
+                posthog.capture('source created', { sourceType: 'Manual' })
             }
 
             if (values.currentStep === 3 && values.selectedConnector?.name) {
@@ -682,6 +684,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 })
                 actions.setIsLoading(true)
                 actions.createSource()
+                posthog.capture('source created', { sourceType: values.selectedConnector.name })
             }
 
             if (values.currentStep === 4) {

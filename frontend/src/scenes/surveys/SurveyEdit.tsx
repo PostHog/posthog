@@ -67,7 +67,7 @@ export default function SurveyEdit(): JSX.Element {
         useValues(surveysLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const sortedItemIds = survey.questions.map((_, idx) => idx.toString())
-    const { thankYouMessageDescriptionContentType } = survey.appearance
+    const { thankYouMessageDescriptionContentType = null } = survey.appearance ?? {}
     const surveysRecurringScheduleDisabledReason = surveysRecurringScheduleAvailable
         ? undefined
         : 'Subscribe to surveys for repeating surveys over a duration of time'
