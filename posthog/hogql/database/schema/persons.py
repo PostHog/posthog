@@ -1,4 +1,5 @@
-from typing import cast, Optional, Self
+from typing import cast, Optional
+from typing_extensions import Self
 import posthoganalytics
 
 from posthog.hogql.ast import SelectQuery, And, CompareOperation, CompareOperationOp, Field, JoinExpr

@@ -1,7 +1,7 @@
 import json
 import time
 import uuid
-from datetime import datetime, timedelta, UTC
+from datetime import datetime, timedelta, timezone
 from unittest.mock import ANY, patch, MagicMock, call
 from urllib.parse import urlencode
 
@@ -395,7 +395,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "distinct_id": "d1",
             "viewed": False,
             "recording_duration": 30,
-            "start_time": base_time.replace(tzinfo=UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "start_time": base_time.replace(tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "end_time": (base_time + relativedelta(seconds=30)).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "click_count": 0,
             "keypress_count": 0,

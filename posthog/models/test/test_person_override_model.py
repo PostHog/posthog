@@ -48,7 +48,7 @@ def people(team):
 
 @pytest.fixture
 def oldest_event():
-    return dt.datetime.now(dt.UTC)
+    return dt.datetime.now(dt.timezone.utc)
 
 
 @pytest.mark.django_db(transaction=True)

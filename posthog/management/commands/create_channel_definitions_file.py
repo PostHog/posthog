@@ -3,7 +3,7 @@ import re
 import subprocess
 from collections import OrderedDict
 from dataclasses import dataclass
-from enum import StrEnum
+from enum import Enum
 from typing import Optional
 
 from django.core.management.base import BaseCommand
@@ -12,7 +12,7 @@ from django.core.management.base import BaseCommand
 OUTPUT_FILE = "posthog/models/channel_type/channel_definitions.json"
 
 
-class EntryKind(StrEnum):
+class EntryKind(str, Enum):
     source = "source"
     medium = "medium"
 

@@ -1,4 +1,4 @@
-from enum import StrEnum
+from enum import Enum
 from typing import Literal
 
 from semantic_version import Version
@@ -9,7 +9,7 @@ INTERNAL_BOT_EMAIL_SUFFIX = "@posthogbot.user"
 
 # N.B. Keep this in sync with frontend enum (types.ts)
 # AND ensure it is added to the Billing Service
-class AvailableFeature(StrEnum):
+class AvailableFeature(str, Enum):
     ZAPIER = "zapier"
     ORGANIZATIONS_PROJECTS = "organizations_projects"
     PROJECT_BASED_PERMISSIONING = "project_based_permissioning"
@@ -215,19 +215,19 @@ SAMPLING_FACTOR = "sampling_factor"
 BREAKDOWN_TYPES = Literal["event", "person", "cohort", "group", "session", "hogql"]
 
 
-class FunnelOrderType(StrEnum):
+class FunnelOrderType(str, Enum):
     STRICT = "strict"
     UNORDERED = "unordered"
     ORDERED = "ordered"
 
 
-class FunnelVizType(StrEnum):
+class FunnelVizType(str, Enum):
     TRENDS = "trends"
     TIME_TO_CONVERT = "time_to_convert"
     STEPS = "steps"
 
 
-class FunnelCorrelationType(StrEnum):
+class FunnelCorrelationType(str, Enum):
     EVENTS = "events"
     PROPERTIES = "properties"
     EVENT_WITH_PROPERTIES = "event_with_properties"
@@ -240,7 +240,7 @@ DISTINCT_ID_FILTER = "distinct_id"
 PERSON_UUID_FILTER = "person_uuid"
 
 
-class AnalyticsDBMS(StrEnum):
+class AnalyticsDBMS(str, Enum):
     POSTGRES = "postgres"
     CLICKHOUSE = "clickhouse"
 
@@ -251,13 +251,13 @@ WEEKLY_ACTIVE = "weekly_active"
 MONTHLY_ACTIVE = "monthly_active"
 
 
-class RetentionQueryType(StrEnum):
+class RetentionQueryType(str, Enum):
     RETURNING = "returning"
     TARGET = "target"
     TARGET_FIRST_TIME = "target_first_time"
 
 
-class ExperimentSignificanceCode(StrEnum):
+class ExperimentSignificanceCode(str, Enum):
     SIGNIFICANT = "significant"
     NOT_ENOUGH_EXPOSURE = "not_enough_exposure"
     LOW_WIN_PROBABILITY = "low_win_probability"
@@ -265,7 +265,7 @@ class ExperimentSignificanceCode(StrEnum):
     HIGH_P_VALUE = "high_p_value"
 
 
-class ExperimentNoResultsErrorKeys(StrEnum):
+class ExperimentNoResultsErrorKeys(str, Enum):
     NO_EVENTS = "no-events"
     NO_FLAG_INFO = "no-flag-info"
     NO_CONTROL_VARIANT = "no-control-variant"
@@ -273,12 +273,12 @@ class ExperimentNoResultsErrorKeys(StrEnum):
     NO_RESULTS = "no-results"
 
 
-class PropertyOperatorType(StrEnum):
+class PropertyOperatorType(str, Enum):
     AND = "AND"
     OR = "OR"
 
 
-class BreakdownAttributionType(StrEnum):
+class BreakdownAttributionType(str, Enum):
     FIRST_TOUCH = "first_touch"
     # FIRST_TOUCH attribution means the breakdown value is the first property value found within all funnel steps
     LAST_TOUCH = "last_touch"
@@ -294,7 +294,7 @@ MAX_SLUG_LENGTH = 48
 GROUP_TYPES_LIMIT = 5
 
 
-class EventDefinitionType(StrEnum):
+class EventDefinitionType(str, Enum):
     # Mimics EventDefinitionType in frontend/src/types.ts
     ALL = "all"
     ACTION_EVENT = "action_event"
@@ -303,7 +303,7 @@ class EventDefinitionType(StrEnum):
     EVENT_CUSTOM = "event_custom"
 
 
-class FlagRequestType(StrEnum):
+class FlagRequestType(str, Enum):
     DECIDE = "decide"
     LOCAL_EVALUATION = "local-evaluation"
 
