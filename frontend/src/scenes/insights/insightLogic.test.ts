@@ -309,7 +309,6 @@ describe('insightLogic', () => {
                             short_id: Insight42,
                             query: { kind: NodeKind.TimeToSeeDataSessionsQuery },
                         }),
-                        legacyFilters: {},
                     })
                     .delay(1)
                     // do not override the insight if querying with different filters
@@ -339,10 +338,24 @@ describe('insightLogic', () => {
                 await expectLogic(logic)
                     .toMatchValues({
                         legacyInsight: insight,
-                        legacyFilters: partial({
-                            events: [partial({ id: 3 })],
-                            properties: [partial({ value: 'a' })],
-                        }),
+                        queryBasedInsight: {
+                            query: {
+                                kind: 'InsightVizNode',
+                                source: {
+                                    kind: 'TrendsQuery',
+                                    properties: {
+                                        type: 'AND',
+                                        values: [
+                                            {
+                                                type: 'AND',
+                                                values: [partial({ value: 'a' })],
+                                            },
+                                        ],
+                                    },
+                                    series: [partial({ event: 3 })],
+                                },
+                            },
+                        },
                     })
                     .delay(1)
                     .toNotHaveDispatchedActions(['setFilters', 'updateInsight'])
@@ -539,7 +552,6 @@ describe('insightLogic', () => {
             .toDispatchActions(savedInsightsLogic, ['loadInsights'])
             .toMatchValues({
                 savedInsight: partial({ filters: partial({ insight: InsightType.FUNNELS }) }),
-                legacyFilters: partial({ insight: InsightType.FUNNELS }),
                 legacyInsight: partial({ id: 12, short_id: Insight12, name: 'New Insight (copy)' }),
                 queryBasedInsight: partial({ id: 12, short_id: Insight12, name: 'New Insight (copy)' }),
                 insightChanged: false,
