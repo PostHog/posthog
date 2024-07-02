@@ -1,8 +1,8 @@
 import { dayjs } from 'lib/dayjs'
 
-import { BillingV2Type } from '~/types'
+import { BillingType } from '~/types'
 
-export const billingJson: BillingV2Type = {
+export const billingJson: BillingType = {
     customer_id: 'cus_Pg7PIL8MsKi6bx',
     deactivated: false,
     has_active_subscription: true,

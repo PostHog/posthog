@@ -1,6 +1,7 @@
+use std::collections::HashMap;
 use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use redis::AsyncCommands;
 use tokio::time::timeout;
@@ -48,19 +49,18 @@ impl Client for RedisClient {
 // mockall got really annoying with async and results so I'm just gonna do my own
 #[derive(Clone)]
 pub struct MockRedisClient {
-    zrangebyscore_ret: Vec<String>,
+    zrangebyscore_ret: HashMap<String, Vec<String>>,
 }
 
 impl MockRedisClient {
     pub fn new() -> MockRedisClient {
         MockRedisClient {
-            zrangebyscore_ret: Vec::new(),
+            zrangebyscore_ret: HashMap::new(),
         }
     }
 
-    pub fn zrangebyscore_ret(&mut self, ret: Vec<String>) -> Self {
-        self.zrangebyscore_ret = ret;
-
+    pub fn zrangebyscore_ret(&mut self, key: &str, ret: Vec<String>) -> Self {
+        self.zrangebyscore_ret.insert(key.to_owned(), ret);
         self.clone()
     }
 }
@@ -74,7 +74,10 @@ impl Default for MockRedisClient {
 #[async_trait]
 impl Client for MockRedisClient {
     // A very simplified wrapper, but works for our usage
-    async fn zrangebyscore(&self, _k: String, _min: String, _max: String) -> Result<Vec<String>> {
-        Ok(self.zrangebyscore_ret.clone())
+    async fn zrangebyscore(&self, key: String, _min: String, _max: String) -> Result<Vec<String>> {
+        match self.zrangebyscore_ret.get(&key) {
+            Some(val) => Ok(val.clone()),
+            None => Err(anyhow!("unknown key")),
+        }
     }
 }
