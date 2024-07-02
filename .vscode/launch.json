@@ -6,7 +6,7 @@
     "configurations": [
         {
             "name": "Frontend",
-            "command": "npm start",
+            "command": "pnpm start",
             "request": "launch",
             "type": "node-terminal",
             "cwd": "${workspaceFolder}",
@@ -231,6 +231,22 @@
             "stopAll": true,
             "presentation": {
                 "order": 1,
+                "group": "compound"
+            }
+        },
+        {
+            "name": "PostHog (local billing)",
+            "configurations": [
+                "Backend (with local billing)",
+                "Celery Threaded Pool",
+                "Celery Redbeat Scheduler",
+                "Frontend",
+                "Plugin Server",
+                "Temporal Worker"
+            ],
+            "stopAll": true,
+            "presentation": {
+                "order": 2,
                 "group": "compound"
             }
         }
