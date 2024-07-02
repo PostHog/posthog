@@ -5,6 +5,7 @@
     "customer_id": "cus_Pg7PIL8MsKi6bx",
     "deactivated": false,
     "has_active_subscription": true,
+    "subscription_level": "custom",
     "billing_period": {
         "current_period_start": "2024-03-07T23:21:20Z",
         "current_period_end": "2024-04-07T23:21:20Z",
