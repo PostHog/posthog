@@ -1,7 +1,9 @@
 use std::num::NonZeroU32;
+use time::Duration;
 
 use anyhow::Result;
 use assert_json_diff::assert_json_include;
+use capture::limiters::billing::QuotaResource;
 use reqwest::StatusCode;
 use serde_json::json;
 
@@ -344,6 +346,66 @@ async fn it_trims_distinct_id() -> Result<()> {
         expected: json!({
             "token": token,
             "distinct_id": trimmed_distinct_id2
+        })
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn it_applies_billing_limits() -> Result<()> {
+    setup_tracing();
+    let token1 = random_string("token", 16);
+    let token2 = random_string("token", 16);
+    let token3 = random_string("token", 16);
+    let distinct_id = random_string("id", 16);
+
+    let topic = EphemeralTopic::new().await;
+
+    // Setup billing limits:
+    //   - token1 limit is expired -> accept messages
+    //   - token2 limit is active -> drop messages
+    //   - token3 is not in redis -> accept by default
+    let redis = PrefixedRedis::new().await;
+    redis.add_billing_limit(QuotaResource::Events, &token1, Duration::seconds(-60));
+    redis.add_billing_limit(QuotaResource::Events, &token2, Duration::seconds(60));
+
+    let mut config = DEFAULT_CONFIG.clone();
+    config.redis_key_prefix = redis.key_prefix();
+    config.kafka.kafka_topic = topic.topic_name().to_string();
+    let server = ServerHandle::for_config(config).await;
+
+    for payload in [
+        json!({
+            "token": token1,
+            "batch": [{"event": "event1","distinct_id": distinct_id}]
+        }),
+        json!({
+            "token": token2,
+            "batch": [{"event": "to drop","distinct_id": distinct_id}]
+        }),
+        json!({
+            "token": token3,
+            "batch": [{"event": "event1","distinct_id": distinct_id}]
+        }),
+    ] {
+        let res = server.capture_events(payload.to_string()).await;
+        assert_eq!(StatusCode::OK, res.status());
+    }
+
+    // Batches 1 and 3 go through, batch 2 is dropped
+    assert_json_include!(
+        actual: topic.next_event()?,
+        expected: json!({
+            "token": token1,
+            "distinct_id": distinct_id
+        })
+    );
+    assert_json_include!(
+        actual: topic.next_event()?,
+        expected: json!({
+            "token": token3,
+            "distinct_id": distinct_id
         })
     );
 
