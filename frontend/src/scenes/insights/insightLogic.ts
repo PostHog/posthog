@@ -3,8 +3,9 @@ import { actions, connect, events, kea, key, listeners, path, props, reducers, s
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { DashboardPrivilegeLevel } from 'lib/constants'
+import { DashboardPrivilegeLevel, FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
@@ -68,6 +69,8 @@ export const insightLogic = kea<insightLogicType>([
             ['mathDefinitions'],
             userLogic,
             ['user'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [tagsModel, ['loadTags']],
         logic: [eventUsageLogic, dashboardsModel],
@@ -307,6 +310,10 @@ export const insightLogic = kea<insightLogicType>([
         ],
     })),
     selectors({
+        queryBasedInsightSaving: [
+            (s) => [s.featureFlags],
+            (featureFlags) => !!featureFlags[FEATURE_FLAGS.QUERY_BASED_INSIGHTS_SAVING],
+        ],
         queryBasedInsight: [(s) => [s.legacyInsight], (legacyInsight) => getQueryBasedInsightModel(legacyInsight)],
         insightProps: [() => [(_, props) => props], (props): InsightLogicProps => props],
         isInDashboardContext: [() => [(_, props) => props], ({ dashboardId }) => !!dashboardId],
@@ -421,7 +428,7 @@ export const insightLogic = kea<insightLogicType>([
         saveAsNamingSuccess: async ({ name }) => {
             let filters
             let query
-            if (isInsightVizNode(values.queryBasedInsight.query)) {
+            if (!values.queryBasedInsightSaving && isInsightVizNode(values.queryBasedInsight.query)) {
                 filters = queryNodeToFilter(values.queryBasedInsight.query.source)
             } else {
                 query = values.queryBasedInsight.query
