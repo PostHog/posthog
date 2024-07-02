@@ -72,6 +72,7 @@ def aget_external_data_jobs_by_schema_id(schema_id: UUID) -> list[ExternalDataJo
             "pipeline", Prefetch("schema", queryset=ExternalDataSchema.objects.prefetch_related("source"))
         )
         .filter(schema_id=schema_id)
+        .order_by("-created_at")
         .all()
     )
 

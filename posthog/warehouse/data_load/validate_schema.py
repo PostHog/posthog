@@ -211,10 +211,10 @@ async def validate_schema_and_update_table(
         raise
 
     previous_jobs = await aget_external_data_jobs_by_schema_id(schema_id=_schema_id)
-    if previous_jobs:
-        for previous_job in previous_jobs:
+    if len(previous_jobs) > 1:
+        for previous_job in previous_jobs[1:]:
             try:
-                previous_jobs.delete_deprecated_data_in_bucket()
+                previous_job.delete_deprecated_data_in_bucket()
             except Exception as e:
                 logger.exception(
                     f"Data Warehouse: Could not delete deprecated data source {previous_job.pk}",
