@@ -151,5 +151,5 @@ class DataImportPipeline:
         try:
             return await asyncio.to_thread(self._run)
         except PipelineStepFailed as e:
-            self.logger.exception(f"Data import failed for endpoint", exc_info=e)
+            self.logger.exception(f"Data import failed for endpoint with exception {e}", exc_info=e)
             raise
