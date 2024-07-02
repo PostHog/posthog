@@ -40,6 +40,7 @@ export type PersonUUID = string
 export type SessionOrderingType = DurationType | 'start_time' | 'console_error_count'
 
 interface Params {
+    filters?: RecordingUniversalFilters
     simpleFilters?: RecordingFilters
     advancedFilters?: RecordingFilters
     sessionRecordingId?: SessionRecordingId
@@ -840,7 +841,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     actions.setAdvancedFilters(params.advancedFilters)
                 }
 
-                if (values.useUniversalFiltering) {
+                if (values.useUniversalFiltering && !equal(params.filters, values.universalFilters)) {
                     actions.setUniversalFilters(
                         convertLegacyFiltersToUniversalFilters(params.simpleFilters, params.advancedFilters)
                     )
