@@ -704,8 +704,9 @@ export default function SurveyEdit(): JSX.Element {
                                                                 })
                                                             }}
                                                             selectedEvents={
-                                                                survey.conditions?.events?.values &&
-                                                                survey.conditions?.events?.values.length > 0
+                                                                survey.conditions?.events?.values?.length !=
+                                                                    undefined &&
+                                                                survey.conditions?.events?.values?.length > 0
                                                                     ? survey.conditions?.events?.values.map(
                                                                           (v) => v.name
                                                                       )
