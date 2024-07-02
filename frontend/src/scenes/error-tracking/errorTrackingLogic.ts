@@ -7,14 +7,19 @@ import { FilterLogicalOperator } from '~/types'
 
 import type { errorTrackingLogicType } from './errorTrackingLogicType'
 
-export type ErrorTrackingSparklineConfig = { period: number; unit: 'hour' | 'day'; multiplier: number }
+export type ErrorTrackingSparklineConfig = {
+    period: number
+    displayInterval: 'minute' | 'hour' | 'day'
+    displayGap: number
+    offset?: { value: number; unit: 'minute' | 'hour' | 'day' }
+}
 type SparklineOption = LemonSegmentedButtonOption<string> & ErrorTrackingSparklineConfig
 
-const SPARKLINE_OPTIONS = {
-    '1h': { period: 60, unit: 'minute', value: '1h', label: '1h', multiplier: 1 },
-    '24h': { value: '24h', label: '24h', period: 24, unit: 'hour', multiplier: 1 },
-    '7d': { value: '7d', label: '7d', period: 7, unit: 'hour', multiplier: 8 },
-    '14d': { value: '14d', label: '14d', period: 14, unit: 'hour', multiplier: 2 },
+const SPARKLINE_OPTIONS: Record<string, SparklineOption> = {
+    '-1h': { value: '1h', label: '1h', period: 60, displayInterval: 'minute', displayGap: 1 },
+    '-24h': { value: '24h', label: '24h', period: 24, displayInterval: 'hour', displayGap: 1 },
+    '-7d': { value: '7d', label: '7d', period: 7, displayInterval: 'hour', displayGap: 8 },
+    '-14d': { value: '14d', label: '14d', period: 14, displayInterval: 'hour', displayGap: 2 },
 }
 
 export const errorTrackingLogic = kea<errorTrackingLogicType>([
@@ -58,14 +63,14 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
             },
         ],
         sparklineSelection: [
-            SPARKLINE_OPTIONS['24h'] as SparklineOption,
+            SPARKLINE_OPTIONS['-24h'],
             { persist: true },
             {
                 setSparklineSelection: (_, { selection }) => selection,
             },
         ],
         sparklineOptions: [
-            [SPARKLINE_OPTIONS['24h'], SPARKLINE_OPTIONS['7d']] as SparklineOption[],
+            [SPARKLINE_OPTIONS['-24h'], SPARKLINE_OPTIONS['-7d']] as SparklineOption[],
             { persist: true },
             {
                 _setSparklineOptions: (_, { options }) => options,
@@ -76,21 +81,16 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
         setDateRange: ({ dateRange: { date_from, date_to } }) => {
             const options = []
 
-            // today and yesterday
-            if (date_from === 'dStart' || (date_from === '-1dStart' && date_to === '-1dEnd') || date_from === '-24h') {
-                options.push(SPARKLINE_OPTIONS['24h'], SPARKLINE_OPTIONS['1h'])
-            } else {
-                const period = Number(date_from?.replace(/-|h|d/g, ''))
-                options.push(
-                    {
-                        period: period,
-                        unit: period === 7 ? 'hour' : 'day',
-                        value: `${period}d`,
-                        label: `${period}d`,
-                        multiplier: period === 7 ? 3 : 1,
-                    },
-                    SPARKLINE_OPTIONS['24h']
-                )
+            // yesterday
+            if (date_from === '-1dStart' && date_to === '-1dEnd') {
+                const offset = { value: 1, unit: 'day' }
+                options.push({ ...SPARKLINE_OPTIONS['-24h'], offset }, { ...SPARKLINE_OPTIONS['-1h'], offset })
+            } // today and last 24 hours
+            else if (date_from === 'dStart' || date_from === '-24h') {
+                options.push(SPARKLINE_OPTIONS['-24h'], SPARKLINE_OPTIONS['-1h'])
+            } else if (date_from) {
+                // const period = Number(date_from?.replace(/-|h|d/g, ''))
+                options.push(SPARKLINE_OPTIONS[date_from], SPARKLINE_OPTIONS['-24h'])
             }
 
             const possibleValues = options.map((o) => o.value)

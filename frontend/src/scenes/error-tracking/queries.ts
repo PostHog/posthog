@@ -11,17 +11,18 @@ export const errorTrackingQuery = ({
     order,
     dateRange,
     filterTestAccounts,
-    period,
-    multiplier,
-    unit,
+    sparklineSelection,
     filterGroup,
 }: {
     order: ErrorTrackingOrder
     dateRange: DateRange
     filterTestAccounts: boolean
     filterGroup: UniversalFiltersGroup
-} & ErrorTrackingSparklineConfig): DataTableNode => {
-    const labels = generateFormattedDateLabels({ period, multiplier, unit })
+    sparklineSelection: ErrorTrackingSparklineConfig
+}): DataTableNode => {
+    const { period, displayInterval, displayGap, offset } = sparklineSelection
+
+    const labels = generateFormattedDateLabels({ period, displayInterval, displayGap, offset })
 
     return {
         kind: NodeKind.DataTableNode,
@@ -30,8 +31,8 @@ export const errorTrackingQuery = ({
             select: [
                 'any(properties) as "context.columns.error"',
                 'properties.$exception_type',
-                `<Sparkline data={reverse(arrayMap(x -> countEqual(groupArray(dateDiff('${unit}', now() - INTERVAL ${period} ${unit}, timestamp)), x), range(${
-                    period * multiplier
+                `<Sparkline data={reverse(arrayMap(x -> countEqual(groupArray(dateDiff('${displayInterval}', now() - INTERVAL ${period} ${displayInterval}, timestamp)), x), range(${
+                    period * displayGap
                 })))} labels={[${labels}]} /> as "context.columns.volume"`,
                 'count() as occurrences',
                 'count(distinct $session_id) as sessions',
@@ -58,9 +59,18 @@ export const errorTrackingQuery = ({
     }
 }
 
-const generateFormattedDateLabels = ({ period, multiplier, unit }: ErrorTrackingSparklineConfig): string => {
-    const now = dayjs().startOf(unit)
-    const formattedDates = range(period * multiplier).map((idx) => now.subtract(period - idx * multiplier, unit))
+const generateFormattedDateLabels = ({
+    period,
+    displayInterval,
+    displayGap,
+    offset,
+}: ErrorTrackingSparklineConfig): string => {
+    const now = dayjs()
+        .subtract(offset?.value ?? 0, offset?.unit)
+        .startOf(displayInterval)
+    const formattedDates = range(period * displayGap).map((idx) =>
+        now.subtract(period - idx * displayGap, displayInterval)
+    )
     const stringifiedDates = formattedDates.map((d) => `'${d.format('D MMM, YYYY HH:mm')} (UTC)'`)
     return stringifiedDates.join(',')
 }

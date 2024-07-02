@@ -22,11 +22,16 @@ export function ErrorTrackingScene(): JSX.Element {
     const { order } = useValues(errorTrackingSceneLogic)
     const { dateRange, filterTestAccounts, filterGroup, sparklineSelection } = useValues(errorTrackingLogic)
 
-    const { period, multiplier, unit } = sparklineSelection
-
     const query = useMemo(
-        () => errorTrackingQuery({ order, dateRange, filterTestAccounts, filterGroup, period, multiplier, unit }),
-        [order, dateRange, filterTestAccounts, filterGroup, period, multiplier, unit]
+        () =>
+            errorTrackingQuery({
+                order,
+                dateRange,
+                filterTestAccounts,
+                filterGroup,
+                sparklineSelection,
+            }),
+        [order, dateRange, filterTestAccounts, filterGroup, sparklineSelection]
     )
 
     const context: QueryContext = {
