@@ -198,19 +198,15 @@ class ActorsQueryRunner(QueryRunner):
                 if expr == "person.$delete":
                     column = ast.Constant(value=1)
                 elif expr == self.strategy.field or expr == "actor":
-                    column = ast.Field(chain=[self.strategy.origin_id])
-                    # want to modify this to return errrthang
                     s = """
                         concat('{',
-                        '"id":', persons.id, ','
+                        '"id":"', persons.id, '",'
                         , '"is_identified":' , if(persons.is_identified = 0, 'false', 'true') , ','
                         , '"properties":' , persons.properties , ','
                         , '"created_at":"' , persons.created_at , '"'
                         , '}')
                     """
                     column = parse_expr(s)
-                    column.args[1].value = column.args[1].value + '"'
-                    column.args[3].value = '"' + column.args[3].value
                 elif expr == "matched_recordings":
                     # the underlying query used to match recordings compares to a selection of "matched events"
                     # like `groupUniqArray(100)(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS matching_events`
