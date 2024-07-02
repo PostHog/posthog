@@ -393,7 +393,7 @@ async def test_redshift_export_workflow(
     inputs = RedshiftBatchExportInputs(
         team_id=ateam.pk,
         batch_export_id=str(redshift_batch_export.id),
-        data_interval_end="2023-04-25 14:30:00.000000",
+        data_interval_end=data_interval_end.isoformat(),
         interval=interval,
         batch_export_schema=batch_export_schema,
         batch_export_model=batch_export_model,
@@ -425,10 +425,13 @@ async def test_redshift_export_workflow(
     runs = await afetch_batch_export_runs(batch_export_id=redshift_batch_export.id)
     assert len(runs) == 1
 
+    events_to_export_created, persons_to_export_created = generate_test_data
+
     run = runs[0]
     assert run.status == "Completed"
-    assert run.records_completed == 100
-
+    assert run.records_completed == len(events_to_export_created) or run.records_completed == len(
+        persons_to_export_created
+    )
     await assert_clickhouse_records_in_redshfit(
         redshift_connection=psycopg_connection,
         clickhouse_client=clickhouse_client,
@@ -437,7 +440,7 @@ async def test_redshift_export_workflow(
         team_id=ateam.pk,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
-        batch_export_model=batch_export_model,
+        batch_export_model=model,
         exclude_events=exclude_events,
     )
 
