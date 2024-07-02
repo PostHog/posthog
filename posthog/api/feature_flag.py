@@ -246,10 +246,17 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
                             detail=f"Invalid date value: {prop.value}", code="invalid_date"
                         )
 
-                # make sure regex and icontains properties have string values
-                if prop.operator in ["regex", "icontains", "not_regex", "not_icontains"] and not isinstance(
-                    prop.value, str
-                ):
+                # make sure regex, icontains, gte, lte, lt, and gt properties have string values
+                if prop.operator in [
+                    "regex",
+                    "icontains",
+                    "not_regex",
+                    "not_icontains",
+                    "gte",
+                    "lte",
+                    "gt",
+                    "lt",
+                ] and not isinstance(prop.value, str):
                     raise serializers.ValidationError(
                         detail=f"Invalid value for operator {prop.operator}: {prop.value}", code="invalid_value"
                     )

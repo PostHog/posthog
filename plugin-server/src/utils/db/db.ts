@@ -641,7 +641,8 @@ export class DB {
         isUserId: number | null,
         isIdentified: boolean,
         uuid: string,
-        distinctIds?: { distinctId: string; version?: number }[]
+        distinctIds?: { distinctId: string; version?: number }[],
+        tx?: TransactionClient
     ): Promise<InternalPerson> {
         distinctIds ||= []
 
@@ -653,7 +654,7 @@ export class DB {
         const personVersion = 0
 
         const { rows } = await this.postgres.query<RawPerson>(
-            PostgresUse.COMMON_WRITE,
+            tx ?? PostgresUse.COMMON_WRITE,
             `WITH inserted_person AS (
                     INSERT INTO posthog_person (
                         created_at, properties, properties_last_updated_at,
@@ -861,7 +862,23 @@ export class DB {
             'addPersonlessDistinctId'
         )
 
-        return result.rows[0]['is_merged']
+        if (result.rows.length === 1) {
+            return result.rows[0]['is_merged']
+        }
+
+        // ON CONFLICT ... DO NOTHING won't give us our RETURNING, so we have to do another SELECT
+        const existingResult = await this.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `
+                SELECT is_merged
+                FROM posthog_personlessdistinctid
+                WHERE team_id = $1 AND distinct_id = $2
+            `,
+            [teamId, distinctId],
+            'addPersonlessDistinctId'
+        )
+
+        return existingResult.rows[0]['is_merged']
     }
 
     public async addPersonlessDistinctIdForMerge(

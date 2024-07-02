@@ -256,7 +256,8 @@ export class PersonState {
         isUserId: number | null,
         isIdentified: boolean,
         creatorEventUuid: string,
-        distinctIds: { distinctId: string; version?: number }[]
+        distinctIds: { distinctId: string; version?: number }[],
+        tx?: TransactionClient
     ): Promise<InternalPerson> {
         if (distinctIds.length < 1) {
             throw new Error('at least 1 distinctId is required in `createPerson`')
@@ -284,7 +285,8 @@ export class PersonState {
             isUserId,
             isIdentified,
             uuid,
-            distinctIds
+            distinctIds,
+            tx
         )
     }
 
@@ -617,7 +619,8 @@ export class PersonState {
                             [
                                 { distinctId: distinctId1, version: distinctId1Version },
                                 { distinctId: distinctId2, version: distinctId2Version },
-                            ]
+                            ],
+                            tx
                         ),
                         Promise.resolve(),
                     ]

@@ -1764,7 +1764,8 @@ describe('when handling $identify', () => {
         // completing before continuing with the first identify.
         const originalCreatePerson = hub.db.createPerson.bind(hub.db)
         const createPersonMock = jest.fn(async (...args) => {
-            const result = await originalCreatePerson(...args)
+            // We need to slice off the txn arg, or else we conflict with the `identify` below.
+            const result = await originalCreatePerson(...args.slice(0, -1))
 
             if (createPersonMock.mock.calls.length === 1) {
                 // On second invocation, make another identify call

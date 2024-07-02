@@ -12,10 +12,10 @@ import { getProductIcon } from 'scenes/products/Products'
 
 import {
     AvailableFeature,
+    BillingFeatureType,
     BillingProductV2AddonType,
     BillingProductV2Type,
-    BillingV2FeatureType,
-    BillingV2Type,
+    BillingType,
 } from '~/types'
 
 import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
@@ -139,14 +139,14 @@ export function PayGateMini({
 interface PayGateContentProps {
     className?: string
     background: boolean
-    featureInfo: BillingV2FeatureType
-    featureAvailableOnOrg?: BillingV2FeatureType | null
+    featureInfo: BillingFeatureType
+    featureAvailableOnOrg?: BillingFeatureType | null
     gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null
     productWithFeature: BillingProductV2AddonType | BillingProductV2Type
     isGrandfathered?: boolean
     isAddonProduct?: boolean
-    billing: BillingV2Type | null
-    featureInfoOnNextPlan?: BillingV2FeatureType
+    billing: BillingType | null
+    featureInfoOnNextPlan?: BillingFeatureType
     children: React.ReactNode
     handleCtaClick: () => void
 }
@@ -197,12 +197,12 @@ function PayGateContent({
 }
 
 const renderUsageLimitMessage = (
-    featureAvailableOnOrg: BillingV2FeatureType | null | undefined,
-    featureInfoOnNextPlan: BillingV2FeatureType | undefined,
+    featureAvailableOnOrg: BillingFeatureType | null | undefined,
+    featureInfoOnNextPlan: BillingFeatureType | undefined,
     gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
-    featureInfo: BillingV2FeatureType,
+    featureInfo: BillingFeatureType,
     productWithFeature: BillingProductV2AddonType | BillingProductV2Type,
-    billing: BillingV2Type | null,
+    billing: BillingType | null,
     featureFlags: FeatureFlagsSet,
     isAddonProduct?: boolean,
     handleCtaClick?: () => void
@@ -263,7 +263,7 @@ const renderUsageLimitMessage = (
 const renderGateVariantMessage = (
     gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
     productWithFeature: BillingProductV2AddonType | BillingProductV2Type,
-    billing: BillingV2Type | null,
+    billing: BillingType | null,
     featureFlags: FeatureFlagsSet,
     isAddonProduct?: boolean
 ): JSX.Element => {
