@@ -185,6 +185,7 @@ services:
         image: $REGISTRY_URL:$POSTHOG_APP_TAG
         environment:
             SENTRY_DSN: $SENTRY_DSN
+            SECRET_KEY: $POSTHOG_SECRET
             SITE_URL: https://$DOMAIN
         depends_on:
             - db
