@@ -105,7 +105,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
     selectors({
         useQueryDashboardCards: [
             (s) => [s.featureFlags],
-            (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_DASHBOARD_CARDS],
+            (featureFlags) => !!featureFlags[FEATURE_FLAGS.QUERY_BASED_DASHBOARD_CARDS],
         ],
 
         query: [
