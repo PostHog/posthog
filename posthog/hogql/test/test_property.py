@@ -234,12 +234,13 @@ class TestProperty(BaseTest):
             ),
             self._parse_expr("properties.a ilike '%b%' or properties.a ilike '%c%'"),
         )
-        self.assertEqual(
-            self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "regex"}),
-            self._parse_expr(
-                "ifNull(match(toString(properties.a), 'b'), false) or ifNull(match(toString(properties.a), 'c'), false)"
-            ),
+        a = self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "regex"})
+        b = self._parse_expr(
+            "ifNull(match(toString(properties.a), 'b'), 0) or ifNull(match(toString(properties.a), 'c'), 0)"
         )
+        self.assertEqual(a, b)
+        # Want to make sure this returns 0, not false. Clickhouse uses UInt8s primarily for booleans.
+        assert a.exprs[1].args[1].value == 0
         # negative
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "is_not"}),
