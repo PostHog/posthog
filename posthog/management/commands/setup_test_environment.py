@@ -26,6 +26,12 @@ from posthog.settings import (
 class Command(BaseCommand):
     help = "Set up databases for non-Python tests that depend on the Django server"
 
+    # has optional arg to only run postgres setup
+    def add_arguments(self, parser):
+        parser.add_argument(
+            "--only-postgres", action="store_true", help="Only set up the Postgres database", default=False
+        )
+
     def handle(self, *args, **options):
         if not TEST:
             raise ValueError("TEST environment variable needs to be set for this command to function")
@@ -35,6 +41,10 @@ class Command(BaseCommand):
         test_runner = TestRunner(interactive=False)
         test_runner.setup_databases()
         test_runner.setup_test_environment()
+
+        if options["only_postgres"]:
+            print("Only setting up Postgres database")  # noqa: T201
+            return
 
         print("\nCreating test ClickHouse database...")  # noqa: T201
         database = Database(

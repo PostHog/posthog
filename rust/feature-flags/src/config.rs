@@ -7,10 +7,10 @@ pub struct Config {
     #[envconfig(default = "127.0.0.1:3001")]
     pub address: SocketAddr,
 
-    #[envconfig(default = "postgres://posthog:posthog@localhost:15432/test_database")]
+    #[envconfig(default = "postgres://posthog:posthog@localhost:5432/test_posthog")]
     pub write_database_url: String,
 
-    #[envconfig(default = "postgres://posthog:posthog@localhost:15432/test_database")]
+    #[envconfig(default = "postgres://posthog:posthog@localhost:5432/test_posthog")]
     pub read_database_url: String,
 
     #[envconfig(default = "1024")]
