@@ -46,7 +46,7 @@ export function renderColumnMeta(key: string, query: DataTableNode, context?: Qu
             />
         )
     } else if (key.startsWith('context.columns.')) {
-        const column = trimQuotes(key.substring(16))
+        const column = trimQuotes(key.substring(16)) // 16 = "context.columns.".length
         const queryContextColumn = context?.columns?.[column]
         const Component = queryContextColumn?.renderTitle
         title = Component ? (
@@ -55,6 +55,7 @@ export function renderColumnMeta(key: string, query: DataTableNode, context?: Qu
             queryContextColumn?.title ?? column.replace('_', ' ')
         )
         align = queryContextColumn?.align
+        width = queryContextColumn?.width
     } else if (key === 'person.$delete') {
         title = ''
         width = 0
