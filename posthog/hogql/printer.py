@@ -613,22 +613,22 @@ class _Printer(Visitor):
         elif node.op == ast.CompareOperationOp.Gt:
             op = f"greater({left}, {right})"
             constant_lambda = lambda left_op, right_op: (
-                left_op > right_op if left_op is not None and right_op is not None else 0
+                left_op > right_op if left_op is not None and right_op is not None else False
             )
         elif node.op == ast.CompareOperationOp.GtEq:
             op = f"greaterOrEquals({left}, {right})"
             constant_lambda = lambda left_op, right_op: (
-                left_op >= right_op if left_op is not None and right_op is not None else 0
+                left_op >= right_op if left_op is not None and right_op is not None else False
             )
         elif node.op == ast.CompareOperationOp.Lt:
             op = f"less({left}, {right})"
             constant_lambda = lambda left_op, right_op: (
-                left_op < right_op if left_op is not None and right_op is not None else 0
+                left_op < right_op if left_op is not None and right_op is not None else False
             )
         elif node.op == ast.CompareOperationOp.LtEq:
             op = f"lessOrEquals({left}, {right})"
             constant_lambda = lambda left_op, right_op: (
-                left_op <= right_op if left_op is not None and right_op is not None else 0
+                left_op <= right_op if left_op is not None and right_op is not None else False
             )
         else:
             raise ImpossibleASTError(f"Unknown CompareOperationOp: {node.op.name}")
