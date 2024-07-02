@@ -395,6 +395,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportPoEModeUpdated: (mode: string) => ({ mode }),
         reportPersonsJoinModeUpdated: (mode: string) => ({ mode }),
         reportBounceRatePageViewModeUpdated: (mode: string) => ({ mode }),
+        reportSessionTableVersionUpdated: (version: string) => ({ version }),
         reportPropertySelectOpened: true,
         reportCreatedDashboardFromModal: true,
         reportSavedInsightToDashboard: true,
@@ -809,6 +810,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportBounceRatePageViewModeUpdated: async ({ mode }) => {
             posthog.capture('bounce rate page view mode updated', { mode })
+        },
+        reportSessionTableVersionUpdated: async ({ version }) => {
+            posthog.capture('session table version updated', { version })
         },
         reportInsightFilterRemoved: async ({ index }) => {
             posthog.capture('local filter removed', { index })
