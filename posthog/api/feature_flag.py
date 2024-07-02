@@ -758,4 +758,4 @@ class FeatureFlagViewSet(
 
 
 class LegacyFeatureFlagViewSet(FeatureFlagViewSet):
-    derive_current_team_from_user_only = True
+    param_derived_from_user_current_team = "project_id"
