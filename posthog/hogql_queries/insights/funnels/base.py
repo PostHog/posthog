@@ -1022,9 +1022,7 @@ class FunnelBase(ABC):
                 )
             ),
             group_by=group_by_columns,
-            having=ast.CompareOperation(
-                left=ast.Field(chain=["steps"]), right=ast.Field(chain=["max_steps"]), op=ast.CompareOperationOp.Eq
-            ),
+            having=parse_expr("steps = max(max_steps)"),
         )
 
     def actor_query(

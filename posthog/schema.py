@@ -241,7 +241,7 @@ class DatabaseSchemaSchema(BaseModel):
     last_synced_at: Optional[str] = None
     name: str
     should_sync: bool
-    status: str
+    status: Optional[str] = None
 
 
 class DatabaseSchemaSource(BaseModel):
