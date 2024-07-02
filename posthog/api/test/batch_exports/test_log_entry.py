@@ -109,7 +109,7 @@ def test_simple_log_is_fetched(batch_export, team):
 
         results = fetch_log_entries(
             team_id=team.pk,
-            batch_export_id=batch_export["id"],
+            log_source_id=batch_export["id"],
             after=dt.datetime(2023, 9, 22, 0, 59, 59),
             before=dt.datetime(2023, 9, 22, 1, 0, 1),
         )
@@ -117,7 +117,7 @@ def test_simple_log_is_fetched(batch_export, team):
     assert len(results) == 1
     assert results[0].message == "Test log. Much INFO."
     assert results[0].level == LogEntryLevel.INFO
-    assert results[0].batch_export_id == str(batch_export["id"])
+    assert results[0].log_source_id == str(batch_export["id"])
 
 
 @pytest.mark.django_db
@@ -149,7 +149,7 @@ def test_log_level_filter(batch_export, team, level):
     while not results:
         results = fetch_log_entries(
             team_id=team.pk,
-            batch_export_id=batch_export["id"],
+            log_source_id=batch_export["id"],
             level_filter=[level],
             after=dt.datetime(2023, 9, 22, 0, 59, 59),
             before=dt.datetime(2023, 9, 22, 1, 0, 1),
@@ -162,10 +162,10 @@ def test_log_level_filter(batch_export, team, level):
     assert len(results) == 2
     assert results[0].message == "Test log 1"
     assert results[0].level == level
-    assert results[0].batch_export_id == str(batch_export["id"])
+    assert results[0].log_source_id == str(batch_export["id"])
     assert results[1].message == "Test log 2"
     assert results[1].level == level
-    assert results[1].batch_export_id == str(batch_export["id"])
+    assert results[1].log_source_id == str(batch_export["id"])
 
 
 @pytest.mark.django_db
@@ -197,7 +197,7 @@ def test_log_level_filter_with_lowercase(batch_export, team, level):
     while not results:
         results = fetch_log_entries(
             team_id=team.pk,
-            batch_export_id=batch_export["id"],
+            log_source_id=batch_export["id"],
             level_filter=[level],
             after=dt.datetime(2023, 9, 22, 0, 59, 59),
             before=dt.datetime(2023, 9, 22, 1, 0, 1),
@@ -210,10 +210,10 @@ def test_log_level_filter_with_lowercase(batch_export, team, level):
     assert len(results) == 2
     assert results[0].message == "Test log 1"
     assert results[0].level == level
-    assert results[0].batch_export_id == str(batch_export["id"])
+    assert results[0].log_source_id == str(batch_export["id"])
     assert results[1].message == "Test log 2"
     assert results[1].level == level
-    assert results[1].batch_export_id == str(batch_export["id"])
+    assert results[1].log_source_id == str(batch_export["id"])
 
 
 @pytest.mark.django_db

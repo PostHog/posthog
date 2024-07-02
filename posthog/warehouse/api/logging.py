@@ -20,7 +20,7 @@ class ExternalDataSchemaLogEntrySerializer(DataclassSerializer):
 
 
 class ExternalDataSchemaLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    scope_object = "external_data_job"
+    scope_object = "INTERNAL"
     serializer_class = ExternalDataSchemaLogEntrySerializer
 
     def list(self, request: request.Request, *args, **kwargs):

@@ -481,7 +481,7 @@ class BatchExportLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         level_filter = [LogEntryLevel[t.upper()] for t in (request.GET.getlist("level_filter", []))]
         data = fetch_log_entries(
             team_id=self.team_id,
-            batch_export_id=self.parents_query_dict["batch_export_id"],
+            log_source_id=self.parents_query_dict["batch_export_id"],
             run_id=self.parents_query_dict.get("run_id", None),
             after=after,
             before=before,
