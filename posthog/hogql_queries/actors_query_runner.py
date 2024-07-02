@@ -322,13 +322,6 @@ class ActorsQueryRunner(QueryRunner):
                             expr=join_on,
                             constraint_type="ON",
                         ),
-                        next_join=ast.JoinExpr(
-                            table=ast.Field(chain=["person_distinct_ids"]),
-                            join_type="INNER JOIN",
-                            constraint=ast.JoinConstraint(
-                                expr=parse_expr("persons.id = person_distinct_ids.person_id"), constraint_type="ON"
-                            ),
-                        ),
                     ),
                 )
 
@@ -340,6 +333,13 @@ class ActorsQueryRunner(QueryRunner):
                 ast.Field(chain=["persons", "created_at"]),
                 *(group_by if has_any_aggregation else []),
             ]
+            join_expr.next_join.next_join = ast.JoinExpr(
+                table=ast.Field(chain=["person_distinct_ids"]),
+                join_type="INNER JOIN",
+                constraint=ast.JoinConstraint(
+                    expr=parse_expr("persons.id = person_distinct_ids.person_id"), constraint_type="ON"
+                ),
+            )
         else:
             group_by = group_by if has_any_aggregation else None
 
