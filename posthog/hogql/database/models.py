@@ -95,6 +95,7 @@ class BooleanDatabaseField(DatabaseField):
 
 class ExpressionField(DatabaseField):
     expr: Expr
+    isolate_scope: Optional[bool] = None
 
 
 class FieldTraverser(FieldOrTable):

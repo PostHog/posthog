@@ -323,10 +323,10 @@ class TestResolver(BaseTest):
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_expression_field_type_scope(self):
         self.database.events.fields["some_expr"] = ExpressionField(
-            name="some_expr", expr=ast.Field(chain=["properties"])
+            name="some_expr", expr=ast.Field(chain=["properties"]), isolate_scope=True
         )
         self.database.persons.fields["some_expr"] = ExpressionField(
-            name="some_expr", expr=ast.Field(chain=["properties"])
+            name="some_expr", expr=ast.Field(chain=["properties"]), isolate_scope=True
         )
 
         node = self._select("select e.some_expr, p.some_expr from events e left join persons p on e.uuid = p.id")
