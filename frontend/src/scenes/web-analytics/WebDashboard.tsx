@@ -196,7 +196,7 @@ export const WebTabs = ({
             | {
                   docsUrl: PostHogComDocsURL
                   title: string
-                  description: string
+                  description: string | JSX.Element
               }
             | undefined
     }[]
@@ -273,7 +273,7 @@ export const WebTabs = ({
 export interface LearnMorePopoverProps {
     docsURL: PostHogComDocsURL
     title: string
-    description: string
+    description: string | JSX.Element
 }
 
 export const LearnMorePopover = ({ docsURL, title, description }: LearnMorePopoverProps): JSX.Element => {
@@ -295,7 +295,7 @@ export const LearnMorePopover = ({ docsURL, title, description }: LearnMorePopov
                             icon={<IconX />}
                         />
                     </div>
-                    <p className="text-sm text-gray-700">{description}</p>
+                    <div className="text-sm text-gray-700">{description}</div>
                     <div className="flex justify-end mt-4">
                         <LemonButton
                             to={docsURL}

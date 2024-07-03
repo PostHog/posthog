@@ -983,6 +983,38 @@ class StickinessQueryResponse(BaseModel):
     )
 
 
+class TaxonomicFilterGroupType(StrEnum):
+    METADATA = "metadata"
+    ACTIONS = "actions"
+    COHORTS = "cohorts"
+    COHORTS_WITH_ALL = "cohorts_with_all"
+    DATA_WAREHOUSE = "data_warehouse"
+    DATA_WAREHOUSE_PROPERTIES = "data_warehouse_properties"
+    DATA_WAREHOUSE_PERSON_PROPERTIES = "data_warehouse_person_properties"
+    ELEMENTS = "elements"
+    EVENTS = "events"
+    EVENT_PROPERTIES = "event_properties"
+    EVENT_FEATURE_FLAGS = "event_feature_flags"
+    NUMERICAL_EVENT_PROPERTIES = "numerical_event_properties"
+    PERSON_PROPERTIES = "person_properties"
+    PAGEVIEW_URLS = "pageview_urls"
+    SCREENS = "screens"
+    CUSTOM_EVENTS = "custom_events"
+    WILDCARD = "wildcard"
+    GROUPS = "groups"
+    PERSONS = "persons"
+    FEATURE_FLAGS = "feature_flags"
+    INSIGHTS = "insights"
+    EXPERIMENTS = "experiments"
+    PLUGINS = "plugins"
+    DASHBOARDS = "dashboards"
+    NAME_GROUPS = "name_groups"
+    SESSION_PROPERTIES = "session_properties"
+    HOGQL_EXPRESSION = "hogql_expression"
+    NOTEBOOKS = "notebooks"
+    REPLAY = "replay"
+
+
 class TestBasicQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2582,7 +2614,9 @@ class SavedInsightNode(BaseModel):
     showPersistentColumnConfigurator: Optional[bool] = Field(
         default=None, description="Show a button to configure and persist the table's default columns if possible"
     )
-    showPropertyFilter: Optional[bool] = Field(default=None, description="Include a property filter above the table")
+    showPropertyFilter: Optional[Union[bool, list[TaxonomicFilterGroupType]]] = Field(
+        default=None, description="Include a property filter above the table"
+    )
     showReload: Optional[bool] = Field(default=None, description="Show a reload button")
     showResults: Optional[bool] = None
     showResultsTable: Optional[bool] = Field(default=None, description="Show a results table")
@@ -4260,7 +4294,9 @@ class DataTableNode(BaseModel):
     showPersistentColumnConfigurator: Optional[bool] = Field(
         default=None, description="Show a button to configure and persist the table's default columns if possible"
     )
-    showPropertyFilter: Optional[bool] = Field(default=None, description="Include a property filter above the table")
+    showPropertyFilter: Optional[Union[bool, list[TaxonomicFilterGroupType]]] = Field(
+        default=None, description="Include a property filter above the table"
+    )
     showReload: Optional[bool] = Field(default=None, description="Show a reload button")
     showResultsTable: Optional[bool] = Field(default=None, description="Show a results table")
     showSavedQueries: Optional[bool] = Field(default=None, description="Shows a list of saved queries")
