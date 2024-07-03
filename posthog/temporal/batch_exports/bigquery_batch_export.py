@@ -425,7 +425,12 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
             ):
 
                 async def flush_to_bigquery(
-                    local_results_file, records_since_last_flush, bytes_since_last_flush, last_inserted_at, last
+                    local_results_file,
+                    records_since_last_flush,
+                    bytes_since_last_flush,
+                    flush_counter: int,
+                    last_inserted_at,
+                    last,
                 ):
                     logger.debug(
                         "Loading %s records of size %s bytes",
