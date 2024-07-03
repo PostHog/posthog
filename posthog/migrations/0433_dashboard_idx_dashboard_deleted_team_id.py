@@ -9,7 +9,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddIndex(
+        migrations.AddIndexConcurrently(
             model_name="dashboard",
             index=models.Index(
                 condition=models.Q(("deleted", False)),
