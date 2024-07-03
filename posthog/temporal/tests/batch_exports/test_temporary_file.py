@@ -11,6 +11,7 @@ from posthog.temporal.batch_exports.temporary_file import (
     BatchExportTemporaryFile,
     CSVBatchExportWriter,
     JSONLBatchExportWriter,
+    LastInsertedAt,
     ParquetBatchExportWriter,
     json_dumps_bytes,
 )
@@ -222,7 +223,7 @@ TEST_RECORD_BATCHES = [
 async def test_jsonl_writer_writes_record_batches(record_batch):
     """Test record batches are written as valid JSONL."""
     in_memory_file_obj = io.BytesIO()
-    inserted_ats_seen = []
+    inserted_ats_seen: list[LastInsertedAt] = []
 
     async def store_in_memory_on_flush(
         batch_export_file, records_since_last_flush, bytes_since_last_flush, flush_counter, last_inserted_at, is_last
