@@ -50,7 +50,7 @@ interface NewSourcesWizardProps {
 export function NewSourcesWizard({ onComplete }: NewSourcesWizardProps): JSX.Element {
     const wizardLogic = sourceWizardLogic({ onComplete })
 
-    const { modalTitle, modalCaption } = useValues(wizardLogic)
+    const { modalTitle, modalCaption, isWrapped } = useValues(wizardLogic)
     const { onBack, onSubmit } = useActions(wizardLogic)
     const { currentStep, isLoading, canGoBack, canGoNext, nextButtonText, showSkipButton } = useValues(wizardLogic)
     const { tableLoading: manualLinkIsLoading } = useValues(dataWarehouseTableLogic)
@@ -87,7 +87,7 @@ export function NewSourcesWizard({ onComplete }: NewSourcesWizardProps): JSX.Ele
 
     return (
         <>
-            <DataWarehouseInitialBillingLimitNotice />
+            {!isWrapped && <DataWarehouseInitialBillingLimitNotice />}
             <>
                 <h3>{modalTitle}</h3>
                 <p>{modalCaption}</p>

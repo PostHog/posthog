@@ -649,6 +649,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 return ''
             },
         ],
+        // determines if the wizard is wrapped in another component
+        isWrapped: [() => [], () => !!props.onComplete],
     })),
     listeners(({ actions, values, props }) => ({
         onBack: () => {
