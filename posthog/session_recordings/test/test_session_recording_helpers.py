@@ -410,9 +410,13 @@ def test_new_ingestion_many_small_non_full_snapshots_are_separated(raw_snapshot_
     )
     mocker.patch("time.time", return_value=0)
 
+    # this will have to be split into multiple kafka messages
     too_big_payload = [
         "".join(random.choices(string.ascii_uppercase + string.digits, k=124)),
     ] * 20
+    too_big_payload.append("".join(random.choices(string.ascii_uppercase + string.digits, k=512)))
+    too_big_payload.append("".join(random.choices(string.ascii_uppercase + string.digits, k=512)))
+    too_big_payload.append("".join(random.choices(string.ascii_uppercase + string.digits, k=1024)))
 
     events = [
         {
@@ -432,10 +436,10 @@ def test_new_ingestion_many_small_non_full_snapshots_are_separated(raw_snapshot_
     ]
     capture_output = list(mock_capture_flow(events, max_size_bytes=2000))[1]
 
-    # the list was split in half and could then fit into kafka messages
-    assert len(capture_output) == 2
-    assert len(capture_output[0]["properties"]["$snapshot_items"]) == 10
-    assert len(capture_output[1]["properties"]["$snapshot_items"]) == 10
+    # the list was split multiple times until likely to all fit into kafka messages
+    snapshot_items_lengths = [len(x["properties"]["$snapshot_items"]) for x in capture_output]
+    assert snapshot_items_lengths == [5, 6, 6, 3, 1, 2]
+    assert sum(snapshot_items_lengths) == 23
 
 
 def test_new_ingestion_groups_using_snapshot_bytes_if_possible(raw_snapshot_events, mocker: MockerFixture):

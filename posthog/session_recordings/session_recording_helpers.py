@@ -152,7 +152,7 @@ def preprocess_replay_events(
 
     def split_list(xs: list) -> list[list]:
         mid = len(xs) // 2
-        return [xs[:mid], xs[mid:]] if mid > 0 else [xs]
+        return [xs[:mid], xs[mid:]]
 
     # 1. Group by $snapshot_bytes if any of the events have it
     if events[0]["properties"].get("$snapshot_bytes"):
@@ -218,7 +218,7 @@ def preprocess_replay_events(
                             event = new_event(part)
                             yield event
                         elif len(part) > 1:  # Only split if the part has more than one item
-                            new_parts = split_list(part)
+                            new_parts.extend(split_list(part))
                         else:
                             # If part has only one item and still doesn't fit, yield it as is
                             event = new_event(part)
