@@ -214,7 +214,7 @@ class BigQueryClient(bigquery.Client):
         for n, field in enumerate(merge_key):
             if n > 0:
                 merge_condition += " AND "
-            merge_condition += f"final.{field.name} = stage.{field.name}"
+            merge_condition += f"final.`{field.name}` = stage.`{field.name}`"
 
         update_clause = ""
         values = ""
@@ -225,9 +225,9 @@ class BigQueryClient(bigquery.Client):
                 values += ", "
                 field_names += ", "
 
-            update_clause += f"final.{field.name} = stage.{field.name}"
-            field_names += field.name
-            values += f"stage.{field.name}"
+            update_clause += f"final.`{field.name}` = stage.`{field.name}`"
+            field_names += f"`{field.name}`"
+            values += f"stage.`{field.name}`"
 
         merge_query = f"""
         MERGE `{final_table.full_table_id.replace(":", ".", 1)}` final
@@ -425,7 +425,12 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
             ):
 
                 async def flush_to_bigquery(
-                    local_results_file, records_since_last_flush, bytes_since_last_flush, last_inserted_at, last
+                    local_results_file,
+                    records_since_last_flush,
+                    bytes_since_last_flush,
+                    flush_counter: int,
+                    last_inserted_at,
+                    last,
                 ):
                     logger.debug(
                         "Loading %s records of size %s bytes",

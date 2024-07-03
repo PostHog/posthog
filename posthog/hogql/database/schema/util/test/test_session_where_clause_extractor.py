@@ -277,6 +277,41 @@ SELECT
         )
         assert expected == actual
 
+    def test_not_like(self):
+        # based on a bug here: https://posthog.slack.com/archives/C05LJK1N3CP/p1719916566421079
+        where = ast.And(
+            exprs=[
+                ast.CompareOperation(
+                    left=ast.Field(chain=["event"]),
+                    op=ast.CompareOperationOp.Eq,
+                    right=ast.Constant(value="$pageview"),
+                ),
+                ast.CompareOperation(
+                    left=ast.Field(chain=["timestamp"]),
+                    op=ast.CompareOperationOp.GtEq,
+                    right=ast.Constant(value="2024-03-12"),
+                ),
+                ast.And(
+                    exprs=[
+                        ast.CompareOperation(
+                            left=ast.Field(chain=["host"]),
+                            op=ast.CompareOperationOp.NotILike,
+                            right=ast.Constant(value="localhost:3000"),
+                        ),
+                        ast.CompareOperation(
+                            left=ast.Field(chain=["host"]),
+                            op=ast.CompareOperationOp.NotILike,
+                            right=ast.Constant(value="localhost:3001"),
+                        ),
+                    ]
+                ),
+            ]
+        )
+        select = ast.SelectQuery(select=[], where=where)
+        actual = f(self.inliner.get_inner_where(select))
+        expected = f("(raw_sessions.min_timestamp + toIntervalDay(3)) >= '2024-03-12'")
+        assert expected == actual
+
 
 class TestSessionsQueriesHogQLToClickhouse(ClickhouseTestMixin, APIBaseTest):
     def print_query(self, query: str) -> str:

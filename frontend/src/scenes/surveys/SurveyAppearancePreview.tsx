@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { renderFeedbackWidgetPreview, renderSurveysPreview } from 'posthog-js/dist/surveys-module-previews'
+import { renderFeedbackWidgetPreview, renderSurveysPreview } from 'posthog-js/dist/surveys-preview'
 import { useEffect, useRef } from 'react'
 
 import { Survey } from '~/types'
