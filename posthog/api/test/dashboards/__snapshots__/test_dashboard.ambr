@@ -2177,7 +2177,8 @@
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboard"."created_by_id" = "posthog_user"."id")
   WHERE (NOT ("posthog_dashboard"."deleted")
          AND "posthog_dashboard"."team_id" = 2)
-  ORDER BY "posthog_dashboard"."name" ASC
+  ORDER BY "posthog_dashboard"."pinned" DESC,
+           "posthog_dashboard"."name" ASC
   LIMIT 300
   '''
 # ---
@@ -14180,7 +14181,8 @@
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboard"."created_by_id" = "posthog_user"."id")
   WHERE (NOT ("posthog_dashboard"."deleted")
          AND "posthog_dashboard"."team_id" = 2)
-  ORDER BY "posthog_dashboard"."name" ASC
+  ORDER BY "posthog_dashboard"."pinned" DESC,
+           "posthog_dashboard"."name" ASC
   LIMIT 100
   '''
 # ---
