@@ -71,7 +71,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
 
     return (
         <div className="bg-bg-3000 rounded p-6 flex flex-col" ref={productRef}>
-            <div className="flex justify-between gap-x-4">
+            <div className="sm:flex justify-between gap-x-4">
                 <div className="flex gap-x-4">
                     <div className="w-8">{getProductIcon(addon.name, addon.icon_key, 'text-2xl')}</div>
                     <div>
@@ -115,8 +115,8 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                         )}
                     </div>
                 </div>
-                <div>
-                    <div className="ml-4 mt-2 self-center flex items-center gap-x-3 whitespace-nowrap">
+                <div className="min-w-64">
+                    <div className="ml-4 mt-2 self-center flex items-center justify-end gap-x-3 whitespace-nowrap">
                         {addon.subscribed && !addon.inclusion_only ? (
                             <>
                                 <More
@@ -196,7 +196,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                 {addonFeatures?.length > 2 && (
                     <div>
                         <p className="ml-0 mb-2 max-w-200">Features included:</p>
-                        <div className="grid grid-cols-2 gap-x-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
                             {addonFeatures.map((feature, index) => (
                                 <div
                                     className="flex gap-x-2 items-center mb-2"
