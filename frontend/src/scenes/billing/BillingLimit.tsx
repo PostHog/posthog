@@ -22,14 +22,14 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
     const initialBillingLimit = currentAndUpgradePlans?.currentPlan?.initial_billing_limit
     const usingInitialBillingLimit = customLimitUsd === initialBillingLimit
 
-    if (billing?.billing_period?.interval !== 'month' || !product.subscribed) {
+    if (billing?.billing_period?.interval !== 'month' || !product.subscribed || product.inclusion_only) {
         return null
     }
 
     return (
         <Form formKey="billingLimitInput" props={{ product: product }} logic={billingProductLogic} enableFormOnSubmit>
             <div className="border-t border-border p-8" data-attr={`billing-limit-input-${product.type}`}>
-                <h3 className="mb-2">Billing limit</h3>
+                <h3 className="mb-2">Billing limit!</h3>
                 <div className="flex">
                     {!isEditingBillingLimit ? (
                         <div className="flex items-center justify-center gap-1">

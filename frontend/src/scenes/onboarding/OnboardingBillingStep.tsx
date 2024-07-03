@@ -10,7 +10,6 @@ import { AllProductsPlanComparison } from 'scenes/billing/AllProductsPlanCompari
 import { getUpgradeProductLink } from 'scenes/billing/billing-utils'
 import { BillingHero } from 'scenes/billing/BillingHero'
 import { billingLogic } from 'scenes/billing/billingLogic'
-import { billingProductLogic } from 'scenes/billing/billingProductLogic'
 import { PlanComparison } from 'scenes/billing/PlanComparison'
 
 import { BillingProductV2Type } from '~/types'
@@ -27,7 +26,6 @@ export const OnboardingBillingStep = ({
 }): JSX.Element => {
     const { billing, redirectPath } = useValues(billingLogic)
     const { productKey } = useValues(onboardingLogic)
-    const { currentAndUpgradePlans } = useValues(billingProductLogic({ product }))
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
 
     const [showPlanComp, setShowPlanComp] = useState(false)
