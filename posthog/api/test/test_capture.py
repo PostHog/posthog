@@ -19,7 +19,7 @@ import structlog
 import zlib
 from boto3 import resource
 from botocore.client import Config
-from botocore.exceptions import ClientError
+from django.conf import settings
 from django.http import HttpResponse
 from django.test import override_settings
 from django.test.client import MULTIPART_CONTENT, Client
@@ -206,6 +206,9 @@ def make_processed_recording_event(
     }
 
 
+REPLAY_MESSAGES_TOO_LARGE_SAMPLES_PREFIX = "test_replay_messages_too_large_samples"
+
+
 class TestCapture(BaseTest):
     """
     Tests all data capture endpoints (e.g. `/capture` `/batch/`).
@@ -219,15 +222,9 @@ class TestCapture(BaseTest):
         # it is really important to know that /capture is CSRF exempt. Enforce checking in the client
         self.client = Client(enforce_csrf_checks=True)
 
-        try:
-            s3.meta.client.head_bucket(Bucket=TEST_SAMPLES_BUCKET)
-        except ClientError:
-            # probably the bucket doesn't exist
-            s3.create_bucket(Bucket=TEST_SAMPLES_BUCKET)
-
     def teardown_method(self, method) -> None:
-        bucket = s3.Bucket(TEST_SAMPLES_BUCKET)
-        bucket.objects.delete()
+        bucket = s3.Bucket(settings.OBJECT_STORAGE_BUCKET)
+        bucket.objects.filter(Prefix=REPLAY_MESSAGES_TOO_LARGE_SAMPLES_PREFIX).delete()
 
     def _to_json(self, data: Union[dict, list]) -> str:
         return json.dumps(data)
@@ -2210,7 +2207,8 @@ class TestCapture(BaseTest):
         random_number = sample_rate / 2
 
         with self.settings(
-            REPLAY_MESSAGE_TOO_LARGE_SAMPLE_RATE=sample_rate, REPLAY_MESSAGE_TOO_LARGE_SAMPLE_BUCKET=TEST_SAMPLES_BUCKET
+            REPLAY_MESSAGE_TOO_LARGE_SAMPLE_RATE=sample_rate,
+            REPLAY_MESSAGES_TOO_LARGE_SAMPLES_PREFIX=REPLAY_MESSAGES_TOO_LARGE_SAMPLES_PREFIX,
         ):
             event = make_processed_recording_event(
                 session_id="abcdefgh",
@@ -2231,7 +2229,7 @@ class TestCapture(BaseTest):
                 ],
             )
             sample_replay_data_to_object_storage(event, random_number)
-            contents = object_storage.read("session_id/abcdefgh.json", bucket=TEST_SAMPLES_BUCKET)
+            contents = object_storage.read(f"{REPLAY_MESSAGES_TOO_LARGE_SAMPLES_PREFIX}/session_id/abcdefgh.json")
             assert contents == json.dumps(event)
 
     @parameterized.expand(
@@ -2241,9 +2239,7 @@ class TestCapture(BaseTest):
         ]
     )
     def test_capture_replay_does_not_write_to_bucket(self, _name: str, sample_rate: float, random_number: float):
-        with self.settings(
-            REPLAY_MESSAGE_TOO_LARGE_SAMPLE_RATE=sample_rate, REPLAY_MESSAGE_TOO_LARGE_SAMPLE_BUCKET=TEST_SAMPLES_BUCKET
-        ):
+        with self.settings(REPLAY_MESSAGE_TOO_LARGE_SAMPLE_RATE=sample_rate):
             event = make_processed_recording_event(
                 session_id="abcdefgh",
                 snapshot_bytes=0,
@@ -2265,4 +2261,4 @@ class TestCapture(BaseTest):
             sample_replay_data_to_object_storage(event, random_number)
 
             with pytest.raises(ObjectStorageError):
-                object_storage.read("session_id/abcdefgh.json", bucket=TEST_SAMPLES_BUCKET)
+                object_storage.read(f"{REPLAY_MESSAGES_TOO_LARGE_SAMPLES_PREFIX}/session_id/abcdefgh.json")

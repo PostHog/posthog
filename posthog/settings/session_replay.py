@@ -28,6 +28,6 @@ REPLAY_EMBEDDINGS_CLUSTERING_DBSCAN_MIN_SAMPLES = get_from_env(
 )
 
 REPLAY_MESSAGE_TOO_LARGE_SAMPLE_RATE = get_from_env("REPLAY_MESSAGE_TOO_LARGE_SAMPLE_RATE", 0, type_cast=float)
-REPLAY_MESSAGE_TOO_LARGE_SAMPLE_BUCKET = get_from_env(
-    "REPLAY_MESSAGE_TOO_LARGE_SAMPLE_BUCKET", "posthog-cloud-prod-us-east-1-k8s-replay-samples"
+REPLAY_MESSAGES_TOO_LARGE_SAMPLES_PREFIX = get_from_env(
+    "REPLAY_MESSAGES_TOO_LARGE_SAMPLES_PREFIX", "replay_messages_too_large_samples"
 )

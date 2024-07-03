@@ -689,8 +689,8 @@ def sample_replay_data_to_object_storage(event: dict[str, Any], random_number: f
     try:
         sample_rate = settings.REPLAY_MESSAGE_TOO_LARGE_SAMPLE_RATE
         if 0 < random_number < sample_rate <= 0.01:
-            object_key = f"session_id/{event.get('properties', {}).get('$session_id', 'unknown')}.json"
-            object_storage.write(object_key, json.dumps(event), bucket=settings.REPLAY_MESSAGE_TOO_LARGE_SAMPLE_BUCKET)
+            object_key = f"{settings.REPLAY_MESSAGES_TOO_LARGE_SAMPLES_PREFIX}/session_id/{event.get('properties', {}).get('$session_id', 'unknown')}.json"
+            object_storage.write(object_key, json.dumps(event))
     except Exception as ex:
         with sentry_sdk.push_scope() as scope:
             scope.set_tag("capture-pathway", "replay")
