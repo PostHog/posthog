@@ -4,10 +4,12 @@ import { PluginsServerConfig, Team } from '../types'
 import { PostgresRouter, PostgresUse } from '../utils/db/postgres'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
-import { HogFunctionType } from './types'
+import { HogFunctionType, IntegrationType } from './types'
 
 export type HogFunctionMap = Record<HogFunctionType['id'], HogFunctionType>
 export type HogFunctionCache = Record<Team['id'], HogFunctionMap>
+
+const HOG_FUNCTION_FIELDS = ['id', 'team_id', 'name', 'enabled', 'inputs', 'inputs_schema', 'filters', 'bytecode']
 
 export class HogFunctionManager {
     private started: boolean
@@ -55,11 +57,18 @@ export class HogFunctionManager {
         await this.pubSub.stop()
     }
 
-    public getTeamHogFunctions(teamId: Team['id']): HogFunctionMap {
+    public getTeamHogFunctions(teamId: Team['id']): HogFunctionType[] {
         if (!this.ready) {
             throw new Error('HogFunctionManager is not ready! Run HogFunctionManager.start() before this')
         }
-        return this.cache[teamId] || {}
+        return Object.values(this.cache[teamId] || {})
+    }
+
+    public getTeamHogFunction(teamId: Team['id'], hogFunctionId: HogFunctionType['id']): HogFunctionType | undefined {
+        if (!this.ready) {
+            throw new Error('HogFunctionManager is not ready! Run HogFunctionManager.start() before this')
+        }
+        return this.cache[teamId]?.[hogFunctionId]
     }
 
     public teamHasHogFunctions(teamId: Team['id']): boolean {
@@ -67,13 +76,49 @@ export class HogFunctionManager {
     }
 
     public async reloadAllHogFunctions(): Promise<void> {
-        this.cache = await fetchAllHogFunctionsGroupedByTeam(this.postgres)
+        const items = (
+            await this.postgres.query<HogFunctionType>(
+                PostgresUse.COMMON_READ,
+                `
+            SELECT ${HOG_FUNCTION_FIELDS.join(', ')}
+            FROM posthog_hogfunction
+            WHERE deleted = FALSE AND enabled = TRUE
+        `,
+                [],
+                'fetchAllHogFunctions'
+            )
+        ).rows
+
+        await this.enrichWithIntegrations(items)
+
+        const cache: HogFunctionCache = {}
+        for (const item of items) {
+            if (!cache[item.team_id]) {
+                cache[item.team_id] = {}
+            }
+
+            cache[item.team_id][item.id] = item
+        }
+
+        this.cache = cache
         status.info('🍿', 'Fetched all hog functions from DB anew')
     }
 
     public async reloadHogFunctions(teamId: Team['id'], ids: HogFunctionType['id'][]): Promise<void> {
         status.info('🍿', `Reloading hog functions ${ids} from DB`)
-        const items = await fetchHogFunctions(this.postgres, ids)
+
+        const items: HogFunctionType[] = (
+            await this.postgres.query(
+                PostgresUse.COMMON_READ,
+                `SELECT ${HOG_FUNCTION_FIELDS.join(', ')}
+                FROM posthog_hogfunction
+                WHERE id = ANY($1) AND deleted = FALSE AND enabled = TRUE`,
+                [ids],
+                'fetchEnabledHogFunctions'
+            )
+        ).rows
+
+        await this.enrichWithIntegrations(items)
 
         if (!this.cache[teamId]) {
             this.cache[teamId] = {}
@@ -88,49 +133,78 @@ export class HogFunctionManager {
             this.cache[teamId][item.id] = item
         }
     }
-}
 
-const HOG_FUNCTION_FIELDS = ['id', 'team_id', 'name', 'enabled', 'inputs', 'filters', 'bytecode']
-
-export async function fetchAllHogFunctionsGroupedByTeam(client: PostgresRouter): Promise<HogFunctionCache> {
-    const items = (
-        await client.query<HogFunctionType>(
-            PostgresUse.COMMON_READ,
-            `
-            SELECT ${HOG_FUNCTION_FIELDS.join(', ')}
-            FROM posthog_hogfunction
-            WHERE deleted = FALSE AND enabled = TRUE
-        `,
-            [],
-            'fetchAllHogFunctions'
-        )
-    ).rows
-
-    const cache: HogFunctionCache = {}
-    for (const item of items) {
-        if (!cache[item.team_id]) {
-            cache[item.team_id] = {}
-        }
-
-        cache[item.team_id][item.id] = item
+    public async fetchHogFunction(id: HogFunctionType['id']): Promise<HogFunctionType | null> {
+        const items: HogFunctionType[] = (
+            await this.postgres.query(
+                PostgresUse.COMMON_READ,
+                `SELECT ${HOG_FUNCTION_FIELDS.join(', ')}
+                FROM posthog_hogfunction
+                WHERE id = $1 AND deleted = FALSE`,
+                [id],
+                'fetchHogFunction'
+            )
+        ).rows
+        await this.enrichWithIntegrations(items)
+        return items[0] ?? null
     }
 
-    return cache
-}
+    public async enrichWithIntegrations(items: HogFunctionType[]): Promise<void> {
+        const integrationIds: number[] = []
 
-export async function fetchHogFunctions(
-    client: PostgresRouter,
-    ids: HogFunctionType['id'][]
-): Promise<HogFunctionType[]> {
-    const items: HogFunctionType[] = (
-        await client.query(
-            PostgresUse.COMMON_READ,
-            `SELECT ${HOG_FUNCTION_FIELDS.join(', ')}
-                FROM posthog_hogfunction
-                WHERE id = ANY($1) AND deleted = FALSE AND enabled = TRUE`,
-            [ids],
-            'fetchHogFunctions'
+        items.forEach((item) => {
+            item.inputs_schema?.forEach((schema) => {
+                if (schema.type === 'integration') {
+                    const input = item.inputs?.[schema.key]
+                    if (input && typeof input.value === 'number') {
+                        integrationIds.push(input.value)
+                    }
+                }
+            })
+        })
+
+        if (!items.length) {
+            return
+        }
+
+        const integrations: IntegrationType[] = (
+            await this.postgres.query(
+                PostgresUse.COMMON_READ,
+                `SELECT id, team_id, kind, config, sensitive_config
+                FROM posthog_integration
+                WHERE id = ANY($1)`,
+                [integrationIds],
+                'fetchIntegrations'
+            )
+        ).rows
+
+        const integrationConfigsByTeamAndId: Record<string, Record<string, any>> = integrations.reduce(
+            (acc, integration) => {
+                return {
+                    ...acc,
+                    [`${integration.team_id}:${integration.id}`]: {
+                        ...integration.config,
+                        ...integration.sensitive_config,
+                    },
+                }
+            },
+            {}
         )
-    ).rows
-    return items
+
+        items.forEach((item) => {
+            item.inputs_schema?.forEach((schema) => {
+                if (schema.type === 'integration') {
+                    const input = item.inputs?.[schema.key]
+                    if (!input) {
+                        return
+                    }
+                    const integrationId = input.value
+                    const integrationConfig = integrationConfigsByTeamAndId[`${item.team_id}:${integrationId}`]
+                    if (integrationConfig) {
+                        input.value = integrationConfig
+                    }
+                }
+            })
+        })
+    }
 }

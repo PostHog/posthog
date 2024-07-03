@@ -419,6 +419,7 @@ export function cleanFilters(
             ...(isTrendsFilter(filters) && filters?.show_percent_stack_view
                 ? { show_percent_stack_view: filters.show_percent_stack_view }
                 : {}),
+            y_axis_scale_type: isTrendsFilter(filters) ? filters.y_axis_scale_type : undefined,
             ...commonFilters,
         }
 

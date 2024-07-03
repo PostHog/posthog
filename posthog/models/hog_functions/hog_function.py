@@ -1,14 +1,36 @@
+import enum
 from typing import Optional
 
 from django.db import models
 from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
+import structlog
 
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 from posthog.models.action.action import Action
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDModel
-from posthog.plugins.reload import reload_hog_functions_on_workers
+from posthog.plugins.plugin_server_api import (
+    get_hog_function_status,
+    patch_hog_function_status,
+    reload_hog_functions_on_workers,
+)
+
+DEFAULT_STATE = {
+    "state": 0,
+    "ratings": [],
+    "states": [],
+}
+
+logger = structlog.get_logger(__name__)
+
+
+class HogFunctionState(enum.Enum):
+    UNKNOWN = 0
+    HEALTHY = 1
+    OVERFLOWED = 2
+    DISABLED_TEMPORARILY = 3
+    DISABLED_PERMANENTLY = 4
 
 
 class HogFunction(UUIDModel):
@@ -44,28 +66,44 @@ class HogFunction(UUIDModel):
         except KeyError:
             return []
 
-    def compile_filters_bytecode(self, actions: Optional[dict[int, Action]] = None):
-        from .utils import hog_function_filters_to_expr
-        from posthog.hogql.bytecode import create_bytecode
+    _status: Optional[dict] = None
 
-        self.filters = self.filters or {}
+    @property
+    def status(self) -> dict:
+        if not self.enabled:
+            return DEFAULT_STATE
 
-        if actions is None:
-            # If not provided as an optimization we fetch all actions
-            actions_list = (
-                Action.objects.select_related("team").filter(team_id=self.team_id).filter(id__in=self.filter_action_ids)
-            )
-            actions = {action.id: action for action in actions_list}
+        if self._status:
+            return self._status
 
         try:
-            self.filters["bytecode"] = create_bytecode(hog_function_filters_to_expr(self.filters, self.team, actions))
+            status = DEFAULT_STATE
+            res = get_hog_function_status(self.team_id, self.id)
+            if res.status_code == 200:
+                status = res.json()
         except Exception as e:
-            # TODO: Better reporting of this issue
-            self.filters["bytecode"] = None
-            self.filters["bytecode_error"] = str(e)
+            logger.exception("Failed to fetch function status", error=str(e))
+
+        self._status = status
+
+        return status
+
+    def set_function_status(self, state: int) -> dict:
+        if not self.enabled:
+            return self.status
+        try:
+            res = patch_hog_function_status(self.team_id, self.id, state)
+            if res.status_code == 200:
+                self._status = res.json()
+        except Exception as e:
+            logger.exception("Failed to set function status", error=str(e))
+
+        return self.status
 
     def save(self, *args, **kwargs):
-        self.compile_filters_bytecode()
+        from posthog.cdp.filters import compile_filters_bytecode
+
+        self.filters = compile_filters_bytecode(self.filters, self.team)
         return super().save(*args, **kwargs)
 
     def __str__(self):

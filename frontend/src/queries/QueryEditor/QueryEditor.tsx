@@ -1,9 +1,9 @@
 import { useMonaco } from '@monaco-editor/react'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { CodeEditor } from 'lib/components/CodeEditors'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
+import { CodeEditor } from 'lib/monaco/CodeEditor'
 import { useEffect, useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { urls } from 'scenes/urls'
@@ -57,7 +57,7 @@ export function QueryEditor(props: QueryEditorProps): JSX.Element {
             <div
                 data-attr="query-editor"
                 className={clsx(
-                    'flex flex-col p-2 bg-mid space-y-2 resize-y overflow-auto h-80 rounded',
+                    'flex flex-col p-2 bg-bg-3000 space-y-2 resize-y overflow-auto h-80 rounded',
                     props.className
                 )}
             >

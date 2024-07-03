@@ -20,6 +20,7 @@ import { OnboardingReverseProxy } from './OnboardingReverseProxy'
 import { FeatureFlagsSDKInstructions } from './sdks/feature-flags/FeatureFlagsSDKInstructions'
 import { ProductAnalyticsSDKInstructions } from './sdks/product-analytics/ProductAnalyticsSDKInstructions'
 import { SDKs } from './sdks/SDKs'
+import { iOSInstructions } from './sdks/session-replay/ios'
 import { SessionReplaySDKInstructions } from './sdks/session-replay/SessionReplaySDKInstructions'
 import { SurveysSDKInstructions } from './sdks/surveys/SurveysSDKInstructions'
 
@@ -155,7 +156,7 @@ const SessionReplayOnboarding = (): JSX.Element => {
     const { currentTeam } = useValues(teamLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
-    const hasAndroidOnBoarding = !!featureFlags[FEATURE_FLAGS.SESSION_REPLAY_MOBILE_ONBOARDING]
+    const hasMobileOnBoarding = !!featureFlags[FEATURE_FLAGS.SESSION_REPLAY_MOBILE_ONBOARDING]
 
     const configOptions: ProductConfigOption[] = [
         {
@@ -192,8 +193,9 @@ const SessionReplayOnboarding = (): JSX.Element => {
     }
 
     const sdkInstructionMap = SessionReplaySDKInstructions
-    if (hasAndroidOnBoarding) {
+    if (hasMobileOnBoarding) {
         sdkInstructionMap[SDKKey.ANDROID] = AndroidInstructions
+        sdkInstructionMap[SDKKey.IOS] = iOSInstructions
     }
 
     return (

@@ -405,6 +405,10 @@ export const supportLogic = kea<supportLogicType>([
                             value: posthog.get_distinct_id(),
                         },
                         {
+                            id: 27031528411291,
+                            value: userLogic?.values?.user?.organization?.id ?? '',
+                        },
+                        {
                             id: 26073267652251,
                             value: values.hasAvailableFeature(AvailableFeature.PRIORITY_SUPPORT)
                                 ? 'priority_support'

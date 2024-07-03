@@ -20,9 +20,10 @@
                          max_execution_time=60,
                          allow_experimental_object_type=1,
                          format_csv_allow_double_quotes=0,
-                         max_ast_elements=1000000,
-                         max_expanded_ast_elements=1000000,
-                         max_query_size=524288
+                         max_ast_elements=2000000,
+                         max_expanded_ast_elements=2000000,
+                         max_query_size=1048576,
+                         max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_exact_url.1
@@ -46,9 +47,10 @@
                          max_execution_time=60,
                          allow_experimental_object_type=1,
                          format_csv_allow_double_quotes=0,
-                         max_ast_elements=1000000,
-                         max_expanded_ast_elements=1000000,
-                         max_query_size=524288
+                         max_ast_elements=2000000,
+                         max_expanded_ast_elements=2000000,
+                         max_query_size=1048576,
+                         max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com*
@@ -72,9 +74,10 @@
                          max_execution_time=60,
                          allow_experimental_object_type=1,
                          format_csv_allow_double_quotes=0,
-                         max_ast_elements=1000000,
-                         max_expanded_ast_elements=1000000,
-                         max_query_size=524288
+                         max_ast_elements=2000000,
+                         max_expanded_ast_elements=2000000,
+                         max_query_size=1048576,
+                         max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com*.1
@@ -98,9 +101,10 @@
                          max_execution_time=60,
                          allow_experimental_object_type=1,
                          format_csv_allow_double_quotes=0,
-                         max_ast_elements=1000000,
-                         max_expanded_ast_elements=1000000,
-                         max_query_size=524288
+                         max_ast_elements=2000000,
+                         max_expanded_ast_elements=2000000,
+                         max_query_size=1048576,
+                         max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com/products*
@@ -124,9 +128,10 @@
                          max_execution_time=60,
                          allow_experimental_object_type=1,
                          format_csv_allow_double_quotes=0,
-                         max_ast_elements=1000000,
-                         max_expanded_ast_elements=1000000,
-                         max_query_size=524288
+                         max_ast_elements=2000000,
+                         max_expanded_ast_elements=2000000,
+                         max_query_size=1048576,
+                         max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com/products*.1
@@ -150,9 +155,10 @@
                          max_execution_time=60,
                          allow_experimental_object_type=1,
                          format_csv_allow_double_quotes=0,
-                         max_ast_elements=1000000,
-                         max_expanded_ast_elements=1000000,
-                         max_query_size=524288
+                         max_ast_elements=2000000,
+                         max_expanded_ast_elements=2000000,
+                         max_query_size=1048576,
+                         max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com/products/*/parts/*
@@ -176,9 +182,10 @@
                          max_execution_time=60,
                          allow_experimental_object_type=1,
                          format_csv_allow_double_quotes=0,
-                         max_ast_elements=1000000,
-                         max_expanded_ast_elements=1000000,
-                         max_query_size=524288
+                         max_ast_elements=2000000,
+                         max_expanded_ast_elements=2000000,
+                         max_query_size=1048576,
+                         max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com/products/*/parts/*.1
@@ -202,9 +209,10 @@
                          max_execution_time=60,
                          allow_experimental_object_type=1,
                          format_csv_allow_double_quotes=0,
-                         max_ast_elements=1000000,
-                         max_expanded_ast_elements=1000000,
-                         max_query_size=524288
+                         max_ast_elements=2000000,
+                         max_expanded_ast_elements=2000000,
+                         max_query_size=1048576,
+                         max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com/products/*/reviews/*
@@ -228,9 +236,10 @@
                          max_execution_time=60,
                          allow_experimental_object_type=1,
                          format_csv_allow_double_quotes=0,
-                         max_ast_elements=1000000,
-                         max_expanded_ast_elements=1000000,
-                         max_query_size=524288
+                         max_ast_elements=2000000,
+                         max_expanded_ast_elements=2000000,
+                         max_query_size=1048576,
+                         max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com/products/*/reviews/*.1
@@ -254,9 +263,10 @@
                          max_execution_time=60,
                          allow_experimental_object_type=1,
                          format_csv_allow_double_quotes=0,
-                         max_ast_elements=1000000,
-                         max_expanded_ast_elements=1000000,
-                         max_query_size=524288
+                         max_ast_elements=2000000,
+                         max_expanded_ast_elements=2000000,
+                         max_query_size=1048576,
+                         max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com/products/1*
@@ -280,9 +290,10 @@
                          max_execution_time=60,
                          allow_experimental_object_type=1,
                          format_csv_allow_double_quotes=0,
-                         max_ast_elements=1000000,
-                         max_expanded_ast_elements=1000000,
-                         max_query_size=524288
+                         max_ast_elements=2000000,
+                         max_expanded_ast_elements=2000000,
+                         max_query_size=1048576,
+                         max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com/products/1*.1
@@ -306,9 +317,10 @@
                          max_execution_time=60,
                          allow_experimental_object_type=1,
                          format_csv_allow_double_quotes=0,
-                         max_ast_elements=1000000,
-                         max_expanded_ast_elements=1000000,
-                         max_query_size=524288
+                         max_ast_elements=2000000,
+                         max_expanded_ast_elements=2000000,
+                         max_query_size=1048576,
+                         max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com/products/1*/parts/*
@@ -332,9 +344,10 @@
                          max_execution_time=60,
                          allow_experimental_object_type=1,
                          format_csv_allow_double_quotes=0,
-                         max_ast_elements=1000000,
-                         max_expanded_ast_elements=1000000,
-                         max_query_size=524288
+                         max_ast_elements=2000000,
+                         max_expanded_ast_elements=2000000,
+                         max_query_size=1048576,
+                         max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com/products/1*/parts/*.1
@@ -358,9 +371,10 @@
                          max_execution_time=60,
                          allow_experimental_object_type=1,
                          format_csv_allow_double_quotes=0,
-                         max_ast_elements=1000000,
-                         max_expanded_ast_elements=1000000,
-                         max_query_size=524288
+                         max_ast_elements=2000000,
+                         max_expanded_ast_elements=2000000,
+                         max_query_size=1048576,
+                         max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_where_end_is_anchored
@@ -384,9 +398,10 @@
                          max_execution_time=60,
                          allow_experimental_object_type=1,
                          format_csv_allow_double_quotes=0,
-                         max_ast_elements=1000000,
-                         max_expanded_ast_elements=1000000,
-                         max_query_size=524288
+                         max_ast_elements=2000000,
+                         max_expanded_ast_elements=2000000,
+                         max_query_size=1048576,
+                         max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_viewport_0_min_150
@@ -410,9 +425,10 @@
                          max_execution_time=60,
                          allow_experimental_object_type=1,
                          format_csv_allow_double_quotes=0,
-                         max_ast_elements=1000000,
-                         max_expanded_ast_elements=1000000,
-                         max_query_size=524288
+                         max_ast_elements=2000000,
+                         max_expanded_ast_elements=2000000,
+                         max_query_size=1048576,
+                         max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_viewport_1_min_161
@@ -436,9 +452,10 @@
                          max_execution_time=60,
                          allow_experimental_object_type=1,
                          format_csv_allow_double_quotes=0,
-                         max_ast_elements=1000000,
-                         max_expanded_ast_elements=1000000,
-                         max_query_size=524288
+                         max_ast_elements=2000000,
+                         max_expanded_ast_elements=2000000,
+                         max_query_size=1048576,
+                         max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_viewport_2_min_177
@@ -462,9 +479,10 @@
                          max_execution_time=60,
                          allow_experimental_object_type=1,
                          format_csv_allow_double_quotes=0,
-                         max_ast_elements=1000000,
-                         max_expanded_ast_elements=1000000,
-                         max_query_size=524288
+                         max_ast_elements=2000000,
+                         max_expanded_ast_elements=2000000,
+                         max_query_size=1048576,
+                         max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_viewport_3_min_201
@@ -488,9 +506,10 @@
                          max_execution_time=60,
                          allow_experimental_object_type=1,
                          format_csv_allow_double_quotes=0,
-                         max_ast_elements=1000000,
-                         max_expanded_ast_elements=1000000,
-                         max_query_size=524288
+                         max_ast_elements=2000000,
+                         max_expanded_ast_elements=2000000,
+                         max_query_size=1048576,
+                         max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_viewport_4_min_161_and_max_192
@@ -514,9 +533,10 @@
                          max_execution_time=60,
                          allow_experimental_object_type=1,
                          format_csv_allow_double_quotes=0,
-                         max_ast_elements=1000000,
-                         max_expanded_ast_elements=1000000,
-                         max_query_size=524288
+                         max_ast_elements=2000000,
+                         max_expanded_ast_elements=2000000,
+                         max_query_size=1048576,
+                         max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_all_data_response
@@ -540,9 +560,10 @@
                          max_execution_time=60,
                          allow_experimental_object_type=1,
                          format_csv_allow_double_quotes=0,
-                         max_ast_elements=1000000,
-                         max_expanded_ast_elements=1000000,
-                         max_query_size=524288
+                         max_ast_elements=2000000,
+                         max_expanded_ast_elements=2000000,
+                         max_query_size=1048576,
+                         max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_count_by_aggregation
@@ -566,9 +587,10 @@
                          max_execution_time=60,
                          allow_experimental_object_type=1,
                          format_csv_allow_double_quotes=0,
-                         max_ast_elements=1000000,
-                         max_expanded_ast_elements=1000000,
-                         max_query_size=524288
+                         max_ast_elements=2000000,
+                         max_expanded_ast_elements=2000000,
+                         max_query_size=1048576,
+                         max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_count_by_aggregation.1
@@ -592,9 +614,10 @@
                          max_execution_time=60,
                          allow_experimental_object_type=1,
                          format_csv_allow_double_quotes=0,
-                         max_ast_elements=1000000,
-                         max_expanded_ast_elements=1000000,
-                         max_query_size=524288
+                         max_ast_elements=2000000,
+                         max_expanded_ast_elements=2000000,
+                         max_query_size=1048576,
+                         max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_empty_response
@@ -618,9 +641,10 @@
                          max_execution_time=60,
                          allow_experimental_object_type=1,
                          format_csv_allow_double_quotes=0,
-                         max_ast_elements=1000000,
-                         max_expanded_ast_elements=1000000,
-                         max_query_size=524288
+                         max_ast_elements=2000000,
+                         max_expanded_ast_elements=2000000,
+                         max_query_size=1048576,
+                         max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_filter_by_click
@@ -644,9 +668,10 @@
                          max_execution_time=60,
                          allow_experimental_object_type=1,
                          format_csv_allow_double_quotes=0,
-                         max_ast_elements=1000000,
-                         max_expanded_ast_elements=1000000,
-                         max_query_size=524288
+                         max_ast_elements=2000000,
+                         max_expanded_ast_elements=2000000,
+                         max_query_size=1048576,
+                         max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_filter_by_click.1
@@ -670,9 +695,10 @@
                          max_execution_time=60,
                          allow_experimental_object_type=1,
                          format_csv_allow_double_quotes=0,
-                         max_ast_elements=1000000,
-                         max_expanded_ast_elements=1000000,
-                         max_query_size=524288
+                         max_ast_elements=2000000,
+                         max_expanded_ast_elements=2000000,
+                         max_query_size=1048576,
+                         max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_filter_by_date_from
@@ -696,9 +722,10 @@
                          max_execution_time=60,
                          allow_experimental_object_type=1,
                          format_csv_allow_double_quotes=0,
-                         max_ast_elements=1000000,
-                         max_expanded_ast_elements=1000000,
-                         max_query_size=524288
+                         max_ast_elements=2000000,
+                         max_expanded_ast_elements=2000000,
+                         max_query_size=1048576,
+                         max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_filter_by_relative_date
@@ -722,9 +749,10 @@
                          max_execution_time=60,
                          allow_experimental_object_type=1,
                          format_csv_allow_double_quotes=0,
-                         max_ast_elements=1000000,
-                         max_expanded_ast_elements=1000000,
-                         max_query_size=524288
+                         max_ast_elements=2000000,
+                         max_expanded_ast_elements=2000000,
+                         max_query_size=1048576,
+                         max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_filter_by_relative_date.1
@@ -748,9 +776,10 @@
                          max_execution_time=60,
                          allow_experimental_object_type=1,
                          format_csv_allow_double_quotes=0,
-                         max_ast_elements=1000000,
-                         max_expanded_ast_elements=1000000,
-                         max_query_size=524288
+                         max_ast_elements=2000000,
+                         max_expanded_ast_elements=2000000,
+                         max_query_size=1048576,
+                         max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_scrolldepth_counts
@@ -774,8 +803,9 @@
                          max_execution_time=60,
                          allow_experimental_object_type=1,
                          format_csv_allow_double_quotes=0,
-                         max_ast_elements=1000000,
-                         max_expanded_ast_elements=1000000,
-                         max_query_size=524288
+                         max_ast_elements=2000000,
+                         max_expanded_ast_elements=2000000,
+                         max_query_size=1048576,
+                         max_bytes_before_external_group_by=0
   '''
 # ---

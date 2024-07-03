@@ -114,7 +114,7 @@ class BackfillScheduleInputs:
 def get_utcnow():
     """Return the current time in UTC. This function is only required for mocking during tests,
     because mocking the global datetime breaks Temporal."""
-    return dt.datetime.now(dt.timezone.utc)
+    return dt.datetime.now(dt.UTC)
 
 
 @temporalio.activity.defn
@@ -319,7 +319,9 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
             get_schedule_frequency,
             inputs.batch_export_id,
             start_to_close_timeout=dt.timedelta(minutes=1),
-            retry_policy=temporalio.common.RetryPolicy(maximum_attempts=0),
+            retry_policy=temporalio.common.RetryPolicy(
+                maximum_attempts=0, non_retryable_error_types=["TemporalScheduleNotFoundError"]
+            ),
         )
 
         # Temporal requires that we set a timeout.

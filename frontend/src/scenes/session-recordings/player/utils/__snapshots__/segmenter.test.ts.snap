@@ -1,5 +1,57 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
+exports[`segmenter can segment to include only one window 1`] = `
+[
+  {
+    "durationMs": 0,
+    "endTimestamp": 1672531200010,
+    "isActive": false,
+    "kind": "gap",
+    "startTimestamp": 1672531200010,
+    "windowId": "C",
+  },
+  {
+    "durationMs": 90,
+    "endTimestamp": 1672531200100,
+    "isActive": false,
+    "kind": "gap",
+    "startTimestamp": 1672531200010,
+    "windowId": undefined,
+  },
+  {
+    "durationMs": 60,
+    "endTimestamp": 1672531200160,
+    "isActive": false,
+    "kind": "window",
+    "startTimestamp": 1672531200100,
+    "windowId": "C",
+  },
+  {
+    "durationMs": 40,
+    "endTimestamp": 1672531200200,
+    "isActive": false,
+    "kind": "gap",
+    "startTimestamp": 1672531200160,
+    "windowId": "B",
+  },
+  {
+    "durationMs": 0,
+    "endTimestamp": 1672531200200,
+    "isActive": false,
+    "kind": "gap",
+    "startTimestamp": 1672531200200,
+    "windowId": "C",
+  },
+  {
+    "durationMs": 9,
+    "endTimestamp": 1672531200210,
+    "isActive": false,
+    "kind": "buffer",
+    "startTimestamp": 1672531200201,
+  },
+]
+`;
+
 exports[`segmenter ends a segment if it is the last window 1`] = `
 [
   {

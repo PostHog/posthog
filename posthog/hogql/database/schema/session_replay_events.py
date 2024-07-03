@@ -21,11 +21,13 @@ from posthog.hogql.database.schema.person_distinct_ids import (
 )
 from datetime import datetime
 
-from posthog.hogql.database.schema.sessions import SessionsTable, select_from_sessions_table
+from posthog.hogql.database.schema.sessions_v1 import SessionsTableV1, select_from_sessions_table_v1
+from posthog.hogql.database.schema.sessions_v2 import select_from_sessions_table_v2, session_id_to_session_id_v7_expr
+
 from posthog.hogql.errors import ResolutionError
 
 
-def join_replay_table_to_sessions_table(
+def join_replay_table_to_sessions_table_v1(
     join_to_add: LazyJoinToAdd, context: HogQLContext, node: SelectQuery
 ) -> JoinExpr:
     from posthog.hogql import ast
@@ -33,7 +35,7 @@ def join_replay_table_to_sessions_table(
     if not join_to_add.fields_accessed:
         raise ResolutionError("No fields requested from replay")
 
-    join_expr = ast.JoinExpr(table=select_from_sessions_table(join_to_add.fields_accessed, node, context))
+    join_expr = ast.JoinExpr(table=select_from_sessions_table_v1(join_to_add.fields_accessed, node, context))
     join_expr.join_type = "LEFT JOIN"
     join_expr.alias = join_to_add.to_table
     join_expr.constraint = ast.JoinConstraint(
@@ -41,6 +43,28 @@ def join_replay_table_to_sessions_table(
             op=ast.CompareOperationOp.Eq,
             left=ast.Field(chain=[join_to_add.from_table, "session_id"]),
             right=ast.Field(chain=[join_to_add.to_table, "session_id"]),
+        ),
+        constraint_type="ON",
+    )
+    return join_expr
+
+
+def join_replay_table_to_sessions_table_v2(
+    join_to_add: LazyJoinToAdd, context: HogQLContext, node: SelectQuery
+) -> JoinExpr:
+    from posthog.hogql import ast
+
+    if not join_to_add.fields_accessed:
+        raise ResolutionError("No fields requested from replay")
+
+    join_expr = ast.JoinExpr(table=select_from_sessions_table_v2(join_to_add.fields_accessed, node, context))
+    join_expr.join_type = "LEFT JOIN"
+    join_expr.alias = join_to_add.to_table
+    join_expr.constraint = ast.JoinConstraint(
+        expr=ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=session_id_to_session_id_v7_expr(ast.Field(chain=[join_to_add.from_table, "session_id"])),
+            right=ast.Field(chain=[join_to_add.to_table, "session_id_v7"]),
         ),
         constraint_type="ON",
     )
@@ -155,6 +179,7 @@ SESSION_REPLAY_EVENTS_COMMON_FIELDS: dict[str, FieldOrTable] = {
     "size": IntegerDatabaseField(name="size"),
     "event_count": IntegerDatabaseField(name="event_count"),
     "message_count": IntegerDatabaseField(name="message_count"),
+    "snapshot_source": StringDatabaseField(name="snapshot_source"),
     "events": LazyJoin(
         from_field=["session_id"],
         join_table=EventsTable(),
@@ -176,8 +201,8 @@ SESSION_REPLAY_EVENTS_COMMON_FIELDS: dict[str, FieldOrTable] = {
     "person_id": FieldTraverser(chain=["pdi", "person_id"]),
     "session": LazyJoin(
         from_field=["session_id"],
-        join_table=SessionsTable(),
-        join_function=join_replay_table_to_sessions_table,
+        join_table=SessionsTableV1(),
+        join_function=join_replay_table_to_sessions_table_v1,
     ),
 }
 

@@ -1,12 +1,12 @@
 from datetime import datetime, timedelta
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.constants import HogQLGlobalSettings, MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY
 from math import ceil
 from typing import Any
 from typing import Optional
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
-from posthog.caching.utils import is_stale
 from posthog.constants import (
     TREND_FILTER_TYPE_EVENTS,
     RetentionQueryType,
@@ -351,11 +351,6 @@ class RetentionQueryRunner(QueryRunner):
             now=datetime.now(),
         )
 
-    def _is_stale(self, cached_result_package):
-        date_to = self.query_date_range.date_to()
-        interval = self.query_date_range.interval_name
-        return is_stale(self.team, date_to, interval, cached_result_package)
-
     def _refresh_frequency(self):
         date_to = self.query_date_range.date_to()
         date_from = self.query_date_range.date_from()
@@ -384,6 +379,7 @@ class RetentionQueryRunner(QueryRunner):
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
+            settings=HogQLGlobalSettings(max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY),
         )
 
         result_dict = {

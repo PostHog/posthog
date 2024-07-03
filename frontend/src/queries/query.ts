@@ -21,7 +21,7 @@ import {
     isTimeToSeeDataSessionsQuery,
 } from './utils'
 
-const QUERY_ASYNC_MAX_INTERVAL_SECONDS = 5
+const QUERY_ASYNC_MAX_INTERVAL_SECONDS = 3
 const QUERY_ASYNC_TOTAL_POLL_SECONDS = 10 * 60 + 6 // keep in sync with backend-side timeout (currently 10min) + a small buffer
 
 //get export context for a given query
@@ -87,15 +87,20 @@ export async function pollForResults(
 
     while (performance.now() - pollStart < QUERY_ASYNC_TOTAL_POLL_SECONDS * 1000) {
         await delay(currentDelay, methodOptions?.signal)
-        currentDelay = Math.min(currentDelay * 2, QUERY_ASYNC_MAX_INTERVAL_SECONDS * 1000)
+        currentDelay = Math.min(currentDelay * 1.25, QUERY_ASYNC_MAX_INTERVAL_SECONDS * 1000)
 
-        const statusResponse = (await api.queryStatus.get(queryId, showProgress)).query_status
+        try {
+            const statusResponse = (await api.queryStatus.get(queryId, showProgress)).query_status
 
-        if (statusResponse.complete || statusResponse.error) {
-            return statusResponse
-        }
-        if (callback) {
-            callback(statusResponse)
+            if (statusResponse.complete || statusResponse.error) {
+                return statusResponse
+            }
+            if (callback) {
+                callback(statusResponse)
+            }
+        } catch (e: any) {
+            e.detail = e.data?.query_status?.error_message
+            throw e
         }
     }
     throw new Error('Query timed out')
@@ -121,7 +126,7 @@ async function executeQuery<N extends DataNode>(
     const response = await api.query(queryNode, methodOptions, queryId, refresh, isAsyncQuery)
 
     if (!response.query_status?.query_async) {
-        // Executed query synchronously
+        // Executed query synchronously or from cache
         return response
     }
     if (response.query_status?.complete || response.query_status?.error) {

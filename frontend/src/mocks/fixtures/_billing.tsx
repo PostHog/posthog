@@ -1,8 +1,8 @@
 import { dayjs } from 'lib/dayjs'
 
-import { BillingV2Type } from '~/types'
+import { BillingType } from '~/types'
 
-export const billingJson: BillingV2Type = {
+export const billingJson: BillingType = {
     customer_id: 'cus_Pg7PIL8MsKi6bx',
     deactivated: false,
     has_active_subscription: true,
@@ -3835,4 +3835,5 @@ export const billingJson: BillingV2Type = {
     custom_limits_usd: {},
     stripe_portal_url:
         'https://billing.stripe.com/p/session/test_YWNjdF8xSElNRERFdUlhdFJYU2R6LF9QaEVJR3VyemlvMDZzRzdiQXZrc1AxSjNXZk1BellP0100ZsforDQG',
+    subscription_level: 'paid',
 }

@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, urlToAction } from 'kea-router'
 import { windowValues } from 'kea-window-values'
 import api from 'lib/api'
-import { FEATURE_FLAGS, RETENTION_FIRST_TIME, STALE_EVENT_SECONDS } from 'lib/constants'
+import { RETENTION_FIRST_TIME, STALE_EVENT_SECONDS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -133,6 +133,7 @@ export enum SourceTab {
     UTM_CAMPAIGN = 'UTM_CAMPAIGN',
     UTM_CONTENT = 'UTM_CONTENT',
     UTM_TERM = 'UTM_TERM',
+    UTM_SOURCE_MEDIUM_CAMPAIGN = 'UTM_SOURCE_MEDIUM_CAMPAIGN',
 }
 
 export enum DeviceTab {
@@ -186,7 +187,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         togglePropertyFilter: (
             type: PropertyFilterType.Event | PropertyFilterType.Person | PropertyFilterType.Session,
             key: string,
-            value: string | number,
+            value: string | number | null,
             tabChange?: {
                 graphsTab?: string
                 sourceTab?: string
@@ -244,6 +245,25 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             {
                 setWebAnalyticsFilters: (_, { webAnalyticsFilters }) => webAnalyticsFilters,
                 togglePropertyFilter: (oldPropertyFilters, { key, value, type }): WebAnalyticsPropertyFilters => {
+                    if (value === null) {
+                        // if there's already an isNotSet filter, remove it
+                        const isNotSetFilterExists = oldPropertyFilters.some(
+                            (f) => f.type === type || f.key === key || f.operator === PropertyOperator.IsNotSet
+                        )
+                        if (isNotSetFilterExists) {
+                            return oldPropertyFilters.filter(
+                                (f) => f.type !== type || f.key !== key || f.operator !== PropertyOperator.IsNotSet
+                            )
+                        }
+                        return [
+                            ...oldPropertyFilters,
+                            {
+                                type,
+                                key,
+                                operator: PropertyOperator.IsNotSet,
+                            },
+                        ]
+                    }
                     const similarFilterExists = oldPropertyFilters.some(
                         (f) => f.type === type && f.key === key && f.operator === PropertyOperator.Exact
                     )
@@ -251,7 +271,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         // if there's already a matching property, turn it off or merge them
                         return oldPropertyFilters
                             .map((f) => {
-                                if (f.key !== key || f.type !== type || f.operator !== PropertyOperator.Exact) {
+                                if (
+                                    f.key !== key ||
+                                    f.type !== type ||
+                                    ![PropertyOperator.Exact, PropertyOperator.IsNotSet].includes(f.operator)
+                                ) {
                                     return f
                                 }
                                 const oldValue = (Array.isArray(f.value) ? f.value : [f.value]).filter(isNotNil)
@@ -408,7 +432,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 geographyTab,
                 { dateFrom, dateTo, interval },
                 isPathCleaningEnabled: boolean,
-                statusCheck,
+                _statusCheck,
                 isGreaterThanMd: boolean,
                 shouldShowGeographyTile
             ): WebDashboardTile[] => {
@@ -419,7 +443,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 const compare = !!dateRange.date_from && dateRange.date_from !== 'all'
 
                 const sampling = {
-                    enabled: !!values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_SAMPLING],
+                    enabled: false,
                     forceSamplingRate: { numerator: 1, denominator: 10 },
                 }
 
@@ -430,8 +454,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
                     }
                 }
-
-                const useSessionsTable = !!values.featureFlags[FEATURE_FLAGS.SESSION_TABLE_PROPERTY_FILTERS]
 
                 const allTiles: (WebDashboardTile | null)[] = [
                     {
@@ -446,7 +468,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             dateRange,
                             sampling,
                             compare,
-                            useSessionsTable,
                         },
                         insightProps: createInsightProps(TileId.OVERVIEW),
                         canOpenModal: false,
@@ -590,13 +611,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                             properties: webAnalyticsFilters,
                                             breakdownBy: WebStatsBreakdown.Page,
                                             dateRange,
-                                            includeScrollDepth:
-                                                statusCheck?.isSendingPageLeavesScroll && !useSessionsTable,
+                                            includeScrollDepth: false, // TODO needs some perf work before it can be enabled
                                             includeBounceRate: true,
                                             sampling,
                                             doPathCleaning: isPathCleaningEnabled,
                                             limit: 10,
-                                            useSessionsTable,
                                         },
                                         embedded: false,
                                     },
@@ -620,7 +639,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                             sampling,
                                             doPathCleaning: isPathCleaningEnabled,
                                             limit: 10,
-                                            useSessionsTable,
                                         },
                                         embedded: false,
                                     },
@@ -628,32 +646,29 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     canOpenModal: true,
                                     showPathCleaningControls: true,
                                 },
-                                useSessionsTable
-                                    ? {
-                                          id: PathTab.EXIT_PATH,
-                                          title: 'Top exit paths',
-                                          linkText: 'Exit path',
-                                          query: {
-                                              full: true,
-                                              kind: NodeKind.DataTableNode,
-                                              source: {
-                                                  kind: NodeKind.WebStatsTableQuery,
-                                                  properties: webAnalyticsFilters,
-                                                  breakdownBy: WebStatsBreakdown.ExitPage,
-                                                  dateRange,
-                                                  includeScrollDepth: false,
-                                                  sampling,
-                                                  doPathCleaning: isPathCleaningEnabled,
-                                                  limit: 10,
-                                                  useSessionsTable,
-                                              },
-                                              embedded: false,
-                                          },
-                                          insightProps: createInsightProps(TileId.PATHS, PathTab.EXIT_PATH),
-                                          canOpenModal: true,
-                                          showPathCleaningControls: true,
-                                      }
-                                    : undefined,
+                                {
+                                    id: PathTab.EXIT_PATH,
+                                    title: 'Top exit paths',
+                                    linkText: 'Exit path',
+                                    query: {
+                                        full: true,
+                                        kind: NodeKind.DataTableNode,
+                                        source: {
+                                            kind: NodeKind.WebStatsTableQuery,
+                                            properties: webAnalyticsFilters,
+                                            breakdownBy: WebStatsBreakdown.ExitPage,
+                                            dateRange,
+                                            includeScrollDepth: false,
+                                            sampling,
+                                            doPathCleaning: isPathCleaningEnabled,
+                                            limit: 10,
+                                        },
+                                        embedded: false,
+                                    },
+                                    insightProps: createInsightProps(TileId.PATHS, PathTab.EXIT_PATH),
+                                    canOpenModal: true,
+                                    showPathCleaningControls: true,
+                                },
                             ] as (TabsTileTab | undefined)[]
                         ).filter(isNotNil),
                     },
@@ -680,7 +695,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         dateRange,
                                         sampling,
                                         limit: 10,
-                                        useSessionsTable,
                                     },
                                 },
                                 insightProps: createInsightProps(TileId.SOURCES, SourceTab.CHANNEL),
@@ -706,7 +720,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         dateRange,
                                         sampling,
                                         limit: 10,
-                                        useSessionsTable,
                                     },
                                 },
                                 insightProps: createInsightProps(TileId.SOURCES, SourceTab.REFERRING_DOMAIN),
@@ -727,7 +740,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         dateRange,
                                         sampling,
                                         limit: 10,
-                                        useSessionsTable,
                                     },
                                 },
                                 insightProps: createInsightProps(TileId.SOURCES, SourceTab.UTM_SOURCE),
@@ -747,7 +759,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         dateRange,
                                         sampling,
                                         limit: 10,
-                                        useSessionsTable,
                                     },
                                 },
                                 insightProps: createInsightProps(TileId.SOURCES, SourceTab.UTM_MEDIUM),
@@ -767,7 +778,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         dateRange,
                                         sampling,
                                         limit: 10,
-                                        useSessionsTable,
                                     },
                                 },
                                 insightProps: createInsightProps(TileId.SOURCES, SourceTab.UTM_CAMPAIGN),
@@ -787,7 +797,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         dateRange,
                                         sampling,
                                         limit: 10,
-                                        useSessionsTable,
                                     },
                                 },
                                 insightProps: createInsightProps(TileId.SOURCES, SourceTab.UTM_CONTENT),
@@ -807,10 +816,28 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         dateRange,
                                         sampling,
                                         limit: 10,
-                                        useSessionsTable,
                                     },
                                 },
                                 insightProps: createInsightProps(TileId.SOURCES, SourceTab.UTM_TERM),
+                                canOpenModal: true,
+                            },
+                            {
+                                id: SourceTab.UTM_SOURCE_MEDIUM_CAMPAIGN,
+                                title: 'Source / Medium / Campaign',
+                                linkText: 'UTM s/m/c',
+                                query: {
+                                    full: true,
+                                    kind: NodeKind.DataTableNode,
+                                    source: {
+                                        kind: NodeKind.WebStatsTableQuery,
+                                        properties: webAnalyticsFilters,
+                                        breakdownBy: WebStatsBreakdown.InitialUTMSourceMediumCampaign,
+                                        dateRange,
+                                        sampling,
+                                        limit: 10,
+                                    },
+                                },
+                                insightProps: createInsightProps(TileId.SOURCES, SourceTab.UTM_SOURCE_MEDIUM_CAMPAIGN),
                                 canOpenModal: true,
                             },
                         ],

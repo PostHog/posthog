@@ -101,7 +101,7 @@ class TestDatabase(BaseTest):
 
         table = cast(DatabaseSchemaDataWarehouseTable | None, serialized_database.get("table_1"))
         assert table is not None
-        assert len(table.fields.keys()) == 1
+        assert len(table.fields.keys()) == 2
         assert table.source is None
         assert table.schema_ is None
 
@@ -161,8 +161,8 @@ class TestDatabase(BaseTest):
             source=source,
             table=warehouse_table,
             should_sync=True,
-            status=ExternalDataSchema.Status.COMPLETED,
             last_synced_at="2024-01-01",
+            # No status but should be completed because a data warehouse table already exists
         )
 
         database = create_hogql_database(team_id=self.team.pk)
@@ -171,7 +171,7 @@ class TestDatabase(BaseTest):
 
         table = cast(DatabaseSchemaDataWarehouseTable | None, serialized_database.get("table_1"))
         assert table is not None
-        assert len(table.fields.keys()) == 1
+        assert len(table.fields.keys()) == 2
 
         assert table.source is not None
         assert table.source.id == source.source_id
@@ -183,7 +183,7 @@ class TestDatabase(BaseTest):
         assert table.schema_.name == "table_1"
         assert table.schema_.should_sync is True
         assert table.schema_.incremental is False
-        assert table.schema_.status == "Completed"
+        assert table.schema_.status is None
         assert table.schema_.last_synced_at == "2024-01-01 00:00:00+00:00"
 
         field = table.fields.get("id")
@@ -216,7 +216,7 @@ class TestDatabase(BaseTest):
 
         self.assertEqual(
             response.clickhouse,
-            f"SELECT whatever.id AS id FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s, %(hogql_val_1)s, %(hogql_val_2)s) AS whatever LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=1000000, max_expanded_ast_elements=1000000, max_query_size=524288",
+            f"SELECT whatever.id AS id FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s, %(hogql_val_1)s, %(hogql_val_2)s) AS whatever LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=2000000, max_expanded_ast_elements=2000000, max_query_size=1048576, max_bytes_before_external_group_by=0",
         )
 
     def test_database_group_type_mappings(self):
@@ -462,7 +462,7 @@ class TestDatabase(BaseTest):
         sql = "select id from persons"
         query = print_ast(parse_select(sql), context, dialect="clickhouse")
         assert (
-            "ifNull(less(argMax(person.created_at, person.version), plus(now64(6, %(hogql_val_0)s), toIntervalDay(1)))"
+            "ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1)))"
             in query
         ), query
 
@@ -480,6 +480,6 @@ class TestDatabase(BaseTest):
         sql = "select person.id from events"
         query = print_ast(parse_select(sql), context, dialect="clickhouse")
         assert (
-            "ifNull(less(argMax(person.created_at, person.version), plus(now64(6, %(hogql_val_0)s), toIntervalDay(1)))"
+            "ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1)))"
             in query
         ), query
