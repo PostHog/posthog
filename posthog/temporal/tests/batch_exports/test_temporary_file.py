@@ -227,6 +227,7 @@ async def test_jsonl_writer_writes_record_batches(record_batch):
     async def store_in_memory_on_flush(
         batch_export_file, records_since_last_flush, bytes_since_last_flush, flush_counter, last_inserted_at, is_last
     ):
+        assert writer.records_since_last_flush == record_batch.num_rows
         in_memory_file_obj.write(batch_export_file.read())
         inserted_ats_seen.append(last_inserted_at)
 
@@ -235,6 +236,8 @@ async def test_jsonl_writer_writes_record_batches(record_batch):
     record_batch = record_batch.sort_by("_inserted_at")
     async with writer.open_temporary_file():
         await writer.write_record_batch(record_batch)
+
+    assert writer.records_total == record_batch.num_rows
 
     lines = in_memory_file_obj.readlines()
     for index, line in enumerate(lines):
