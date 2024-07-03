@@ -181,6 +181,20 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return self.list(request, *args, **kwargs)
 
     @action(methods=["GET"], detail=False)
+    def portal(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        license = get_cached_instance_license()
+        if not license:
+            return Response(
+                {"sucess": True},
+                status=status.HTTP_200_OK,
+            )
+
+        organization = self._get_org_required()
+
+        res = BillingManager(license)._get_stripe_portal_url(organization)
+        return redirect(res)
+
+    @action(methods=["GET"], detail=False)
     def get_invoices(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         license = get_cached_instance_license()
         if not license:

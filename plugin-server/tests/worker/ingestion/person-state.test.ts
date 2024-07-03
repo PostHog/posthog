@@ -278,19 +278,9 @@ describe('PersonState.update()', () => {
                 ])
             )
 
-            // old2 does have an override, because we are temporarily writing out unnecessary
-            // overrides while we backfill `posthog_personlessdistinctid`
+            // old2 has no override, because it wasn't in posthog_personlessdistinctid
             const chOverridesOld = await fetchOverridesForDistinctId('old2')
-            expect(chOverridesOld.length).toEqual(1)
-            expect(chOverridesOld).toEqual(
-                expect.arrayContaining([
-                    expect.objectContaining({
-                        distinct_id: 'old2',
-                        person_id: oldUserUuid,
-                        version: 1,
-                    }),
-                ])
-            )
+            expect(chOverridesOld.length).toEqual(0)
         })
 
         it('force_upgrade works', async () => {
