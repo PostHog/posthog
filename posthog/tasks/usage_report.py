@@ -442,6 +442,7 @@ def get_teams_with_billable_anonymous_personfull_event_count_in_period(
             AND event != '$feature_flag_called' AND event NOT IN ('survey sent', 'survey shown', 'survey dismissed')
             AND person_mode IN ('full', 'force_upgrade')
             AND JSONExtractBool(properties, '$is_identified') = 0
+            AND JSONExtractString(properties, '$lib') = 'web'
         GROUP BY team_id
     """,
         {"begin": begin, "end": end},

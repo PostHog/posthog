@@ -165,7 +165,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                 _create_event(
                     distinct_id=distinct_id,
                     event="$event1",
-                    properties={"$lib": "$web"},
+                    properties={"$lib": "web", "$is_identified": True},
                     timestamp=now() - relativedelta(hours=12),
                     team=self.org_internal_team_0,
                 )
@@ -177,6 +177,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
             _create_event(
                 distinct_id=distinct_id,
                 event="survey sent",
+                properties={"$lib": "web", "$is_identified": True},
                 timestamp=now() - relativedelta(hours=12),
                 team=self.org_1_team_1,
             )
@@ -219,7 +220,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     event_uuid=uuid,
                     distinct_id=distinct_id,
                     event="$event1",
-                    properties={"$lib": "$web"},
+                    properties={"$lib": "web", "$is_identified": True},
                     timestamp=now() - relativedelta(hours=12),
                     team=self.org_1_team_1,
                 )
@@ -230,7 +231,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     event_uuid=uuid,
                     distinct_id=distinct_id,
                     event="$event1",
-                    properties={"$lib": "$web"},
+                    properties={"$lib": "web", "$is_identified": True},
                     timestamp=now() - relativedelta(hours=12),
                     team=self.org_1_team_1,
                 )
@@ -238,7 +239,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
             _create_event(
                 distinct_id=distinct_id,
                 event="$feature_flag_called",
-                properties={"$lib": "$web"},
+                properties={"$lib": "web", "$is_identified": True},
                 timestamp=now() - relativedelta(hours=12),
                 team=self.org_1_team_1,
             )
@@ -285,7 +286,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                 distinct_id=distinct_id,
                 team=self.team,
                 timestamp=now() - relativedelta(hours=12),
-                properties={"$group_0": "org:5"},
+                properties={"$group_0": "org:5", "$is_identified": True},
             )
             _create_event(
                 event="event",
@@ -293,7 +294,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                 distinct_id=distinct_id,
                 team=self.team,
                 timestamp=now() - relativedelta(hours=12),
-                properties={"$group_0": "org:6"},
+                properties={"$group_0": "org:6", "$is_identified": True},
             )
 
             # Events for org 1 team 2
@@ -304,7 +305,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                 _create_event(
                     distinct_id=distinct_id,
                     event="$event1",
-                    properties={"$lib": "$web"},
+                    properties={"$lib": "web", "$is_identified": True},
                     timestamp=now() - relativedelta(hours=12),
                     team=self.org_1_team_2,
                 )
@@ -312,7 +313,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
             _create_event(
                 distinct_id=distinct_id,
                 event="$eventAnonymousPersonfull",
-                properties={"$lib": "$web", "$is_identified": False},
+                properties={"$lib": "web", "$is_identified": False},
                 timestamp=now() - relativedelta(hours=12),
                 team=self.org_1_team_2,
                 person_mode="full",
@@ -323,7 +324,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
             _create_event(
                 distinct_id=distinct_id,
                 event="$feature_flag_called",
-                properties={"$lib": "$web"},
+                properties={"$lib": "web", "$is_identified": True},
                 timestamp=now() - relativedelta(hours=12),
                 team=self.org_1_team_2,
             )
@@ -336,14 +337,14 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                 _create_event(
                     distinct_id=distinct_id,
                     event="$event1",
-                    properties={"$lib": "$web"},
+                    properties={"$lib": "web", "$is_identified": True},
                     timestamp=now() - relativedelta(hours=12),
                     team=self.org_2_team_3,
                 )
             _create_event(
                 distinct_id=distinct_id,
                 event="$feature_flag_called",
-                properties={"$lib": "$web"},
+                properties={"$lib": "web", "$is_identified": True},
                 timestamp=now() - relativedelta(hours=12),
                 team=self.org_2_team_3,
             )
@@ -351,7 +352,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                 event_uuid=uuid4(),
                 distinct_id=distinct_id,
                 event="$propertyless_event",
-                properties={"$lib": "$web"},
+                properties={"$lib": "web", "$is_identified": True},
                 timestamp=now() - relativedelta(hours=12),
                 team=self.org_1_team_1,
                 person_mode="propertyless",
@@ -360,7 +361,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                 event_uuid=uuid4(),
                 distinct_id=distinct_id,
                 event="$propertyless_event",
-                properties={"$lib": "$web"},
+                properties={"$lib": "web", "$is_identified": True},
                 timestamp=now() - relativedelta(hours=12),
                 team=self.org_1_team_1,
                 person_mode="force_upgrade",
@@ -723,7 +724,7 @@ class HogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTables
             _create_event(
                 distinct_id="hello",
                 event="$event1",
-                properties={"$lib": "$web"},
+                properties={"$lib": "web"},
                 timestamp=now() - relativedelta(hours=12),
                 team=self.team,
             )

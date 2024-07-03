@@ -50,8 +50,6 @@ def create_event(
 ) -> str:
     if properties is None:
         properties = {}
-    if properties.get("$is_identified") is None:
-        properties["$is_identified"] = True
     if not timestamp:
         timestamp = timezone.now()
     assert timestamp is not None
@@ -227,8 +225,6 @@ def bulk_create_events(
                 except Group.DoesNotExist:
                     continue
         properties = event.get("properties", {})
-        if properties.get("$is_identified") is None:
-            properties["$is_identified"] = True
 
         event = {
             "uuid": str(event["event_uuid"]) if event.get("event_uuid") else str(uuid.uuid4()),
