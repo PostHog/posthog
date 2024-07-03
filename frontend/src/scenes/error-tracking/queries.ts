@@ -20,9 +20,14 @@ export const errorTrackingQuery = ({
     filterGroup: UniversalFiltersGroup
     sparklineSelection: ErrorTrackingSparklineConfig
 }): DataTableNode => {
-    const { period, displayInterval, displayGap, offset } = sparklineSelection
+    const { unitValue, displayUnit, gap, offset } = sparklineSelection
 
-    const labels = generateFormattedDateLabels({ period, displayInterval, displayGap, offset })
+    const labels = generateFormattedDateLabels({ unitValue, displayUnit, gap, offset })
+
+    const numInPeriod = displayUnit === 'hour' ? 24 : 60
+    const unitsInPeriod = unitValue * numInPeriod
+
+    const sparklineData = `reverse(arrayMap(x -> countEqual(groupArray(dateDiff('${displayUnit}', toStartOfInterval(timestamp, INTERVAL ${gap} ${displayUnit}), toStartOfInterval(now(), INTERVAL ${gap} ${displayUnit}))), x), range(0, ${unitsInPeriod}, ${gap})))`
 
     return {
         kind: NodeKind.DataTableNode,
@@ -31,9 +36,7 @@ export const errorTrackingQuery = ({
             select: [
                 'any(properties) as "context.columns.error"',
                 'properties.$exception_type',
-                `<Sparkline data={reverse(arrayMap(x -> countEqual(groupArray(dateDiff('${displayInterval}', now() - INTERVAL ${period} ${displayInterval}, timestamp)), x), range(${
-                    period * displayGap
-                })))} labels={[${labels}]} /> as "context.columns.volume"`,
+                `<Sparkline data={${sparklineData}} labels={[${labels.join(',')}]} /> as "context.columns.volume"`,
                 'count() as occurrences',
                 'count(distinct $session_id) as sessions',
                 'count(distinct distinct_id) as users',
@@ -59,20 +62,20 @@ export const errorTrackingQuery = ({
     }
 }
 
-const generateFormattedDateLabels = ({
-    period,
-    displayInterval,
-    displayGap,
+export const generateFormattedDateLabels = ({
+    unitValue,
+    displayUnit,
+    gap,
     offset,
-}: ErrorTrackingSparklineConfig): string => {
+}: ErrorTrackingSparklineConfig): string[] => {
     const now = dayjs()
         .subtract(offset?.value ?? 0, offset?.unit)
-        .startOf(displayInterval)
-    const formattedDates = range(period * displayGap).map((idx) =>
-        now.subtract(period - idx * displayGap, displayInterval)
-    )
-    const stringifiedDates = formattedDates.map((d) => `'${d.format('D MMM, YYYY HH:mm')} (UTC)'`)
-    return stringifiedDates.join(',')
+        .startOf(displayUnit)
+    // const formattedDates = range(period * displayGap).map((idx) =>
+    //     now.subtract(period - idx * displayGap, displayInterval)
+    // )
+    const formattedDates = range(unitValue).map((idx) => now.subtract(unitValue - idx, displayUnit))
+    return formattedDates.map((d) => `'${d.format('D MMM, YYYY HH:mm')} (UTC)'`)
 }
 
 export const errorTrackingGroupQuery = ({
@@ -152,3 +155,34 @@ const defaultProperties = ({
         properties,
     }
 }
+
+// -- 14 * 24 = 336
+// -- with cte_timestamps as
+// -- (
+// --     SELECT
+// --         subtractHours(now(), number) as timestamp
+// --     FROM numbers(350)
+// -- )
+// -- select
+// --     reverse(arrayMap(x -> countEqual(groupArray(dateDiff('hour', toStartOfInterval(timestamp, INTERVAL 12 HOUR), toStartOfInterval(now(), INTERVAL 12 HOUR))), x), range(0, 336, 12)))
+// -- from cte_timestamps timestamp
+
+// -- with cte_timestamps as
+// -- (
+// --     SELECT
+// --         subtractMinutes(now(), number) as timestamp
+// --     FROM numbers(80)
+// -- )
+// -- select
+// --     reverse(arrayMap(x -> countEqual(groupArray(dateDiff('minute', toStartOfInterval(timestamp, INTERVAL 3 MINUTE), toStartOfInterval(now(), INTERVAL 3 MINUTE))), x), range(0, 60, 3)))
+// -- from cte_timestamps timestamp
+
+// with cte_timestamps as
+// (
+//     SELECT
+//         subtractMinutes(now(), number) as timestamp
+//     FROM numbers(80)
+// )
+// select
+//     reverse(arrayMap(x -> countEqual(groupArray(dateDiff('minute', toStartOfInterval(timestamp, INTERVAL 1 MINUTE), toStartOfInterval(now(), INTERVAL 1 MINUTE))), x), range(0,60,1)))
+// from cte_timestamps timestamp

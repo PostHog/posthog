@@ -8,18 +8,18 @@ import { FilterLogicalOperator } from '~/types'
 import type { errorTrackingLogicType } from './errorTrackingLogicType'
 
 export type ErrorTrackingSparklineConfig = {
-    period: number
-    displayInterval: 'minute' | 'hour' | 'day'
-    displayGap: number
-    offset?: { value: number; unit: 'minute' | 'hour' | 'day' }
+    unitValue: number
+    displayUnit: 'minute' | 'hour'
+    gap: number
+    offset?: { value: number; unit: 'minute' | 'hour' }
 }
 type SparklineOption = LemonSegmentedButtonOption<string> & ErrorTrackingSparklineConfig
 
-const SPARKLINE_OPTIONS: Record<string, SparklineOption> = {
-    '-1h': { value: '1h', label: '1h', period: 60, displayInterval: 'minute', displayGap: 1 },
-    '-24h': { value: '24h', label: '24h', period: 24, displayInterval: 'hour', displayGap: 1 },
-    '-7d': { value: '7d', label: '7d', period: 7, displayInterval: 'hour', displayGap: 8 },
-    '-14d': { value: '14d', label: '14d', period: 14, displayInterval: 'hour', displayGap: 2 },
+export const SPARKLINE_OPTIONS: Record<string, SparklineOption> = {
+    '-1h': { value: '1h', label: '1h', unitValue: 60, displayUnit: 'minute', gap: 1 },
+    '-24h': { value: '24h', label: '24h', unitValue: 24, displayUnit: 'hour', gap: 1 },
+    '-7d': { value: '7d', label: '7d', unitValue: 7, displayUnit: 'hour', gap: 8 },
+    '-14d': { value: '14d', label: '14d', unitValue: 14, displayUnit: 'hour', gap: 12 },
 }
 
 export const errorTrackingLogic = kea<errorTrackingLogicType>([
