@@ -711,7 +711,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                             <p>
                                                 Something unexpected? Try the{' '}
                                                 <Link to={urls.sessionAttributionDebugger()}>
-                                                    Session Attribution Debugger
+                                                    Session attribution debugger
                                                 </Link>
                                             </p>
                                         </div>
