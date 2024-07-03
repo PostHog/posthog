@@ -6,6 +6,8 @@ import uuid
 from string import Template
 
 import pyarrow as pa
+from asgiref.sync import sync_to_async
+from django import db
 from django.conf import settings
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
@@ -365,6 +367,8 @@ async def start_batch_export_run(inputs: StartBatchExportRunInputs) -> BatchExpo
         inputs.data_interval_end,
     )
 
+    await sync_to_async(db.connection.ensure_connection)()
+
     run = await acreate_batch_export_run(
         batch_export_id=uuid.UUID(inputs.batch_export_id),
         data_interval_start=inputs.data_interval_start,
@@ -416,6 +420,8 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
     that's the case. Also, a notification is sent to users on every failure.
     """
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
+
+    await sync_to_async(db.connection.ensure_connection)()
 
     not_model_params = ("id", "team_id", "batch_export_id", "failure_threshold", "failure_check_window")
     update_params = {
