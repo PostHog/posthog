@@ -36,12 +36,7 @@ export const errorTrackingQuery = ({
 }): DataTableNode => {
     const { value, displayAs, gap, offsetHours } = sparklineSelection
 
-    // const numInPeriod = displayAs === 'hour' ? 24 : 60
-    // const unitsInPeriod = value * numInPeriod
-
-    const labels = generateFormattedDateLabels({ value, displayAs, gap, offsetHours })
-
-    const sparklineData = `reverse(arrayMap(x -> countEqual(groupArray(dateDiff('${displayAs}', toStartOfInterval(timestamp, INTERVAL ${gap} ${displayAs}), toStartOfInterval(now(), INTERVAL ${gap} ${displayAs}))), x), range(0, ${value}, ${gap})))`
+    const { labels, data } = generateSparklineProps({ value, displayAs, gap, offsetHours })
 
     return {
         kind: NodeKind.DataTableNode,
@@ -50,7 +45,7 @@ export const errorTrackingQuery = ({
             select: [
                 'any(properties) as "context.columns.error"',
                 'properties.$exception_type',
-                `<Sparkline data={${sparklineData}} labels={[${labels.join(',')}]} /> as "context.columns.volume"`,
+                `<Sparkline data={${data}} labels={[${labels.join(',')}]} /> as "context.columns.volume"`,
                 'count() as occurrences',
                 'count(distinct $session_id) as sessions',
                 'count(distinct distinct_id) as users',
@@ -76,20 +71,21 @@ export const errorTrackingQuery = ({
     }
 }
 
-export const generateFormattedDateLabels = ({
+export const generateSparklineProps = ({
     value,
     displayAs,
     gap,
     offsetHours,
-}: ErrorTrackingSparklineConfig): string[] => {
-    const now = dayjs()
-        .subtract(offsetHours ?? 0, 'hour')
-        .startOf(displayAs)
-    // const formattedDates = range(period * displayGap).map((idx) =>
-    //     now.subtract(period - idx * displayGap, displayInterval)
-    // )
-    const formattedDates = range(value / gap).map((idx) => now.subtract(value - (idx + 1) * gap, displayAs))
-    return formattedDates.map((d) => `'${d.format('D MMM, YYYY HH:mm')} (UTC)'`)
+}: ErrorTrackingSparklineConfig): { labels: string[]; data: string } => {
+    const offset = offsetHours ?? 0
+    const now = dayjs().subtract(offset, 'hour').startOf(displayAs)
+    const dates = range(value / gap).map((idx) => now.subtract(value - (idx + 1) * gap, displayAs))
+    const labels = dates.map((d) => `'${d.format('D MMM, YYYY HH:mm')} (UTC)'`)
+
+    const startTime = `subtractHours(now(), ${offset})`
+    const data = `reverse(arrayMap(x -> countEqual(groupArray(dateDiff('${displayAs}', toStartOfInterval(timestamp, INTERVAL ${gap} ${displayAs}), toStartOfInterval(${startTime}, INTERVAL ${gap} ${displayAs}))), x), range(0, ${value}, ${gap})))`
+
+    return { labels, data }
 }
 
 export const errorTrackingGroupQuery = ({
