@@ -5,7 +5,21 @@ import { range } from 'lib/utils'
 import { DataTableNode, DateRange, ErrorTrackingOrder, EventsQuery, InsightVizNode, NodeKind } from '~/queries/schema'
 import { AnyPropertyFilter, BaseMathType, ChartDisplayType } from '~/types'
 
-import { ErrorTrackingSparklineConfig } from './errorTrackingLogic'
+export type ErrorTrackingSparklineConfig = {
+    value: number
+    displayAs: 'minute' | 'hour' | 'day'
+    gap: number
+    offsetHours?: number
+}
+
+export const SPARKLINE_CONFIGURATIONS: Record<string, ErrorTrackingSparklineConfig> = {
+    '1h': { value: 60, displayAs: 'minute', gap: 1 },
+    '24h': { value: 24, displayAs: 'hour', gap: 1 },
+    '7d': { value: 168, displayAs: 'hour', gap: 8 }, // 7d * 24h = 168h
+    '14d': { value: 336, displayAs: 'hour', gap: 12 }, // 14d * 24h = 336h
+    '90d': { value: 90, displayAs: 'day', gap: 5 },
+    '180d': { value: 180, displayAs: 'day', gap: 10 },
+}
 
 export const errorTrackingQuery = ({
     order,
@@ -20,14 +34,14 @@ export const errorTrackingQuery = ({
     filterGroup: UniversalFiltersGroup
     sparklineSelection: ErrorTrackingSparklineConfig
 }): DataTableNode => {
-    const { unitValue, displayUnit, gap, offset } = sparklineSelection
+    const { value, displayAs, gap, offsetHours } = sparklineSelection
 
-    const labels = generateFormattedDateLabels({ unitValue, displayUnit, gap, offset })
+    // const numInPeriod = displayAs === 'hour' ? 24 : 60
+    // const unitsInPeriod = value * numInPeriod
 
-    const numInPeriod = displayUnit === 'hour' ? 24 : 60
-    const unitsInPeriod = unitValue * numInPeriod
+    const labels = generateFormattedDateLabels({ value, displayAs, gap, offsetHours })
 
-    const sparklineData = `reverse(arrayMap(x -> countEqual(groupArray(dateDiff('${displayUnit}', toStartOfInterval(timestamp, INTERVAL ${gap} ${displayUnit}), toStartOfInterval(now(), INTERVAL ${gap} ${displayUnit}))), x), range(0, ${unitsInPeriod}, ${gap})))`
+    const sparklineData = `reverse(arrayMap(x -> countEqual(groupArray(dateDiff('${displayAs}', toStartOfInterval(timestamp, INTERVAL ${gap} ${displayAs}), toStartOfInterval(now(), INTERVAL ${gap} ${displayAs}))), x), range(0, ${value}, ${gap})))`
 
     return {
         kind: NodeKind.DataTableNode,
@@ -63,18 +77,18 @@ export const errorTrackingQuery = ({
 }
 
 export const generateFormattedDateLabels = ({
-    unitValue,
-    displayUnit,
+    value,
+    displayAs,
     gap,
-    offset,
+    offsetHours,
 }: ErrorTrackingSparklineConfig): string[] => {
     const now = dayjs()
-        .subtract(offset?.value ?? 0, offset?.unit)
-        .startOf(displayUnit)
+        .subtract(offsetHours ?? 0, 'hour')
+        .startOf(displayAs)
     // const formattedDates = range(period * displayGap).map((idx) =>
     //     now.subtract(period - idx * displayGap, displayInterval)
     // )
-    const formattedDates = range(unitValue).map((idx) => now.subtract(unitValue - idx, displayUnit))
+    const formattedDates = range(value / gap).map((idx) => now.subtract(value - (idx + 1) * gap, displayAs))
     return formattedDates.map((d) => `'${d.format('D MMM, YYYY HH:mm')} (UTC)'`)
 }
 

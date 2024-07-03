@@ -6,21 +6,12 @@ import { DateRange, ErrorTrackingOrder } from '~/queries/schema'
 import { FilterLogicalOperator } from '~/types'
 
 import type { errorTrackingLogicType } from './errorTrackingLogicType'
+import { ErrorTrackingSparklineConfig } from './queries'
 
-export type ErrorTrackingSparklineConfig = {
-    unitValue: number
-    displayUnit: 'minute' | 'hour'
-    gap: number
-    offset?: { value: number; unit: 'minute' | 'hour' }
-}
-type SparklineOption = LemonSegmentedButtonOption<string> & ErrorTrackingSparklineConfig
+type SparklineOption = LemonSegmentedButtonOption<string> & Pick<ErrorTrackingSparklineConfig, 'offsetHours'>
 
-export const SPARKLINE_OPTIONS: Record<string, SparklineOption> = {
-    '-1h': { value: '1h', label: '1h', unitValue: 60, displayUnit: 'minute', gap: 1 },
-    '-24h': { value: '24h', label: '24h', unitValue: 24, displayUnit: 'hour', gap: 1 },
-    '-7d': { value: '7d', label: '7d', unitValue: 7, displayUnit: 'hour', gap: 8 },
-    '-14d': { value: '14d', label: '14d', unitValue: 14, displayUnit: 'hour', gap: 12 },
-}
+const oneHour = { value: '1h', label: '1h' }
+const twentyFourHour = { value: '24h', label: '24h' }
 
 export const errorTrackingLogic = kea<errorTrackingLogicType>([
     path(['scenes', 'error-tracking', 'errorTrackingLogic']),
@@ -30,7 +21,7 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
         setOrder: (order: ErrorTrackingOrder) => ({ order }),
         setFilterGroup: (filterGroup: UniversalFiltersGroup) => ({ filterGroup }),
         setFilterTestAccounts: (filterTestAccounts: boolean) => ({ filterTestAccounts }),
-        setSparklineSelection: (selection: SparklineOption) => ({ selection }),
+        setSparklineSelection: (selection: string) => ({ selection }),
         _setSparklineOptions: (options: SparklineOption[]) => ({ options }),
     }),
     reducers({
@@ -63,14 +54,14 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
             },
         ],
         sparklineSelection: [
-            SPARKLINE_OPTIONS['-24h'],
+            '24h' as string,
             { persist: true },
             {
                 setSparklineSelection: (_, { selection }) => selection,
             },
         ],
         sparklineOptions: [
-            [SPARKLINE_OPTIONS['-24h'], SPARKLINE_OPTIONS['-7d']] as SparklineOption[],
+            [twentyFourHour, oneHour] as SparklineOption[],
             { persist: true },
             {
                 _setSparklineOptions: (_, { options }) => options,
@@ -79,24 +70,23 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
     }),
     listeners(({ values, actions }) => ({
         setDateRange: ({ dateRange: { date_from, date_to } }) => {
-            const options = []
+            const options: SparklineOption[] = []
 
             // yesterday
             if (date_from === '-1dStart' && date_to === '-1dEnd') {
-                const offset = { value: 1, unit: 'day' }
-                options.push({ ...SPARKLINE_OPTIONS['-24h'], offset }, { ...SPARKLINE_OPTIONS['-1h'], offset })
+                options.push({ ...twentyFourHour, offsetHours: 24 }, { ...oneHour, offsetHours: 24 })
             } // today and last 24 hours
             else if (date_from === 'dStart' || date_from === '-24h') {
-                options.push(SPARKLINE_OPTIONS['-24h'], SPARKLINE_OPTIONS['-1h'])
+                options.push(twentyFourHour, oneHour)
             } else if (date_from) {
-                // const period = Number(date_from?.replace(/-|h|d/g, ''))
-                options.push(SPARKLINE_OPTIONS[date_from], SPARKLINE_OPTIONS['-24h'])
+                const value = date_from?.replace('-', '')
+                options.push({ value: value, label: value }, twentyFourHour)
             }
 
             const possibleValues = options.map((o) => o.value)
 
-            if (!possibleValues.includes(values.sparklineSelection.value)) {
-                actions.setSparklineSelection(options[0])
+            if (!possibleValues.includes(values.sparklineSelection)) {
+                actions.setSparklineSelection(options[0].value)
             }
 
             actions._setSparklineOptions(options)
