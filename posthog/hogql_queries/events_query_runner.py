@@ -266,7 +266,7 @@ class EventsQueryRunner(QueryRunner):
     def columns(self, query_columns: list | None) -> list[str]:
         columns = query_columns or []
         return [
-            col if col == "*" else columns[idx] if len(columns) > idx else col
+            col if col == "*" or "person" else columns[idx] if len(columns) > idx else col
             for idx, col in enumerate(self.select_input_raw())
         ]
 
