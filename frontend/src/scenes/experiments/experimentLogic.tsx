@@ -1280,9 +1280,13 @@ export const experimentLogic = kea<experimentLogicType>([
         sortedWinProbabilities: [
             (s) => [s.experimentResults, s.conversionRateForVariant],
             (
-                experimentResults: any,
-                conversionRateForVariant: any
+                experimentResults,
+                conversionRateForVariant
             ): { key: string; winProbability: number; conversionRate: number }[] => {
+                if (!experimentResults) {
+                    return []
+                }
+
                 return Object.keys(experimentResults.probability)
                     .map((key) => ({
                         key,
