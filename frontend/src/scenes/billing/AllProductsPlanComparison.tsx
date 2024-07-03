@@ -331,7 +331,7 @@ export const AllProductsPlanComparison = ({
                                 </span>
                             </span>
                         ),
-                        className: 'bg-white',
+                        className: 'bg-bg-3000',
                         key: currentProduct.type,
                         content: (
                             <table className="w-full table-fixed max-w-[920px]" ref={planComparisonRef}>

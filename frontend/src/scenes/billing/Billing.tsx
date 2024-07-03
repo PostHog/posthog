@@ -212,6 +212,7 @@ export function Billing(): JSX.Element {
                                 disableClientSideRouting
                                 targetBlank
                                 center
+                                data-attr="manage-billing"
                             >
                                 Manage card details and view past invoices
                             </LemonButton>

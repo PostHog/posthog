@@ -1454,7 +1454,7 @@ export const billingJson: BillingType = {
             screenshot_url: 'https://posthog.com/images/products/feature-flags/screenshot-feature-flags.png',
             icon_key: 'IconToggle',
             docs_url: 'https://posthog.com/docs/feature-flags',
-            subscribed: false,
+            subscribed: true,
             plans: [
                 {
                     plan_key: 'free-20230117',
@@ -2011,7 +2011,7 @@ export const billingJson: BillingType = {
             screenshot_url: 'https://posthog.com/images/products/surveys/screenshot-surveys.png',
             icon_key: 'IconMessage',
             docs_url: 'https://posthog.com/docs/surveys',
-            subscribed: false,
+            subscribed: true,
             plans: [
                 {
                     plan_key: 'free-20230928',
@@ -2434,7 +2434,7 @@ export const billingJson: BillingType = {
             screenshot_url: null,
             icon_key: 'IconBolt',
             docs_url: 'https://posthog.com/docs/cdp',
-            subscribed: null,
+            subscribed: true,
             plans: [
                 {
                     plan_key: 'free-20230117',
@@ -2649,7 +2649,7 @@ export const billingJson: BillingType = {
             screenshot_url: null,
             icon_key: 'IconStack',
             docs_url: 'https://posthog.com/docs',
-            subscribed: null,
+            subscribed: true,
             plans: [
                 {
                     plan_key: 'free-20230117',
