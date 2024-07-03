@@ -365,6 +365,7 @@ export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Eleme
                     overlay: overlayForNewInsightMenu(dataAttr),
                 },
                 'data-attr': 'saved-insights-new-insight-dropdown',
+                'aria-label': 'new-insight-dropdown',
             }}
             data-attr="saved-insights-new-insight-button"
             size="small"

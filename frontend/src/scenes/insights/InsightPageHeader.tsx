@@ -226,6 +226,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                     })
                                                 }
                                                 fullWidth
+                                                data-attr="delete-insight-from-insight-view"
                                             >
                                                 Delete insight
                                             </LemonButton>

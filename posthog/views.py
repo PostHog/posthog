@@ -130,6 +130,9 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
     if settings.DEBUG or settings.E2E_TESTING:
         response["is_debug"] = True
 
+    if settings.E2E_TESTING:
+        response["is_e2e"] = True
+
     if request.user.is_authenticated:
         response = {
             **response,
