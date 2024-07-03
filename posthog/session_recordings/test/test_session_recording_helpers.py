@@ -461,7 +461,7 @@ def test_new_ingestion_groups_using_snapshot_bytes_if_possible(raw_snapshot_even
         159,
     ]
 
-    space_with_headroom = math.ceil((106 + 1072 + 50) * 1.05)
+    space_with_headroom = math.ceil((106 + 1072 + 50) * 1.10)
     assert list(mock_capture_flow(events, max_size_bytes=space_with_headroom)[1]) == [
         {
             "event": "$snapshot_items",
