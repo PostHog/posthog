@@ -223,7 +223,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                             <div className="font-bold text-3xl leading-7">
                                                                 $
                                                                 {(
-                                                                    parseFloat(product.current_amount_usd || '') *
+                                                                    parseFloat(product.current_amount_usd || '0') *
                                                                     (1 -
                                                                         (billing?.discount_percent
                                                                             ? billing.discount_percent / 100
