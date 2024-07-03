@@ -559,6 +559,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportSurveyArchived: (survey: Survey) => ({ survey }),
         reportSurveyTemplateClicked: (template: SurveyTemplateType) => ({ template }),
         reportSurveyCycleDetected: (survey: Survey | NewSurvey) => ({ survey }),
+        reportSurveyWithBranchingCreated: (survey: Survey) => ({ survey }),
         reportProductUnsubscribed: (product: string) => ({ product }),
         // onboarding
         reportOnboardingProductSelected: (
@@ -1287,6 +1288,15 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 id: survey.id,
                 start_date: survey.start_date,
                 end_date: survey.end_date,
+            })
+        },
+        reportSurveyWithBranchingCreated: ({ survey }) => {
+            posthog.capture('survey with branching created', {
+                name: survey.name,
+                id: survey.id,
+                start_date: survey.start_date,
+                end_date: survey.end_date,
+                created_at: survey.created_at,
             })
         },
         reportProductUnsubscribed: ({ product }) => {
