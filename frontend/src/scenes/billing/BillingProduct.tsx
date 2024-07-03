@@ -83,7 +83,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
     const showUpgradeCard =
         (upgradePlan?.product_key !== 'platform_and_support' || product?.addons?.length === 0) &&
         upgradePlan &&
-        (featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] !== 'test' || billing?.subscription_level == 'custom')
+        billing?.subscription_level === 'custom'
 
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
@@ -140,9 +140,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                 >
                                                     Learn how to reduce your bill
                                                 </LemonButton>
-                                                {(featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] !== 'test' ||
-                                                    (featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' &&
-                                                        billing?.subscription_level === 'custom')) &&
+                                                {billing?.subscription_level === 'custom' &&
                                                     (product.plans?.length > 0 ? (
                                                         <LemonButton
                                                             fullWidth
@@ -231,7 +229,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                             <div className="font-bold text-3xl leading-7">
                                                                 $
                                                                 {(
-                                                                    parseFloat(product.current_amount_usd || '') *
+                                                                    parseFloat(product.current_amount_usd || '0') *
                                                                     (1 -
                                                                         (billing?.discount_percent
                                                                             ? billing.discount_percent / 100
@@ -258,7 +256,9 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                                 <div className="font-bold text-muted text-lg leading-5">
                                                                     $
                                                                     {(
-                                                                        parseFloat(product.projected_amount_usd || '') *
+                                                                        parseFloat(
+                                                                            product.projected_amount_usd || '0'
+                                                                        ) *
                                                                         (1 -
                                                                             (billing?.discount_percent
                                                                                 ? billing.discount_percent / 100
@@ -319,28 +319,26 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     {product.addons?.length > 0 && (
                         <div className="pb-8">
                             <h4 className="my-4">Add-ons</h4>
-                            {featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] == 'test' &&
-                                billing?.subscription_level == 'free' && (
-                                    <LemonBanner type="warning" className="text-sm mb-4" hideIcon>
-                                        <div className="flex justify-between items-center">
-                                            <div>
-                                                Add-ons are only available on paid plans. Upgrade to access these
-                                                features.
-                                            </div>
-                                            <LemonButton
-                                                className="shrink-0"
-                                                to={`/api/billing/activate?products=all_products:&redirect_path=${redirectPath}&intent_product=${product.type}`}
-                                                type="primary"
-                                                status="alt"
-                                                disableClientSideRouting
-                                                loading={!!billingProductLoading}
-                                                onClick={() => setBillingProductLoading(product.type)}
-                                            >
-                                                Upgrade now
-                                            </LemonButton>
+                            {billing?.subscription_level == 'free' && (
+                                <LemonBanner type="warning" className="text-sm mb-4" hideIcon>
+                                    <div className="flex justify-between items-center">
+                                        <div>
+                                            Add-ons are only available on paid plans. Upgrade to access these features.
                                         </div>
-                                    </LemonBanner>
-                                )}
+                                        <LemonButton
+                                            className="shrink-0"
+                                            to={`/api/billing/activate?products=all_products:&redirect_path=${redirectPath}&intent_product=${product.type}`}
+                                            type="primary"
+                                            status="alt"
+                                            disableClientSideRouting
+                                            loading={!!billingProductLoading}
+                                            onClick={() => setBillingProductLoading(product.type)}
+                                        >
+                                            Upgrade now
+                                        </LemonButton>
+                                    </div>
+                                </LemonBanner>
+                            )}
                             <div className="gap-y-4 flex flex-col">
                                 {product.addons
                                     // TODO: enhanced_persons: remove this filter
@@ -450,11 +448,8 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                 data-attr={`${product.type}-upgrade-cta`}
                                                 to={getUpgradeProductLink({
                                                     product,
-                                                    upgradeToPlanKey: upgradeToPlanKey || '',
                                                     redirectPath,
                                                     includeAddons: false,
-                                                    subscriptionLevel: billing?.subscription_level,
-                                                    featureFlags,
                                                 })}
                                                 type="primary"
                                                 icon={<IconPlus />}
