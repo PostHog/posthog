@@ -26,7 +26,15 @@ import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeT
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { InsightVizNode } from '~/queries/schema'
 import { isInsightVizNode } from '~/queries/utils'
-import { FilterType, InsightLogicProps, InsightModel, InsightShortId, ItemMode, SetInsightOptions } from '~/types'
+import {
+    FilterType,
+    InsightLogicProps,
+    InsightModel,
+    InsightShortId,
+    ItemMode,
+    QueryBasedInsightModel,
+    SetInsightOptions,
+} from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import type { insightLogicType } from './insightLogicType'
@@ -314,7 +322,10 @@ export const insightLogic = kea<insightLogicType>([
             (s) => [s.featureFlags],
             (featureFlags) => !!featureFlags[FEATURE_FLAGS.QUERY_BASED_INSIGHTS_SAVING],
         ],
-        queryBasedInsight: [(s) => [s.legacyInsight], (legacyInsight) => getQueryBasedInsightModel(legacyInsight)],
+        queryBasedInsight: [
+            (s) => [s.legacyInsight],
+            (legacyInsight) => getQueryBasedInsightModel(legacyInsight) as QueryBasedInsightModel,
+        ],
         insightProps: [() => [(_, props) => props], (props): InsightLogicProps => props],
         isInDashboardContext: [() => [(_, props) => props], ({ dashboardId }) => !!dashboardId],
         hasDashboardItemId: [
