@@ -581,7 +581,7 @@ def get_event(request):
                             )
                         except MessageSizeTooLargeError:
                             REPLAY_MESSAGE_SIZE_TOO_LARGE_COUNTER.inc()
-                            warning_event = replace_with_warning(args[0])
+                            warning_event = replace_with_warning(args[0], token)
                             if warning_event:
                                 warning_future = capture_internal(warning_event, *args[1:], **kwargs)
                                 warning_future.get(timeout=settings.KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS)
@@ -634,14 +634,14 @@ def get_event(request):
     return cors_response(request, JsonResponse({"status": 1}))
 
 
-def replace_with_warning(event: dict[str, Any]) -> dict[str, Any] | None:
+def replace_with_warning(event: dict[str, Any], token: str) -> dict[str, Any] | None:
     """
     Replace the event with a warning message if the event is too large to be sent to Kafka.
     The event passed in should be safe to discard (because we know kafka won't accept it).
     We do this so that when we're playing back the recording we can insert useful info in the UI.
     """
     try:
-        sample_replay_data_to_object_storage(event, random())
+        sample_replay_data_to_object_storage(event, random(), token)
 
         properties = event.pop("properties", {})
         snapshot_items = properties.pop("$snapshot_items", [])
@@ -680,7 +680,7 @@ def replace_with_warning(event: dict[str, Any]) -> dict[str, Any] | None:
         return None
 
 
-def sample_replay_data_to_object_storage(event: dict[str, Any], random_number: float) -> None:
+def sample_replay_data_to_object_storage(event: dict[str, Any], random_number: float, token: str) -> None:
     """
     the random number is passed in to make testing easier
     both the random number and the sample rate must be between 0 and 0.01
@@ -689,11 +689,12 @@ def sample_replay_data_to_object_storage(event: dict[str, Any], random_number: f
     try:
         sample_rate = settings.REPLAY_MESSAGE_TOO_LARGE_SAMPLE_RATE
         if 0 < random_number < sample_rate <= 0.01:
-            object_key = f"session_id/{event.get('properties', {}).get('$session_id', 'unknown')}.json"
+            object_key = f"token-{token}-session_id-{event.get('properties', {}).get('$session_id', 'unknown')}.json"
             object_storage.write(object_key, json.dumps(event), bucket=settings.REPLAY_MESSAGE_TOO_LARGE_SAMPLE_BUCKET)
     except Exception as ex:
         with sentry_sdk.push_scope() as scope:
             scope.set_tag("capture-pathway", "replay")
+            scope.set_tag("ph-team-token", token)
             capture_exception(ex)
 
 
