@@ -19,7 +19,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { AnyDataNode, HogLanguage } from '~/queries/schema'
 
-loader.config({ monaco })
+if (loader) {
+    loader.config({ monaco })
+}
 
 export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> {
     queryKey?: string
