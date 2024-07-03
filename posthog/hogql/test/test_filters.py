@@ -41,7 +41,9 @@ class TestFilters(BaseTest):
             HogQLFilters(),
             self.team,
         )
-        self.assertEqual(self._print_ast(select), f"SELECT event FROM events WHERE 1 LIMIT {MAX_SELECT_RETURNED_ROWS}")
+        self.assertEqual(
+            self._print_ast(select), f"SELECT event FROM events WHERE true LIMIT {MAX_SELECT_RETURNED_ROWS}"
+        )
 
     def test_replace_filters_date_range(self):
         select = replace_filters(
