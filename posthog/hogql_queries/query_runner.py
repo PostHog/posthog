@@ -426,7 +426,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     ValueError(f"Cached response is of unexpected type {type(cached_response)}, ignoring it")
                 )
 
-        if False or self.is_cached_response(cached_response_candidate):
+        if False and self.is_cached_response(cached_response_candidate):
             if not self._is_stale(cached_response):
                 QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="hit").inc()
                 # We have a valid result that's fresh enough, let's return it
