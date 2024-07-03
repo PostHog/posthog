@@ -403,6 +403,41 @@ def test_new_ingestion_large_non_full_snapshots_are_separated(raw_snapshot_event
     ]
 
 
+def test_new_ingestion_many_small_non_full_snapshots_are_separated(raw_snapshot_events, mocker: MockerFixture):
+    mocker.patch(
+        "posthog.models.utils.UUIDT",
+        return_value="0178495e-8521-0000-8e1c-2652fa57099b",
+    )
+    mocker.patch("time.time", return_value=0)
+
+    too_big_payload = [
+        "".join(random.choices(string.ascii_uppercase + string.digits, k=124)),
+    ] * 20
+
+    events = [
+        {
+            "event": "$snapshot",
+            "properties": {
+                "$session_id": "1234",
+                "$window_id": "1",
+                "$snapshot_data": {
+                    "type": 7,
+                    "timestamp": 234,
+                    "something": x,
+                },
+                "distinct_id": "abc123",
+            },
+        }
+        for x in too_big_payload
+    ]
+    capture_output = list(mock_capture_flow(events, max_size_bytes=2000))[1]
+
+    # the list was split in half and could then fit into kafka messages
+    assert len(capture_output) == 2
+    assert len(capture_output[0]["properties"]["$snapshot_items"]) == 10
+    assert len(capture_output[1]["properties"]["$snapshot_items"]) == 10
+
+
 def test_new_ingestion_groups_using_snapshot_bytes_if_possible(raw_snapshot_events, mocker: MockerFixture):
     mocker.patch(
         "posthog.models.utils.UUIDT",
