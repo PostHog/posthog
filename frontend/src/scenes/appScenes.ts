@@ -80,5 +80,5 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Settings]: () => import('./settings/SettingsScene'),
     [Scene.MoveToPostHogCloud]: () => import('./moveToPostHogCloud/MoveToPostHogCloud'),
     [Scene.Heatmaps]: () => import('./heatmaps/HeatmapsScene'),
-    [Scene.SessionAttributionDebugger]: () => import('./web-analytics/SessionDebugger/SessionDebuggerScene'),
+    [Scene.SessionAttributionDebugger]: () => import('./web-analytics/SessionDebugger/SessionAttributionDebuggerScene'),
 }

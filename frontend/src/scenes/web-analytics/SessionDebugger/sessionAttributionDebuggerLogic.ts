@@ -3,14 +3,15 @@ import { actionToUrl, urlToAction } from 'kea-router'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
-import { sessionDebuggerLogicType } from 'scenes/web-analytics/SessionDebugger/sessionDebuggerLogicType'
 
 import { DataTableNode, HogQLQuery, NodeKind } from '~/queries/schema'
 import { isSessionPropertyFilters } from '~/queries/schema-guards'
 import { SessionPropertyFilter } from '~/types'
 
+import type { sessionAttributionDebuggerLogicType } from './sessionAttributionDebuggerLogicType'
+
 export const initialFilters = [] as SessionPropertyFilter[]
-export const sessionDebuggerLogic = kea<sessionDebuggerLogicType>([
+export const sessionAttributionDebuggerLogic = kea<sessionAttributionDebuggerLogicType>([
     path(['scenes', 'webAnalytics', 'sessionDebuggerLogic']),
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags']],

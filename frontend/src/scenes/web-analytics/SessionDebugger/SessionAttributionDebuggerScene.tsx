@@ -6,15 +6,15 @@ import { DataTableNode, HogQLQuery } from '~/queries/schema'
 import { isSessionPropertyFilters } from '~/queries/schema-guards'
 import { QueryContext, QueryContextColumnComponent } from '~/queries/types'
 
-import { sessionDebuggerLogic } from './sessionDebuggerLogic'
+import { sessionAttributionDebuggerLogic } from './sessionAttributionDebuggerLogic'
 
-export function SessionDebuggerScene(): JSX.Element {
-    return <SessionDebugger />
+export function SessionAttributionDebuggerScene(): JSX.Element {
+    return <SessionAttributionDebugger />
 }
 
 export const scene: SceneExport = {
-    component: SessionDebuggerScene,
-    logic: sessionDebuggerLogic,
+    component: SessionAttributionDebuggerScene,
+    logic: sessionAttributionDebuggerLogic,
 }
 
 const ExampleUrlsCell: QueryContextColumnComponent = ({ value }: { value: unknown }): JSX.Element => {
@@ -58,9 +58,9 @@ const queryContext: QueryContext = {
     },
 }
 
-export function SessionDebugger(): JSX.Element {
-    const { query } = useValues(sessionDebuggerLogic)
-    const { setFilters } = useActions(sessionDebuggerLogic)
+export function SessionAttributionDebugger(): JSX.Element {
+    const { query } = useValues(sessionAttributionDebuggerLogic)
+    const { setFilters } = useActions(sessionAttributionDebuggerLogic)
     return (
         <div>
             <Query<DataTableNode>
