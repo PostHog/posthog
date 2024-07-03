@@ -19,12 +19,12 @@ from posthog.batch_exports.service import (
     BatchExportSchema,
     acount_failed_batch_export_runs,
     acreate_batch_export_backfill,
-    acreate_batch_export_run,
     apause_batch_export,
     aupdate_batch_export_backfill_status,
-    aupdate_batch_export_run,
     cancel_running_batch_export_backfill,
+    create_batch_export_run,
     running_backfills_for_batch_export,
+    update_batch_export_run,
 )
 from posthog.temporal.batch_exports.metrics import (
     get_export_finished_metric,
@@ -33,6 +33,7 @@ from posthog.temporal.batch_exports.metrics import (
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.logger import bind_temporal_worker_logger
+from posthog.warehouse.util import database_sync_to_async
 
 BytesGenerator = collections.abc.Generator[bytes, None, None]
 RecordsGenerator = collections.abc.Generator[pa.RecordBatch, None, None]
@@ -367,9 +368,7 @@ async def start_batch_export_run(inputs: StartBatchExportRunInputs) -> BatchExpo
         inputs.data_interval_end,
     )
 
-    await sync_to_async(db.connection.ensure_connection)()
-
-    run = await acreate_batch_export_run(
+    run = await database_sync_to_async(create_batch_export_run)(
         batch_export_id=uuid.UUID(inputs.batch_export_id),
         data_interval_start=inputs.data_interval_start,
         data_interval_end=inputs.data_interval_end,
@@ -429,7 +428,7 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
         for key, value in dataclasses.asdict(inputs).items()
         if key not in not_model_params and value is not None
     }
-    batch_export_run = await aupdate_batch_export_run(
+    batch_export_run = await database_sync_to_async(update_batch_export_run)(
         run_id=uuid.UUID(inputs.id),
         finished_at=dt.datetime.now(),
         **update_params,
