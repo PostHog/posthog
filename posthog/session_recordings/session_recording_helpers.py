@@ -218,8 +218,7 @@ def preprocess_replay_events(
                             event = new_event(part)
                             yield event
                         elif len(part) > 1:  # Only split if the part has more than one item
-                            part1, part2 = split_list(part)
-                            new_parts.extend([part1, part2])
+                            new_parts = split_list(part)
                         else:
                             # If part has only one item and still doesn't fit, yield it as is
                             event = new_event(part)
