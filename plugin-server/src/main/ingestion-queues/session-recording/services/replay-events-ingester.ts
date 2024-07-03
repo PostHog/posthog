@@ -115,7 +115,7 @@ export class ReplayEventsIngester {
         try {
             const rrwebEvents = Object.values(event.eventsByWindowId).reduce((acc, val) => acc.concat(val), [])
 
-            const replayRecord = createSessionReplayEvent(
+            const { event: replayRecord, warnings } = createSessionReplayEvent(
                 randomUUID(),
                 event.team_id,
                 event.distinct_id,
@@ -145,6 +145,22 @@ export class ReplayEventsIngester {
                         return drop('invalid_timestamp')
                     }
                 }
+
+                await Promise.allSettled(
+                    warnings.map(async (warning) => {
+                        await captureIngestionWarning(
+                            new KafkaProducerWrapper(this.producer),
+                            event.team_id,
+                            warning,
+                            {
+                                replayRecord,
+                                timestamp: replayRecord.first_timestamp,
+                                processingTimestamp: DateTime.now().toISO(),
+                            },
+                            { key: event.session_id }
+                        )
+                    })
+                )
             } catch (e) {
                 captureException(e, {
                     extra: {

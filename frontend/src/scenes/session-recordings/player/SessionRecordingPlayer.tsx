@@ -4,7 +4,7 @@ import { LemonButton, LemonSegmentedButton, LemonSegmentedButtonOption, LemonTag
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { BuilderHog2 } from 'lib/components/hedgehogs'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { dayjs } from 'lib/dayjs'
 import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import { HotkeysInterface, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
@@ -93,14 +93,14 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         setSpeed,
         closeExplorer,
     } = useActions(sessionRecordingPlayerLogic(logicProps))
-    const { isNotFound, snapshotsInvalid } = useValues(sessionRecordingDataLogic(logicProps))
+    const { isNotFound, snapshotsInvalid, start } = useValues(sessionRecordingDataLogic(logicProps))
     const { loadSnapshots } = useActions(sessionRecordingDataLogic(logicProps))
-    const { isFullScreen, explorerMode, isBuffering } = useValues(sessionRecordingPlayerLogic(logicProps))
+    const { isFullScreen, explorerMode, isBuffering, messageTooLargeWarnings } = useValues(
+        sessionRecordingPlayerLogic(logicProps)
+    )
     const speedHotkeys = useMemo(() => createPlaybackSpeedKey(setSpeed), [setSpeed])
     const { preferredInspectorStacking, playbackViewMode } = useValues(playerSettingsLogic)
     const { setPreferredInspectorStacking, setPlaybackViewMode } = useActions(playerSettingsLogic)
-
-    const allowWaterfallView = useFeatureFlag('SESSION_REPLAY_NETWORK_VIEW')
 
     useKeyboardHotkeys(
         {
@@ -168,6 +168,9 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
     const layoutStacking = compactLayout ? InspectorStacking.Vertical : preferredInspectorStacking
     const isVerticallyStacked = layoutStacking === InspectorStacking.Vertical
 
+    const lessThanFiveMinutesOld = dayjs().diff(start, 'minute') <= 5
+    const cannotPlayback = snapshotsInvalid && lessThanFiveMinutesOld && !messageTooLargeWarnings
+
     const { draggable, elementProps } = useNotebookDrag({ href: urls.replaySingle(sessionRecordingId) })
 
     if (isNotFound) {
@@ -191,8 +194,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
             label: 'Inspector',
             'data-attr': 'session-recording-player-view-choice-inspector',
         })
-    }
-    if (allowWaterfallView) {
+
         viewOptions.push({
             value: PlaybackViewMode.Waterfall,
             label: (
@@ -244,7 +246,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                     })}
                                     ref={playerMainRef}
                                 >
-                                    {snapshotsInvalid ? (
+                                    {cannotPlayback ? (
                                         <div className="flex flex-1 flex-col items-center justify-center">
                                             <BuilderHog2 height={200} />
                                             <h1>We're still working on it</h1>

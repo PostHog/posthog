@@ -584,7 +584,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
                     execution_mode = ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE
                 elif self.context.get("is_shared", False) and execution_mode == ExecutionMode.CALCULATE_BLOCKING_ALWAYS:
                     # On shared insights, we don't give the ability to refresh at will
-                    execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
+                    execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
 
                 return calculate_for_query_based_insight(
                     insight,
@@ -878,12 +878,12 @@ Using the correct cache and enriching the response with dashboard specific confi
                 export = "{}/insights/{}/\n".format(SITE_URL, request.GET["export_insight_id"]).encode() + export
 
             response = HttpResponse(export)
-            response["Content-Disposition"] = (
-                'attachment; filename="{name} ({date_from} {date_to}) from PostHog.csv"'.format(
-                    name=slugify(request.GET.get("export_name", "export")),
-                    date_from=filter.date_from.strftime("%Y-%m-%d -") if filter.date_from else "up until",
-                    date_to=filter.date_to.strftime("%Y-%m-%d"),
-                )
+            response[
+                "Content-Disposition"
+            ] = 'attachment; filename="{name} ({date_from} {date_to}) from PostHog.csv"'.format(
+                name=slugify(request.GET.get("export_name", "export")),
+                date_from=filter.date_from.strftime("%Y-%m-%d -") if filter.date_from else "up until",
+                date_to=filter.date_to.strftime("%Y-%m-%d"),
             )
             return response
 

@@ -6,6 +6,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { ManualLinkSourceType, SourceConfig } from '~/types'
 
+import { DataWarehouseInitialBillingLimitNotice } from '../DataWarehouseInitialBillingLimitNotice'
 import PostgresSchemaForm from '../external/forms/PostgresSchemaForm'
 import SourceForm from '../external/forms/SourceForm'
 import { SyncProgressStep } from '../external/forms/SyncProgressStep'
@@ -86,13 +87,16 @@ export function NewSourcesWizard({ onComplete }: NewSourcesWizardProps): JSX.Ele
 
     return (
         <>
-            <h3>{modalTitle}</h3>
-            <p>{modalCaption}</p>
-            <FirstStep />
-            <SecondStep />
-            <ThirdStep />
-            <FourthStep />
-            {footer()}
+            <DataWarehouseInitialBillingLimitNotice />
+            <>
+                <h3>{modalTitle}</h3>
+                <p>{modalCaption}</p>
+                <FirstStep />
+                <SecondStep />
+                <ThirdStep />
+                <FourthStep />
+                {footer()}
+            </>
         </>
     )
 }

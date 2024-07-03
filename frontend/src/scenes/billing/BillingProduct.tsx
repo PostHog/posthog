@@ -15,7 +15,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useRef } from 'react'
 import { getProductIcon } from 'scenes/products/Products'
 
-import { BillingProductV2AddonType, BillingProductV2Type, BillingV2TierType } from '~/types'
+import { BillingProductV2AddonType, BillingProductV2Type, BillingTierType, ProductKey } from '~/types'
 
 import { convertLargeNumberToWords, getUpgradeProductLink, summarizeUsage } from './billing-utils'
 import { BillingGauge } from './BillingGauge'
@@ -29,7 +29,7 @@ import { ProductPricingModal } from './ProductPricingModal'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 
 export const getTierDescription = (
-    tiers: BillingV2TierType[],
+    tiers: BillingTierType[],
     i: number,
     product: BillingProductV2Type | BillingProductV2AddonType,
     interval: string
@@ -89,6 +89,10 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
         0: 'small',
         700: 'medium',
     })
+
+    // Used when a product is offered for free to beta users, so we want to show usage but
+    // there is no pricing (aka tiers) and no free_allotment
+    const isTemporaryFreeProduct = !product.tiered && !product.free_allocation && !product.inclusion_only
 
     return (
         <div
@@ -276,6 +280,23 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                     </span>
                                                 </div>
                                             </Tooltip>
+                                        </div>
+                                    ) : isTemporaryFreeProduct ? (
+                                        <div className="grow">
+                                            <div className="grow">
+                                                <BillingGauge items={billingGaugeItems} product={product} />
+                                            </div>
+                                            {/* TODO: rms: remove this notice after August 8 2024 */}
+                                            {product.type == ProductKey.DATA_WAREHOUSE &&
+                                                currentPlan?.plan_key === 'free-20240530-beta-users-initial' &&
+                                                new Date() < new Date('2024-08-08') && (
+                                                    <LemonBanner type="info" className="mb-6">
+                                                        <p>
+                                                            Free usage for beta users until August 8, 2024. Then, get 30
+                                                            million rows free every month.
+                                                        </p>
+                                                    </LemonBanner>
+                                                )}
                                         </div>
                                     ) : null}
                                 </>

@@ -1,6 +1,6 @@
 import hashlib
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 import time
 import structlog
 from typing import Literal, Optional, Union, cast
@@ -67,7 +67,7 @@ ENTITY_EXISTS_PREFIX = "flag_entity_exists_"
 PERSON_KEY = "person"
 
 
-class FeatureFlagMatchReason(str, Enum):
+class FeatureFlagMatchReason(StrEnum):
     SUPER_CONDITION_VALUE = "super_condition_value"
     CONDITION_MATCH = "condition_match"
     NO_CONDITION_MATCH = "no_condition_match"
@@ -119,9 +119,9 @@ class FlagsMatcherCache:
                     team_id=self.team_id
                 )
                 return {row.group_type: row.group_type_index for row in group_type_mapping_rows}
-        except DatabaseError as err:
+        except DatabaseError:
             self.failed_to_fetch_flags = True
-            raise err
+            raise
 
     @cached_property
     def group_type_index_to_name(self) -> dict[GroupTypeIndex, GroupTypeName]:
@@ -596,14 +596,14 @@ class FeatureFlagMatcher:
                             assert len(group_query) == 1, f"Expected 1 group query result, got {len(group_query)}"
                             all_conditions = {**all_conditions, **group_query[0]}
                 return all_conditions
-        except DatabaseError as e:
+        except DatabaseError:
             self.failed_to_fetch_conditions = True
-            raise e
-        except Exception as e:
+            raise
+        except Exception:
             # Usually when a user somehow manages to create an invalid filter, usually via API.
             # In this case, don't put db down, just skip the flag.
             # Covers all cases like invalid JSON, invalid operator, invalid property name, invalid group input format, etc.
-            raise e
+            raise
 
     def hashed_identifier(self, feature_flag: FeatureFlag) -> Optional[str]:
         """
@@ -969,7 +969,7 @@ def set_feature_flag_hash_key_overrides(team_id: int, distinct_ids: list[str], h
                 )
                 time.sleep(retry_delay)
             else:
-                raise e
+                raise
 
     return False
 

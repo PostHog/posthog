@@ -296,7 +296,7 @@ class ClickhouseExperimentsViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
     # 1. Probability of success
     # 2. Funnel breakdown graph to display
     # ******************************************
-    @action(methods=["GET"], detail=True)
+    @action(methods=["GET"], detail=True, required_scopes=["experiment:read"])
     def results(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         experiment: Experiment = self.get_object()
 
@@ -314,7 +314,7 @@ class ClickhouseExperimentsViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
     #
     # Returns values for secondary experiment metrics, broken down by variants
     # ******************************************
-    @action(methods=["GET"], detail=True)
+    @action(methods=["GET"], detail=True, required_scopes=["experiment:read"])
     def secondary_results(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         experiment: Experiment = self.get_object()
 
@@ -347,7 +347,7 @@ class ClickhouseExperimentsViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
     # 1. Probability of success
     # 2. Funnel breakdown graph to display
     # ******************************************
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=False, required_scopes=["experiment:read"])
     def requires_flag_implementation(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         filter = Filter(request=request, team=self.team).shallow_clone({"date_from": "-7d", "date_to": ""})
 
@@ -355,7 +355,7 @@ class ClickhouseExperimentsViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
 
         return Response({"result": warning})
 
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
     def create_exposure_cohort_for_experiment(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         experiment = self.get_object()
         flag = getattr(experiment, "feature_flag", None)

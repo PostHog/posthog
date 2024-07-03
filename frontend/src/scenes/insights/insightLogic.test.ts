@@ -9,6 +9,7 @@ import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
@@ -19,7 +20,6 @@ import {
     DashboardTile,
     DashboardType,
     FilterType,
-    FunnelsFilterType,
     InsightModel,
     InsightShortId,
     InsightType,
@@ -265,26 +265,6 @@ describe('insightLogic', () => {
             it('has the key set to the id', () => {
                 expect(logic.key).toEqual('42')
             })
-
-            it('no query to load results', async () => {
-                await expectLogic(logic)
-                    .toMatchValues({
-                        legacyInsight: partial({ short_id: Insight42, results: ['cached result'] }),
-                        queryBasedInsight: {
-                            short_id: Insight42,
-                            results: ['cached result'],
-                            query: {
-                                kind: 'InsightVizNode',
-                                source: partial({ kind: 'TrendsQuery', series: [partial({ event: 2 })] }),
-                            },
-                        },
-                        filters: partial({
-                            events: [{ id: 2 }],
-                            properties: [partial({ type: PropertyFilterType.Person })],
-                        }),
-                    })
-                    .toNotHaveDispatchedActions(['loadResultsSuccess']) // this took the cached results
-            })
         })
 
         describe('props with query and cached results', () => {
@@ -303,24 +283,6 @@ describe('insightLogic', () => {
 
             it('has the key set to the id', () => {
                 expect(logic.key).toEqual('42')
-            })
-
-            it('no query to load results', async () => {
-                await expectLogic(logic)
-                    .toMatchValues({
-                        legacyInsight: partial({
-                            short_id: Insight42,
-                            results: ['cached result'],
-                            query: { kind: NodeKind.TimeToSeeDataSessionsQuery },
-                        }),
-                        queryBasedInsight: partial({
-                            short_id: Insight42,
-                            results: ['cached result'],
-                            query: { kind: NodeKind.TimeToSeeDataSessionsQuery },
-                        }),
-                        filters: {},
-                    })
-                    .toNotHaveDispatchedActions(['loadResultsSuccess']) // this took the cached results
             })
         })
 
@@ -348,16 +310,10 @@ describe('insightLogic', () => {
                             short_id: Insight42,
                             query: { kind: NodeKind.TimeToSeeDataSessionsQuery },
                         }),
-                        filters: {},
                     })
                     .delay(1)
                     // do not override the insight if querying with different filters
-                    .toNotHaveDispatchedActions([
-                        'loadResults',
-                        'loadResultsSuccess',
-                        'updateInsight',
-                        'updateInsightSuccess',
-                    ])
+                    .toNotHaveDispatchedActions(['updateInsight', 'updateInsightSuccess'])
             })
         })
 
@@ -383,13 +339,28 @@ describe('insightLogic', () => {
                 await expectLogic(logic)
                     .toMatchValues({
                         legacyInsight: insight,
-                        filters: partial({
-                            events: [partial({ id: 3 })],
-                            properties: [partial({ value: 'a' })],
-                        }),
+                        queryBasedInsight: {
+                            short_id: Insight42,
+                            query: {
+                                kind: 'InsightVizNode',
+                                source: {
+                                    kind: 'TrendsQuery',
+                                    properties: {
+                                        type: 'AND',
+                                        values: [
+                                            {
+                                                type: 'AND',
+                                                values: [partial({ value: 'a' })],
+                                            },
+                                        ],
+                                    },
+                                    series: [partial({ event: 3 })],
+                                },
+                            },
+                        },
                     })
                     .delay(1)
-                    .toNotHaveDispatchedActions(['loadResults', 'setFilters', 'updateInsight'])
+                    .toNotHaveDispatchedActions(['setFilters', 'updateInsight'])
             })
         })
     })
@@ -583,7 +554,6 @@ describe('insightLogic', () => {
             .toDispatchActions(savedInsightsLogic, ['loadInsights'])
             .toMatchValues({
                 savedInsight: partial({ filters: partial({ insight: InsightType.FUNNELS }) }),
-                filters: partial({ insight: InsightType.FUNNELS }),
                 legacyInsight: partial({ id: 12, short_id: Insight12, name: 'New Insight (copy)' }),
                 queryBasedInsight: partial({ id: 12, short_id: Insight12, name: 'New Insight (copy)' }),
                 insightChanged: false,
@@ -607,13 +577,9 @@ describe('insightLogic', () => {
                 cachedInsight: insight,
             })
             theEmptyFiltersLogic.mount()
+            silenceKeaLoadersErrors()
         })
-
-        it('does not call the api on setting empty filters', async () => {
-            await expectLogic(theEmptyFiltersLogic, () => {
-                theEmptyFiltersLogic.actions.setFilters({ new_entity: [] } as FunnelsFilterType)
-            }).toNotHaveDispatchedActions(['loadResults'])
-        })
+        afterEach(resumeKeaLoadersErrors)
 
         it('does not call the api on update when empty filters and no query', async () => {
             await expectLogic(theEmptyFiltersLogic, () => {
@@ -789,7 +755,6 @@ describe('insightLogic', () => {
                     `api/projects/${MOCK_TEAM_ID}/insights/`,
                     {
                         derived_name: 'DataTableNode query',
-                        filters: {},
                         query: {
                             kind: 'DataTableNode',
                         },

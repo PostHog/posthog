@@ -176,9 +176,23 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             else:
-                raise e
+                raise
 
         return self.list(request, *args, **kwargs)
+
+    @action(methods=["GET"], detail=False)
+    def portal(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        license = get_cached_instance_license()
+        if not license:
+            return Response(
+                {"sucess": True},
+                status=status.HTTP_200_OK,
+            )
+
+        organization = self._get_org_required()
+
+        res = BillingManager(license)._get_stripe_portal_url(organization)
+        return redirect(res)
 
     @action(methods=["GET"], detail=False)
     def get_invoices(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
@@ -199,7 +213,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             if len(e.args) > 2:
                 detail_object = e.args[2]
                 if not isinstance(detail_object, dict):
-                    raise e
+                    raise
                 return Response(
                     {
                         "statusText": e.args[0],
@@ -209,7 +223,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             else:
-                raise e
+                raise
 
         return Response(
             {

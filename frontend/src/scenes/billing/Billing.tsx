@@ -43,7 +43,7 @@ export function Billing(): JSX.Element {
         isAnnualPlan,
         billingError,
     } = useValues(billingLogic)
-    const { reportBillingV2Shown } = useActions(billingLogic)
+    const { reportBillingShown } = useActions(billingLogic)
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -54,7 +54,7 @@ export function Billing(): JSX.Element {
 
     useEffect(() => {
         if (billing) {
-            reportBillingV2Shown()
+            reportBillingShown()
         }
     }, [!!billing])
 
@@ -220,6 +220,7 @@ export function Billing(): JSX.Element {
                                 htmlType="submit"
                                 to={billing.stripe_portal_url}
                                 disableClientSideRouting
+                                targetBlank
                                 center
                             >
                                 Manage card details and view past invoices

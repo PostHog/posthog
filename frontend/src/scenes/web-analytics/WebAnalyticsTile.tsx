@@ -65,6 +65,8 @@ const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
             return <>Region</>
         case WebStatsBreakdown.City:
             return <>City</>
+        case WebStatsBreakdown.InitialUTMSourceMediumCampaign:
+            return <>Source / Medium / Campaign</>
         default:
             throw new UnexpectedNeverError(breakdownBy)
     }
@@ -156,6 +158,8 @@ export const webStatsBreakdownToPropertyName = (
             return { key: '$geoip_subdivision_1_code', type: PropertyFilterType.Event }
         case WebStatsBreakdown.City:
             return { key: '$geoip_city_name', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.InitialUTMSourceMediumCampaign:
+            return undefined
         default:
             throw new UnexpectedNeverError(breakdownBy)
     }
@@ -328,7 +332,7 @@ export const WebStatsTableTile = ({
     const { key, type } = webStatsBreakdownToPropertyName(breakdownBy) || {}
 
     const onClick = useCallback(
-        (breakdownValue: string) => {
+        (breakdownValue: string | null) => {
             if (!key || !type) {
                 return
             }
@@ -396,7 +400,7 @@ export const WebStatsTableTile = ({
     )
 }
 
-const getBreakdownValue = (record: unknown, breakdownBy: WebStatsBreakdown): string | undefined => {
+const getBreakdownValue = (record: unknown, breakdownBy: WebStatsBreakdown): string | null | undefined => {
     if (typeof record !== 'object' || !record || !('result' in record)) {
         return undefined
     }
@@ -423,6 +427,10 @@ const getBreakdownValue = (record: unknown, breakdownBy: WebStatsBreakdown): str
                 return breakdownValue[1]
             }
             break
+    }
+
+    if (breakdownValue === null) {
+        return null // null is a valid value, as opposed to undefined which signals that there isn't a valid value
     }
 
     if (typeof breakdownValue !== 'string') {
