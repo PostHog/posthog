@@ -2792,10 +2792,10 @@
       {
         expr: {
           type: {
-            data_type: "int"
+            data_type: "bool"
             nullable: False
           }
-          value: 1
+          value: True
         }
         type: {
           data_type: "bool"
@@ -2833,10 +2833,10 @@
       },
       {
         type: {
-          data_type: "int"
+          data_type: "bool"
           nullable: False
         }
-        value: 1
+        value: True
       },
       {
         type: {
