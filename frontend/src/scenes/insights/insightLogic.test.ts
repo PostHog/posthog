@@ -752,7 +752,6 @@ describe('insightLogic', () => {
                     `api/projects/${MOCK_TEAM_ID}/insights/`,
                     {
                         derived_name: 'DataTableNode query',
-                        filters: {},
                         query: {
                             kind: 'DataTableNode',
                         },
