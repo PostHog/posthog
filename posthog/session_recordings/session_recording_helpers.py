@@ -129,7 +129,7 @@ def preprocess_replay_events(
     if len(events) == 0:
         return
 
-    size_with_headroom = max_size_bytes * 0.95  # Leave 5% headroom
+    size_with_headroom = max_size_bytes * 0.90  # Leave 10% headroom
 
     distinct_id = events[0]["properties"]["distinct_id"]
     session_id = events[0]["properties"]["$session_id"]

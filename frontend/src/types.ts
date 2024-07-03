@@ -1624,7 +1624,7 @@ export interface BillingPlanType {
     tiers?: BillingTierType[] | null
     unit_amount_usd: string | null
     included_if?: 'no_active_subscription' | 'has_subscription' | null
-    initial_billing_limit?: number
+    initial_billing_limit?: number | null
     contact_support: boolean | null
 }
 
