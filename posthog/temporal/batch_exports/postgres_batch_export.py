@@ -104,14 +104,17 @@ class PostgreSQLClient:
 
     @property
     def connection(self) -> psycopg.AsyncConnection:
-        """Raise if a `SnowflakeConnection` hasn't been established, else return it."""
+        """Raise if a `psycopg.AsyncConnection` hasn't been established, else return it."""
         if self._connection is None:
             raise PostgreSQLConnectionError("Not connected, open a connection by calling connect")
         return self._connection
 
     @contextlib.asynccontextmanager
     async def connect(self) -> typing.AsyncIterator[typing.Self]:
-        """Manage a Postgres connection."""
+        """Manage a PostgreSQL connection.
+
+        By using a context manager Pyscopg will take care of closing the connection.
+        """
         kwargs: dict[str, typing.Any] = {}
         if self.has_self_signed_cert:
             # Disable certificate verification for self-signed certificates.
@@ -138,7 +141,15 @@ class PostgreSQLClient:
         exists_ok: bool = True,
         primary_key: Fields | None = None,
     ) -> None:
-        """Create a table in PostgreSQL."""
+        """Create a table in PostgreSQL.
+
+        Args:
+            schema: Name of the schema where the table is to be created.
+            table_name: Name of the table to create.
+            fields: An iterable of PostgreSQL fields for the table.
+            exists_ok: Whether to ignore if the table already exists.
+            primary_key: Optionally set a primary key on these fields, needed for merges.
+        """
         if schema:
             table_identifier = sql.Identifier(schema, table_name)
         else:
@@ -171,7 +182,13 @@ class PostgreSQLClient:
                 )
 
     async def adelete_table(self, schema: str | None, table_name: str, not_found_ok: bool = True) -> None:
-        """Delete a table in PostgreSQL."""
+        """Delete a table in PostgreSQL.
+
+        Args:
+            schema: Name of the schema where the table to delete is located.
+            table_name: Name of the table to delete.
+            not_found_ok: Whether to ignore if the table doesn't exist.
+        """
         if schema:
             table_identifier = sql.Identifier(schema, table_name)
         else:
@@ -198,7 +215,21 @@ class PostgreSQLClient:
         delete: bool = True,
         create: bool = True,
     ) -> collections.abc.AsyncGenerator[str, None]:
-        """Manage a table in PostgreSQL by ensure it exists while in context."""
+        """Manage a table in PostgreSQL by ensure it exists while in context.
+
+        Managing a table implies two operations: creation of a table, which happens upon entering the
+        context manager, and deletion of the table, which happens upon exiting.
+
+        Args:
+            schema: Schema where the managed table is.
+            table_name: A name for the managed table.
+            fields: An iterable of PostgreSQL fields for the table when it has to be created.
+            primary_key: Optionally set a primary key on these fields on creation.
+            exists_ok: Whether to ignore if the table already exists on creation.
+            not_found_ok: Whether to ignore if the table doesn't exist.
+            delete: If `False`, do not delete the table on exiting context manager.
+            create: If `False`, do not attempt to create the table.
+        """
         if create is True:
             await self.acreate_table(schema, table_name, fields, exists_ok, primary_key=primary_key)
 
@@ -217,7 +248,13 @@ class PostgreSQLClient:
         update_when_matched: Fields,
         version_key: str = "version",
     ) -> None:
-        """Merge two identical tables in PostgreSQL."""
+        """Merge two identical tables in PostgreSQL.
+
+        Merging utilizes PostgreSQL's `INSERT INTO ... ON CONFLICT` statement. PostgreSQL version
+        15 and later supports a `MERGE` command, but to ensure support for older versions of PostgreSQL
+        we do not use it. There are differences in the way concurrency is managed in `MERGE` but those
+        are less relevant concerns for us than compatibility.
+        """
         if schema:
             final_table_identifier = sql.Identifier(schema, final_table_name)
             stage_table_identifier = sql.Identifier(schema, stage_table_name)
@@ -275,15 +312,14 @@ class PostgreSQLClient:
         schema: str,
         table_name: str,
         schema_columns: list[str],
-    ):
+    ) -> None:
         """Execute a COPY FROM query with given connection to copy contents of tsv_file.
 
         Arguments:
             tsv_file: A file-like object to interpret as TSV to copy its contents.
-            postgres_connection: A connection to Postgres as setup by psycopg.
-            schema: An existing schema where to create the table.
-            table_name: The name of the table to create.
-            schema_columns: A list of column names.
+            schema: The schema where the table we are COPYing into exists.
+            table_name: The name of the table we are COPYing into.
+            schema_columns: The column names of the table we are COPYing into.
         """
         tsv_file.seek(0)
 
