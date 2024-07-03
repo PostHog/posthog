@@ -385,22 +385,25 @@ function SavedInsightsGrid(): JSX.Element {
     return (
         <>
             <div className="saved-insights-grid mb-2">
-                {paginationState.dataSourcePage.map((insight: InsightModel) => (
-                    <InsightCard
-                        key={insight.short_id}
-                        insight={{ ...insight }}
-                        rename={() => renameInsight(insight)}
-                        duplicate={() => duplicateInsight(insight)}
-                        deleteWithUndo={async () =>
-                            await deleteWithUndo({
-                                object: insight,
-                                endpoint: `projects/${currentTeamId}/insights`,
-                                callback: loadInsights,
-                            })
-                        }
-                        placement="SavedInsightGrid"
-                    />
-                ))}
+                {paginationState.dataSourcePage.map((legacyInsight: InsightModel) => {
+                    const insight = getQueryBasedInsightModel(legacyInsight)
+                    return (
+                        <InsightCard
+                            key={insight.short_id}
+                            insight={{ ...insight }}
+                            rename={() => renameInsight(legacyInsight)}
+                            duplicate={() => duplicateInsight(insight)}
+                            deleteWithUndo={async () =>
+                                await deleteWithUndo({
+                                    object: legacyInsight,
+                                    endpoint: `projects/${currentTeamId}/insights`,
+                                    callback: loadInsights,
+                                })
+                            }
+                            placement="SavedInsightGrid"
+                        />
+                    )
+                })}
                 {insightsLoading && (
                     // eslint-disable-next-line react/forbid-dom-props
                     <div style={{ minHeight: '30rem' }}>
@@ -500,7 +503,8 @@ export function SavedInsights(): JSX.Element {
         },
         {
             width: 0,
-            render: function Render(_, insight) {
+            render: function Render(_, legacyInsight) {
+                const insight = getQueryBasedInsightModel(legacyInsight)
                 return (
                     <More
                         overlay={
@@ -513,7 +517,7 @@ export function SavedInsights(): JSX.Element {
                                     Edit
                                 </LemonButton>
                                 <LemonButton
-                                    onClick={() => renameInsight(insight)}
+                                    onClick={() => renameInsight(legacyInsight)}
                                     data-attr={`insight-item-${insight.short_id}-dropdown-rename`}
                                     fullWidth
                                 >
@@ -531,7 +535,7 @@ export function SavedInsights(): JSX.Element {
                                     status="danger"
                                     onClick={() =>
                                         void deleteWithUndo({
-                                            object: insight,
+                                            object: legacyInsight,
                                             endpoint: `projects/${currentTeamId}/insights`,
                                             callback: loadInsights,
                                         })

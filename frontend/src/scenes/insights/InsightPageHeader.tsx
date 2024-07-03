@@ -29,7 +29,7 @@ import { urls } from 'scenes/urls'
 
 import { tagsModel } from '~/models/tagsModel'
 import { DataTableNode, NodeKind } from '~/queries/schema'
-import { ExporterFormat, InsightLogicProps, InsightModel, InsightShortId, ItemMode, NotebookNodeType } from '~/types'
+import { ExporterFormat, InsightLogicProps, InsightShortId, ItemMode, NotebookNodeType } from '~/types'
 
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
     // insightSceneLogic
@@ -105,7 +105,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                     {hasDashboardItemId && (
                                         <>
                                             <LemonButton
-                                                onClick={() => duplicateInsight(legacyInsight as InsightModel, true)}
+                                                onClick={() => duplicateInsight(insight, true)}
                                                 fullWidth
                                                 data-attr="duplicate-insight-from-insight-view"
                                             >

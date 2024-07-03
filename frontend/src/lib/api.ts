@@ -8,6 +8,8 @@ import posthog from 'posthog-js'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
+import { getInsightFilterOrQueryForPersistance } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { DatabaseSerializedFieldType, QuerySchema, QueryStatusResponse, RefreshType } from '~/queries/schema'
 import {
     ActionType,
@@ -69,6 +71,7 @@ import {
     PluginLogEntry,
     PropertyDefinition,
     PropertyDefinitionType,
+    QueryBasedInsightModel,
     RawAnnotationType,
     RoleMemberType,
     RolesListParams,
@@ -880,6 +883,8 @@ function getSessionId(): string | undefined {
     return posthog.get_session_id()
 }
 
+type ReturnedInsightModelByFlag<Flag extends boolean> = Flag extends true ? QueryBasedInsightModel : InsightModel
+
 const api = {
     insights: {
         loadInsight(
@@ -895,6 +900,20 @@ const api = {
                     })
                 )
                 .get()
+        },
+        async create<Flag extends boolean>(
+            insight: QueryBasedInsightModel,
+            options: {
+                writeAsQuery: boolean
+                readAsQuery: Flag
+            }
+        ): Promise<ReturnedInsightModelByFlag<Flag>> {
+            const legacyInsight: InsightModel = await new ApiRequest().insights().create({
+                data: { ...insight, ...getInsightFilterOrQueryForPersistance(insight, options.writeAsQuery) },
+            })
+            return (
+                options.readAsQuery ? getQueryBasedInsightModel(legacyInsight) : legacyInsight
+            ) as ReturnedInsightModelByFlag<Flag>
         },
     },
 

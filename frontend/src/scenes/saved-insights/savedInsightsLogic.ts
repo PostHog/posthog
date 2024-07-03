@@ -2,6 +2,7 @@ import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { Sorting } from 'lib/lemon-ui/LemonTable'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -75,7 +76,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
         ) => ({ filters, merge, debounce }),
         updateFavoritedInsight: (insight: QueryBasedInsightModel, favorited: boolean) => ({ insight, favorited }),
         renameInsight: (insight: InsightModel) => ({ insight }),
-        duplicateInsight: (insight: InsightModel, redirectToInsight = false) => ({
+        duplicateInsight: (insight: QueryBasedInsightModel, redirectToInsight = false) => ({
             insight,
             redirectToInsight,
         }),
@@ -168,6 +169,10 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
         ],
     }),
     selectors(({ actions }) => ({
+        queryBasedInsightSaving: [
+            (s) => [s.featureFlags],
+            (featureFlags) => !!featureFlags[FEATURE_FLAGS.QUERY_BASED_INSIGHTS_SAVING],
+        ],
         filters: [(s) => [s.rawFilters], (rawFilters): SavedInsightFilters => cleanFilters(rawFilters || {})],
         count: [(s) => [s.insights], (insights) => insights.count],
         usingFilters: [
@@ -278,10 +283,16 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             insightsModel.actions.renameInsight(insight)
         },
         duplicateInsight: async ({ insight, redirectToInsight }) => {
-            const newInsight = await api.create(`api/projects/${values.currentTeamId}/insights`, {
-                ...insight,
-                name: insight.name ? `${insight.name} (copy)` : insight.name,
-            })
+            const newInsight = await api.insights.create(
+                {
+                    ...insight,
+                    name: insight.name ? `${insight.name} (copy)` : insight.name,
+                },
+                {
+                    writeAsQuery: values.queryBasedInsightSaving,
+                    readAsQuery: false,
+                }
+            )
             actions.addInsight(newInsight)
             redirectToInsight && router.actions.push(urls.insightEdit(newInsight.short_id))
         },
