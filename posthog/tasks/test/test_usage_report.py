@@ -32,6 +32,8 @@ from posthog.session_recordings.queries.test.session_replay_sql import (
     produce_replay_summary,
 )
 from posthog.tasks.usage_report import (
+    OrgReport,
+    _add_team_report_to_org_reports,
     _get_all_org_reports,
     _get_all_usage_data_as_team_rows,
     _get_full_org_usage_report,
@@ -41,8 +43,6 @@ from posthog.tasks.usage_report import (
     capture_event,
     get_instance_metadata,
     send_all_org_usage_reports,
-    OrgReport,
-    _add_team_report_to_org_reports,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -309,6 +309,15 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     team=self.org_1_team_2,
                 )
 
+            _create_event(
+                distinct_id=distinct_id,
+                event="$eventAnonymousPersonfull",
+                properties={"$lib": "$web", "$is_identified": False},
+                timestamp=now() - relativedelta(hours=12),
+                team=self.org_1_team_2,
+                person_mode="full",
+            )
+
             _setup_replay_data(team_id=self.org_1_team_2.id, include_mobile_replay=False)
 
             _create_event(
@@ -411,8 +420,9 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     },
                     "plugins_enabled": {"Installed and enabled": 1},
                     "instance_tag": "none",
-                    "event_count_in_period": 24,
-                    "enhanced_persons_event_count_in_period": 23,
+                    "event_count_in_period": 25,
+                    "enhanced_persons_event_count_in_period": 24,
+                    "anonymous_personfull_event_count_in_period": 1,
                     "event_count_with_groups_in_period": 2,
                     "recording_count_in_period": 5,
                     "mobile_recording_count_in_period": 0,
@@ -450,6 +460,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                         str(self.org_1_team_1.id): {
                             "event_count_in_period": 14,
                             "enhanced_persons_event_count_in_period": 13,
+                            "anonymous_personfull_event_count_in_period": 0,
                             "event_count_with_groups_in_period": 2,
                             "recording_count_in_period": 0,
                             "mobile_recording_count_in_period": 0,
@@ -479,8 +490,9 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "rows_synced_in_period": 0,
                         },
                         str(self.org_1_team_2.id): {
-                            "event_count_in_period": 10,
-                            "enhanced_persons_event_count_in_period": 10,
+                            "event_count_in_period": 11,
+                            "enhanced_persons_event_count_in_period": 11,
+                            "anonymous_personfull_event_count_in_period": 1,
                             "event_count_with_groups_in_period": 0,
                             "recording_count_in_period": 5,
                             "mobile_recording_count_in_period": 0,
@@ -535,6 +547,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "instance_tag": "none",
                     "event_count_in_period": 10,
                     "enhanced_persons_event_count_in_period": 10,
+                    "anonymous_personfull_event_count_in_period": 0,
                     "event_count_with_groups_in_period": 0,
                     "recording_count_in_period": 0,
                     "mobile_recording_count_in_period": 0,
@@ -572,6 +585,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                         str(self.org_2_team_3.id): {
                             "event_count_in_period": 10,
                             "enhanced_persons_event_count_in_period": 10,
+                            "anonymous_personfull_event_count_in_period": 0,
                             "event_count_with_groups_in_period": 0,
                             "recording_count_in_period": 0,
                             "mobile_recording_count_in_period": 0,
