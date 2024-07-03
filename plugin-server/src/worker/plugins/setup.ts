@@ -2,7 +2,7 @@ import { Gauge, Summary } from 'prom-client'
 
 import { Hub } from '../../types'
 import { status } from '../../utils/status'
-import { LazyPluginVM } from '../vm/lazy'
+import { constructPluginInstance } from '../vm/lazy'
 import { loadPlugin } from './loadPlugin'
 import { loadPluginsFromDB } from './loadPluginsFromDB'
 import { loadSchedule } from './loadSchedule'
@@ -36,9 +36,9 @@ export async function setupPlugins(hub: Hub): Promise<void> {
         const pluginChanged = plugin?.updated_at !== prevPlugin?.updated_at
 
         if (!pluginConfigChanged && !pluginChanged) {
-            pluginConfig.vm = prevConfig.vm
+            pluginConfig.instance = prevConfig.instance
         } else {
-            pluginConfig.vm = new LazyPluginVM(hub, pluginConfig)
+            pluginConfig.instance = constructPluginInstance(hub, pluginConfig)
             if (hub.PLUGIN_LOAD_SEQUENTIALLY) {
                 await loadPlugin(hub, pluginConfig)
             } else {
@@ -60,7 +60,7 @@ export async function setupPlugins(hub: Hub): Promise<void> {
     importUsedGauge.reset()
     const seenPlugins = new Set<number>()
     for (const pluginConfig of pluginConfigs.values()) {
-        const usedImports = pluginConfig.vm?.usedImports
+        const usedImports = pluginConfig.instance?.usedImports
         if (usedImports && !seenPlugins.has(pluginConfig.plugin_id)) {
             seenPlugins.add(pluginConfig.plugin_id)
             for (const importName of usedImports) {

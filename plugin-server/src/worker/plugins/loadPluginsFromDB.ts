@@ -78,7 +78,7 @@ export async function loadPluginsFromDB(
             ...row,
             plugin: plugin,
             attachments: attachmentsPerConfig.get(row.id) || {},
-            vm: null,
+            instance: null,
             method,
         }
         pluginConfigs.set(row.id, pluginConfig)
