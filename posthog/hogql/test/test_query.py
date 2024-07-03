@@ -1380,7 +1380,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             pretty=False,
         )
-        self.assertEqual(response.hogql, "SELECT event FROM events WHERE true LIMIT 100")
+        self.assertEqual(response.hogql, "SELECT event FROM events WHERE 1 LIMIT 100")
 
     def test_hogql_query_filters_double_error(self):
         query = "SELECT event from events where {filters}"
