@@ -149,6 +149,10 @@ class Plugin(models.Model):
             "source",
             "source",
         )  # coded inside the browser (versioned via plugin_source_version)
+        INLINE = (
+            "inline",
+            "inline",
+        )  # Code checked into plugin_server, url starts with "inline:"
 
     organization: models.ForeignKey = models.ForeignKey(
         "posthog.Organization",

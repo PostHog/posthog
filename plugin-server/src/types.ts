@@ -396,7 +396,7 @@ export interface Plugin {
     id: number
     organization_id: string
     name: string
-    plugin_type: 'local' | 'respository' | 'custom' | 'source'
+    plugin_type: 'local' | 'respository' | 'custom' | 'source' | 'inline'
     description?: string
     is_global: boolean
     is_preinstalled?: boolean
