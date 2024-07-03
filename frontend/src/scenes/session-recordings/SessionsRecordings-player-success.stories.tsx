@@ -14,7 +14,6 @@ import recordings from './__mocks__/recordings.json'
 
 const meta: Meta = {
     title: 'Replay/Player/Success',
-    tags: ['test-skip'], // TODO: Fix the flakey rendering due to player playback
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
@@ -118,37 +117,62 @@ const meta: Meta = {
                 },
             },
             post: {
-                '/api/projects/:team/query': recordingEventsJson,
+                '/api/projects/:team/query': (req, res, ctx) => {
+                    const body = req.body as Record<string, any>
+
+                    if (
+                        body.query.kind === 'HogQLQuery' &&
+                        body.query.query.startsWith(
+                            'SELECT properties.$session_id as session_id, any(properties) as properties'
+                        )
+                    ) {
+                        return res(ctx.json({ results: [['session_id_one', '{}']] }))
+                    }
+
+                    if (body.query.kind === 'EventsQuery' && body.query.properties.length === 1) {
+                        return res(ctx.json(recordingEventsJson))
+                    }
+
+                    // default to an empty response or we duplicate information
+                    return res(ctx.json({ results: [] }))
+                },
             },
         }),
     ],
 }
 export default meta
 
+const sceneUrl = (url: string, searchParams: Record<string, any> = {}): string =>
+    combineUrl(url, {
+        pause: true,
+        t: 7,
+        ...searchParams,
+    }).url
+
 export function RecentRecordings(): JSX.Element {
     useEffect(() => {
-        router.actions.push(urls.replay())
+        router.actions.push(sceneUrl(urls.replay()))
     }, [])
     return <App />
 }
 
 export function RecordingsPlayListNoPinnedRecordings(): JSX.Element {
     useEffect(() => {
-        router.actions.push(urls.replayPlaylist('abcdefg'))
+        router.actions.push(sceneUrl(urls.replayPlaylist('abcdefg')))
     }, [])
     return <App />
 }
 
 export function RecordingsPlayListWithPinnedRecordings(): JSX.Element {
     useEffect(() => {
-        router.actions.push(urls.replayPlaylist('1234567'))
+        router.actions.push(sceneUrl(urls.replayPlaylist('1234567')))
     }, [])
     return <App />
 }
 
 export function SecondRecordingInList(): JSX.Element {
     useEffect(() => {
-        router.actions.push(combineUrl(urls.replay(), undefined, { sessionRecordingId: recordings[1].id }).url)
+        router.actions.push(sceneUrl(urls.replay(), { sessionRecordingId: recordings[1].id }))
     }, [])
     return <App />
 }

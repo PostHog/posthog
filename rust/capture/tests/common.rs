@@ -3,6 +3,7 @@
 use std::default::Default;
 use std::net::SocketAddr;
 use std::num::NonZeroU32;
+use std::ops::Add;
 use std::str::FromStr;
 use std::string::ToString;
 use std::sync::{Arc, Once};
@@ -17,12 +18,15 @@ use rdkafka::config::{ClientConfig, FromClientConfig};
 use rdkafka::consumer::{BaseConsumer, Consumer};
 use rdkafka::util::Timeout;
 use rdkafka::{Message, TopicPartitionList};
+use redis::{Client, Commands};
+use time::OffsetDateTime;
 use tokio::net::TcpListener;
 use tokio::sync::Notify;
 use tokio::time::timeout;
 use tracing::{debug, warn};
 
 use capture::config::{Config, KafkaConfig};
+use capture::limiters::billing::QuotaResource;
 use capture::server::serve;
 
 pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
@@ -47,6 +51,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     otel_sampling_rate: 0.0,
     otel_service_name: "capture-testing".to_string(),
     export_prometheus: false,
+    redis_key_prefix: None,
 });
 
 static TRACING_INIT: Once = Once::new();
@@ -204,6 +209,35 @@ async fn delete_topic(topic: String) {
         .delete_topics(&[&topic], &AdminOptions::default())
         .await
         .expect("failed to delete topic");
+}
+
+pub struct PrefixedRedis {
+    key_prefix: String,
+    client: Client,
+}
+
+impl PrefixedRedis {
+    pub async fn new() -> Self {
+        Self {
+            key_prefix: random_string("test", 8) + "/",
+            client: Client::open(DEFAULT_CONFIG.redis_url.clone())
+                .expect("failed to create redis client"),
+        }
+    }
+
+    pub fn key_prefix(&self) -> Option<String> {
+        Some(self.key_prefix.to_string())
+    }
+
+    pub fn add_billing_limit(&self, res: QuotaResource, token: &str, until: time::Duration) {
+        let key = format!("{}@posthog/quota-limits/{}", self.key_prefix, res.as_str());
+        let score = OffsetDateTime::now_utc().add(until).unix_timestamp();
+        self.client
+            .get_connection()
+            .expect("failed to get connection")
+            .zadd::<String, i64, &str, i64>(key, token, score)
+            .expect("failed to insert in redis");
+    }
 }
 
 pub fn random_string(prefix: &str, length: usize) -> String {

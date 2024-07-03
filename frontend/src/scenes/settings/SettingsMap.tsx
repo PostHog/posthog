@@ -1,6 +1,7 @@
 import { BounceRatePageViewModeSetting } from 'scenes/settings/project/BounceRatePageViewMode'
 import { PersonsJoinMode } from 'scenes/settings/project/PersonsJoinMode'
 import { PersonsOnEvents } from 'scenes/settings/project/PersonsOnEvents'
+import { SessionsTableVersion } from 'scenes/settings/project/SessionsTableVersion'
 
 import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
@@ -166,6 +167,12 @@ export const SettingsMap: SettingSection[] = [
                 title: 'Bounce rate page view mode',
                 component: <BounceRatePageViewModeSetting />,
                 flag: 'SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE',
+            },
+            {
+                id: 'session-table-version',
+                title: 'Sessions Table Version',
+                component: <SessionsTableVersion />,
+                flag: 'SETTINGS_SESSION_TABLE_VERSION',
             },
         ],
     },

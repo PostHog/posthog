@@ -356,6 +356,7 @@ posthog/hogql_queries/web_analytics/top_clicks.py:0: error: Module "django.utils
 posthog/api/user.py:0: error: "User" has no attribute "social_auth"  [attr-defined]
 ee/api/test/base.py:0: error: Incompatible types in assignment (expression has type "None", variable has type "License")  [assignment]
 ee/api/test/base.py:0: error: "setUpTestData" undefined in superclass  [misc]
+posthog/warehouse/external_data_source/jobs.py:0: error: Incompatible types in assignment (expression has type "str", variable has type "Status")  [assignment]
 posthog/warehouse/external_data_source/jobs.py:0: error: Incompatible type for lookup 'id': (got "UUID | None", expected "UUID | str")  [misc]
 posthog/test/test_utils.py:0: error: Argument 5 to "post" of "_RequestFactory" has incompatible type "**dict[str, str]"; expected "Mapping[str, Any] | None"  [arg-type]
 posthog/test/test_plugin_log_entry.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "datetime"  [attr-defined]
@@ -378,10 +379,6 @@ posthog/tasks/exports/test/test_export_utils.py:0: error: Function is missing a 
 posthog/tasks/exports/test/test_csv_exporter_url_sanitising.py:0: error: Function is missing a type annotation for one or more arguments  [no-untyped-def]
 posthog/tasks/exports/test/test_csv_exporter_url_sanitising.py:0: error: Function is missing a type annotation for one or more arguments  [no-untyped-def]
 posthog/tasks/exports/test/test_csv_exporter_renders.py:0: error: Function is missing a type annotation  [no-untyped-def]
-posthog/session_recordings/queries/session_recording_list_from_replay_summary.py:0: error: Missing return statement  [empty-body]
-posthog/session_recordings/queries/session_recording_list_from_replay_summary.py:0: note: If the method is meant to be abstract, use @abc.abstractmethod
-posthog/session_recordings/queries/session_recording_list_from_replay_summary.py:0: error: Missing return statement  [empty-body]
-posthog/session_recordings/queries/session_recording_list_from_replay_summary.py:0: note: If the method is meant to be abstract, use @abc.abstractmethod
 posthog/hogql_queries/test/test_query_runner.py:0: error: Variable "TestQueryRunner" is not valid as a type  [valid-type]
 posthog/hogql_queries/test/test_query_runner.py:0: note: See https://mypy.readthedocs.io/en/stable/common_issues.html#variables-vs-type-aliases
 posthog/hogql_queries/test/test_query_runner.py:0: error: Invalid base class "TestQueryRunner"  [misc]

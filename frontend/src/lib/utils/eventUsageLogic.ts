@@ -246,6 +246,7 @@ function sanitizeQuery(query: Node | null): Record<string, string | number | boo
         payload.event_entity_count = getSeries(querySource)?.filter((e) => isEventsNode(e)).length
         payload.action_entity_count = getSeries(querySource)?.filter((e) => isActionsNode(e)).length
         payload.data_warehouse_entity_count = getSeries(querySource)?.filter((e) => isDataWarehouseNode(e)).length
+        payload.has_data_warehouse_series = !!getSeries(querySource)?.find((e) => isDataWarehouseNode(e))
 
         // properties
         payload.has_properties = !!properties
@@ -394,6 +395,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportPoEModeUpdated: (mode: string) => ({ mode }),
         reportPersonsJoinModeUpdated: (mode: string) => ({ mode }),
         reportBounceRatePageViewModeUpdated: (mode: string) => ({ mode }),
+        reportSessionTableVersionUpdated: (version: string) => ({ version }),
         reportPropertySelectOpened: true,
         reportCreatedDashboardFromModal: true,
         reportSavedInsightToDashboard: true,
@@ -808,6 +810,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportBounceRatePageViewModeUpdated: async ({ mode }) => {
             posthog.capture('bounce rate page view mode updated', { mode })
+        },
+        reportSessionTableVersionUpdated: async ({ version }) => {
+            posthog.capture('session table version updated', { version })
         },
         reportInsightFilterRemoved: async ({ index }) => {
             posthog.capture('local filter removed', { index })

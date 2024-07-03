@@ -187,7 +187,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         togglePropertyFilter: (
             type: PropertyFilterType.Event | PropertyFilterType.Person | PropertyFilterType.Session,
             key: string,
-            value: string | number,
+            value: string | number | null,
             tabChange?: {
                 graphsTab?: string
                 sourceTab?: string
@@ -245,6 +245,25 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             {
                 setWebAnalyticsFilters: (_, { webAnalyticsFilters }) => webAnalyticsFilters,
                 togglePropertyFilter: (oldPropertyFilters, { key, value, type }): WebAnalyticsPropertyFilters => {
+                    if (value === null) {
+                        // if there's already an isNotSet filter, remove it
+                        const isNotSetFilterExists = oldPropertyFilters.some(
+                            (f) => f.type === type || f.key === key || f.operator === PropertyOperator.IsNotSet
+                        )
+                        if (isNotSetFilterExists) {
+                            return oldPropertyFilters.filter(
+                                (f) => f.type !== type || f.key !== key || f.operator !== PropertyOperator.IsNotSet
+                            )
+                        }
+                        return [
+                            ...oldPropertyFilters,
+                            {
+                                type,
+                                key,
+                                operator: PropertyOperator.IsNotSet,
+                            },
+                        ]
+                    }
                     const similarFilterExists = oldPropertyFilters.some(
                         (f) => f.type === type && f.key === key && f.operator === PropertyOperator.Exact
                     )
@@ -252,7 +271,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         // if there's already a matching property, turn it off or merge them
                         return oldPropertyFilters
                             .map((f) => {
-                                if (f.key !== key || f.type !== type || f.operator !== PropertyOperator.Exact) {
+                                if (
+                                    f.key !== key ||
+                                    f.type !== type ||
+                                    ![PropertyOperator.Exact, PropertyOperator.IsNotSet].includes(f.operator)
+                                ) {
                                     return f
                                 }
                                 const oldValue = (Array.isArray(f.value) ? f.value : [f.value]).filter(isNotNil)
