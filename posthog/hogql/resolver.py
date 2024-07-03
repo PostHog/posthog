@@ -737,7 +737,7 @@ class Resolver(CloningVisitor):
         node.type = resolve_constant_data_type(node.value)
         # Remove all booleans
         if isinstance(node.type, ast.BooleanType):
-            node.type = ast.IntegerType
+            node.type = ast.IntegerType(nullable=False)
             node.value = 1 if node.value else 0
         return node
 
