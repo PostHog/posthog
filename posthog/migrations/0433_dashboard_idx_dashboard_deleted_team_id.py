@@ -5,6 +5,7 @@ from django.contrib.postgres.operations import AddIndexConcurrently
 
 
 class Migration(migrations.Migration):
+    atomic = False
     dependencies = [
         ("posthog", "0432_personlessdistinctid"),
     ]
