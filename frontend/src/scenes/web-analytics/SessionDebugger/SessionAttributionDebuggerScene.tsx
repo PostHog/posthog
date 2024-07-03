@@ -34,7 +34,7 @@ const queryContext: QueryContext = {
             title: 'Channel type',
         },
         count: {
-            title: 'Count',
+            title: 'Session count',
         },
         referring_domain: {
             title: 'Referring domain',
