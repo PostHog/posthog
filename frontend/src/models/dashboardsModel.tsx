@@ -92,7 +92,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
                         // If user is anonymous (i.e. viewing a shared dashboard logged out), don't load authenticated stuff
                         return { count: 0, next: null, previous: null, results: [] }
                     }
-                    return await api.get(url || `api/projects/${teamLogic.values.currentTeamId}/dashboards/?limit=400`)
+                    return await api.get(url || `api/projects/${teamLogic.values.currentTeamId}/dashboards/?limit=100`)
                 },
             },
         ],
