@@ -213,7 +213,6 @@ test.concurrent(`plugin method tests: teardown is called on stateful plugin relo
         name: 'test plugin',
         plugin_type: 'source',
         is_global: false,
-        is_stateless: false,
         source__index_ts: `
             async function processEvent (event, meta) {
                 console.log({ method: "processEvent" })

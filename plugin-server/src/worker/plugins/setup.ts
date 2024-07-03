@@ -1,6 +1,6 @@
 import { Gauge, Summary } from 'prom-client'
 
-import { Hub, StatelessVmMap } from '../../types'
+import { Hub } from '../../types'
 import { status } from '../../utils/status'
 import { LazyPluginVM } from '../vm/lazy'
 import { loadPlugin } from './loadPlugin'
@@ -24,7 +24,6 @@ export async function setupPlugins(hub: Hub): Promise<void> {
     status.info('🔁', `Loading plugin configs...`)
     const { plugins, pluginConfigs, pluginConfigsPerTeam } = await loadPluginsFromDB(hub)
     const pluginVMLoadPromises: Array<Promise<any>> = []
-    const statelessVms = {} as StatelessVmMap
 
     const timer = new Date()
 
@@ -38,8 +37,6 @@ export async function setupPlugins(hub: Hub): Promise<void> {
 
         if (!pluginConfigChanged && !pluginChanged) {
             pluginConfig.vm = prevConfig.vm
-        } else if (plugin?.is_stateless && statelessVms[plugin.id]) {
-            pluginConfig.vm = statelessVms[plugin.id]
         } else {
             pluginConfig.vm = new LazyPluginVM(hub, pluginConfig)
             if (hub.PLUGIN_LOAD_SEQUENTIALLY) {
@@ -49,10 +46,6 @@ export async function setupPlugins(hub: Hub): Promise<void> {
             }
             if (prevConfig) {
                 void teardownPlugins(hub, prevConfig)
-            }
-
-            if (plugin?.is_stateless) {
-                statelessVms[plugin.id] = pluginConfig.vm
             }
         }
     }
