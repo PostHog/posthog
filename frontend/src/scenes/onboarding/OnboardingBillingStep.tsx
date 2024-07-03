@@ -1,5 +1,5 @@
 import { IconCheckCircle } from '@posthog/icons'
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
 import { StarHog } from 'lib/components/hedgehogs'
@@ -29,7 +29,6 @@ export const OnboardingBillingStep = ({
     const { productKey } = useValues(onboardingLogic)
     const { currentAndUpgradePlans } = useValues(billingProductLogic({ product }))
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
-    const currentPlan = currentAndUpgradePlans?.currentPlan
 
     const [showPlanComp, setShowPlanComp] = useState(false)
 
@@ -85,15 +84,6 @@ export const OnboardingBillingStep = ({
                             >
                                 {showPlanComp ? 'Hide' : 'Show'} plans
                             </LemonButton>
-                            {currentPlan?.initial_billing_limit && (
-                                <div className="mt-2">
-                                    <LemonBanner type="info">
-                                        To protect your costs and ours, this product has an initial billing limit of $
-                                        {currentPlan.initial_billing_limit}. You can change or remove this limit on the
-                                        Billing page.
-                                    </LemonBanner>
-                                </div>
-                            )}
                         </div>
                     )}
 
