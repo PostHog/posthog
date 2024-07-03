@@ -15,6 +15,8 @@ from rest_framework import status
 
 import datetime
 
+from posthog.warehouse.models.external_data_job import ExternalDataJob
+
 
 class TestExternalDataSource(APIBaseTest):
     def _create_external_data_source(self) -> ExternalDataSource:
@@ -396,7 +398,6 @@ class TestExternalDataSource(APIBaseTest):
                 "prefix",
                 "last_run_at",
                 "schemas",
-                "sync_frequency",
             ],
         )
         self.assertEqual(
@@ -630,3 +631,23 @@ class TestExternalDataSource(APIBaseTest):
             schedule.spec.intervals[0].every,
             datetime.timedelta(days=7),
         )
+
+    def test_source_jobs(self):
+        source = self._create_external_data_source()
+        schema = self._create_external_data_schema(source.pk)
+        job = ExternalDataJob.objects.create(
+            team=self.team, pipeline=source, schema=schema, status=ExternalDataJob.Status.COMPLETED, rows_synced=100
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/external_data_sources/{source.pk}/jobs",
+        )
+
+        data = response.json()
+
+        assert response.status_code, status.HTTP_200_OK
+        assert len(data) == 1
+        assert data[0]["id"] == str(job.pk)
+        assert data[0]["status"] == "Completed"
+        assert data[0]["rows_synced"] == 100
+        assert data[0]["schema"]["id"] == str(schema.pk)
