@@ -134,10 +134,11 @@ async function getSingleInsight(
     insight: InsightModel,
     dashboardId: number,
     queryId: string,
+    refresh: RefreshType,
     methodOptions?: ApiMethodOptions
 ): Promise<InsightModel> {
     const apiUrl = `api/projects/${currentTeamId}/insights/${insight.id}/?${toParams({
-        refresh: 'async',
+        refresh,
         from_dashboard: dashboardId, // needed to load insight in correct context
         client_query_id: queryId,
         session_id: currentSessionId(),
@@ -991,7 +992,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             try {
                 breakpoint()
-                const refreshedInsight = await getSingleInsight(values.currentTeamId, insight, dashboardId, uuid())
+                const refreshedInsight = await getSingleInsight(
+                    values.currentTeamId,
+                    insight,
+                    dashboardId,
+                    uuid(),
+                    'force_async'
+                )
                 dashboardsModel.actions.updateDashboardInsight(refreshedInsight, [], props.id ? [props.id] : undefined)
                 // Start polling for results
                 actions.refreshAllDashboardItems({ tiles: [tile], action: 'refresh' })
@@ -1052,6 +1059,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             insight,
                             dashboardId,
                             queryId,
+                            'async',
                             methodOptions
                         )
                         dashboardsModel.actions.updateDashboardInsight(
