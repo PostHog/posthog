@@ -16,11 +16,14 @@
           "total_interaction_time_to_see_data_ms": 9000,
           "frustrating_interactions_count": 1,
           "user": {
-              "distinct_id": "",
+              "id": 123,
+              "uuid": "01907cab-733b-0000-d676-9e641466219b",
+              "distinct_id": "6fyZKL1tiLfvChQDvUGJGIQOijzDEoOwiG7iZ8uEf8X",
               "first_name": "",
               "last_name": "",
-              "email": "",
-              "is_email_verified": null
+              "email": "user1@posthog.com",
+              "is_email_verified": null,
+              "hedgehog_config": null
           }
       },
       "children": [
