@@ -17,7 +17,7 @@ from posthog.session_recordings.models.metadata import (
 from posthog.utils import flatten
 
 FULL_SNAPSHOT = 2
-
+ARBITRARY_LOOP_LIMIT = 10
 
 # NOTE: For reference here are some helpful enum mappings from rrweb
 # https://github.com/rrweb-io/rrweb/blob/master/packages/rrweb/src/types.ts
@@ -211,7 +211,7 @@ def preprocess_replay_events(
                 # in data from these older clients that batched poorly
                 parts = [other_snapshots]
                 loop_count = 0
-                while parts and loop_count < 10:
+                while parts and loop_count < ARBITRARY_LOOP_LIMIT:
                     loop_count += 1
                     new_parts = []
                     for part in parts:
