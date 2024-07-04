@@ -78,6 +78,12 @@ runs:
               node-version: 18.12.1
               cache: pnpm
 
+        # tests would intermittently fail in GH actions
+        # with exit code 134 _after passing_ all tests
+        # this appears to fix it
+        # absolute wild tbh https://stackoverflow.com/a/75503402
+        - uses: tlambert03/setup-qt-libs@v1
+
         - name: Install plugin-transpiler
           shell: bash
           run: |
