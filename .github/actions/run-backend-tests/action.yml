@@ -78,6 +78,9 @@ runs:
               node-version: 18.12.1
               cache: pnpm
 
+        # wat https://stackoverflow.com/a/75503402
+        - uses: tlambert03/setup-qt-libs@v1
+
         - name: Install plugin-transpiler
           shell: bash
           run: |
