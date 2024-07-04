@@ -582,7 +582,7 @@ def get_event(request):
                             )
                         except MessageSizeTooLargeError as mstle:
                             REPLAY_MESSAGE_SIZE_TOO_LARGE_COUNTER.inc()
-                            warning_event = replace_with_warning(args[0], token, mstle)
+                            warning_event = replace_with_warning(args[0], token, mstle, lib_version)
                             if warning_event:
                                 warning_future = capture_internal(warning_event, *args[1:], **kwargs)
                                 warning_future.get(timeout=settings.KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS)
@@ -635,7 +635,9 @@ def get_event(request):
     return cors_response(request, JsonResponse({"status": 1}))
 
 
-def replace_with_warning(event: dict[str, Any], token: str, mstle: MessageSizeTooLargeError) -> dict[str, Any] | None:
+def replace_with_warning(
+    event: dict[str, Any], token: str, mstle: MessageSizeTooLargeError, lib_version: str
+) -> dict[str, Any] | None:
     """
     Replace the event with a warning message if the event is too large to be sent to Kafka.
     The event passed in should be safe to discard (because we know kafka won't accept it).
@@ -670,6 +672,7 @@ def replace_with_warning(event: dict[str, Any], token: str, mstle: MessageSizeTo
             session_id=properties.get("$session_id"),
             kafka_size=kafka_size,
             posthog_calculation=posthog_size_calculation,
+            lib_version=lib_version,
         )
 
         return {
@@ -688,6 +691,7 @@ def replace_with_warning(event: dict[str, Any], token: str, mstle: MessageSizeTo
                                 "error": str(mstle),
                                 "kafka_size": kafka_size,
                                 "posthog_calculation": posthog_size_calculation,
+                                "lib_version": lib_version,
                             },
                         },
                         "$window_id": first_item.get("$window_id"),
