@@ -1001,6 +1001,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 )
                 dashboardsModel.actions.updateDashboardInsight(refreshedInsight, [], props.id ? [props.id] : undefined)
                 // Start polling for results
+                tile.insight = refreshedInsight
                 actions.refreshAllDashboardItems({ tiles: [tile], action: 'refresh' })
             } catch (e: any) {
                 actions.setRefreshError(insight.short_id)
