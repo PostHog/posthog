@@ -1910,22 +1910,6 @@ class TestCapture(BaseTest):
                     "lib_version",
                     "unknown",
                 ),
-                ("compression", "json"),
-            ]
-
-    @patch("posthog.kafka_client.client._KafkaProducer.produce")
-    def test_recording_ingestion_can_set_compression(self, kafka_produce: MagicMock) -> None:
-        with self.settings(SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES=20480, REPLAY_MESSAGE_COMPRESSION="gzip"):
-            self._send_august_2023_version_session_recording_event(query_params="ver=1.123.4")
-
-            assert kafka_produce.mock_calls[0].kwargs["headers"] == [
-                ("token", "token123"),
-                (
-                    # without setting a version in the URL the default is unknown
-                    "lib_version",
-                    "1.123.4",
-                ),
-                ("compression", "gzip"),
             ]
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
@@ -1942,7 +1926,6 @@ class TestCapture(BaseTest):
                     "lib_version",
                     "1.123.4",
                 ),
-                ("compression", "json"),
             ]
 
     @patch("posthog.kafka_client.client.SessionRecordingKafkaProducer")
@@ -1966,7 +1949,7 @@ class TestCapture(BaseTest):
             self._send_august_2023_version_session_recording_event(event_data=None)
 
             session_recording_producer_singleton_mock.assert_called_with(
-                compression_type=None,
+                compression_type="gzip",
                 kafka_hosts=[
                     "another-server:9092",
                     "a-fourth.server:9092",
@@ -2024,7 +2007,7 @@ class TestCapture(BaseTest):
                 "another-server:9092",
                 "a-fourth.server:9092",
             ],
-            REPLAY_MESSAGE_COMPRESSION="gzip",
+            SESSION_RECORDING_KAFKA_COMPRESSION="gzip-in-capture",
         ):
             session_recording_producer_factory_mock.return_value = session_recording_kafka_producer()
 

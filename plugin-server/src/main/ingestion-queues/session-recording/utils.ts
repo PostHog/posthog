@@ -15,6 +15,22 @@ import { eventDroppedCounter } from '../metrics'
 import { TeamIDWithConfig } from './session-recordings-consumer'
 import { IncomingRecordingMessage, ParsedBatch, PersistedRecordingMessage } from './types'
 
+const GZIP_HEADER = Buffer.from([0x1f, 0x8b, 0x08, 0x00])
+
+function isGzipped(buffer: Buffer): boolean {
+    if (buffer.length < GZIP_HEADER.length) {
+        return false
+    }
+
+    for (let i = 0; i < GZIP_HEADER.length; i++) {
+        if (buffer[i] !== GZIP_HEADER[i]) {
+            return false
+        }
+    }
+
+    return true
+}
+
 const do_unzip = promisify(unzip)
 
 const counterKafkaMessageReceived = new Counter({
@@ -118,18 +134,6 @@ export const getLagMultiplier = (lag: number, threshold = 1000000) => {
     }
 
     return Math.max(0.1, 1 - (lag - threshold) / (threshold * 10))
-}
-
-// yes I know, json isn't a compression format, but it's nicer than null
-export function readCompressionFromHeader(headers: MessageHeader[] | undefined): 'gzip' | 'json' {
-    const compressionHeader = headers?.find((header: MessageHeader) => {
-        // each header in the array is an object of key to value
-        // because it's possible to have multiple headers with the same key
-        // but, we don't support that. the first truthy match we find is the one we use
-        return header.compression
-    })?.compression
-    const compression = typeof compressionHeader === 'string' ? compressionHeader : compressionHeader?.toString()
-    return compression === 'gzip' ? 'gzip' : 'json'
 }
 
 export async function readTokenFromHeaders(
@@ -263,17 +267,15 @@ export const parseKafkaMessage = async (
     let messagePayload: RawEventMessage
     let event: PipelineEvent
 
-    const compression = readCompressionFromHeader(message.headers)
+    const shouldDecompress = isGzipped(message.value)
 
     let messageUnzipped = message.value
     try {
-        if (compression === 'gzip') {
+        if (shouldDecompress) {
             messageUnzipped = await do_unzip(message.value)
         }
-        messagePayload = JSON.parse(messageUnzipped.toString())
-        event = JSON.parse(messagePayload.data)
     } catch (error) {
-        return dropMessage('invalid_' + compression, { error })
+        return dropMessage('invalid_gzip_data', { error })
     }
 
     try {

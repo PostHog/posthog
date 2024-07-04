@@ -121,7 +121,7 @@ KAFKA_TIMEOUT_ERROR_COUNTER = Counter(
 REPLAY_MESSAGE_PRODUCTION_TIMER = Histogram(
     "capture_replay_message_production_seconds",
     "Time taken to produce a set of replay messages",
-    labelnames=["serialization"],
+    labelnames=["compress_in_capture"],
 )
 
 # This is a heuristic of ids we have seen used as anonymous. As they frequently
@@ -217,7 +217,7 @@ def log_event(
     # TODO: Handle Kafka being unavailable with exponential backoff retries
     try:
         if event_name in SESSION_RECORDING_DEDICATED_KAFKA_EVENTS:
-            producer = session_recording_kafka_producer(headers=headers)
+            producer = session_recording_kafka_producer()
         else:
             producer = KafkaProducer()
 
@@ -567,8 +567,8 @@ def get_event(request):
             # This is mostly a copy of above except we only log, we don't error out
             if alternative_replay_events:
                 processed_events = list(preprocess_events(alternative_replay_events))
-                compression = _choose_message_compression(token)
-                with REPLAY_MESSAGE_PRODUCTION_TIMER.labels(serialization=compression).time():
+                compression_in_capture = _compress_in_capture(token)
+                with REPLAY_MESSAGE_PRODUCTION_TIMER.labels(compress_in_capture=compression_in_capture).time():
                     for event, event_uuid, distinct_id in processed_events:
                         capture_args = (
                             event,
@@ -583,7 +583,6 @@ def get_event(request):
                         capture_kwargs = {
                             "extra_headers": [
                                 ("lib_version", lib_version),
-                                ("compression", compression),
                             ],
                         }
                         this_future = capture_internal(*capture_args, **capture_kwargs)
@@ -651,15 +650,15 @@ def get_event(request):
     return cors_response(request, JsonResponse({"status": 1}))
 
 
-# yes I know, json isn't a compression format, but it's nicer than None
-def _choose_message_compression(token: str | None) -> Literal["gzip"] | Literal["json"]:
+def _compress_in_capture(token: str | None) -> bool:
     if (
         # this check is only here so that we can test in a limited way in production
         # ultimately we'll only check this setting
-        (settings.DEBUG or settings.TEST or token == "sTMFPsFhdP1Ssg") and settings.REPLAY_MESSAGE_COMPRESSION == "gzip"
+        (settings.DEBUG or settings.TEST or token == "sTMFPsFhdP1Ssg")
+        and settings.SESSION_RECORDING_KAFKA_COMPRESSION == "gzip-in-capture"
     ):
-        return "gzip"
-    return "json"
+        return True
+    return False
 
 
 def replace_with_warning(
@@ -833,7 +832,7 @@ def capture_internal(
     if event["event"] in SESSION_RECORDING_EVENT_NAMES:
         session_id = event["properties"]["$session_id"]
         headers = [("token", token), *extra_headers]
-        value_serializer = gzip_json_serializer if (_choose_message_compression(token) == "gzip") else None
+        value_serializer = gzip_json_serializer if (_compress_in_capture(token)) else None
 
         overflowing = False
         if token in settings.REPLAY_OVERFLOW_FORCED_TOKENS:
