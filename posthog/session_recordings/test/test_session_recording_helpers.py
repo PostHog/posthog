@@ -334,7 +334,7 @@ def test_new_ingestion_large_non_full_snapshots_are_separated(raw_snapshot_event
     )
     mocker.patch("time.time", return_value=0)
 
-    almost_too_big_payloads = [
+    many_payloads = [
         "".join(random.choices(string.ascii_uppercase + string.digits, k=1024)),
         "".join(random.choices(string.ascii_uppercase + string.digits, k=1024)),
     ]
@@ -348,7 +348,7 @@ def test_new_ingestion_large_non_full_snapshots_are_separated(raw_snapshot_event
                 "$snapshot_data": {
                     "type": 7,
                     "timestamp": 234,
-                    "something": almost_too_big_payloads[0],
+                    "something": many_payloads[0],
                 },
                 "distinct_id": "abc123",
             },
@@ -361,7 +361,7 @@ def test_new_ingestion_large_non_full_snapshots_are_separated(raw_snapshot_event
                 "$snapshot_data": {
                     "type": 8,
                     "timestamp": 123,
-                    "something": almost_too_big_payloads[1],
+                    "something": many_payloads[1],
                 },
                 "distinct_id": "abc123",
             },
@@ -377,7 +377,7 @@ def test_new_ingestion_large_non_full_snapshots_are_separated(raw_snapshot_event
                     {
                         "type": 7,
                         "timestamp": 234,
-                        "something": almost_too_big_payloads[0],
+                        "something": many_payloads[0],
                     }
                 ],
                 "distinct_id": "abc123",
@@ -393,7 +393,7 @@ def test_new_ingestion_large_non_full_snapshots_are_separated(raw_snapshot_event
                     {
                         "type": 8,
                         "timestamp": 123,
-                        "something": almost_too_big_payloads[1],
+                        "something": many_payloads[1],
                     }
                 ],
                 "distinct_id": "abc123",
