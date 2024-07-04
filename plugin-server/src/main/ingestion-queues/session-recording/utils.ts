@@ -265,19 +265,19 @@ export const parseKafkaMessage = async (
 
     const compression = readCompressionFromHeader(message.headers)
 
-    let message_unzipped = message.value
+    let messageUnzipped = message.value
     try {
         if (compression === 'gzip') {
-            message_unzipped = await do_unzip(message.value)
+            messageUnzipped = await do_unzip(message.value)
         }
-        messagePayload = JSON.parse(message_unzipped.toString())
+        messagePayload = JSON.parse(messageUnzipped.toString())
         event = JSON.parse(messagePayload.data)
     } catch (error) {
         return dropMessage('invalid_' + compression, { error })
     }
 
     try {
-        messagePayload = JSON.parse(message_unzipped.toString())
+        messagePayload = JSON.parse(messageUnzipped.toString())
         event = JSON.parse(messagePayload.data)
     } catch (error) {
         return dropMessage('invalid_json', { error })

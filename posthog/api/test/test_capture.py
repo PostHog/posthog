@@ -2009,6 +2009,37 @@ class TestCapture(BaseTest):
             assert data_sent_to_recording_kafka["event"] == "$snapshot_items"
             assert len(data_sent_to_recording_kafka["properties"]["$snapshot_items"]) == 1
 
+    @patch("posthog.api.capture.session_recording_kafka_producer")
+    @patch("posthog.api.capture.KafkaProducer")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_can_compress_messages_before_kafka(
+        self,
+        kafka_produce: MagicMock,
+        _default_kafka_producer_mock: MagicMock,
+        session_recording_producer_factory_mock: MagicMock,
+    ) -> None:
+        with self.settings(
+            KAFKA_HOSTS=["first.server:9092", "second.server:9092"],
+            SESSION_RECORDING_KAFKA_HOSTS=[
+                "another-server:9092",
+                "a-fourth.server:9092",
+            ],
+            REPLAY_MESSAGE_COMPRESSION="gzip",
+        ):
+            session_recording_producer_factory_mock.return_value = session_recording_kafka_producer()
+
+            session_id = "test_can_redirect_session_recordings_to_alternative_kafka"
+            self._send_august_2023_version_session_recording_event(event_data={}, session_id=session_id)
+
+            assert len(kafka_produce.call_args_list) == 1
+
+            call_one = kafka_produce.call_args_list[0][1]
+            assert call_one["key"] == session_id
+            assert call_one["value_serializer"] is not None
+
+            serialized = call_one["value_serializer"]({"i am": "a string"})
+            assert serialized.startswith(b"\x1f\x8b\x08\x00")
+
     def test_get_distinct_id_non_json_properties(self) -> None:
         with self.assertRaises(ValueError):
             get_distinct_id({"properties": "str"})
