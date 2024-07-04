@@ -1211,6 +1211,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                     survey.iteration_frequency_days == undefined ? 0 : survey.iteration_frequency_days,
                 shuffle_questions_enabled: !!survey.appearance?.shuffleQuestions,
                 shuffle_question_options_enabled_count: questionsWithShuffledOptions.length,
+                has_branching_logic: survey.questions.some(
+                    (question) => question.branching && Object.keys(question.branching).length > 0
+                ),
             })
         },
         reportSurveyLaunched: ({ survey }) => {
@@ -1274,6 +1277,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                     survey.iteration_frequency_days == undefined ? 0 : survey.iteration_frequency_days,
                 shuffle_questions_enabled: !!survey.appearance?.shuffleQuestions,
                 shuffle_question_options_enabled_count: questionsWithShuffledOptions.length,
+                has_branching_logic: survey.questions.some(
+                    (question) => question.branching && Object.keys(question.branching).length > 0
+                ),
             })
         },
         reportSurveyTemplateClicked: ({ template }) => {
