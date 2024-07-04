@@ -158,7 +158,6 @@ runs:
                   --ignore=posthog/temporal \
                   --ignore=hogvm/python/test \
                   --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
-                  --durations=100 --durations-min=1.0 --store-durations \
                   $PYTEST_ARGS
 
         - name: Run /decide read replica tests
@@ -173,7 +172,6 @@ runs:
           shell: bash
           run: |
               pytest posthog/api/test/test_decide.py::TestDecideUsesReadReplica \
-                  --durations=100 --durations-min=1.0 \
                   $PYTEST_ARGS
 
         - name: Run Temporal tests
@@ -183,7 +181,6 @@ runs:
           run: |
               pytest posthog/temporal -m "not async_migrations" \
                   --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
-                  --durations=100 --durations-min=1.0 --store-durations \
                   $PYTEST_ARGS
 
         # Post tests
@@ -191,11 +188,3 @@ runs:
           if: failure() && (steps.run-core-tests.outcome != 'failure' && steps.run-decide-read-replica-tests.outcome != 'failure' && steps.run-temporal-tests.outcome != 'failure')
           shell: bash
           run: docker compose -f docker-compose.dev.yml logs
-
-        - name: Upload updated timing data as artifacts
-          uses: actions/upload-artifact@v4
-          if: ${{ inputs.person-on-events != 'true' && inputs.clickhouse-server-image == 'clickhouse/clickhouse-server:23.12.5.81-alpine' }}
-          with:
-              name: timing_data-${{ inputs.segment }}-${{ inputs.group }}
-              path: .test_durations
-              retention-days: 2
