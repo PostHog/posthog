@@ -158,7 +158,6 @@ runs:
                   --ignore=posthog/temporal \
                   --ignore=hogvm/python/test \
                   --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
-                  --durations=100 --durations-min=1.0 --store-durations \
                   $PYTEST_ARGS
 
         - name: Run /decide read replica tests
@@ -173,7 +172,6 @@ runs:
           shell: bash
           run: |
               pytest posthog/api/test/test_decide.py::TestDecideUsesReadReplica \
-                  --durations=100 --durations-min=1.0 \
                   $PYTEST_ARGS
 
         - name: Run Temporal tests
@@ -183,7 +181,6 @@ runs:
           run: |
               pytest posthog/temporal -m "not async_migrations" \
                   --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
-                  --durations=100 --durations-min=1.0 --store-durations \
                   $PYTEST_ARGS
 
         # Post tests
