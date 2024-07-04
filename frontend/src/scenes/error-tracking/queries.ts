@@ -83,7 +83,6 @@ const parseSelection = (selection: SparklineOption): ErrorTrackingSparklineConfi
         ...selection,
         value: Number(value),
         displayAs: unit === 'm' ? 'minute' : unit === 'h' ? 'hour' : 'day',
-        gap: 1,
     }
 }
 
