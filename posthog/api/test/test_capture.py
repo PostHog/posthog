@@ -497,7 +497,7 @@ class TestCapture(BaseTest):
                 },
                 {"type": 2, "data": {"lots": "of data"}, "$window_id": "the window id", "timestamp": 1234567890},
             ],
-            query_params="lib_version=1.2.3",
+            query_params="ver=1.2.3",
         )
 
         assert response.status_code == 200
@@ -519,7 +519,7 @@ class TestCapture(BaseTest):
                             "error": "[Error 10] MessageSizeTooLargeError: Message size too large",
                             "error_message": "MESSAGE_SIZE_TOO_LARGE",
                             "kafka_size": None,  # none here because we're not really throwing MessageSizeTooLargeError
-                            "lib_version": "unknown",
+                            "lib_version": "1.2.3",
                             "posthog_calculation": 425,
                             "size_difference": "unknown",
                         },
