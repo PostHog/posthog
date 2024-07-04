@@ -687,8 +687,11 @@ def sample_replay_data_to_object_storage(event: dict[str, Any], random_number: f
     if the random number is less than the sample_rate then we write the event to S3
     """
     try:
-        sample_rate = settings.REPLAY_MESSAGE_TOO_LARGE_SAMPLE_RATE
-        if 0 < random_number < sample_rate <= 0.01:
+        # capture more of posthog message too large since we know we're using latest versions
+        max_sample_rate = 0.6 if token == "sTMFPsFhdP1Ssg" else 0.01
+        sample_rate = 0.5 if token == "sTMFPsFhdP1Ssg" else settings.REPLAY_MESSAGE_TOO_LARGE_SAMPLE_RATE
+
+        if 0 < random_number < sample_rate <= max_sample_rate:
             object_key = f"token-{token}-session_id-{event.get('properties', {}).get('$session_id', 'unknown')}.json"
             object_storage.write(object_key, json.dumps(event), bucket=settings.REPLAY_MESSAGE_TOO_LARGE_SAMPLE_BUCKET)
     except Exception as ex:
