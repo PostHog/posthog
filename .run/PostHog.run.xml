@@ -16,11 +16,11 @@
       <env name="PRINT_SQL" value="1" />
       <env name="PYDEVD_USE_CYTHON" value="NO" />
       <env name="PYTHONUNBUFFERED" value="1" />
+      <env name="REPLAY_MESSAGE_SERIALIZATION_FORMAT" value="gzip" />
       <env name="SESSION_RECORDING_KAFKA_COMPRESSION" value="gzip" />
       <env name="SESSION_RECORDING_KAFKA_HOSTS" value="localhost" />
       <env name="SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES" value="20971520" />
       <env name="SKIP_SERVICE_VERSION_REQUIREMENTS" value="1" />
-      <env name="REPLAY_MESSAGE_SERIALIZATION_FORMAT" value="msgpack" />
     </envs>
     <option name="SDK_HOME" value="$PROJECT_DIR$/env/bin/python" />
     <option name="WORKING_DIRECTORY" value="" />

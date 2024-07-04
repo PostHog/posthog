@@ -72,7 +72,6 @@
         "kafkajs-snappy": "^1.1.0",
         "lru-cache": "^6.0.0",
         "luxon": "^1.27.0",
-        "msgpackr": "^1.10.2",
         "node-fetch": "^2.6.1",
         "node-rdkafka": "^2.17.0",
         "node-schedule": "^2.1.0",

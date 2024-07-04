@@ -1,6 +1,8 @@
 import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
-import { unpack } from 'msgpackr'
+const { promisify } = require('node:util')
+const { unzip } = require('node:zlib')
+
 import { KafkaConsumer, Message, MessageHeader, PartitionMetadata, TopicPartition } from 'node-rdkafka'
 import path from 'path'
 import { Counter } from 'prom-client'
@@ -12,6 +14,8 @@ import { captureIngestionWarning } from '../../../worker/ingestion/utils'
 import { eventDroppedCounter } from '../metrics'
 import { TeamIDWithConfig } from './session-recordings-consumer'
 import { IncomingRecordingMessage, ParsedBatch, PersistedRecordingMessage } from './types'
+
+const do_unzip = promisify(unzip)
 
 const counterKafkaMessageReceived = new Counter({
     name: 'recording_blob_ingestion_kafka_message_received',
@@ -116,7 +120,7 @@ export const getLagMultiplier = (lag: number, threshold = 1000000) => {
     return Math.max(0.1, 1 - (lag - threshold) / (threshold * 10))
 }
 
-export function readSerializationFromHeaders(headers: MessageHeader[] | undefined): 'msgpack' | 'json' {
+export function readSerializationFromHeaders(headers: MessageHeader[] | undefined): 'gzip' | 'json' {
     const serializationHeader = headers?.find((header: MessageHeader) => {
         // each header in the array is an object of key to value
         // because it's possible to have multiple headers with the same key
@@ -125,7 +129,7 @@ export function readSerializationFromHeaders(headers: MessageHeader[] | undefine
     })?.serialization
     const serialization =
         typeof serializationHeader === 'string' ? serializationHeader : serializationHeader?.toString()
-    return serialization === 'msgpack' ? 'msgpack' : 'json'
+    return serialization === 'gzip' ? 'gzip' : 'json'
 }
 
 export async function readTokenFromHeaders(
@@ -261,14 +265,13 @@ export const parseKafkaMessage = async (
 
     const serialization = readSerializationFromHeaders(message.headers)
 
+    let message_unzipped = message.value
     try {
-        if (serialization === 'msgpack') {
-            messagePayload = unpack(message.value)
-            event = JSON.parse(messagePayload.data)
-        } else {
-            messagePayload = JSON.parse(message.value.toString())
-            event = JSON.parse(messagePayload.data)
+        if (serialization === 'gzip') {
+            message_unzipped = await do_unzip(message.value)
         }
+        messagePayload = JSON.parse(message_unzipped.toString())
+        event = JSON.parse(messagePayload.data)
     } catch (error) {
         return dropMessage('invalid_' + serialization, { error })
     }

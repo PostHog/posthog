@@ -1,8 +1,8 @@
+import gzip
 import json
 import re
 from random import random
 
-import msgpack
 import sentry_sdk
 import structlog
 import time
@@ -575,10 +575,7 @@ def get_event(request):
                     capture_kwargs = {
                         "extra_headers": [
                             ("lib_version", lib_version),
-                            (
-                                "serialization",
-                                "msgpack" if settings.REPLAY_MESSAGE_SERIALIZATION_FORMAT == "msgpack" else "json",
-                            ),
+                            ("serialization", settings.REPLAY_MESSAGE_SERIALIZATION_FORMAT or "json"),
                         ],
                     }
                     this_future = capture_internal(*capture_args, **capture_kwargs)
@@ -810,14 +807,17 @@ def capture_internal(
         token=token,
     )
 
+    def gzip_json_serializer(data):
+        json_data = json.dumps(data).encode("utf-8")
+        return gzip.compress(json_data)
+
     if event["event"] in SESSION_RECORDING_EVENT_NAMES:
         session_id = event["properties"]["$session_id"]
         headers = [("token", token), *extra_headers]
         value_serializer = (
-            msgpack.dumps
+            gzip_json_serializer
             if (
-                settings.REPLAY_MESSAGE_SERIALIZATION_FORMAT == "msgpack"
-                and (settings.DEBUG or token == "sTMFPsFhdP1Ssg")
+                settings.REPLAY_MESSAGE_SERIALIZATION_FORMAT == "gzip" and (settings.DEBUG or token == "sTMFPsFhdP1Ssg")
             )
             else None
         )

@@ -336,8 +336,6 @@ monotonic==1.5
     # via posthoganalytics
 more-itertools==9.0.0
     # via -r requirements.in
-msgpack==1.0.8
-    # via -r requirements.in
 multidict==6.0.2
     # via
     #   aiohttp
