@@ -120,7 +120,7 @@ KAFKA_TIMEOUT_ERROR_COUNTER = Counter(
 
 REPLAY_MESSAGE_PRODUCTION_TIMER = Histogram(
     "capture_replay_message_production_seconds",
-    "Time taken to produce a replay message",
+    "Time taken to produce a set of replay messages",
     labelnames=["serialization"],
 )
 
