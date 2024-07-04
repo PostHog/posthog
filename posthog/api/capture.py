@@ -16,7 +16,7 @@ from django.views.decorators.csrf import csrf_exempt
 from enum import Enum
 from kafka.errors import KafkaError, MessageSizeTooLargeError, KafkaTimeoutError
 from kafka.producer.future import FutureRecordMetadata
-from prometheus_client import Counter, Gauge
+from prometheus_client import Counter, Gauge, Histogram
 from rest_framework import status
 from sentry_sdk import configure_scope
 from sentry_sdk.api import capture_exception, start_span
@@ -116,6 +116,12 @@ KAFKA_TIMEOUT_ERROR_COUNTER = Counter(
     # retry_count should only have 0, 1, or 2
     # and status_code only has 400 or 502
     labelnames=["retry_count", "status_code"],
+)
+
+REPLAY_MESSAGE_PRODUCTION_TIMER = Histogram(
+    "capture_replay_message_production_seconds",
+    "Time taken to produce a replay message",
+    labelnames=["serialization"],
 )
 
 # This is a heuristic of ids we have seen used as anonymous. As they frequently
@@ -561,39 +567,41 @@ def get_event(request):
             # This is mostly a copy of above except we only log, we don't error out
             if alternative_replay_events:
                 processed_events = list(preprocess_events(alternative_replay_events))
-                for event, event_uuid, distinct_id in processed_events:
-                    capture_args = (
-                        event,
-                        distinct_id,
-                        ip,
-                        site_url,
-                        now,
-                        sent_at,
-                        event_uuid,
-                        token,
-                    )
-                    capture_kwargs = {
-                        "extra_headers": [
-                            ("lib_version", lib_version),
-                            ("serialization", settings.REPLAY_MESSAGE_SERIALIZATION_FORMAT or "json"),
-                        ],
-                    }
-                    this_future = capture_internal(*capture_args, **capture_kwargs)
-                    replay_futures.append((this_future, capture_args, capture_kwargs))
+                serialization = _choose_replay_message_serialization(token)
+                with REPLAY_MESSAGE_PRODUCTION_TIMER.labels(serialization=serialization).time():
+                    for event, event_uuid, distinct_id in processed_events:
+                        capture_args = (
+                            event,
+                            distinct_id,
+                            ip,
+                            site_url,
+                            now,
+                            sent_at,
+                            event_uuid,
+                            token,
+                        )
+                        capture_kwargs = {
+                            "extra_headers": [
+                                ("lib_version", lib_version),
+                                ("serialization", serialization),
+                            ],
+                        }
+                        this_future = capture_internal(*capture_args, **capture_kwargs)
+                        replay_futures.append((this_future, capture_args, capture_kwargs))
 
-                start_time = time.monotonic()
-                for future, args, kwargs in replay_futures:
-                    if future is not None:
-                        try:
-                            future.get(
-                                timeout=settings.KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS - (time.monotonic() - start_time)
-                            )
-                        except MessageSizeTooLargeError as mstle:
-                            REPLAY_MESSAGE_SIZE_TOO_LARGE_COUNTER.inc()
-                            warning_event = replace_with_warning(args[0], token, mstle, lib_version)
-                            if warning_event:
-                                warning_future = capture_internal(warning_event, *args[1:], **kwargs)
-                                warning_future.get(timeout=settings.KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS)
+                    start_time = time.monotonic()
+                    for future, args, kwargs in replay_futures:
+                        if future is not None:
+                            try:
+                                future.get(
+                                    timeout=settings.KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS - (time.monotonic() - start_time)
+                                )
+                            except MessageSizeTooLargeError as mstle:
+                                REPLAY_MESSAGE_SIZE_TOO_LARGE_COUNTER.inc()
+                                warning_event = replace_with_warning(args[0], token, mstle, lib_version)
+                                if warning_event:
+                                    warning_future = capture_internal(warning_event, *args[1:], **kwargs)
+                                    warning_future.get(timeout=settings.KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS)
 
     except ValueError as e:
         with sentry_sdk.push_scope() as scope:
@@ -641,6 +649,13 @@ def get_event(request):
 
     statsd.incr("posthog_cloud_raw_endpoint_success", tags={"endpoint": "capture"})
     return cors_response(request, JsonResponse({"status": 1}))
+
+
+def _choose_replay_message_serialization(token: str | None) -> Literal["gzip"] | Literal["json"]:
+    serialization_setting = settings.REPLAY_MESSAGE_SERIALIZATION_FORMAT
+    if token == "sTMFPsFhdP1Ssg" and serialization_setting == "gzip":
+        return "gzip"
+    return "json"
 
 
 def replace_with_warning(
@@ -814,13 +829,7 @@ def capture_internal(
     if event["event"] in SESSION_RECORDING_EVENT_NAMES:
         session_id = event["properties"]["$session_id"]
         headers = [("token", token), *extra_headers]
-        value_serializer = (
-            gzip_json_serializer
-            if (
-                settings.REPLAY_MESSAGE_SERIALIZATION_FORMAT == "gzip" and (settings.DEBUG or token == "sTMFPsFhdP1Ssg")
-            )
-            else None
-        )
+        value_serializer = gzip_json_serializer if (_choose_replay_message_serialization(token)) else None
 
         overflowing = False
         if token in settings.REPLAY_OVERFLOW_FORCED_TOKENS:
