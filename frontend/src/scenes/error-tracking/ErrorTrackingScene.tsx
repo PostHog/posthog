@@ -20,7 +20,7 @@ export const scene: SceneExport = {
 
 export function ErrorTrackingScene(): JSX.Element {
     const { order } = useValues(errorTrackingSceneLogic)
-    const { dateRange, filterTestAccounts, filterGroup, sparklineSelection } = useValues(errorTrackingLogic)
+    const { dateRange, filterTestAccounts, filterGroup, sparklineSelectedPeriod } = useValues(errorTrackingLogic)
 
     const query = useMemo(
         () =>
@@ -29,9 +29,9 @@ export function ErrorTrackingScene(): JSX.Element {
                 dateRange,
                 filterTestAccounts,
                 filterGroup,
-                sparklineSelection,
+                sparklineSelectedPeriod,
             }),
-        [order, dateRange, filterTestAccounts, filterGroup, sparklineSelection]
+        [order, dateRange, filterTestAccounts, filterGroup, sparklineSelectedPeriod]
     )
 
     const context: QueryContext = {
@@ -54,22 +54,17 @@ export function ErrorTrackingScene(): JSX.Element {
 }
 
 const CustomVolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName }) => {
-    const { sparklineSelection, sparklineOptions: options } = useValues(errorTrackingLogic)
-    const { setSparklineSelection } = useActions(errorTrackingLogic)
+    const { sparklineSelectedPeriod, sparklineOptions: options } = useValues(errorTrackingLogic)
+    const { setSparklineSelectedPeriod } = useActions(errorTrackingLogic)
 
     return (
         <div className="flex justify-between items-center min-w-64">
             <div>{columnName}</div>
             <LemonSegmentedButton
                 size="xsmall"
-                value={sparklineSelection.value}
+                value={sparklineSelectedPeriod}
                 options={options}
-                onChange={(value) => {
-                    const selectedOption = options.find((o) => o.value == value)
-                    if (selectedOption) {
-                        setSparklineSelection(selectedOption)
-                    }
-                }}
+                onChange={(value) => setSparklineSelectedPeriod(value)}
             />
         </div>
     )

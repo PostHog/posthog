@@ -5,15 +5,12 @@ import { range } from 'lib/utils'
 import { DataTableNode, DateRange, ErrorTrackingOrder, EventsQuery, InsightVizNode, NodeKind } from '~/queries/schema'
 import { AnyPropertyFilter, BaseMathType, ChartDisplayType } from '~/types'
 
-import { SparklineOption } from './errorTrackingLogic'
-
-export type ErrorTrackingSparklineConfig = {
+export type SparklineConfig = {
     value: number
     displayAs: 'minute' | 'hour' | 'day'
-    offsetHours?: number
 }
 
-export const SPARKLINE_CONFIGURATIONS: Record<string, ErrorTrackingSparklineConfig> = {
+export const SPARKLINE_CONFIGURATIONS: Record<string, SparklineConfig> = {
     '1h': { value: 60, displayAs: 'minute' },
     '24h': { value: 24, displayAs: 'hour' },
     '7d': { value: 168, displayAs: 'hour' }, // 7d * 24h = 168h
@@ -26,18 +23,17 @@ export const errorTrackingQuery = ({
     order,
     dateRange,
     filterTestAccounts,
-    sparklineSelection,
     filterGroup,
+    sparklineSelectedPeriod,
 }: {
     order: ErrorTrackingOrder
     dateRange: DateRange
     filterTestAccounts: boolean
     filterGroup: UniversalFiltersGroup
-    sparklineSelection: SparklineOption
+    sparklineSelectedPeriod: string
 }): DataTableNode => {
-    const { value, displayAs, offsetHours } = parseSelection(sparklineSelection)
-
-    const { labels, data } = generateSparklineProps({ value, displayAs, offsetHours })
+    const { value, displayAs } = parseSparklineSelection(sparklineSelectedPeriod)
+    const { labels, data } = generateSparklineProps({ value, displayAs })
 
     return {
         kind: NodeKind.DataTableNode,
@@ -72,34 +68,28 @@ export const errorTrackingQuery = ({
     }
 }
 
-const parseSelection = (selection: SparklineOption): ErrorTrackingSparklineConfig => {
-    if (selection.value in SPARKLINE_CONFIGURATIONS) {
-        return { ...selection, ...SPARKLINE_CONFIGURATIONS[selection.value] }
+const parseSparklineSelection = (selection: string): SparklineConfig => {
+    if (selection in SPARKLINE_CONFIGURATIONS) {
+        return SPARKLINE_CONFIGURATIONS[selection]
     }
 
-    const [value, unit] = selection.value.replace('-', '').split('')
+    const result = selection.match(/\d+|\D+/g)
 
-    return {
-        ...selection,
-        value: Number(value),
-        displayAs: unit === 'm' ? 'minute' : unit === 'h' ? 'hour' : 'day',
+    if (result) {
+        const [value, unit] = result
+        return { value: Number(value), displayAs: unit === 'm' ? 'minute' : unit === 'h' ? 'hour' : 'day' }
     }
+    return { value: 24, displayAs: 'hour' }
 }
 
-export const generateSparklineProps = ({
-    value,
-    displayAs,
-    offsetHours,
-}: ErrorTrackingSparklineConfig): { labels: string[]; data: string } => {
-    const offset = offsetHours ?? 0
-    const now = dayjs().subtract(offset, 'hour').startOf(displayAs)
+export const generateSparklineProps = ({ value, displayAs }: SparklineConfig): { labels: string[]; data: string } => {
+    const now = dayjs().startOf(displayAs)
     const dates = range(value).map((idx) => now.subtract(value - (idx + 1), displayAs))
     const labels = dates.map((d) => `'${d.format('D MMM, YYYY HH:mm')} (UTC)'`)
 
-    const startTime = `subtractHours(now(), ${offset})`
     const toStartOfIntervalFn =
         displayAs === 'minute' ? 'toStartOfMinute' : displayAs === 'hour' ? 'toStartOfHour' : 'toStartOfDay'
-    const data = `reverse(arrayMap(x -> countEqual(groupArray(dateDiff('${displayAs}', ${toStartOfIntervalFn}(timestamp), ${toStartOfIntervalFn}(${startTime}))), x), range(${value})))`
+    const data = `reverse(arrayMap(x -> countEqual(groupArray(dateDiff('${displayAs}', ${toStartOfIntervalFn}(timestamp), ${toStartOfIntervalFn}(now()))), x), range(${value})))`
 
     return { labels, data }
 }
@@ -149,7 +139,7 @@ export const errorTrackingGroupBreakdownQuery = ({
             series: [
                 {
                     kind: NodeKind.EventsNode,
-                    event: '$pageview',
+                    event: '$exception',
                     math: BaseMathType.TotalCount,
                     name: 'This is the series name',
                     custom_name: 'Boomer',
@@ -174,41 +164,10 @@ const defaultProperties = ({
     const properties = filterGroup.values as AnyPropertyFilter[]
 
     return {
-        event: '$pageview',
+        event: '$exception',
         after: dateRange.date_from || undefined,
         before: dateRange.date_to || undefined,
         filterTestAccounts,
         properties,
     }
 }
-
-// -- 14 * 24 = 336
-// -- with cte_timestamps as
-// -- (
-// --     SELECT
-// --         subtractHours(now(), number) as timestamp
-// --     FROM numbers(350)
-// -- )
-// -- select
-// --     reverse(arrayMap(x -> countEqual(groupArray(dateDiff('hour', toStartOfInterval(timestamp, INTERVAL 12 HOUR), toStartOfInterval(now(), INTERVAL 12 HOUR))), x), range(0, 336, 12)))
-// -- from cte_timestamps timestamp
-
-// -- with cte_timestamps as
-// -- (
-// --     SELECT
-// --         subtractMinutes(now(), number) as timestamp
-// --     FROM numbers(80)
-// -- )
-// -- select
-// --     reverse(arrayMap(x -> countEqual(groupArray(dateDiff('minute', toStartOfInterval(timestamp, INTERVAL 3 MINUTE), toStartOfInterval(now(), INTERVAL 3 MINUTE))), x), range(0, 60, 3)))
-// -- from cte_timestamps timestamp
-
-// with cte_timestamps as
-// (
-//     SELECT
-//         subtractMinutes(now(), number) as timestamp
-//     FROM numbers(80)
-// )
-// select
-//     reverse(arrayMap(x -> countEqual(groupArray(dateDiff('minute', toStartOfInterval(timestamp, INTERVAL 1 MINUTE), toStartOfInterval(now(), INTERVAL 1 MINUTE))), x), range(0,60,1)))
-// from cte_timestamps timestamp

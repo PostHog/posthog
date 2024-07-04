@@ -13,7 +13,7 @@ describe('generateSparklineProps', () => {
         expect(labels[59]).toEqual(`'10 Jan, 2023 17:22 (UTC)'`) // start of minute
 
         expect(data).toEqual(
-            `reverse(arrayMap(x -> countEqual(groupArray(dateDiff('minute', toStartOfMinute(timestamp), toStartOfMinute(subtractHours(now(), 0)))), x), range(60)))`
+            `reverse(arrayMap(x -> countEqual(groupArray(dateDiff('minute', toStartOfMinute(timestamp), toStartOfMinute(now()))), x), range(60)))`
         )
     })
 
@@ -25,7 +25,7 @@ describe('generateSparklineProps', () => {
         expect(labels[23]).toEqual(`'10 Jan, 2023 17:00 (UTC)'`) // start of hour
 
         expect(data).toEqual(
-            `reverse(arrayMap(x -> countEqual(groupArray(dateDiff('hour', toStartOfHour(timestamp), toStartOfHour(subtractHours(now(), 0)))), x), range(24)))`
+            `reverse(arrayMap(x -> countEqual(groupArray(dateDiff('hour', toStartOfHour(timestamp), toStartOfHour(now()))), x), range(24)))`
         )
     })
 
@@ -37,7 +37,7 @@ describe('generateSparklineProps', () => {
         expect(labels[167]).toEqual(`'10 Jan, 2023 17:00 (UTC)'`) // start of hour
 
         expect(data).toEqual(
-            `reverse(arrayMap(x -> countEqual(groupArray(dateDiff('hour', toStartOfHour(timestamp), toStartOfHour(subtractHours(now(), 0)))), x), range(168)))`
+            `reverse(arrayMap(x -> countEqual(groupArray(dateDiff('hour', toStartOfHour(timestamp), toStartOfHour(now()))), x), range(168)))`
         )
     })
 
@@ -49,7 +49,7 @@ describe('generateSparklineProps', () => {
         expect(labels[335]).toEqual(`'10 Jan, 2023 17:00 (UTC)'`) // start of hour
 
         expect(data).toEqual(
-            `reverse(arrayMap(x -> countEqual(groupArray(dateDiff('hour', toStartOfHour(timestamp), toStartOfHour(subtractHours(now(), 0)))), x), range(336)))`
+            `reverse(arrayMap(x -> countEqual(groupArray(dateDiff('hour', toStartOfHour(timestamp), toStartOfHour(now()))), x), range(336)))`
         )
     })
 
@@ -61,7 +61,7 @@ describe('generateSparklineProps', () => {
         expect(labels[89]).toEqual(`'10 Jan, 2023 00:00 (UTC)'`) // start of day
 
         expect(data).toEqual(
-            `reverse(arrayMap(x -> countEqual(groupArray(dateDiff('day', toStartOfDay(timestamp), toStartOfDay(subtractHours(now(), 0)))), x), range(90)))`
+            `reverse(arrayMap(x -> countEqual(groupArray(dateDiff('day', toStartOfDay(timestamp), toStartOfDay(now()))), x), range(90)))`
         )
     })
 
@@ -73,7 +73,7 @@ describe('generateSparklineProps', () => {
         expect(labels[179]).toEqual(`'10 Jan, 2023 00:00 (UTC)'`) // start of day
 
         expect(data).toEqual(
-            `reverse(arrayMap(x -> countEqual(groupArray(dateDiff('day', toStartOfDay(timestamp), toStartOfDay(subtractHours(now(), 0)))), x), range(180)))`
+            `reverse(arrayMap(x -> countEqual(groupArray(dateDiff('day', toStartOfDay(timestamp), toStartOfDay(now()))), x), range(180)))`
         )
     })
 })

@@ -7,8 +7,6 @@ import { FilterLogicalOperator } from '~/types'
 
 import type { errorTrackingLogicType } from './errorTrackingLogicType'
 
-export type SparklineOption = LemonSegmentedButtonOption<string>
-
 const oneHour = { value: '1h', label: '1h' }
 const twentyFourHour = { value: '24h', label: '24h' }
 
@@ -20,8 +18,8 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
         setOrder: (order: ErrorTrackingOrder) => ({ order }),
         setFilterGroup: (filterGroup: UniversalFiltersGroup) => ({ filterGroup }),
         setFilterTestAccounts: (filterTestAccounts: boolean) => ({ filterTestAccounts }),
-        setSparklineSelection: (selection: SparklineOption) => ({ selection }),
-        _setSparklineOptions: (options: SparklineOption[]) => ({ options }),
+        setSparklineSelectedPeriod: (period: string) => ({ period }),
+        _setSparklineOptions: (options: LemonSegmentedButtonOption<string>[]) => ({ options }),
     }),
     reducers({
         dateRange: [
@@ -52,15 +50,15 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
                 setFilterTestAccounts: (_, { filterTestAccounts }) => filterTestAccounts,
             },
         ],
-        sparklineSelection: [
-            twentyFourHour as SparklineOption,
+        sparklineSelectedPeriod: [
+            twentyFourHour.value,
             { persist: true },
             {
                 setSparklineSelection: (_, { selection }) => selection,
             },
         ],
         sparklineOptions: [
-            [twentyFourHour, oneHour] as SparklineOption[],
+            [twentyFourHour, oneHour] as LemonSegmentedButtonOption<string>[],
             { persist: true },
             {
                 _setSparklineOptions: (_, { options }) => options,
@@ -69,7 +67,7 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
     }),
     listeners(({ values, actions }) => ({
         setDateRange: ({ dateRange: { date_from } }) => {
-            const options: SparklineOption[] = []
+            const options: LemonSegmentedButtonOption<string>[] = []
 
             // today and last 24 hours
             if (date_from === 'dStart' || date_from === '-24h') {
@@ -81,8 +79,8 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
 
             const possibleValues = options.map((o) => o.value)
 
-            if (!possibleValues.includes(values.sparklineSelection.value)) {
-                actions.setSparklineSelection(options[0])
+            if (!possibleValues.includes(values.sparklineSelection)) {
+                actions.setSparklineSelectedPeriod(options[0].value)
             }
 
             actions._setSparklineOptions(options)
