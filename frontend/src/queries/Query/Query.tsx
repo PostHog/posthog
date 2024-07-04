@@ -14,14 +14,12 @@ import { QueryContext } from '~/queries/types'
 
 import { DataTableVisualization } from '../nodes/DataVisualization/DataVisualization'
 import { SavedInsight } from '../nodes/SavedInsight/SavedInsight'
-import { TimeToSeeData } from '../nodes/TimeToSeeData/TimeToSeeData'
 import {
     isDataTableNode,
     isDataVisualizationNode,
     isHogQuery,
     isInsightVizNode,
     isSavedInsightNode,
-    isTimeToSeeDataSessionsNode,
     isWebOverviewQuery,
 } from '../utils'
 
@@ -110,8 +108,6 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 embedded={embedded}
             />
         )
-    } else if (isTimeToSeeDataSessionsNode(query)) {
-        component = <TimeToSeeData query={query} cachedResults={props.cachedResults} />
     } else if (isWebOverviewQuery(query)) {
         component = <WebOverview query={query} cachedResults={props.cachedResults} context={queryContext} />
     } else if (isHogQuery(query)) {

@@ -19,14 +19,7 @@ import { renderHogQLX } from '~/queries/nodes/HogQLX/render'
 import { DeletePersonButton } from '~/queries/nodes/PersonsNode/DeletePersonButton'
 import { DataTableNode, EventsQueryPersonColumn, HasPropertiesNode } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
-import {
-    isActorsQuery,
-    isEventsQuery,
-    isHogQLQuery,
-    isPersonsNode,
-    isTimeToSeeDataSessionsQuery,
-    trimQuotes,
-} from '~/queries/utils'
+import { isActorsQuery, isEventsQuery, isHogQLQuery, isPersonsNode, trimQuotes } from '~/queries/utils'
 import { AnyPropertyFilter, EventType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
 
 export function renderColumn(
@@ -244,9 +237,6 @@ export function renderColumn(
                 {String(value)}
             </CopyToClipboardInline>
         )
-    } else if (key.startsWith('user.') && isTimeToSeeDataSessionsQuery(query.source)) {
-        const [parent, child] = key.split('.')
-        return typeof record === 'object' ? record[parent][child] : 'unknown'
     }
     if (typeof value === 'object') {
         return <JSONViewer src={value} name={null} collapsed={Object.keys(value).length > 10 ? 0 : 1} />

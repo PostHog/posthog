@@ -21,7 +21,7 @@ from sentry_sdk import configure_scope
 from sentry_sdk.api import capture_exception, start_span
 from statshog.defaults.django import statsd
 from token_bucket import Limiter, MemoryStorage
-from typing import Any, Optional
+from typing import Any, Optional, Literal
 
 from ee.billing.quota_limiting import QuotaLimitingCaches
 from posthog.api.utils import get_data, get_token, safe_clickhouse_string
@@ -41,6 +41,7 @@ from posthog.redis import get_client
 from posthog.session_recordings.session_recording_helpers import (
     preprocess_replay_events_for_blob_ingestion,
     split_replay_events,
+    byte_size_dict,
 )
 from posthog.storage import object_storage
 from posthog.utils import get_ip_address
@@ -579,9 +580,9 @@ def get_event(request):
                             future.get(
                                 timeout=settings.KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS - (time.monotonic() - start_time)
                             )
-                        except MessageSizeTooLargeError:
+                        except MessageSizeTooLargeError as mstle:
                             REPLAY_MESSAGE_SIZE_TOO_LARGE_COUNTER.inc()
-                            warning_event = replace_with_warning(args[0], token)
+                            warning_event = replace_with_warning(args[0], token, mstle, lib_version)
                             if warning_event:
                                 warning_future = capture_internal(warning_event, *args[1:], **kwargs)
                                 warning_future.get(timeout=settings.KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS)
@@ -634,14 +635,18 @@ def get_event(request):
     return cors_response(request, JsonResponse({"status": 1}))
 
 
-def replace_with_warning(event: dict[str, Any], token: str) -> dict[str, Any] | None:
+def replace_with_warning(
+    event: dict[str, Any], token: str, mstle: MessageSizeTooLargeError, lib_version: str
+) -> dict[str, Any] | None:
     """
     Replace the event with a warning message if the event is too large to be sent to Kafka.
     The event passed in should be safe to discard (because we know kafka won't accept it).
     We do this so that when we're playing back the recording we can insert useful info in the UI.
     """
     try:
-        sample_replay_data_to_object_storage(event, random(), token)
+        sample_replay_data_to_object_storage(event, random(), token, lib_version)
+
+        posthog_size_calculation = byte_size_dict(event)
 
         properties = event.pop("properties", {})
         snapshot_items = properties.pop("$snapshot_items", [])
@@ -655,6 +660,23 @@ def replace_with_warning(event: dict[str, Any], token: str) -> dict[str, Any] | 
             return None
 
         only_meta_events = [x for x in snapshot_items if isinstance(x, dict) and ("type" in x and x["type"] == 4)]
+
+        kafka_size: int | None = None
+        size_difference: int | Literal["unknown"] = "unknown"
+        try:
+            kafka_size = int(mstle.args[0].split(" ")[3])
+            size_difference = kafka_size - posthog_size_calculation
+        except:
+            pass
+
+        logger.info(
+            "REPLAY_MESSAGE_TOO_LARGE",
+            session_id=properties.get("$session_id"),
+            kafka_size=kafka_size,
+            posthog_calculation=posthog_size_calculation,
+            lib_version=lib_version,
+        )
+
         return {
             **event,
             "properties": {
@@ -666,6 +688,14 @@ def replace_with_warning(event: dict[str, Any], token: str) -> dict[str, Any] | 
                         "type": 5,
                         "data": {
                             "tag": "Message too large",
+                            "payload": {
+                                "error_message": mstle.message,
+                                "error": str(mstle),
+                                "kafka_size": kafka_size,
+                                "posthog_calculation": posthog_size_calculation,
+                                "lib_version": lib_version,
+                                "size_difference": size_difference,
+                            },
                         },
                         "$window_id": first_item.get("$window_id"),
                         "timestamp": first_item.get("timestamp"),
@@ -680,15 +710,23 @@ def replace_with_warning(event: dict[str, Any], token: str) -> dict[str, Any] | 
         return None
 
 
-def sample_replay_data_to_object_storage(event: dict[str, Any], random_number: float, token: str) -> None:
+def sample_replay_data_to_object_storage(
+    event: dict[str, Any], random_number: float, token: str, lib_version: str
+) -> None:
     """
     the random number is passed in to make testing easier
     both the random number and the sample rate must be between 0 and 0.01
     if the random number is less than the sample_rate then we write the event to S3
     """
     try:
-        sample_rate = settings.REPLAY_MESSAGE_TOO_LARGE_SAMPLE_RATE
-        if 0 < random_number < sample_rate <= 0.01:
+        # capture more of posthog message too large since we know we're using latest versions
+        max_sample_rate = 0.6 if token == "sTMFPsFhdP1Ssg" else 0.01
+        sample_rate = 0.5 if token == "sTMFPsFhdP1Ssg" else settings.REPLAY_MESSAGE_TOO_LARGE_SAMPLE_RATE
+
+        if 0 < random_number < sample_rate <= max_sample_rate:
+            if "properties" in event:
+                event["properties"]["$lib_version"] = lib_version
+
             object_key = f"token-{token}-session_id-{event.get('properties', {}).get('$session_id', 'unknown')}.json"
             object_storage.write(object_key, json.dumps(event), bucket=settings.REPLAY_MESSAGE_TOO_LARGE_SAMPLE_BUCKET)
     except Exception as ex:
