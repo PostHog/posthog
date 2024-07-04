@@ -83,7 +83,8 @@ def get_bigquery_fields_from_record_schema(
         elif pa.types.is_binary(pa_field.type):
             bq_type = "BYTES"
 
-        elif pa.types.is_signed_integer(pa_field.type):
+        elif pa.types.is_signed_integer(pa_field.type) or pa.types.is_unsigned_integer(pa_field.type):
+            # The latter comparison is hoping we don't overflow, but BigQuery doesn't have an uint64 type.
             bq_type = "INT64"
 
         elif pa.types.is_floating(pa_field.type):

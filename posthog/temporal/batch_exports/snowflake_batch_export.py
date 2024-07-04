@@ -495,7 +495,7 @@ def get_snowflake_fields_from_record_schema(
         elif pa.types.is_binary(pa_field.type):
             snowflake_type = "BYNARY"
 
-        elif pa.types.is_signed_integer(pa_field.type):
+        elif pa.types.is_signed_integer(pa_field.type) or pa.types.is_unsigned_integer(pa_field.type):
             snowflake_type = "INTEGER"
 
         elif pa.types.is_floating(pa_field.type):
