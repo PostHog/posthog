@@ -13,7 +13,7 @@ import { Billing } from './Billing'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 
 const meta: Meta = {
-    title: 'Scenes-Other/Billing v2',
+    title: 'Scenes-Other/Billing',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',

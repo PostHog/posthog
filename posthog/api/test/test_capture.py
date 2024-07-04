@@ -2231,7 +2231,7 @@ class TestCapture(BaseTest):
                 ],
             )
             sample_replay_data_to_object_storage(event, random_number, "the-team-token")
-            contents = object_storage.read("token/the-team-token/session_id/abcdefgh.json", bucket=TEST_SAMPLES_BUCKET)
+            contents = object_storage.read("token-the-team-token-session_id-abcdefgh.json", bucket=TEST_SAMPLES_BUCKET)
             assert contents == json.dumps(event)
 
     @parameterized.expand(
@@ -2265,4 +2265,4 @@ class TestCapture(BaseTest):
             sample_replay_data_to_object_storage(event, random_number, "another-team-token")
 
             with pytest.raises(ObjectStorageError):
-                object_storage.read("token/another-team-token/session_id/abcdefgh.json", bucket=TEST_SAMPLES_BUCKET)
+                object_storage.read("token-another-team-token-session_id-abcdefgh.json", bucket=TEST_SAMPLES_BUCKET)
