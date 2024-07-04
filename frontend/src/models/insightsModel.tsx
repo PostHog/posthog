@@ -62,7 +62,7 @@ export const insightsModel = kea<insightsModelType>([
         duplicateInsight: async ({ item }) => {
             const addedItem = await insightsApi.duplicate(item, {
                 writeAsQuery: values.queryBasedInsightSaving,
-                readAsQuery: false,
+                readAsQuery: true,
             })
 
             actions.duplicateInsightSuccess(addedItem)
