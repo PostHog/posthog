@@ -16,7 +16,7 @@ export const insightsModel = kea<insightsModelType>([
     path(['models', 'insightsModel']),
     connect({ values: [featureFlagLogic, ['featureFlags']], logic: [teamLogic] }),
     actions(() => ({
-        renameInsight: (item: InsightModel) => ({ item }),
+        renameInsight: (item: QueryBasedInsightModel) => ({ item }),
         renameInsightSuccess: (item: InsightModel) => ({ item }),
         //TODO this duplicates the insight but not the dashboard tile (e.g. if duplicated from dashboard you lose tile color
         duplicateInsight: (item: QueryBasedInsightModel) => ({ item }),

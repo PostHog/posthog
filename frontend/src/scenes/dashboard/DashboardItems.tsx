@@ -148,7 +148,7 @@ export function DashboardItems(): JSX.Element {
                                     updateColor={(color) => updateTileColor(tile.id, color)}
                                     ribbonColor={tile.color}
                                     refresh={() => refreshAllDashboardItems({ tiles: [tile], action: 'refresh' })}
-                                    rename={() => renameInsight(legacyInsight)}
+                                    rename={() => renameInsight(insight)}
                                     duplicate={() => duplicateInsight(insight)}
                                     showDetailsControls={placement != DashboardPlacement.Export}
                                     placement={placement}
