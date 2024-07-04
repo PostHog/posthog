@@ -10,17 +10,16 @@ import { SparklineOption } from './errorTrackingLogic'
 export type ErrorTrackingSparklineConfig = {
     value: number
     displayAs: 'minute' | 'hour' | 'day'
-    gap: number
     offsetHours?: number
 }
 
 export const SPARKLINE_CONFIGURATIONS: Record<string, ErrorTrackingSparklineConfig> = {
-    '1h': { value: 60, displayAs: 'minute', gap: 1 },
-    '24h': { value: 24, displayAs: 'hour', gap: 1 },
-    '7d': { value: 168, displayAs: 'hour', gap: 8 }, // 7d * 24h = 168h
-    '14d': { value: 336, displayAs: 'hour', gap: 12 }, // 14d * 24h = 336h
-    '90d': { value: 90, displayAs: 'day', gap: 5 },
-    '180d': { value: 180, displayAs: 'day', gap: 10 },
+    '1h': { value: 60, displayAs: 'minute' },
+    '24h': { value: 24, displayAs: 'hour' },
+    '7d': { value: 168, displayAs: 'hour' }, // 7d * 24h = 168h
+    '14d': { value: 336, displayAs: 'hour' }, // 14d * 24h = 336h
+    '90d': { value: 90, displayAs: 'day' },
+    '180d': { value: 180, displayAs: 'day' },
 }
 
 export const errorTrackingQuery = ({
@@ -36,9 +35,9 @@ export const errorTrackingQuery = ({
     filterGroup: UniversalFiltersGroup
     sparklineSelection: SparklineOption
 }): DataTableNode => {
-    const { value, displayAs, gap, offsetHours } = parseSelection(sparklineSelection)
+    const { value, displayAs, offsetHours } = parseSelection(sparklineSelection)
 
-    const { labels, data } = generateSparklineProps({ value, displayAs, gap, offsetHours })
+    const { labels, data } = generateSparklineProps({ value, displayAs, offsetHours })
 
     return {
         kind: NodeKind.DataTableNode,
@@ -91,16 +90,17 @@ const parseSelection = (selection: SparklineOption): ErrorTrackingSparklineConfi
 export const generateSparklineProps = ({
     value,
     displayAs,
-    gap,
     offsetHours,
 }: ErrorTrackingSparklineConfig): { labels: string[]; data: string } => {
     const offset = offsetHours ?? 0
     const now = dayjs().subtract(offset, 'hour').startOf(displayAs)
-    const dates = range(value / gap).map((idx) => now.subtract(value - (idx + 1) * gap, displayAs))
+    const dates = range(value).map((idx) => now.subtract(value - (idx + 1), displayAs))
     const labels = dates.map((d) => `'${d.format('D MMM, YYYY HH:mm')} (UTC)'`)
 
     const startTime = `subtractHours(now(), ${offset})`
-    const data = `reverse(arrayMap(x -> countEqual(groupArray(dateDiff('${displayAs}', toStartOfInterval(timestamp, INTERVAL ${gap} ${displayAs}), toStartOfInterval(${startTime}, INTERVAL ${gap} ${displayAs}))), x), range(0, ${value}, ${gap})))`
+    const toStartOfIntervalFn =
+        displayAs === 'minute' ? 'toStartOfMinute' : displayAs === 'hour' ? 'toStartOfHour' : 'toStartOfDay'
+    const data = `reverse(arrayMap(x -> countEqual(groupArray(dateDiff('${displayAs}', ${toStartOfIntervalFn}(timestamp), ${toStartOfIntervalFn}(${startTime}))), x), range(${value})))`
 
     return { labels, data }
 }
