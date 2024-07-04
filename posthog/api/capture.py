@@ -662,8 +662,10 @@ def replace_with_warning(
         only_meta_events = [x for x in snapshot_items if isinstance(x, dict) and ("type" in x and x["type"] == 4)]
 
         kafka_size = "unknown"
+        size_difference = "unknown"
         try:
-            kafka_size = mstle.args[0].split(" ")[3]
+            kafka_size = int(mstle.args[0].split(" ")[3])
+            size_difference = kafka_size - posthog_size_calculation
         except:
             pass
 
@@ -692,6 +694,7 @@ def replace_with_warning(
                                 "kafka_size": kafka_size,
                                 "posthog_calculation": posthog_size_calculation,
                                 "lib_version": lib_version,
+                                "size_difference": size_difference,
                             },
                         },
                         "$window_id": first_item.get("$window_id"),
