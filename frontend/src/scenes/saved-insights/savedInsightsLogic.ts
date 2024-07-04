@@ -1,14 +1,13 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
-import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { Sorting } from 'lib/lemon-ui/LemonTable'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { objectDiffShallow, objectsEqual, toParams } from 'lib/utils'
+import { objectDiffShallow, objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
@@ -17,7 +16,7 @@ import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
-import { InsightModel, LayoutView, QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
+import { LayoutView, QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import type { savedInsightsLogicType } from './savedInsightsLogicType'
@@ -25,7 +24,7 @@ import type { savedInsightsLogicType } from './savedInsightsLogicType'
 export const INSIGHTS_PER_PAGE = 30
 
 export interface InsightsResult {
-    results: InsightModel[]
+    results: QueryBasedInsightModel[]
     count: number
     previous?: string
     next?: string
@@ -82,8 +81,8 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             redirectToInsight,
         }),
         loadInsights: (debounce: boolean = true) => ({ debounce }),
-        setInsight: (insight: InsightModel) => ({ insight }),
-        addInsight: (insight: InsightModel) => ({ insight }),
+        setInsight: (insight: QueryBasedInsightModel) => ({ insight }),
+        addInsight: (insight: QueryBasedInsightModel) => ({ insight }),
     }),
     loaders(({ values }) => ({
         insights: {
@@ -99,25 +98,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                     basic: true,
                 }
 
-                const response = await api.get(
-                    `api/projects/${teamLogic.values.currentTeamId}/insights/?${toParams(params)}`
-                )
-
-                if (filters.search && String(filters.search).match(/^[0-9]+$/)) {
-                    try {
-                        const insight: InsightModel = await api.get(
-                            `api/projects/${teamLogic.values.currentTeamId}/insights/${filters.search}/`
-                        )
-                        return {
-                            ...response,
-                            count: response.count + 1,
-                            results: [insight, ...response.results],
-                            filters,
-                        }
-                    } catch (e) {
-                        // no insight with this ID found, discard
-                    }
-                }
+                const response = await insightsApi.list(params, { readAsQuery: true })
 
                 // scroll to top if the page changed, except if changed via back/forward
                 if (
@@ -134,7 +115,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 const response = await insightsApi.update(
                     insight.id,
                     { favorited },
-                    { writeAsQuery: true, readAsQuery: false }
+                    { writeAsQuery: true, readAsQuery: true }
                 )
                 const updatedInsights = values.insights.results.map((i) =>
                     i.short_id === insight.short_id ? response : i
@@ -285,7 +266,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
         duplicateInsight: async ({ insight, redirectToInsight }) => {
             const newInsight = await insightsApi.duplicate(insight, {
                 writeAsQuery: values.queryBasedInsightSaving,
-                readAsQuery: false,
+                readAsQuery: true,
             })
             actions.addInsight(newInsight)
             redirectToInsight && router.actions.push(urls.insightEdit(newInsight.short_id))
@@ -348,17 +329,15 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
         [urls.savedInsights()]: async (_, searchParams, hashParams) => {
             if (hashParams.fromItem && String(hashParams.fromItem).match(/^[0-9]+$/)) {
                 // `fromItem` for legacy /insights url redirect support
-                const insightNumericId = parseInt(hashParams.fromItem)
+                const id = parseInt(hashParams.fromItem)
                 try {
-                    const { short_id }: InsightModel = await api.get(
-                        `api/projects/${teamLogic.values.currentTeamId}/insights/${insightNumericId}`
-                    )
+                    const { short_id } = await insightsApi.get(id, { readAsQuery: true })
                     if (!short_id) {
                         throw new Error('Could not find short_id')
                     }
                     router.actions.replace(hashParams.edit ? urls.insightEdit(short_id) : urls.insightView(short_id))
                 } catch (e) {
-                    lemonToast.error(`Insight ID ${insightNumericId} couldn't be retrieved`)
+                    lemonToast.error(`Insight ID ${id} couldn't be retrieved`)
                     router.actions.push(urls.savedInsights())
                 }
                 return
