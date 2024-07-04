@@ -129,6 +129,23 @@ const layoutsByTile = (layouts: Layouts): Record<number, Record<DashboardLayoutS
     return itemLayouts
 }
 
+async function getSingleInsight(
+    currentTeamId: number | null,
+    insight: InsightModel,
+    dashboardId: number,
+    queryId: string,
+    methodOptions?: ApiMethodOptions
+): Promise<InsightModel> {
+    const apiUrl = `api/projects/${currentTeamId}/insights/${insight.id}/?${toParams({
+        refresh: 'async',
+        from_dashboard: dashboardId, // needed to load insight in correct context
+        client_query_id: queryId,
+        session_id: currentSessionId(),
+    })}`
+    const polledInsightResponse: Response = await api.getResponse(apiUrl, methodOptions)
+    return await getJSONOrNull(polledInsightResponse)
+}
+
 export const dashboardLogic = kea<dashboardLogicType>([
     path(['scenes', 'dashboard', 'dashboardLogic']),
     connect(() => ({
@@ -974,15 +991,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             try {
                 breakpoint()
-                const apiUrl = `api/projects/${values.currentTeamId}/insights/${insight.id}/?${toParams({
-                    refresh: 'force_async',
-                    from_dashboard: dashboardId, // needed to load insight in correct context
-                    client_query_id: uuid(),
-                    session_id: currentSessionId(),
-                })}`
-                const refreshedInsightResponse = await api.getResponse(apiUrl)
-                const refreshedInsight = await getJSONOrNull(refreshedInsightResponse)
-
+                const refreshedInsight = await getSingleInsight(values.currentTeamId, insight, dashboardId, uuid())
                 dashboardsModel.actions.updateDashboardInsight(refreshedInsight, [], props.id ? [props.id] : undefined)
                 // Start polling for results
                 actions.refreshAllDashboardItems({ tiles: [tile], action: 'refresh' })
@@ -1036,15 +1045,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     breakpoint()
                     if (insight.query_status) {
                         await pollForResults(insight.query_status.id, false, methodOptions)
-                        const apiUrl = `api/projects/${values.currentTeamId}/insights/${insight.id}/?${toParams({
-                            refresh: 'async',
-                            from_dashboard: dashboardId, // needed to load insight in correct context
-                            client_query_id: queryId,
-                            session_id: currentSessionId(),
-                        })}`
-                        // TODO: We get the insight again here to get everything in the right format (e.g. because of result vs results)
-                        const polledInsightResponse: Response = await api.getResponse(apiUrl, methodOptions)
-                        const polledInsight: InsightModel = await getJSONOrNull(polledInsightResponse)
+                        const currentTeamId = values.currentTeamId
+                        // TODO: Check and remove - We get the insight again here to get everything in the right format (e.g. because of result vs results)
+                        const polledInsight = await getSingleInsight(
+                            currentTeamId,
+                            insight,
+                            dashboardId,
+                            queryId,
+                            methodOptions
+                        )
                         dashboardsModel.actions.updateDashboardInsight(
                             polledInsight,
                             [],
