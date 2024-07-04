@@ -43,10 +43,6 @@ export const ErrorTrackingFilters = ({ showOrder = true }: { showOrder?: boolean
                             showAbsoluteDatePickers={false}
                             dateOptions={[
                                 {
-                                    key: 'Today',
-                                    values: ['dStart'],
-                                },
-                                {
                                     key: 'Last 24 hours',
                                     values: ['-24h'],
                                 },

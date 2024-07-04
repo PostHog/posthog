@@ -54,7 +54,7 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
             twentyFourHour.value,
             { persist: true },
             {
-                setSparklineSelection: (_, { selection }) => selection,
+                setSparklineSelectedPeriod: (_, { period }) => period,
             },
         ],
         sparklineOptions: [
@@ -79,7 +79,7 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
 
             const possibleValues = options.map((o) => o.value)
 
-            if (!possibleValues.includes(values.sparklineSelection)) {
+            if (!possibleValues.includes(values.sparklineSelectedPeriod)) {
                 actions.setSparklineSelectedPeriod(options[0].value)
             }
 
