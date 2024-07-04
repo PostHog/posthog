@@ -49,7 +49,7 @@ SELECT
     "$entry_utm_medium" as 'context.columns.utm_medium',
     "$entry_utm_campaign" as 'context.columns.utm_campaign',
     if("$entry_gclid" IS NOT NULL OR "$entry_gad_source"  IS NOT NULL, 'true', 'false') as 'context.columns.has_ad_id',
-    groupUniqArray(10)($entry_current_url) as 'context.columns.example_entry_urls'
+    topK(10)($entry_current_url) as 'context.columns.example_entry_urls'
 FROM sessions
 WHERE $start_timestamp >= now() - toIntervalDay(7) AND {filters}
 GROUP BY 1, 3, 4, 5, 6, 7
