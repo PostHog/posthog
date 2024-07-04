@@ -49,7 +49,7 @@ export const errorTrackingQuery = ({
 
     const columns = [
         'context.columns.error',
-        '$exception_type',
+        'properties.$exception_type',
         'occurrences',
         'sessions',
         'users',
@@ -73,7 +73,7 @@ export const errorTrackingQuery = ({
             orderBy: [order],
             ...defaultProperties({ dateRange, filterTestAccounts, filterGroup }),
         },
-        hiddenColumns: ['$exception_type', 'last_seen', 'first_seen'],
+        hiddenColumns: ['properties.$exception_type', 'last_seen', 'first_seen'],
         showActions: false,
         showTimings: false,
         columns: columns,
