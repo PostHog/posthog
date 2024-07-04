@@ -653,7 +653,11 @@ def get_event(request):
 
 # yes I know, json isn't a compression format, but it's nicer than None
 def _choose_message_compression(token: str | None) -> Literal["gzip"] | Literal["json"]:
-    if token == "sTMFPsFhdP1Ssg" and settings.REPLAY_MESSAGE_COMPRESSION == "gzip":
+    if (
+        # this check is only here so that we can test in a limited way in production
+        # ultimately we'll only check this setting
+        (settings.DEBUG or settings.TEST or token == "sTMFPsFhdP1Ssg") and settings.REPLAY_MESSAGE_COMPRESSION == "gzip"
+    ):
         return "gzip"
     return "json"
 
@@ -829,7 +833,7 @@ def capture_internal(
     if event["event"] in SESSION_RECORDING_EVENT_NAMES:
         session_id = event["properties"]["$session_id"]
         headers = [("token", token), *extra_headers]
-        value_serializer = gzip_json_serializer if (_choose_message_compression(token)) else None
+        value_serializer = gzip_json_serializer if (_choose_message_compression(token) == "gzip") else None
 
         overflowing = False
         if token in settings.REPLAY_OVERFLOW_FORCED_TOKENS:

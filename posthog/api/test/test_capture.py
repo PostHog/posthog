@@ -371,6 +371,7 @@ class TestCapture(BaseTest):
                 data=ANY,
                 key=None if expect_random_partitioning else ANY,
                 headers=None,
+                value_serializer=None,
             )
 
             if not expect_random_partitioning:
@@ -1897,6 +1898,8 @@ class TestCapture(BaseTest):
     def test_recording_ingestion_can_write_headers_with_the_message(self, kafka_produce: MagicMock) -> None:
         with self.settings(
             SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES=20480,
+            # fail-safe to gzip
+            REPLAY_MESSAGE_COMPRESSION="not an expected value",
         ):
             self._send_august_2023_version_session_recording_event()
 
@@ -1907,6 +1910,22 @@ class TestCapture(BaseTest):
                     "lib_version",
                     "unknown",
                 ),
+                ("compression", "json"),
+            ]
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_recording_ingestion_can_set_compression(self, kafka_produce: MagicMock) -> None:
+        with self.settings(SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES=20480, REPLAY_MESSAGE_COMPRESSION="gzip"):
+            self._send_august_2023_version_session_recording_event(query_params="ver=1.123.4")
+
+            assert kafka_produce.mock_calls[0].kwargs["headers"] == [
+                ("token", "token123"),
+                (
+                    # without setting a version in the URL the default is unknown
+                    "lib_version",
+                    "1.123.4",
+                ),
+                ("compression", "gzip"),
             ]
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
@@ -1923,6 +1942,7 @@ class TestCapture(BaseTest):
                     "lib_version",
                     "1.123.4",
                 ),
+                ("compression", "json"),
             ]
 
     @patch("posthog.kafka_client.client.SessionRecordingKafkaProducer")
@@ -1955,7 +1975,7 @@ class TestCapture(BaseTest):
                 max_request_size=1234,
             )
 
-    @patch("posthog.api.capture.sessionRecordingKafkaProducer")
+    @patch("posthog.api.capture.session_recording_kafka_producer")
     @patch("posthog.api.capture.KafkaProducer")
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_can_redirect_session_recordings_to_alternative_kafka(
@@ -1970,6 +1990,41 @@ class TestCapture(BaseTest):
                 "another-server:9092",
                 "a-fourth.server:9092",
             ],
+        ):
+            default_kafka_producer_mock.return_value = KafkaProducer()
+            session_recording_producer_factory_mock.return_value = session_recording_kafka_producer()
+
+            session_id = "test_can_redirect_session_recordings_to_alternative_kafka"
+            # just a single thing to send (it should be an rrweb event but capture doesn't validate that)
+            self._send_august_2023_version_session_recording_event(event_data={}, session_id=session_id)
+            # session events don't get routed through the default kafka producer
+            default_kafka_producer_mock.assert_not_called()
+            session_recording_producer_factory_mock.assert_called()
+
+            assert len(kafka_produce.call_args_list) == 1
+
+            call_one = kafka_produce.call_args_list[0][1]
+            assert call_one["key"] == session_id
+            data_sent_to_recording_kafka = json.loads(call_one["data"]["data"])
+            assert data_sent_to_recording_kafka["event"] == "$snapshot_items"
+            assert len(data_sent_to_recording_kafka["properties"]["$snapshot_items"]) == 1
+
+    @patch("posthog.api.capture.session_recording_kafka_producer")
+    @patch("posthog.api.capture.KafkaProducer")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_can_compress_messages_before_kafka(
+        self,
+        kafka_produce: MagicMock,
+        default_kafka_producer_mock: MagicMock,
+        session_recording_producer_factory_mock: MagicMock,
+    ) -> None:
+        with self.settings(
+            KAFKA_HOSTS=["first.server:9092", "second.server:9092"],
+            SESSION_RECORDING_KAFKA_HOSTS=[
+                "another-server:9092",
+                "a-fourth.server:9092",
+            ],
+            REPLAY_MESSAGE_COMPRESSION="gzip",
         ):
             default_kafka_producer_mock.return_value = KafkaProducer()
             session_recording_producer_factory_mock.return_value = session_recording_kafka_producer()
