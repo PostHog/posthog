@@ -22,7 +22,7 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
     const initialBillingLimit = currentAndUpgradePlans?.currentPlan?.initial_billing_limit
     const usingInitialBillingLimit = customLimitUsd === initialBillingLimit
 
-    if (billing?.billing_period?.interval !== 'month' || !product.subscribed) {
+    if (billing?.billing_period?.interval !== 'month' || !product.subscribed || product.inclusion_only) {
         return null
     }
 
