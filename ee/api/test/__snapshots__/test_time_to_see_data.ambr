@@ -17,8 +17,8 @@
           "frustrating_interactions_count": 1,
           "user": {
               "id": 123,
-              "uuid": "01907cce-d9e4-0000-d43a-b725d2f285ad",
-              "distinct_id": "A5DlnzPFqpEVZyaaUuzSdopAU8HlhCMZvL4YBRtMBzY",
+              "uuid": "01907cda-b117-0000-823f-8230eaacbfbb",
+              "distinct_id": "MqGXp3WVryG4xAj6pKDjNaJBP8SzjjI65QD4t2habFy",
               "first_name": "",
               "last_name": "",
               "email": "user1@posthog.com",
