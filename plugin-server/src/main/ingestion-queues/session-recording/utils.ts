@@ -1,5 +1,6 @@
 import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
+import { unpack } from 'msgpackr'
 import { KafkaConsumer, Message, MessageHeader, PartitionMetadata, TopicPartition } from 'node-rdkafka'
 import path from 'path'
 import { Counter } from 'prom-client'
@@ -113,6 +114,18 @@ export const getLagMultiplier = (lag: number, threshold = 1000000) => {
     }
 
     return Math.max(0.1, 1 - (lag - threshold) / (threshold * 10))
+}
+
+export function readSerializationFromHeaders(headers: MessageHeader[] | undefined): 'msgpack' | 'json' {
+    const serializationHeader = headers?.find((header: MessageHeader) => {
+        // each header in the array is an object of key to value
+        // because it's possible to have multiple headers with the same key
+        // but, we don't support that. the first truthy match we find is the one we use
+        return header.serialization
+    })?.serialization
+    const serialization =
+        typeof serializationHeader === 'string' ? serializationHeader : serializationHeader?.toString()
+    return serialization === 'msgpack' ? 'msgpack' : 'json'
 }
 
 export async function readTokenFromHeaders(
@@ -246,11 +259,18 @@ export const parseKafkaMessage = async (
     let messagePayload: RawEventMessage
     let event: PipelineEvent
 
+    const serialization = readSerializationFromHeaders(message.headers)
+
     try {
-        messagePayload = JSON.parse(message.value.toString())
-        event = JSON.parse(messagePayload.data)
+        if (serialization === 'msgpack') {
+            messagePayload = unpack(message.value)
+            event = JSON.parse(messagePayload.data)
+        } else {
+            messagePayload = JSON.parse(message.value.toString())
+            event = JSON.parse(messagePayload.data)
+        }
     } catch (error) {
-        return dropMessage('invalid_json', { error })
+        return dropMessage('invalid_' + serialization, { error })
     }
 
     const { $snapshot_items, $session_id, $window_id, $snapshot_source } = event.properties || {}

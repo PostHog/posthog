@@ -45,6 +45,7 @@ infi-clickhouse-orm@ git+https://github.com/PostHog/infi.clickhouse_orm@9578c79f
 kafka-python==2.0.2
 kombu==5.3.2
 lzstring==1.0.4
+msgpack==1.0.8
 natsort==8.4.0
 nanoid==2.0.0
 numpy==1.23.3

@@ -2,6 +2,7 @@ import json
 import re
 from random import random
 
+import msgpack
 import sentry_sdk
 import structlog
 import time
@@ -22,6 +23,7 @@ from sentry_sdk.api import capture_exception, start_span
 from statshog.defaults.django import statsd
 from token_bucket import Limiter, MemoryStorage
 from typing import Any, Optional, Literal
+from collections.abc import Callable
 
 from ee.billing.quota_limiting import QuotaLimitingCaches
 from posthog.api.utils import get_data, get_token, safe_clickhouse_string
@@ -200,6 +202,7 @@ def log_event(
     headers: Optional[list] = None,
     historical: bool = False,
     overflowing: bool = False,
+    value_serializer: Optional[Callable[[Any], Any]] = None,
 ) -> FutureRecordMetadata:
     kafka_topic = _kafka_topic(event_name, historical=historical, overflowing=overflowing)
 
@@ -212,7 +215,9 @@ def log_event(
         else:
             producer = KafkaProducer()
 
-        future = producer.produce(topic=kafka_topic, data=data, key=partition_key, headers=headers)
+        future = producer.produce(
+            topic=kafka_topic, data=data, key=partition_key, headers=headers, value_serializer=value_serializer
+        )
         statsd.incr("posthog_cloud_plugin_server_ingestion")
         return future
     except Exception:
@@ -568,7 +573,13 @@ def get_event(request):
                         token,
                     )
                     capture_kwargs = {
-                        "extra_headers": [("lib_version", lib_version)],
+                        "extra_headers": [
+                            ("lib_version", lib_version),
+                            (
+                                "serialization",
+                                "msgpack" if settings.REPLAY_MESSAGE_SERIALIZATION_FORMAT == "msgpack" else "json",
+                            ),
+                        ],
                     }
                     this_future = capture_internal(*capture_args, **capture_kwargs)
                     replay_futures.append((this_future, capture_args, capture_kwargs))
@@ -802,6 +813,14 @@ def capture_internal(
     if event["event"] in SESSION_RECORDING_EVENT_NAMES:
         session_id = event["properties"]["$session_id"]
         headers = [("token", token), *extra_headers]
+        value_serializer = (
+            msgpack.dumps
+            if (
+                settings.REPLAY_MESSAGE_SERIALIZATION_FORMAT == "msgpack"
+                and (settings.DEBUG or token == "sTMFPsFhdP1Ssg")
+            )
+            else None
+        )
 
         overflowing = False
         if token in settings.REPLAY_OVERFLOW_FORCED_TOKENS:
@@ -810,7 +829,12 @@ def capture_internal(
             overflowing = session_id in _list_overflowing_keys(InputType.REPLAY)
 
         return log_event(
-            parsed_event, event["event"], partition_key=session_id, headers=headers, overflowing=overflowing
+            parsed_event,
+            event["event"],
+            partition_key=session_id,
+            headers=headers,
+            overflowing=overflowing,
+            value_serializer=value_serializer,
         )
 
     # We aim to always partition by {team_id}:{distinct_id} but allow
