@@ -2,7 +2,7 @@ import { afterMount, connect, kea, listeners, path, reducers, selectors } from '
 import { subscriptions } from 'kea-subscriptions'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { INSIGHTS_PER_PAGE, savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -101,10 +101,14 @@ export const insightsSidebarLogic = kea<insightsSidebarLogicType>([
                                         },
                                         {
                                             onClick: () => {
-                                                void deleteWithUndo({
-                                                    object: legacyInsight,
+                                                void deleteInsightWithUndo({
+                                                    object: insight,
                                                     endpoint: `projects/${currentTeamId}/insights`,
                                                     callback: actions.loadInsights,
+                                                    options: {
+                                                        writeAsQuery: values.queryBasedInsightSaving,
+                                                        readAsQuery: true,
+                                                    },
                                                 })
                                             },
                                             status: 'danger',

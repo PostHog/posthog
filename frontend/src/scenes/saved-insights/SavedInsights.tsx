@@ -34,7 +34,7 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { deleteInsightWithUndo, deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -376,7 +376,7 @@ export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Eleme
 }
 
 function SavedInsightsGrid(): JSX.Element {
-    const { loadInsights, renameInsight, duplicateInsight } = useActions(savedInsightsLogic)
+    const { loadInsights, renameInsight, duplicateInsight, queryBasedInsightSaving } = useActions(savedInsightsLogic)
     const { insights, insightsLoading, pagination } = useValues(savedInsightsLogic)
     const { currentTeamId } = useValues(teamLogic)
 
@@ -394,10 +394,14 @@ function SavedInsightsGrid(): JSX.Element {
                             rename={() => renameInsight(insight)}
                             duplicate={() => duplicateInsight(insight)}
                             deleteWithUndo={async () =>
-                                await deleteWithUndo({
-                                    object: legacyInsight,
+                                await deleteInsightWithUndo({
+                                    object: insight,
                                     endpoint: `projects/${currentTeamId}/insights`,
                                     callback: loadInsights,
+                                    options: {
+                                        writeAsQuery: queryBasedInsightSaving,
+                                        readAsQuery: true,
+                                    },
                                 })
                             }
                             placement="SavedInsightGrid"
