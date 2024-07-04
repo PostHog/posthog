@@ -8,10 +8,10 @@ import { DataTableNode, HogQLQuery, NodeKind } from '~/queries/schema'
 import { isSessionPropertyFilters } from '~/queries/schema-guards'
 import { SessionPropertyFilter } from '~/types'
 
-import type { sessionAttributionDebuggerLogicType } from './sessionAttributionDebuggerLogicType'
+import type { sessionAttributionExplorerLogicType } from './sessionAttributionExplorerLogicType'
 
 export const initialFilters = [] as SessionPropertyFilter[]
-export const sessionAttributionDebuggerLogic = kea<sessionAttributionDebuggerLogicType>([
+export const sessionAttributionExplorerLogic = kea<sessionAttributionExplorerLogicType>([
     path(['scenes', 'webAnalytics', 'sessionDebuggerLogic']),
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags']],
@@ -42,18 +42,22 @@ export const sessionAttributionDebuggerLogic = kea<sessionAttributionDebuggerLog
                     },
                     query: `
 SELECT
-    "$channel_type" as 'context.columns.channel_type',
-    count() as 'context.columns.count',
     "$entry_referring_domain" as 'context.columns.referring_domain',
     "$entry_utm_source" as 'context.columns.utm_source',
     "$entry_utm_medium" as 'context.columns.utm_medium',
     "$entry_utm_campaign" as 'context.columns.utm_campaign',
-    if("$entry_gclid" IS NOT NULL OR "$entry_gad_source"  IS NOT NULL, 'true', 'false') as 'context.columns.has_ad_id',
-    topK(10)($entry_current_url) as 'context.columns.example_entry_urls'
+    nullIf(arrayStringConcat([
+        if(isNotNull($entry_gclid), 'glcid', NULL),
+        if(isNotNull($entry_gad_source), 'gad_source', NULL)
+        -- add more here if we add more ad ids
+    ], ','), '') as 'context.columns.has_ad_id',
+    topK(10)($entry_current_url) as 'context.columns.example_entry_urls',
+    "$channel_type" as 'context.columns.channel_type',
+    count() as 'context.columns.count'
 FROM sessions
 WHERE $start_timestamp >= now() - toIntervalDay(7) AND {filters}
-GROUP BY 1, 3, 4, 5, 6, 7
-ORDER BY 2 DESC
+GROUP BY 1,2,3,4,5,7
+ORDER BY 8 DESC
 `,
                 }
                 return {
