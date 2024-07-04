@@ -20,7 +20,6 @@ import { IconComment } from 'lib/lemon-ui/icons'
 import { sessionRecordingPlayerLogicType } from 'scenes/session-recordings/player/sessionRecordingPlayerLogicType'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { RecordingsUniversalFilters } from 'scenes/session-recordings/filters/RecordingsUniversalFilters'
-import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 
 const Component = ({
     attributes,
@@ -176,7 +175,7 @@ export const NotebookNodePlaylist = createPostHogWidgetNode<NotebookNodePlaylist
             default: {},
         },
         universalFilters: {
-            default: DEFAULT_UNIVERSAL_GROUP_FILTER,
+            default: undefined,
         },
         pinned: {
             default: undefined,

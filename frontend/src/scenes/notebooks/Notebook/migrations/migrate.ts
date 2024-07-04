@@ -61,15 +61,22 @@ function convertPlaylistFiltersToUniversalFilters(content: JSONContent[]): JSONC
             return node
         }
 
-        const attrs = node.attrs as NotebookNodePlaylistAttributes
+        const { simpleFilters, filters, universalFilters } = node.attrs as NotebookNodePlaylistAttributes
 
-        const universalFilters = convertLegacyFiltersToUniversalFilters(attrs.simpleFilters, attrs.filters)
+        if (universalFilters) {
+            return node
+        }
+
+        const jsonFilters = typeof filters === 'string' ? JSON.parse(filters) : filters
+        const jsonSimpleFilters = typeof simpleFilters === 'string' ? JSON.parse(simpleFilters) : simpleFilters
+
+        const jsonUniversalFilters = convertLegacyFiltersToUniversalFilters(jsonSimpleFilters, jsonFilters)
 
         return {
             ...node,
             attrs: {
                 ...node.attrs,
-                universalFilters,
+                universalFilters: JSON.stringify(jsonUniversalFilters),
             },
         }
     })
