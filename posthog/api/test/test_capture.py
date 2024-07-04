@@ -1898,7 +1898,7 @@ class TestCapture(BaseTest):
     def test_recording_ingestion_can_write_headers_with_the_message(self, kafka_produce: MagicMock) -> None:
         with self.settings(
             SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES=20480,
-            # fail-safe to gzip
+            # fail safely to json
             REPLAY_MESSAGE_COMPRESSION="not an expected value",
         ):
             self._send_august_2023_version_session_recording_event()
