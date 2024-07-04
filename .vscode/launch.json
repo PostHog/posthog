@@ -79,66 +79,11 @@
                 "include": ["posthog/**/*.py"]
             },
             "request": "launch",
-            "program": "${workspaceFolder}/env/bin/watchmedo",
+            "program": "${workspaceFolder}/manage.py",
+            "args": ["run_autoreload_celery"],
             "console": "integratedTerminal",
             "python": "${workspaceFolder}/env/bin/python",
             "cwd": "${workspaceFolder}",
-            "args": [
-                "auto-restart",
-                "--directory=./",
-                "--pattern=*.py",
-                "--recursive",
-                "--",
-                "celery",
-                "-A",
-                "posthog",
-                "worker",
-                "--without-heartbeat",
-                "--without-mingle",
-                "--pool=threads",
-                "-Ofair",
-                "-n",
-                "node@%h"
-            ],
-            "envFile": "${workspaceFolder}/bin/celery-queues.env",
-            "env": {
-                "SKIP_ASYNC_MIGRATIONS_SETUP": "0",
-                "DEBUG": "1",
-                "BILLING_SERVICE_URL": "https://billing.dev.posthog.dev",
-                "SKIP_SERVICE_VERSION_REQUIREMENTS": "1"
-            },
-            "presentation": {
-                "group": "main"
-            }
-        },
-        {
-            "name": "Celery Redbeat Scheduler",
-            "consoleName": "Celery Redbeat Scheduler",
-            "type": "debugpy",
-            "justMyCode": true,
-            "autoReload": {
-                "enable": true,
-                "include": ["posthog/**/*.py"]
-            },
-            "request": "launch",
-            "program": "${workspaceFolder}/env/bin/watchmedo",
-            "console": "integratedTerminal",
-            "python": "${workspaceFolder}/env/bin/python",
-            "cwd": "${workspaceFolder}",
-            "args": [
-                "auto-restart",
-                "--directory=./",
-                "--pattern=*.py",
-                "--recursive",
-                "--",
-                "celery",
-                "-A",
-                "posthog",
-                "beat",
-                "-S",
-                "redbeat.RedBeatScheduler"
-            ],
-            "envFile": "${workspaceFolder}/bin/celery-queues.env",
             "env": {
                 "SKIP_ASYNC_MIGRATIONS_SETUP": "0",
                 "DEBUG": "1",

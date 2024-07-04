@@ -272,7 +272,7 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
     * Are not duplicates of other events that are in the same batch.
     * Do not have an event name contained in the batch export's `exclude_events`.
     """
-    if isinstance(model, BatchExportModel) and model.name == "person" and exclude_events is not None:
+    if isinstance(model, BatchExportModel) and model.name == "persons" and exclude_events is not None:
         pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
 
     batch_export_schema: BatchExportSchema | None = None
@@ -470,7 +470,7 @@ async def test_bigquery_export_workflow(
     The workflow should update the batch export run status to completed and produce the expected
     records to the configured BigQuery table.
     """
-    if isinstance(model, BatchExportModel) and model.name == "person" and exclude_events is not None:
+    if isinstance(model, BatchExportModel) and model.name == "persons" and exclude_events is not None:
         pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
 
     batch_export_schema: BatchExportSchema | None = None
@@ -562,7 +562,7 @@ async def test_bigquery_export_workflow_without_events(
 
     The workflow should update the batch export run status to completed and set 0 as `records_completed`.
     """
-    if isinstance(model, BatchExportModel) and model.name == "person" and exclude_events is not None:
+    if isinstance(model, BatchExportModel) and model.name == "persons" and exclude_events is not None:
         pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
 
     batch_export_schema: BatchExportSchema | None = None

@@ -2,7 +2,6 @@ import './SavedInsights.scss'
 
 import {
     IconBrackets,
-    IconCoffee,
     IconFunnels,
     IconGraph,
     IconHogQL,
@@ -244,30 +243,6 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         name: 'Insight visualization',
         description: 'View your insights',
         icon: IconGraph,
-        inMenu: true,
-    },
-    [NodeKind.TimeToSeeDataSessionsQuery]: {
-        name: 'Internal PostHog performance data',
-        description: 'View performance data about a session in PostHog itself',
-        icon: IconCoffee,
-        inMenu: true,
-    },
-    [NodeKind.TimeToSeeDataQuery]: {
-        name: 'Internal PostHog performance data',
-        description: 'View listings of sessions holding performance data in PostHog itself',
-        icon: IconCoffee,
-        inMenu: true,
-    },
-    [NodeKind.TimeToSeeDataSessionsJSONNode]: {
-        name: 'Internal PostHog performance data',
-        description: 'View performance data about a session in PostHog itself as JSON',
-        icon: IconCoffee,
-        inMenu: true,
-    },
-    [NodeKind.TimeToSeeDataSessionsWaterfallNode]: {
-        name: 'Internal PostHog performance data',
-        description: 'View performance data about a session in PostHog itself in a trace/waterfall view',
-        icon: IconCoffee,
         inMenu: true,
     },
     [NodeKind.SessionsTimelineQuery]: {

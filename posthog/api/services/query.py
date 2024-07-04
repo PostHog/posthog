@@ -16,8 +16,6 @@ from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql_queries.query_runner import CacheMissResponse, ExecutionMode, get_query_runner
 from posthog.models import Team, User
-from posthog.queries.time_to_see_data.serializers import SessionEventsQuerySerializer, SessionsQuerySerializer
-from posthog.queries.time_to_see_data.sessions import get_session_events, get_sessions
 from posthog.schema import (
     DatabaseSchemaQueryResponse,
     HogQuery,
@@ -26,8 +24,6 @@ from posthog.schema import (
     HogQLMetadata,
     QuerySchemaRoot,
     DatabaseSchemaQuery,
-    TimeToSeeDataSessionsQuery,
-    TimeToSeeDataQuery,
     HogQueryResponse,
 )
 
@@ -110,21 +106,6 @@ def process_query_model(
             database = create_hogql_database(team.pk, modifiers=create_default_modifiers_for_team(team))
             context = HogQLContext(team_id=team.pk, team=team, database=database)
             result = DatabaseSchemaQueryResponse(tables=serialize_database(context))
-        elif isinstance(query, TimeToSeeDataSessionsQuery):
-            sessions_query_serializer = SessionsQuerySerializer(data=query)
-            sessions_query_serializer.is_valid(raise_exception=True)
-            result = {"results": get_sessions(sessions_query_serializer).data}
-        elif isinstance(query, TimeToSeeDataQuery):
-            serializer = SessionEventsQuerySerializer(
-                data={
-                    "team_id": team.pk,
-                    "session_start": query.sessionStart,
-                    "session_end": query.sessionEnd,
-                    "session_id": query.sessionId,
-                }
-            )
-            serializer.is_valid(raise_exception=True)
-            result = get_session_events(serializer) or {}
         else:
             raise ValidationError(f"Unsupported query kind: {query.__class__.__name__}")
     else:  # Query runner available - it will handle execution as well as caching
