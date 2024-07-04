@@ -2,13 +2,14 @@ import { actions, connect, events, kea, listeners, path, reducers, selectors } f
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
-import { OrganizationInviteType } from '~/types'
+import { OrganizationInviteType, OrganizationType } from '~/types'
 
 import type { inviteLogicType } from './inviteLogicType'
 
@@ -31,7 +32,14 @@ const EMPTY_INVITE: InviteRowState = {
 export const inviteLogic = kea<inviteLogicType>([
     path(['scenes', 'organization', 'Settings', 'inviteLogic']),
     connect({
-        values: [preflightLogic, ['preflight']],
+        values: [
+            preflightLogic,
+            ['preflight'],
+            featureFlagLogic,
+            ['featureFlags'],
+            organizationLogic,
+            ['currentOrganization'],
+        ],
         actions: [router, ['locationChanged']],
     }),
     actions({
@@ -130,6 +138,24 @@ export const inviteLogic = kea<inviteLogicType>([
                 return invites.filter(({ level }) => level === OrganizationMembershipLevel.Owner).length > 0
             },
         ],
+        isAllowToSendInvites: [
+            (selectors) => [selectors.currentOrganization, selectors.featureFlags],
+            (currentOrganization: OrganizationType, featureFlags: FeatureFlagsSet) => {
+                if (featureFlags[FEATURE_FLAGS.OWNER_ADMIN_ORGANIZATION_INVITES_ONLY]) {
+                    const allowed = currentOrganization.membership_level
+                        ? currentOrganization.membership_level >= OrganizationMembershipLevel.Admin
+                        : false
+                    return {
+                        allowed,
+                        disabledReason: allowed ? null : 'You need to be an Admin or Owner to send invites.',
+                    }
+                }
+                return {
+                    allowed: true,
+                    disabledReason: null,
+                }
+            },
+        ],
         canSubmit: [
             (selectors) => [selectors.invitesToSend, selectors.inviteContainsOwnerLevel, selectors.isInviteConfirmed],
             (invites: InviteRowState[], inviteContainsOwnerLevel: boolean, isInviteConfirmed: boolean) => {
@@ -159,9 +185,9 @@ export const inviteLogic = kea<inviteLogicType>([
             }
         },
     })),
-    urlToAction(({ actions }) => ({
+    urlToAction(({ actions, values }) => ({
         '*': (_, searchParams) => {
-            if (searchParams.invite_modal) {
+            if (searchParams.invite_modal && values.isAllowToSendInvites.allowed) {
                 actions.showInviteModal()
             }
         },

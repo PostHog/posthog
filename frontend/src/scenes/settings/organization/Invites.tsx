@@ -57,7 +57,7 @@ function makeActionsComponent(
     }
 }
 export function Invites(): JSX.Element {
-    const { invites, invitesLoading } = useValues(inviteLogic)
+    const { invites, invitesLoading, isAllowToSendInvites } = useValues(inviteLogic)
     const { deleteInvite, showInviteModal } = useActions(inviteLogic)
     const { preflight } = useValues(preflightLogic)
 
@@ -121,7 +121,12 @@ export function Invites(): JSX.Element {
                 data-attr="invites-table"
                 emptyState="There are no outstanding invitations. You can invite another team member above."
             />
-            <LemonButton type="primary" onClick={showInviteModal} data-attr="invite-teammate-button">
+            <LemonButton
+                type="primary"
+                onClick={showInviteModal}
+                data-attr="invite-teammate-button"
+                disabledReason={isAllowToSendInvites.disabledReason}
+            >
                 Invite team member
             </LemonButton>
         </div>

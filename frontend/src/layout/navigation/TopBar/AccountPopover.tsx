@@ -207,6 +207,7 @@ export function AccountPopoverOverlay(): JSX.Element {
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { preflight, isCloudOrDev, isCloud } = useValues(preflightLogic)
     const { closeAccountPopover } = useActions(navigationLogic)
+    const { isAllowToSendInvites } = useValues(inviteLogic)
 
     return (
         <>
@@ -226,7 +227,7 @@ export function AccountPopoverOverlay(): JSX.Element {
                         Billing
                     </LemonButton>
                 ) : null}
-                <InviteMembersButton />
+                {isAllowToSendInvites.allowed && <InviteMembersButton />}
             </AccountPopoverSection>
             {(otherOrganizations.length > 0 || preflight?.can_create_org) && (
                 <AccountPopoverSection title="Other organizations">

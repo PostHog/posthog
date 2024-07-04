@@ -50,7 +50,7 @@ export const activationLogic = kea<activationLogicType>([
             membersLogic,
             ['memberCount'],
             inviteLogic,
-            ['invites'],
+            ['invites', 'isAllowToSendInvites'],
             savedInsightsLogic,
             ['insights'],
             dashboardsModel,
@@ -175,6 +175,7 @@ export const activationLogic = kea<activationLogicType>([
                 s.currentTeam,
                 s.memberCount,
                 s.invites,
+                s.isAllowToSendInvites,
                 s.insights,
                 s.rawDashboards,
                 s.customEventsCount,
@@ -185,6 +186,7 @@ export const activationLogic = kea<activationLogicType>([
                 currentTeam,
                 memberCount,
                 invites,
+                isAllowToSendInvites,
                 insights,
                 dashboards,
                 customEventsCount,
@@ -205,14 +207,16 @@ export const activationLogic = kea<activationLogicType>([
                             })
                             break
                         case ActivationTasks.InviteTeamMember:
-                            tasks.push({
-                                id: ActivationTasks.InviteTeamMember,
-                                name: 'Invite a team member',
-                                description: 'Everyone in your organization can benefit from PostHog',
-                                completed: memberCount > 1 || invites.length > 0,
-                                canSkip: true,
-                                skipped: skippedTasks.includes(ActivationTasks.InviteTeamMember),
-                            })
+                            if (isAllowToSendInvites.allowed) {
+                                tasks.push({
+                                    id: ActivationTasks.InviteTeamMember,
+                                    name: 'Invite a team member',
+                                    description: 'Everyone in your organization can benefit from PostHog',
+                                    completed: memberCount > 1 || invites.length > 0,
+                                    canSkip: true,
+                                    skipped: skippedTasks.includes(ActivationTasks.InviteTeamMember),
+                                })
+                            }
                             break
                         case ActivationTasks.CreateFirstInsight:
                             tasks.push({

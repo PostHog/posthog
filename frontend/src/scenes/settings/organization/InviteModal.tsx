@@ -215,10 +215,17 @@ export function InviteTeamMatesComponent(): JSX.Element {
 export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }): JSX.Element {
     const { user } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
-    const { invitesToSend, canSubmit } = useValues(inviteLogic)
+    const { invitesToSend, canSubmit, isAllowToSendInvites } = useValues(inviteLogic)
     const { resetInviteRows, inviteTeamMembers } = useActions(inviteLogic)
 
     const validInvitesCount = invitesToSend.filter((invite) => invite.isValid && invite.target_email).length
+
+    let disabledReason = null
+    if (!isAllowToSendInvites.allowed) {
+        disabledReason = 'You need to be an Admin or Owner to send invites.'
+    } else if (!canSubmit) {
+        disabledReason = 'Make sure all fields are filled in correctly.'
+    }
 
     return (
         <div className="InviteModal">
@@ -265,7 +272,7 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
                                 <LemonButton
                                     onClick={() => inviteTeamMembers()}
                                     type="primary"
-                                    disabled={!canSubmit}
+                                    disabledReason={disabledReason}
                                     data-attr="invite-team-member-submit"
                                 >
                                     {validInvitesCount

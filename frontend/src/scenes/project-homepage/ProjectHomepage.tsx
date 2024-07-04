@@ -37,6 +37,7 @@ export function ProjectHomepage(): JSX.Element {
     const { showSceneDashboardChoiceModal } = useActions(
         sceneDashboardChoiceModalLogic({ scene: Scene.ProjectHomepage })
     )
+    const { isAllowToSendInvites } = useValues(inviteLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const headerButtons = (
@@ -52,15 +53,17 @@ export function ProjectHomepage(): JSX.Element {
             >
                 Customize homepage
             </LemonButton>
-            <LemonButton
-                data-attr="project-home-invite-team-members"
-                onClick={() => {
-                    showInviteModal()
-                }}
-                type="secondary"
-            >
-                Invite members
-            </LemonButton>
+            {isAllowToSendInvites.allowed && (
+                <LemonButton
+                    data-attr="project-home-invite-team-members"
+                    onClick={() => {
+                        showInviteModal()
+                    }}
+                    type="secondary"
+                >
+                    Invite members
+                </LemonButton>
+            )}
         </>
     )
 
