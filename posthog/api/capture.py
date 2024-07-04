@@ -21,7 +21,7 @@ from sentry_sdk import configure_scope
 from sentry_sdk.api import capture_exception, start_span
 from statshog.defaults.django import statsd
 from token_bucket import Limiter, MemoryStorage
-from typing import Any, Optional
+from typing import Any, Optional, Literal
 
 from ee.billing.quota_limiting import QuotaLimitingCaches
 from posthog.api.utils import get_data, get_token, safe_clickhouse_string
@@ -661,8 +661,8 @@ def replace_with_warning(
 
         only_meta_events = [x for x in snapshot_items if isinstance(x, dict) and ("type" in x and x["type"] == 4)]
 
-        kafka_size = "unknown"
-        size_difference = "unknown"
+        kafka_size: int | None = None
+        size_difference: int | Literal["unknown"] = "unknown"
         try:
             kafka_size = int(mstle.args[0].split(" ")[3])
             size_difference = kafka_size - posthog_size_calculation
