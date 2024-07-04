@@ -41,6 +41,7 @@ from posthog.redis import get_client
 from posthog.session_recordings.session_recording_helpers import (
     preprocess_replay_events_for_blob_ingestion,
     split_replay_events,
+    byte_size_dict,
 )
 from posthog.storage import object_storage
 from posthog.utils import get_ip_address
@@ -579,9 +580,9 @@ def get_event(request):
                             future.get(
                                 timeout=settings.KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS - (time.monotonic() - start_time)
                             )
-                        except MessageSizeTooLargeError:
+                        except MessageSizeTooLargeError as mstle:
                             REPLAY_MESSAGE_SIZE_TOO_LARGE_COUNTER.inc()
-                            warning_event = replace_with_warning(args[0], token)
+                            warning_event = replace_with_warning(args[0], token, mstle)
                             if warning_event:
                                 warning_future = capture_internal(warning_event, *args[1:], **kwargs)
                                 warning_future.get(timeout=settings.KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS)
@@ -634,7 +635,7 @@ def get_event(request):
     return cors_response(request, JsonResponse({"status": 1}))
 
 
-def replace_with_warning(event: dict[str, Any], token: str) -> dict[str, Any] | None:
+def replace_with_warning(event: dict[str, Any], token: str, mstle: MessageSizeTooLargeError) -> dict[str, Any] | None:
     """
     Replace the event with a warning message if the event is too large to be sent to Kafka.
     The event passed in should be safe to discard (because we know kafka won't accept it).
@@ -642,6 +643,8 @@ def replace_with_warning(event: dict[str, Any], token: str) -> dict[str, Any] | 
     """
     try:
         sample_replay_data_to_object_storage(event, random(), token)
+
+        posthog_size_calculation = byte_size_dict(event)
 
         properties = event.pop("properties", {})
         snapshot_items = properties.pop("$snapshot_items", [])
@@ -655,6 +658,20 @@ def replace_with_warning(event: dict[str, Any], token: str) -> dict[str, Any] | 
             return None
 
         only_meta_events = [x for x in snapshot_items if isinstance(x, dict) and ("type" in x and x["type"] == 4)]
+
+        kafka_size = "unknown"
+        try:
+            kafka_size = mstle.args[0].split(" ")[3]
+        except:
+            pass
+
+        logger.info(
+            "REPLAY_MESSAGE_TOO_LARGE",
+            session_id=properties.get("$session_id"),
+            kafka_size=kafka_size,
+            posthog_calculation=posthog_size_calculation,
+        )
+
         return {
             **event,
             "properties": {
@@ -666,6 +683,12 @@ def replace_with_warning(event: dict[str, Any], token: str) -> dict[str, Any] | 
                         "type": 5,
                         "data": {
                             "tag": "Message too large",
+                            "payload": {
+                                "error_message": mstle.message,
+                                "error": str(mstle),
+                                "kafka_size": kafka_size,
+                                "posthog_calculation": posthog_size_calculation,
+                            },
                         },
                         "$window_id": first_item.get("$window_id"),
                         "timestamp": first_item.get("timestamp"),
