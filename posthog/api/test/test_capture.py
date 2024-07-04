@@ -43,7 +43,7 @@ from posthog.api.capture import (
 )
 from posthog.api.test.mock_sentry import mock_sentry_context_for_tagging
 from posthog.api.test.openapi_validation import validate_response
-from posthog.kafka_client.client import KafkaProducer, sessionRecordingKafkaProducer
+from posthog.kafka_client.client import KafkaProducer, session_recording_kafka_producer
 from posthog.kafka_client.topics import (
     KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
@@ -1972,7 +1972,7 @@ class TestCapture(BaseTest):
             ],
         ):
             default_kafka_producer_mock.return_value = KafkaProducer()
-            session_recording_producer_factory_mock.return_value = sessionRecordingKafkaProducer()
+            session_recording_producer_factory_mock.return_value = session_recording_kafka_producer()
 
             session_id = "test_can_redirect_session_recordings_to_alternative_kafka"
             # just a single thing to send (it should be an rrweb event but capture doesn't validate that)
