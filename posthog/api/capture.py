@@ -644,7 +644,7 @@ def replace_with_warning(
     We do this so that when we're playing back the recording we can insert useful info in the UI.
     """
     try:
-        sample_replay_data_to_object_storage(event, random(), token)
+        sample_replay_data_to_object_storage(event, random(), token, lib_version)
 
         posthog_size_calculation = byte_size_dict(event)
 
@@ -710,7 +710,9 @@ def replace_with_warning(
         return None
 
 
-def sample_replay_data_to_object_storage(event: dict[str, Any], random_number: float, token: str) -> None:
+def sample_replay_data_to_object_storage(
+    event: dict[str, Any], random_number: float, token: str, lib_version: str
+) -> None:
     """
     the random number is passed in to make testing easier
     both the random number and the sample rate must be between 0 and 0.01
@@ -722,6 +724,9 @@ def sample_replay_data_to_object_storage(event: dict[str, Any], random_number: f
         sample_rate = 0.5 if token == "sTMFPsFhdP1Ssg" else settings.REPLAY_MESSAGE_TOO_LARGE_SAMPLE_RATE
 
         if 0 < random_number < sample_rate <= max_sample_rate:
+            if "properties" in event:
+                event["properties"]["$lib_version"] = lib_version
+
             object_key = f"token-{token}-session_id-{event.get('properties', {}).get('$session_id', 'unknown')}.json"
             object_storage.write(object_key, json.dumps(event), bucket=settings.REPLAY_MESSAGE_TOO_LARGE_SAMPLE_BUCKET)
     except Exception as ex:
