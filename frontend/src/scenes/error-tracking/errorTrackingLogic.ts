@@ -1,4 +1,4 @@
-import { LemonSegmentedButtonOption } from '@posthog/lemon-ui'
+import type { LemonSegmentedButtonOption } from '@posthog/lemon-ui'
 import { actions, kea, listeners, path, reducers } from 'kea'
 import { UniversalFiltersGroup } from 'lib/components/UniversalFilters/UniversalFilters'
 
@@ -10,6 +10,8 @@ import type { errorTrackingLogicType } from './errorTrackingLogicType'
 const oneHour = { value: '1h', label: '1h' }
 const twentyFourHour = { value: '24h', label: '24h' }
 
+export type SparklineOption = LemonSegmentedButtonOption<string>
+
 export const errorTrackingLogic = kea<errorTrackingLogicType>([
     path(['scenes', 'error-tracking', 'errorTrackingLogic']),
 
@@ -19,7 +21,7 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
         setFilterGroup: (filterGroup: UniversalFiltersGroup) => ({ filterGroup }),
         setFilterTestAccounts: (filterTestAccounts: boolean) => ({ filterTestAccounts }),
         setSparklineSelectedPeriod: (period: string) => ({ period }),
-        _setSparklineOptions: (options: LemonSegmentedButtonOption<string>[]) => ({ options }),
+        _setSparklineOptions: (options: SparklineOption[]) => ({ options }),
     }),
     reducers({
         dateRange: [
@@ -58,7 +60,7 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
             },
         ],
         sparklineOptions: [
-            [twentyFourHour, oneHour] as LemonSegmentedButtonOption<string>[],
+            [twentyFourHour, oneHour] as SparklineOption[],
             { persist: true },
             {
                 _setSparklineOptions: (_, { options }) => options,
@@ -67,7 +69,7 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
     }),
     listeners(({ values, actions }) => ({
         setDateRange: ({ dateRange: { date_from } }) => {
-            const options: LemonSegmentedButtonOption<string>[] = []
+            const options: SparklineOption[] = []
 
             // today and last 24 hours
             if (date_from === 'dStart' || date_from === '-24h') {
