@@ -134,10 +134,10 @@ describe('plugins', () => {
         expect(pluginConfigTeam1.plugin).toEqual(plugin)
         expect(pluginConfigTeam2.plugin).toEqual(plugin)
 
-        expect(pluginConfigTeam1.vm).toBeDefined()
-        expect(pluginConfigTeam2.vm).toBeDefined()
+        expect(pluginConfigTeam1.instance).toBeDefined()
+        expect(pluginConfigTeam2.instance).toBeDefined()
 
-        expect(pluginConfigTeam1.vm).toEqual(pluginConfigTeam2.vm)
+        expect(pluginConfigTeam1.instance).toEqual(pluginConfigTeam2.instance)
     })
 
     test('plugin returns null', async () => {
@@ -697,7 +697,7 @@ describe('plugins', () => {
     })
 
     describe('loadSchedule()', () => {
-        const mockConfig = (tasks: any) => ({ vm: { getScheduledTasks: () => Promise.resolve(tasks) } })
+        const mockConfig = (tasks: any) => ({ instance: { getScheduledTasks: () => Promise.resolve(tasks) } })
 
         const hub = {
             pluginConfigs: new Map(
