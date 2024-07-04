@@ -567,8 +567,8 @@ def get_event(request):
             # This is mostly a copy of above except we only log, we don't error out
             if alternative_replay_events:
                 processed_events = list(preprocess_events(alternative_replay_events))
-                serialization = _choose_replay_message_serialization(token)
-                with REPLAY_MESSAGE_PRODUCTION_TIMER.labels(serialization=serialization).time():
+                compression = _choose_message_compression(token)
+                with REPLAY_MESSAGE_PRODUCTION_TIMER.labels(serialization=compression).time():
                     for event, event_uuid, distinct_id in processed_events:
                         capture_args = (
                             event,
@@ -583,7 +583,7 @@ def get_event(request):
                         capture_kwargs = {
                             "extra_headers": [
                                 ("lib_version", lib_version),
-                                ("serialization", serialization),
+                                ("compression", compression),
                             ],
                         }
                         this_future = capture_internal(*capture_args, **capture_kwargs)
@@ -651,9 +651,9 @@ def get_event(request):
     return cors_response(request, JsonResponse({"status": 1}))
 
 
-def _choose_replay_message_serialization(token: str | None) -> Literal["gzip"] | Literal["json"]:
-    serialization_setting = settings.REPLAY_MESSAGE_SERIALIZATION_FORMAT
-    if token == "sTMFPsFhdP1Ssg" and serialization_setting == "gzip":
+# yes I know, json isn't a compression format, but it's nicer than None
+def _choose_message_compression(token: str | None) -> Literal["gzip"] | Literal["json"]:
+    if token == "sTMFPsFhdP1Ssg" and settings.REPLAY_MESSAGE_COMPRESSION == "gzip":
         return "gzip"
     return "json"
 
@@ -829,7 +829,7 @@ def capture_internal(
     if event["event"] in SESSION_RECORDING_EVENT_NAMES:
         session_id = event["properties"]["$session_id"]
         headers = [("token", token), *extra_headers]
-        value_serializer = gzip_json_serializer if (_choose_replay_message_serialization(token)) else None
+        value_serializer = gzip_json_serializer if (_choose_message_compression(token)) else None
 
         overflowing = False
         if token in settings.REPLAY_OVERFLOW_FORCED_TOKENS:

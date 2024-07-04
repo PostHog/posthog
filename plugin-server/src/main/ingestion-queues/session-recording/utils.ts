@@ -120,16 +120,16 @@ export const getLagMultiplier = (lag: number, threshold = 1000000) => {
     return Math.max(0.1, 1 - (lag - threshold) / (threshold * 10))
 }
 
-export function readSerializationFromHeaders(headers: MessageHeader[] | undefined): 'gzip' | 'json' {
-    const serializationHeader = headers?.find((header: MessageHeader) => {
+// yes I know, json isn't a compression format, but it's nicer than null
+export function readCompressionFromHeader(headers: MessageHeader[] | undefined): 'gzip' | 'json' {
+    const compressionHeader = headers?.find((header: MessageHeader) => {
         // each header in the array is an object of key to value
         // because it's possible to have multiple headers with the same key
         // but, we don't support that. the first truthy match we find is the one we use
-        return header.serialization
-    })?.serialization
-    const serialization =
-        typeof serializationHeader === 'string' ? serializationHeader : serializationHeader?.toString()
-    return serialization === 'gzip' ? 'gzip' : 'json'
+        return header.compression
+    })?.compression
+    const compression = typeof compressionHeader === 'string' ? compressionHeader : compressionHeader?.toString()
+    return compression === 'gzip' ? 'gzip' : 'json'
 }
 
 export async function readTokenFromHeaders(
@@ -263,17 +263,24 @@ export const parseKafkaMessage = async (
     let messagePayload: RawEventMessage
     let event: PipelineEvent
 
-    const serialization = readSerializationFromHeaders(message.headers)
+    const compression = readCompressionFromHeader(message.headers)
 
     let message_unzipped = message.value
     try {
-        if (serialization === 'gzip') {
+        if (compression === 'gzip') {
             message_unzipped = await do_unzip(message.value)
         }
         messagePayload = JSON.parse(message_unzipped.toString())
         event = JSON.parse(messagePayload.data)
     } catch (error) {
-        return dropMessage('invalid_' + serialization, { error })
+        return dropMessage('invalid_' + compression, { error })
+    }
+
+    try {
+        messagePayload = JSON.parse(message_unzipped.toString())
+        event = JSON.parse(messagePayload.data)
+    } catch (error) {
+        return dropMessage('invalid_json', { error })
     }
 
     const { $snapshot_items, $session_id, $window_id, $snapshot_source } = event.properties || {}
