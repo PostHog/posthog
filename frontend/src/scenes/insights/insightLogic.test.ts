@@ -275,7 +275,7 @@ describe('insightLogic', () => {
                         short_id: Insight42,
                         results: ['cached result'],
                         filters: {},
-                        query: { kind: NodeKind.TimeToSeeDataSessionsQuery },
+                        query: { kind: NodeKind.EventsQuery },
                     },
                 })
                 logic.mount()
@@ -294,7 +294,7 @@ describe('insightLogic', () => {
                         short_id: Insight42,
                         results: undefined,
                         filters: {},
-                        query: { kind: NodeKind.TimeToSeeDataSessionsQuery },
+                        query: { kind: NodeKind.EventsQuery },
                     },
                 })
                 logic.mount()
@@ -304,11 +304,11 @@ describe('insightLogic', () => {
                     .toMatchValues({
                         legacyInsight: partial({
                             short_id: Insight42,
-                            query: { kind: NodeKind.TimeToSeeDataSessionsQuery },
+                            query: { kind: NodeKind.EventsQuery },
                         }),
                         queryBasedInsight: partial({
                             short_id: Insight42,
-                            query: { kind: NodeKind.TimeToSeeDataSessionsQuery },
+                            query: { kind: NodeKind.EventsQuery },
                         }),
                     })
                     .delay(1)
