@@ -94,7 +94,7 @@ export const insightsSidebarLogic = kea<insightsSidebarLogicType>([
                                         {
                                             onClick: () => {
                                                 void deleteWithUndo({
-                                                    object: insight,
+                                                    object: legacyInsight,
                                                     endpoint: `projects/${currentTeamId}/insights`,
                                                     callback: actions.loadInsights,
                                                 })
