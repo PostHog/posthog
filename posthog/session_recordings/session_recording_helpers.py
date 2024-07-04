@@ -210,8 +210,9 @@ def preprocess_replay_events(
                 # we want to avoid sending them all individually if we can - there could be tens of thousands
                 # in data from these older clients that batched poorly
                 parts = [other_snapshots]
-
-                while parts:
+                loop_count = 0
+                while parts and loop_count < 10:
+                    loop_count += 1
                     new_parts = []
                     for part in parts:
                         if byte_size_dict(part) < size_with_headroom:
@@ -224,6 +225,16 @@ def preprocess_replay_events(
                             event = new_event(part)
                             yield event
                     parts = new_parts
+
+                # finally, in the case where the list was split ten times
+                # and there are still items probably over the headroom
+                # we have to try to emit each remaining part individually
+                # there's a strong chance these fail, but it should be
+                # the vast minority of cases, if it even does happen
+                if parts:
+                    for part in parts:
+                        event = new_event(part)
+                        yield event
 
 
 def _process_windowed_events(
