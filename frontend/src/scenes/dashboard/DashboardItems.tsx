@@ -12,6 +12,7 @@ import { Responsive as ReactGridLayout } from 'react-grid-layout'
 import { BREAKPOINT_COLUMN_COUNTS, BREAKPOINTS, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 import { insightsModel } from '~/models/insightsModel'
+import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { DashboardMode, DashboardPlacement, DashboardTile, DashboardType } from '~/types'
 
 export function DashboardItems(): JSX.Element {
@@ -101,7 +102,8 @@ export function DashboardItems(): JSX.Element {
                     draggableCancel=".anticon,.ant-dropdown,table,button,.Popover"
                 >
                     {tiles?.map((tile: DashboardTile) => {
-                        const { insight, text } = tile
+                        const { insight: legacyInsight, text } = tile
+                        const insight = legacyInsight ? getQueryBasedInsightModel(legacyInsight) : undefined
                         const smLayout = layouts['sm']?.find((l) => {
                             return l.i == tile.id.toString()
                         })
@@ -133,11 +135,11 @@ export function DashboardItems(): JSX.Element {
                             removeFromDashboard: () => removeTile(tile),
                         }
 
-                        if (insight) {
+                        if (insight && legacyInsight) {
                             return (
                                 <InsightCard
                                     key={tile.id}
-                                    insight={insight}
+                                    insight={legacyInsight}
                                     stale={stale}
                                     loadingQueued={isRefreshingQueued(insight.short_id)}
                                     loading={isRefreshing(insight.short_id)}
@@ -146,7 +148,7 @@ export function DashboardItems(): JSX.Element {
                                     updateColor={(color) => updateTileColor(tile.id, color)}
                                     ribbonColor={tile.color}
                                     refresh={() => refreshAllDashboardItems({ tiles: [tile], action: 'refresh' })}
-                                    rename={() => renameInsight(insight)}
+                                    rename={() => renameInsight(legacyInsight)}
                                     duplicate={() => duplicateInsight(insight)}
                                     showDetailsControls={placement != DashboardPlacement.Export}
                                     placement={placement}

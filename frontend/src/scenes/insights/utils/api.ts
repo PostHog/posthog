@@ -23,4 +23,21 @@ export const insightsApi = {
             options.readAsQuery ? getQueryBasedInsightModel(legacyInsight) : legacyInsight
         ) as ReturnedInsightModelByFlag<Flag>
     },
+    async duplicate<Flag extends boolean>(
+        insight: QueryBasedInsightModel,
+        options: {
+            writeAsQuery: boolean
+            readAsQuery: Flag
+        }
+    ): Promise<ReturnedInsightModelByFlag<Flag>> {
+        const data = {
+            ...insight,
+            ...getInsightFilterOrQueryForPersistance(insight, options.writeAsQuery),
+            name: insight.name ? `${insight.name} (copy)` : insight.name,
+        }
+        const legacyInsight: InsightModel = await api.insights.create(data)
+        return (
+            options.readAsQuery ? getQueryBasedInsightModel(legacyInsight) : legacyInsight
+        ) as ReturnedInsightModelByFlag<Flag>
+    },
 }
