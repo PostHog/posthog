@@ -10,6 +10,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { SceneExport } from 'scenes/sceneTypes'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 
+import { isUniversalFilters } from '../utils'
 import { SessionRecordingsPlaylist } from './SessionRecordingsPlaylist'
 import { convertLegacyFiltersToUniversalFilters } from './sessionRecordingsPlaylistLogic'
 import { sessionRecordingsPlaylistSceneLogic } from './sessionRecordingsPlaylistSceneLogic'
@@ -136,7 +137,11 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                 <div className="SessionRecordingPlaylistHeightWrapper">
                     <SessionRecordingsPlaylist
                         advancedFilters={playlist.filters}
-                        universalFilters={convertLegacyFiltersToUniversalFilters({}, playlist.filters)}
+                        universalFilters={
+                            playlist.filters && isUniversalFilters(playlist.filters)
+                                ? playlist.filters
+                                : convertLegacyFiltersToUniversalFilters({}, playlist.filters)
+                        }
                         hideSimpleFilters={true}
                         onFiltersChange={(universalFilters, legacyFilters) =>
                             setFilters(hasUniversalFiltering ? universalFilters : legacyFilters)

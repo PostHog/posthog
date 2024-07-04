@@ -5,6 +5,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import UniversalFilters, { UniversalFiltersGroup } from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
+import { useEffect, useState } from 'react'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 
 import { actionsModel } from '~/models/actionsModel'
@@ -122,6 +123,11 @@ export const RecordingsUniversalFilters = ({
 const RecordingsUniversalFilterGroup = (): JSX.Element => {
     const { filterGroup } = useValues(universalFiltersLogic)
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
+    const [allowInitiallyOpen, setAllowInitiallyOpen] = useState(false)
+
+    useEffect(() => {
+        setAllowInitiallyOpen(true)
+    }, [])
 
     return (
         <>
@@ -138,6 +144,7 @@ const RecordingsUniversalFilterGroup = (): JSX.Element => {
                         filter={filterOrGroup}
                         onRemove={() => removeGroupValue(index)}
                         onChange={(value) => replaceGroupValue(index, value)}
+                        allowInitiallyOpen={allowInitiallyOpen}
                     />
                 )
             })}
