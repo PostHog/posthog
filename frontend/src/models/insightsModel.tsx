@@ -1,6 +1,5 @@
 import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, selectors } from 'kea'
-import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -46,9 +45,9 @@ export const insightsModel = kea<insightsModelType>([
                     insightName: (name) => (!name ? 'You must enter a name' : undefined),
                 },
                 onSubmit: async ({ insightName }) => {
-                    const updatedItem = await api.update(
-                        `api/projects/${teamLogic.values.currentTeamId}/insights/${item.id}`,
-                        { name: insightName }
+                    const updatedItem = await insightsApi.update(
+                        { ...item, name: insightName },
+                        { writeAsQuery: values.queryBasedInsightSaving, readAsQuery: false }
                     )
                     lemonToast.success(
                         <>

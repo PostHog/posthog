@@ -1,7 +1,8 @@
-import { api } from '@posthog/apps-common'
 import { afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { insightsApi } from 'scenes/insights/utils/api'
 import { INSIGHTS_PER_PAGE, savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -46,6 +47,10 @@ export const insightsSidebarLogic = kea<insightsSidebarLogicType>([
         ],
     })),
     selectors(({ actions, values, cache }) => ({
+        queryBasedInsightSaving: [
+            (s) => [s.featureFlags],
+            (featureFlags) => !!featureFlags[FEATURE_FLAGS.QUERY_BASED_INSIGHTS_SAVING],
+        ],
         contents: [
             (s) => [s.insights, s.infiniteInsights, s.insightsLoading, teamLogic.selectors.currentTeamId],
             (insights, infiniteInsights, insightsLoading, currentTeamId) => [
@@ -106,11 +111,9 @@ export const insightsSidebarLogic = kea<insightsSidebarLogicType>([
                                 },
                             ],
                             onRename: async (newName) => {
-                                const updatedItem = await api.update(
-                                    `api/projects/${teamLogic.values.currentTeamId}/insights/${insight.id}`,
-                                    {
-                                        name: newName,
-                                    }
+                                const updatedItem = await insightsApi.update(
+                                    { ...insight, name: newName },
+                                    { writeAsQuery: values.queryBasedInsightSaving, readAsQuery: false }
                                 )
                                 insightsModel.actions.renameInsightSuccess(updatedItem)
                             },
