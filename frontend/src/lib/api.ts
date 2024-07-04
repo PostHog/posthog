@@ -899,7 +899,7 @@ const api = {
         async get(id: number): Promise<InsightModel> {
             return await new ApiRequest().insights(id).get()
         },
-        async list(params?: string): Promise<InsightModel> {
+        async list(params?: Record<string, any>): Promise<PaginatedResponse<InsightModel>> {
             return await new ApiRequest().insights().withQueryString(params).get()
         },
         async create(data: any): Promise<InsightModel> {
