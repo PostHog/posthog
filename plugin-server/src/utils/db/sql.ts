@@ -41,6 +41,7 @@ const PLUGIN_SELECT = `SELECT
             posthog_plugin.is_global,
             posthog_plugin.capabilities,
             posthog_plugin.public_jobs,
+            posthog_plugin.is_stateless,
             posthog_plugin.log_level,
             posthog_plugin.updated_at,
             psf__plugin_json.source as source__plugin_json,

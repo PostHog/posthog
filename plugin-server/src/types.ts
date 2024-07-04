@@ -312,6 +312,7 @@ export interface Hub extends PluginsServerConfig {
     // diagnostics
     lastActivity: number
     lastActivityType: string
+    statelessVms: StatelessInstanceMap
     conversionBufferEnabledTeams: Set<number>
     // functions
     enqueuePluginJob: (job: EnqueuedPluginJob) => Promise<void>
@@ -415,6 +416,7 @@ export interface Plugin {
     updated_at?: string
     capabilities?: PluginCapabilities
     metrics?: StoredPluginMetrics
+    is_stateless?: boolean
     public_jobs?: Record<string, JobSpec>
     log_level?: PluginLogLevel
 }
@@ -1145,6 +1147,8 @@ export enum PropertyUpdateOperation {
     Set = 'set',
     SetOnce = 'set_once',
 }
+
+export type StatelessInstanceMap = Record<PluginId, PluginInstance>
 
 export enum OrganizationPluginsAccessLevel {
     NONE = 0,

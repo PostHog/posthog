@@ -74,6 +74,7 @@ describe('sql', () => {
                 from_web: false,
                 id: 60,
                 is_global: false,
+                is_stateless: false,
                 organization_id: commonOrganizationId,
                 log_level: null,
                 name: 'test-maxmind-plugin',
