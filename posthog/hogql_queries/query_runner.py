@@ -13,7 +13,7 @@ from sentry_sdk import capture_exception, push_scope
 from posthog.cache_utils import OrjsonJsonSerializer
 from posthog.caching.utils import is_stale, last_refresh_from_cached_result, ThresholdMode
 from posthog.clickhouse.client.execute_async import enqueue_process_query_task
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import tag_queries, get_query_tag_value
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
@@ -67,7 +67,7 @@ QUERY_CACHE_WRITE_COUNTER = Counter(
 QUERY_CACHE_HIT_COUNTER = Counter(
     "posthog_query_cache_hit_total",
     "Whether we could fetch the query from the cache or not.",
-    labelnames=[LABEL_TEAM_ID, "cache_hit"],
+    labelnames=[LABEL_TEAM_ID, "cache_hit", "trigger"],
 )
 
 EXTENDED_CACHE_AGE = timedelta(days=1)
@@ -427,11 +427,17 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         if self.is_cached_response(cached_response_candidate):
             if not self._is_stale(cached_response):
-                QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="hit").inc()
+                QUERY_CACHE_HIT_COUNTER.labels(
+                    team_id=self.team.pk,
+                    cache_hit="hit",
+                    trigger=cached_response.calculation_trigger or "",
+                ).inc()
                 # We have a valid result that's fresh enough, let's return it
                 return cached_response
 
-            QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="stale").inc()
+            QUERY_CACHE_HIT_COUNTER.labels(
+                team_id=self.team.pk, cache_hit="stale", trigger=cached_response.calculation_trigger or ""
+            ).inc()
             # We have a stale result. If we aren't allowed to calculate, let's still return it
             # – otherwise let's proceed to calculation
             if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
@@ -449,7 +455,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     cached_response.query_status = query_status_response.query_status
                 return cached_response
         else:
-            QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="miss").inc()
+            QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="miss", trigger="").inc()
             # We have no cached result. If we aren't allowed to calculate, let's return the cache miss
             # – otherwise let's proceed to calculation
             if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
@@ -494,6 +500,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             "cache_key": cache_key,
             "timezone": self.team.timezone,
         }
+        if get_query_tag_value("trigger"):
+            fresh_response_dict["calculation_trigger"] = get_query_tag_value("trigger")
         fresh_response = CachedResponse(**fresh_response_dict)
 
         # Don't cache debug queries with errors and export queries

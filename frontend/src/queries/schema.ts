@@ -1011,6 +1011,8 @@ interface CachedQueryResponseMixin {
     timezone: string
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatus
+    /** What triggered the calculation of the query, leave empty if user/immediate */
+    calculation_trigger?: string
 }
 
 type CachedQueryResponse<T> = T & CachedQueryResponseMixin
