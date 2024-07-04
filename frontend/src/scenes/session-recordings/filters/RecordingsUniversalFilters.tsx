@@ -144,7 +144,7 @@ const RecordingsUniversalFilterGroup = (): JSX.Element => {
                         filter={filterOrGroup}
                         onRemove={() => removeGroupValue(index)}
                         onChange={(value) => replaceGroupValue(index, value)}
-                        allowInitiallyOpen={allowInitiallyOpen}
+                        initiallyOpen={allowInitiallyOpen}
                     />
                 )
             })}

@@ -82,20 +82,20 @@ const Value = ({
     filter,
     onChange,
     onRemove,
-    allowInitiallyOpen = false,
+    initiallyOpen = false,
 }: {
     index: number
     filter: UniversalFilterValue
     onChange: (property: UniversalFilterValue) => void
     onRemove: () => void
-    allowInitiallyOpen: boolean
+    initiallyOpen?: boolean
 }): JSX.Element => {
     const { rootKey, taxonomicPropertyFilterGroupTypes } = useValues(universalFiltersLogic)
 
     const isEvent = isEventFilter(filter)
     const isEditable = isEditableFilter(filter)
 
-    const [open, setOpen] = useState<boolean>(isEditable && allowInitiallyOpen)
+    const [open, setOpen] = useState<boolean>(isEditable && initiallyOpen)
 
     const pageKey = `${rootKey}.filter_${index}`
 
