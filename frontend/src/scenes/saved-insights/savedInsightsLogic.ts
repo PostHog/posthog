@@ -131,11 +131,10 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 return { ...response, filters, offset: params.offset }
             },
             updateFavoritedInsight: async ({ insight, favorited }) => {
-                const response = await api.update(
-                    `api/projects/${teamLogic.values.currentTeamId}/insights/${insight.id}`,
-                    {
-                        favorited,
-                    }
+                const response = await insightsApi.update(
+                    insight.id,
+                    { favorited },
+                    { writeAsQuery: true, readAsQuery: false }
                 )
                 const updatedInsights = values.insights.results.map((i) =>
                     i.short_id === insight.short_id ? response : i

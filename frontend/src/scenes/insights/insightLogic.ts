@@ -38,6 +38,7 @@ import {
 import { teamLogic } from '../teamLogic'
 import type { insightLogicType } from './insightLogicType'
 import { getInsightId } from './utils'
+import { insightsApi } from './utils/api'
 
 export const UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES = 3
 
@@ -141,10 +142,10 @@ export const insightLogic = kea<insightLogicType>([
                         throw error
                     }
 
-                    const response = await api.update(
-                        `api/projects/${teamLogic.values.currentTeamId}/insights/${values.legacyInsight.id}`,
-                        insight
-                    )
+                    const response = await insightsApi.update(values.legacyInsight.id!, insight, {
+                        writeAsQuery: values.queryBasedInsightSaving,
+                        readAsQuery: false,
+                    })
                     breakpoint()
                     const updatedInsight: InsightModel = {
                         ...response,
@@ -179,10 +180,10 @@ export const insightLogic = kea<insightLogicType>([
                         beforeUpdates[key] = values.savedInsight[key]
                     }
 
-                    const response = await api.update(
-                        `api/projects/${teamLogic.values.currentTeamId}/insights/${values.legacyInsight.id}`,
-                        metadata
-                    )
+                    const response = await insightsApi.update(values.legacyInsight.id!, metadata, {
+                        writeAsQuery: true,
+                        readAsQuery: false,
+                    })
                     breakpoint()
 
                     // only update the fields that we changed
@@ -200,10 +201,10 @@ export const insightLogic = kea<insightLogicType>([
                             label: 'Undo',
                             dataAttr: 'edit-insight-undo',
                             action: async () => {
-                                const response = await api.update(
-                                    `api/projects/${teamLogic.values.currentTeamId}/insights/${values.queryBasedInsight.id}`,
-                                    beforeUpdates
-                                )
+                                const response = await insightsApi.update(values.legacyInsight.id!, beforeUpdates, {
+                                    writeAsQuery: true,
+                                    readAsQuery: false,
+                                })
                                 // only update the fields that we changed
                                 const revertedInsight = { ...values.legacyInsight } as InsightModel
                                 for (const key of Object.keys(beforeUpdates)) {
