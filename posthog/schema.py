@@ -1064,38 +1064,6 @@ class TestCachedBasicQueryResponse(BaseModel):
     )
 
 
-class TimeToSeeDataQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    kind: Literal["TimeToSeeDataQuery"] = "TimeToSeeDataQuery"
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    response: Optional[dict[str, Any]] = None
-    sessionEnd: Optional[str] = None
-    sessionId: Optional[str] = Field(default=None, description="Project to filter on. Defaults to current session")
-    sessionStart: Optional[str] = Field(
-        default=None, description="Session start time. Defaults to current time - 2 hours"
-    )
-    teamId: Optional[int] = Field(default=None, description="Project to filter on. Defaults to current project")
-
-
-class TimeToSeeDataSessionsQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    results: list[dict[str, Any]]
-
-
-class TimeToSeeDataWaterfallNode(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    kind: Literal["TimeToSeeDataSessionsWaterfallNode"] = "TimeToSeeDataSessionsWaterfallNode"
-    source: TimeToSeeDataQuery
-
-
 class TimelineEntry(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2681,31 +2649,6 @@ class SessionsTimelineQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-
-
-class TimeToSeeDataJSONNode(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    kind: Literal["TimeToSeeDataSessionsJSONNode"] = "TimeToSeeDataSessionsJSONNode"
-    source: TimeToSeeDataQuery
-
-
-class TimeToSeeDataNode(RootModel[Union[TimeToSeeDataJSONNode, TimeToSeeDataWaterfallNode]]):
-    root: Union[TimeToSeeDataJSONNode, TimeToSeeDataWaterfallNode]
-
-
-class TimeToSeeDataSessionsQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
-    kind: Literal["TimeToSeeDataSessionsQuery"] = "TimeToSeeDataSessionsQuery"
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    response: Optional[TimeToSeeDataSessionsQueryResponse] = None
-    teamId: Optional[int] = Field(default=None, description="Project to filter on. Defaults to current project")
 
 
 class WebOverviewQuery(BaseModel):
@@ -4436,7 +4379,6 @@ class DataTableNode(BaseModel):
         PersonsNode,
         ActorsQuery,
         HogQLQuery,
-        TimeToSeeDataSessionsQuery,
         WebOverviewQuery,
         WebStatsTableQuery,
         WebTopClicksQuery,
@@ -4462,7 +4404,6 @@ class HogQLAutocomplete(BaseModel):
             EventsNode,
             ActionsNode,
             PersonsNode,
-            TimeToSeeDataSessionsQuery,
             EventsQuery,
             ActorsQuery,
             InsightActorsQuery,
@@ -4501,7 +4442,6 @@ class HogQLMetadata(BaseModel):
             EventsNode,
             ActionsNode,
             PersonsNode,
-            TimeToSeeDataSessionsQuery,
             EventsQuery,
             ActorsQuery,
             InsightActorsQuery,
@@ -4542,7 +4482,6 @@ class QueryRequest(BaseModel):
         ActionsNode,
         PersonsNode,
         DataWarehouseNode,
-        TimeToSeeDataSessionsQuery,
         EventsQuery,
         ActorsQuery,
         InsightActorsQuery,
@@ -4587,7 +4526,6 @@ class QuerySchemaRoot(
             ActionsNode,
             PersonsNode,
             DataWarehouseNode,
-            TimeToSeeDataSessionsQuery,
             EventsQuery,
             ActorsQuery,
             InsightActorsQuery,
@@ -4620,7 +4558,6 @@ class QuerySchemaRoot(
         ActionsNode,
         PersonsNode,
         DataWarehouseNode,
-        TimeToSeeDataSessionsQuery,
         EventsQuery,
         ActorsQuery,
         InsightActorsQuery,
