@@ -198,7 +198,8 @@ describe('savedInsightsLogic', () => {
         await logic.asyncActions.duplicateInsight(sourceInsight)
         expect(api.create).toHaveBeenCalledWith(
             `api/projects/${MOCK_TEAM_ID}/insights`,
-            expect.objectContaining({ name: '' })
+            expect.objectContaining({ name: '' }),
+            expect.objectContaining({})
         )
     })
 
@@ -209,7 +210,8 @@ describe('savedInsightsLogic', () => {
         await logic.asyncActions.duplicateInsight(sourceInsight)
         expect(api.create).toHaveBeenCalledWith(
             `api/projects/${MOCK_TEAM_ID}/insights`,
-            expect.objectContaining({ name: 'should be copied (copy)' })
+            expect.objectContaining({ name: 'should be copied (copy)' }),
+            expect.objectContaining({})
         )
     })
 
