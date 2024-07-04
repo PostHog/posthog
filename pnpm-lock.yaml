@@ -260,8 +260,8 @@ dependencies:
     specifier: ^9.3.0
     version: 9.3.0(postcss@8.4.31)
   posthog-js:
-    specifier: 1.141.4
-    version: 1.141.4
+    specifier: 1.144.0
+    version: 1.144.0
   posthog-js-lite:
     specifier: 3.0.0
     version: 3.0.0
@@ -6537,7 +6537,7 @@ packages:
       '@storybook/client-logger': 7.6.20
       '@storybook/core-events': 7.6.20
       '@storybook/global': 5.0.0
-      qs: 6.12.1
+      qs: 6.12.2
       telejson: 7.2.0
       tiny-invariant: 1.3.3
     dev: true
@@ -6888,14 +6888,14 @@ packages:
       lodash: 4.17.21
     dev: true
 
-  /@storybook/csf@0.1.2:
-    resolution: {integrity: sha512-ePrvE/pS1vsKR9Xr+o+YwdqNgHUyXvg+1Xjx0h9LrVx7Zq4zNe06pd63F5EvzTbCbJsHj7GHr9tkiaqm7U8WRA==}
+  /@storybook/csf@0.1.11:
+    resolution: {integrity: sha512-dHYFQH3mA+EtnCkHXzicbLgsvzYjcDJ1JWsogbItZogkPHgSJM/Wr71uMkcvw8v9mmCyP4NpXJuu6bPoVsOnzg==}
     dependencies:
       type-fest: 2.19.0
     dev: true
 
-  /@storybook/csf@0.1.9:
-    resolution: {integrity: sha512-JlZ6v/iFn+iKohKGpYXnMeNeTiiAMeFoDhYnPLIC8GnyyIWqEI9wJYrOK9i9rxlJ8NZAH/ojGC/u/xVC41qSgQ==}
+  /@storybook/csf@0.1.2:
+    resolution: {integrity: sha512-ePrvE/pS1vsKR9Xr+o+YwdqNgHUyXvg+1Xjx0h9LrVx7Zq4zNe06pd63F5EvzTbCbJsHj7GHr9tkiaqm7U8WRA==}
     dependencies:
       type-fest: 2.19.0
     dev: true
@@ -6929,7 +6929,7 @@ packages:
       '@storybook/channels': 7.6.20
       '@storybook/client-logger': 7.6.20
       '@storybook/core-events': 7.6.20
-      '@storybook/csf': 0.1.9
+      '@storybook/csf': 0.1.11
       '@storybook/global': 5.0.0
       '@storybook/router': 7.6.20
       '@storybook/theming': 7.6.20(react-dom@18.2.0)(react@18.2.0)
@@ -7044,14 +7044,14 @@ packages:
       '@storybook/channels': 7.6.20
       '@storybook/client-logger': 7.6.20
       '@storybook/core-events': 7.6.20
-      '@storybook/csf': 0.1.9
+      '@storybook/csf': 0.1.11
       '@storybook/global': 5.0.0
       '@storybook/types': 7.6.20
       '@types/qs': 6.9.15
       dequal: 2.0.3
       lodash: 4.17.21
       memoizerific: 1.11.3
-      qs: 6.12.1
+      qs: 6.12.2
       synchronous-promise: 2.0.17
       ts-dedent: 2.2.0
       util-deprecate: 1.0.2
@@ -7211,7 +7211,7 @@ packages:
     dependencies:
       '@storybook/client-logger': 7.6.20
       memoizerific: 1.11.3
-      qs: 6.12.1
+      qs: 6.12.2
     dev: true
 
   /@storybook/router@7.6.4:
@@ -13898,7 +13898,7 @@ packages:
       hogan.js: 3.0.2
       htm: 3.1.1
       instantsearch-ui-components: 0.3.0
-      preact: 10.22.0
+      preact: 10.22.1
       qs: 6.9.7
       search-insights: 2.13.0
     dev: false
@@ -17706,20 +17706,20 @@ packages:
     resolution: {integrity: sha512-dyajjnfzZD1tht4N7p7iwf7nBnR1MjVaVu+MKr+7gBgA39bn28wizCIJZztZPtHy4PY0YwtSGgwfBCuG/hnHgA==}
     dev: false
 
-  /posthog-js@1.141.4:
-    resolution: {integrity: sha512-e8rUFEnAR1MB+YqrjWLEmvm0d1X90cebCPNyby6oNX1cp36s/PpxeTx+Up7bArJmRv2N+rT1Kd5sJ7jpXWAonA==}
+  /posthog-js@1.144.0:
+    resolution: {integrity: sha512-MkouL8cn2Z5s+JwFd4RS+93mFyu7uxnZfp9H2wj0HPf4oeXiJ1ZyhTeCZ3hPXu0H8A2lCXwGFzsoQEMjxiqXBQ==}
     dependencies:
       fflate: 0.4.8
-      preact: 10.22.0
-      web-vitals: 4.2.0
+      preact: 10.22.1
+      web-vitals: 4.2.1
     dev: false
 
   /potpack@2.0.0:
     resolution: {integrity: sha512-Q+/tYsFU9r7xoOJ+y/ZTtdVQwTWfzjbiXBDMM/JKUux3+QPP02iUuIoeBQ+Ot6oEDlC+/PGjB/5A3K7KKb7hcw==}
     dev: false
 
-  /preact@10.22.0:
-    resolution: {integrity: sha512-RRurnSjJPj4rp5K6XoP45Ui33ncb7e4H7WiOHVpjbkvqvA3U+N8Z6Qbo0AE6leGYBV66n8EhEaFixvIu3SkxFw==}
+  /preact@10.22.1:
+    resolution: {integrity: sha512-jRYbDDgMpIb5LHq3hkI0bbl+l/TQ9UnkdQ0ww+lp+4MMOdqaUYdFc5qeyP+IV8FAd/2Em7drVPeKdQxsiWCf/A==}
     dev: false
 
   /prelude-ls@1.2.1:
@@ -18084,8 +18084,8 @@ packages:
       side-channel: 1.0.6
     dev: true
 
-  /qs@6.12.1:
-    resolution: {integrity: sha512-zWmv4RSuB9r2mYQw3zxQuHWeU+42aKi1wWig/j4ele4ygELZ7PEO6MM7rim9oAQH2A5MWfsAVf/jPvTPgCbvUQ==}
+  /qs@6.12.2:
+    resolution: {integrity: sha512-x+NLUpx9SYrcwXtX7ob1gnkSems4i/mGZX5SlYxwIau6RrUSODO89TR/XDGGpn5RPWSYIB+aSfuSlV5+CmbTBg==}
     engines: {node: '>=0.6'}
     dependencies:
       side-channel: 1.0.6
@@ -21604,8 +21604,8 @@ packages:
       '@zxing/text-encoding': 0.9.0
     dev: true
 
-  /web-vitals@4.2.0:
-    resolution: {integrity: sha512-ohj72kbtVWCpKYMxcbJ+xaOBV3En76hW47j52dG+tEGG36LZQgfFw5yHl9xyjmosy3XUMn8d/GBUAy4YPM839w==}
+  /web-vitals@4.2.1:
+    resolution: {integrity: sha512-U6bAxeudnhDqcXNl50JC4hLlqox9DZnngxfISZm3DMZnonW35xtJOVUc091L+DOY+6hVZVpKXoiCP0RiT6339Q==}
     dev: false
 
   /webidl-conversions@3.0.1:

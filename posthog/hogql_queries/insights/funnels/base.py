@@ -580,7 +580,7 @@ class FunnelBase(ABC):
             raise NotImplementedError("DataWarehouseNode is not supported in funnels")
         elif entity.event is None:
             # all events
-            event_expr = ast.Constant(value=True)
+            event_expr = ast.Constant(value=1)
         else:
             # event
             event_expr = parse_expr("event = {event}", {"event": ast.Constant(value=entity.event)})

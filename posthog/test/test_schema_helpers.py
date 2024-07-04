@@ -17,6 +17,7 @@ from posthog.schema import (
     StepOrderValue,
     BreakdownAttributionType,
     TrendsQuery,
+    RetentionQuery,
 )
 from posthog.schema_helpers import to_dict
 
@@ -90,6 +91,15 @@ class TestSchemaHelpers(TestCase):
         result_dict = to_dict(query)
 
         self.assertEqual(result_dict, {"kind": "TrendsQuery", "series": []})
+
+    def test_serializes_retention_filter_without_frontend_only_props(self):
+        query = RetentionQuery(**{"retentionFilter": {"targetEntity": {"uuid": "1"}, "returningEntity": {"uuid": "2"}}})
+
+        result_dict = to_dict(query)
+
+        self.assertEqual(
+            result_dict, {"kind": "RetentionQuery", "retentionFilter": {"targetEntity": {}, "returningEntity": {}}}
+        )
 
     def test_serializes_display_with_canonic_alternatives(self):
         # time series (gets removed as ActionsLineGraph is the default)
