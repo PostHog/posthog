@@ -80,7 +80,7 @@ ORDER BY 8 DESC
                 urlParams.set('filters', JSON.stringify(filters))
             }
 
-            return `${urls.sessionAttributionDebugger()}?${urlParams.toString()}`
+            return `${urls.sessionAttributionExplorer()}?${urlParams.toString()}`
         }
 
         return {
@@ -89,7 +89,7 @@ ORDER BY 8 DESC
     }),
 
     urlToAction(({ actions }) => ({
-        [urls.sessionAttributionDebugger()]: (_, { filters }) => {
+        [urls.sessionAttributionExplorer()]: (_, { filters }) => {
             const parsedFilters = isSessionPropertyFilters(filters) ? filters : initialFilters
 
             actions.setStateFromUrl({
