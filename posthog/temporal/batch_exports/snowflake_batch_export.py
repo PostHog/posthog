@@ -389,15 +389,16 @@ class SnowflakeClient:
                     first_error or "NO ERROR MESSAGE",
                 )
 
-    async def amerge_identical_tables(
+    async def amerge_person_tables(
         self,
         final_table: str,
         stage_table: str,
         merge_key: collections.abc.Iterable[SnowflakeField],
         update_when_matched: collections.abc.Iterable[SnowflakeField],
-        version_key: str = "version",
+        person_version_key: str = "version",
+        person_distinct_id_version_key: str = "version",
     ):
-        """Merge two identical tables in Snowflake."""
+        """Merge two identical person model tables in Snowflake."""
         merge_condition = "ON "
 
         for n, field in enumerate(merge_key):
@@ -423,7 +424,7 @@ class SnowflakeClient:
         USING "{stage_table}" AS stage
         {merge_condition}
 
-        WHEN MATCHED AND stage.\"{version_key}\" > final.\"{version_key}\" THEN
+        WHEN MATCHED AND (stage."{person_version_key}" > final."{person_version_key}" OR stage."{person_distinct_id_version_key}" > final."{person_distinct_id_version_key}") THEN
             UPDATE SET
                 {update_clause}
         WHEN NOT MATCHED THEN
@@ -662,7 +663,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
                         ("team_id", "INT64"),
                         ("distinct_id", "STRING"),
                     )
-                    await snow_client.amerge_identical_tables(
+                    await snow_client.amerge_person_tables(
                         final_table=snow_table,
                         stage_table=snow_stage_table,
                         update_when_matched=table_fields,
