@@ -34,7 +34,7 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { deleteInsightWithUndo, deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -423,7 +423,8 @@ function SavedInsightsGrid(): JSX.Element {
 export function SavedInsights(): JSX.Element {
     const { loadInsights, updateFavoritedInsight, renameInsight, duplicateInsight, setSavedInsightsFilters } =
         useActions(savedInsightsLogic)
-    const { insights, count, insightsLoading, filters, sorting, pagination } = useValues(savedInsightsLogic)
+    const { insights, count, insightsLoading, filters, sorting, pagination, queryBasedInsightSaving } =
+        useValues(savedInsightsLogic)
     const { hasTagging } = useValues(organizationLogic)
     const { currentTeamId } = useValues(teamLogic)
     const summarizeInsight = useSummarizeInsight()
@@ -538,10 +539,14 @@ export function SavedInsights(): JSX.Element {
                                 <LemonButton
                                     status="danger"
                                     onClick={() =>
-                                        void deleteWithUndo({
-                                            object: legacyInsight,
+                                        void deleteInsightWithUndo({
+                                            object: insight,
                                             endpoint: `projects/${currentTeamId}/insights`,
                                             callback: loadInsights,
+                                            options: {
+                                                writeAsQuery: queryBasedInsightSaving,
+                                                readAsQuery: true,
+                                            },
                                         })
                                     }
                                     data-attr={`insight-item-${insight.short_id}-dropdown-remove`}
