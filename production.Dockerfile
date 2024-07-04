@@ -136,6 +136,14 @@ RUN apt-get update && \
     ( curl -s -L "https://mmdbcdn.posthog.net/" --http1.1 | brotli --decompress --output=./share/GeoLite2-City.mmdb ) && \
     chmod -R 755 ./share/GeoLite2-City.mmdb
 
+#
+# ---------------------------------------------------------
+#
+FROM clickhouse-server:23.12.5.81-alpine AS ch
+WORKDIR /code
+SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
+ENV PYTHONUNBUFFERED 1
+RUN apk add python3
 
 #
 # ---------------------------------------------------------
