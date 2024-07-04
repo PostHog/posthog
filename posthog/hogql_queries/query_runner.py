@@ -426,6 +426,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 )
 
         if self.is_cached_response(cached_response_candidate):
+            assert isinstance(cached_response, CachedResponse)
             if not self._is_stale(cached_response):
                 QUERY_CACHE_HIT_COUNTER.labels(
                     team_id=self.team.pk,
