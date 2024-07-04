@@ -138,7 +138,6 @@ export const surveyLogic = kea<surveyLogicType>([
                 'reportSurveyResumed',
                 'reportSurveyViewed',
                 'reportSurveyCycleDetected',
-                'reportSurveyWithBranchingCreated',
             ],
         ],
         values: [enabledFlagLogic, ['featureFlags as enabledFlags'], surveysLogic, ['surveys']],
