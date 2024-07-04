@@ -53,7 +53,7 @@ export function DashboardReloadAction(): JSX.Element {
                 data-attr="dashboard-items-action-refresh"
                 disabledReason={
                     blockRefresh
-                        ? `Next refresh possible ${dayjs(oldestClientRefreshAllowed).fromNow()}`
+                        ? `Next bulk refresh possible ${dayjs(oldestClientRefreshAllowed).fromNow()}`
                         : itemsLoading
                         ? 'Refreshing...'
                         : ''
