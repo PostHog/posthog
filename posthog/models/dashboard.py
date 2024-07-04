@@ -83,6 +83,15 @@ class Dashboard(models.Model):
     def __str__(self):
         return self.name or str(self.id)
 
+    class Meta:
+        indexes = [
+            models.Index(
+                name="idx_dashboard_deleted_team_id",
+                fields=["-pinned", "name", "deleted", "team_id"],
+                condition=models.Q(deleted=False),
+            ),
+        ]
+
     @property
     def is_sharing_enabled(self):
         # uses .all and not .first so that prefetching in serializers can be used

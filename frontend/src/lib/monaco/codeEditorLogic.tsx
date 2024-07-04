@@ -11,9 +11,19 @@ import { loaders } from 'kea-loaders'
 import { editor, MarkerSeverity } from 'monaco-editor'
 
 import { performQuery } from '~/queries/query'
-import { HogQLFilters, HogQLMetadata, HogQLMetadataResponse, HogQLNotice, NodeKind } from '~/queries/schema'
+import {
+    AnyDataNode,
+    HogLanguage,
+    HogQLFilters,
+    HogQLMetadata,
+    HogQLMetadataResponse,
+    HogQLNotice,
+    NodeKind,
+} from '~/queries/schema'
 
 import type { codeEditorLogicType } from './codeEditorLogicType'
+
+const METADATA_LANGUAGES = [HogLanguage.hog, HogLanguage.hogQL, HogLanguage.hogQLExpr, HogLanguage.hogTemplate]
 
 export interface ModelMarker extends editor.IMarkerData {
     hogQLFix?: string
@@ -24,10 +34,12 @@ export interface ModelMarker extends editor.IMarkerData {
 export interface CodeEditorLogicProps {
     key: string
     query: string
-    language?: string
+    language: string
+    sourceQuery?: AnyDataNode
     metadataFilters?: HogQLFilters
     monaco?: Monaco | null
     editor?: editor.IStandaloneCodeEditor | null
+    globals?: Record<string, any>
 }
 
 export const codeEditorLogic = kea<codeEditorLogicType>([
@@ -43,16 +55,22 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
             {
                 reloadMetadata: async (_, breakpoint) => {
                     const model = props.editor?.getModel()
-                    if (!model || !props.monaco || (props.language !== 'hogql' && props.language !== 'hog')) {
+                    if (!model || !props.monaco || !METADATA_LANGUAGES.includes(props.language as HogLanguage)) {
                         return null
                     }
                     await breakpoint(300)
                     const query = props.query
-                    const response = await performQuery<HogQLMetadata>(
-                        props.language === 'hogql'
-                            ? { kind: NodeKind.HogQLMetadata, select: query, filters: props.metadataFilters }
-                            : { kind: NodeKind.HogQLMetadata, program: query, filters: props.metadataFilters }
-                    )
+                    if (query === '') {
+                        return null
+                    }
+                    const response = await performQuery<HogQLMetadata>({
+                        kind: NodeKind.HogQLMetadata,
+                        language: props.language as HogLanguage,
+                        query: query,
+                        filters: props.metadataFilters,
+                        globals: props.globals,
+                        sourceQuery: props.sourceQuery,
+                    })
                     breakpoint()
                     return [query, response]
                 },

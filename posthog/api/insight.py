@@ -582,6 +582,9 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
                     and execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
                 ):
                     execution_mode = ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE
+                elif self.context.get("is_shared", False) and execution_mode == ExecutionMode.CALCULATE_BLOCKING_ALWAYS:
+                    # On shared insights, we don't give the ability to refresh at will
+                    execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
 
                 return calculate_for_query_based_insight(
                     insight,

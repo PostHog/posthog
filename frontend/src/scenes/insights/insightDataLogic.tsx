@@ -43,7 +43,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
     connect((props: InsightLogicProps) => ({
         values: [
             insightLogic,
-            ['filters', 'insight', 'savedInsight'],
+            ['legacyInsight', 'queryBasedInsight', 'savedInsight'],
             dataNodeLogic({
                 key: insightVizDataNodeKey(props),
                 loadPriority: props.loadPriority,
@@ -105,16 +105,15 @@ export const insightDataLogic = kea<insightDataLogicType>([
     selectors({
         useQueryDashboardCards: [
             (s) => [s.featureFlags],
-            (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_DASHBOARD_CARDS],
+            (featureFlags) => !!featureFlags[FEATURE_FLAGS.QUERY_BASED_DASHBOARD_CARDS],
         ],
 
         query: [
-            (s) => [s.propsQuery, s.filters, s.insight, s.internalQuery, s.filterTestAccountsDefault],
-            (propsQuery, filters, insight, internalQuery, filterTestAccountsDefault) =>
+            (s) => [s.propsQuery, s.queryBasedInsight, s.internalQuery, s.filterTestAccountsDefault],
+            (propsQuery, insight, internalQuery, filterTestAccountsDefault) =>
                 propsQuery ||
                 internalQuery ||
                 insight.query ||
-                (filters && filters.insight ? queryFromFilters(filters) : undefined) ||
                 queryFromKind(NodeKind.TrendsQuery, filterTestAccountsDefault),
         ],
 
@@ -132,7 +131,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
 
         exportContext: [
-            (s) => [s.query, s.insight],
+            (s) => [s.query, s.queryBasedInsight],
             (query, insight) => {
                 if (!query) {
                     // if we're here without a query then an empty query context is not the problem
@@ -153,10 +152,10 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
 
         queryChanged: [
-            (s) => [s.isQueryBasedInsight, s.query, s.insight, s.savedInsight, s.currentTeam],
-            (isQueryBasedInsight, query, insight, savedInsight, currentTeam) => {
+            (s) => [s.isQueryBasedInsight, s.query, s.legacyInsight, s.savedInsight, s.currentTeam],
+            (isQueryBasedInsight, query, legacyInsight, savedInsight, currentTeam) => {
                 if (isQueryBasedInsight) {
-                    return !objectsEqual(query, insight.query)
+                    return !objectsEqual(query, legacyInsight.query)
                 }
                 const currentFilters = queryNodeToFilter((query as InsightVizNode).source)
 
@@ -205,16 +204,16 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 actions.setInsightData({ ...values.insightData, result })
             }
         },
-        loadInsightSuccess: ({ insight }) => {
-            if (insight.query) {
-                actions.setQuery(insight.query)
-            } else if (!!insight.filters && !!Object.keys(insight.filters).length) {
-                const query = queryFromFilters(insight.filters)
+        loadInsightSuccess: ({ legacyInsight }) => {
+            if (legacyInsight.query) {
+                actions.setQuery(legacyInsight.query)
+            } else if (!!legacyInsight.filters && !!Object.keys(legacyInsight.filters).length) {
+                const query = queryFromFilters(legacyInsight.filters)
                 actions.setQuery(query)
             }
         },
         saveInsight: ({ redirectToViewMode }) => {
-            let filters = values.insight.filters
+            let filters = values.legacyInsight.filters
             if (isInsightVizNode(values.query)) {
                 const querySource = values.query.source
                 filters = queryNodeToFilter(querySource)
@@ -229,7 +228,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
             actions.setInsight(
                 {
-                    ...values.insight,
+                    ...values.legacyInsight,
                     filters: filters,
                     query: query ?? undefined,
                 },
@@ -241,7 +240,9 @@ export const insightDataLogic = kea<insightDataLogicType>([
         saveAs: async () => {
             LemonDialog.openForm({
                 title: 'Save as new insight',
-                initialValues: { insightName: `${values.insight.name || values.insight.derived_name} (copy)` },
+                initialValues: {
+                    insightName: `${values.queryBasedInsight.name || values.queryBasedInsight.derived_name} (copy)`,
+                },
                 content: (
                     <LemonField name="insightName">
                         <LemonInput data-attr="insight-name" placeholder="Please enter the new name" autoFocus />
@@ -254,7 +255,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             })
         },
         saveAsNamingSuccess: ({ name }) => {
-            let filters = values.insight.filters
+            let filters = values.legacyInsight.filters
             if (isInsightVizNode(values.query)) {
                 const querySource = values.query.source
                 filters = queryNodeToFilter(querySource)
@@ -269,7 +270,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
             actions.setInsight(
                 {
-                    ...values.insight,
+                    ...values.legacyInsight,
                     filters: filters,
                     query: query ?? undefined,
                 },
