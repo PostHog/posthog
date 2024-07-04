@@ -962,7 +962,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             actions.resetInterval()
             actions.loadDashboard({ action: 'refresh' })
         },
-        refreshDashboardItem: async ({ tile }) => {
+        refreshDashboardItem: async ({ tile }, breakpoint) => {
             const dashboardId: number = props.id
             const insight = tile.insight
 
@@ -972,18 +972,23 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             actions.setRefreshStatus(insight.short_id, true, true)
 
-            const apiUrl = `api/projects/${values.currentTeamId}/insights/${insight.id}/?${toParams({
-                refresh: 'force_async',
-                from_dashboard: dashboardId, // needed to load insight in correct context
-                client_query_id: uuid(),
-                session_id: currentSessionId(),
-            })}`
-            const refreshedInsightResponse = await api.getResponse(apiUrl)
-            const refreshedInsight = await getJSONOrNull(refreshedInsightResponse)
+            try {
+                breakpoint()
+                const apiUrl = `api/projects/${values.currentTeamId}/insights/${insight.id}/?${toParams({
+                    refresh: 'force_async',
+                    from_dashboard: dashboardId, // needed to load insight in correct context
+                    client_query_id: uuid(),
+                    session_id: currentSessionId(),
+                })}`
+                const refreshedInsightResponse = await api.getResponse(apiUrl)
+                const refreshedInsight = await getJSONOrNull(refreshedInsightResponse)
 
-            dashboardsModel.actions.updateDashboardInsight(refreshedInsight, [], props.id ? [props.id] : undefined)
-            // Start polling for results
-            actions.refreshAllDashboardItems({ tiles: [tile], action: 'refresh' })
+                dashboardsModel.actions.updateDashboardInsight(refreshedInsight, [], props.id ? [props.id] : undefined)
+                // Start polling for results
+                actions.refreshAllDashboardItems({ tiles: [tile], action: 'refresh' })
+            } catch (e: any) {
+                actions.setRefreshError(insight.short_id)
+            }
         },
         refreshAllDashboardItems: async ({ tiles, action, initialLoad, dashboardQueryId = uuid() }, breakpoint) => {
             const dashboardId: number = props.id
