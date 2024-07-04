@@ -7,7 +7,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { QueryBasedInsightModel } from '~/types'
+import { InsightModel, QueryBasedInsightModel } from '~/types'
 
 import type { insightsModelType } from './insightsModelType'
 
@@ -16,7 +16,7 @@ export const insightsModel = kea<insightsModelType>([
     connect({ values: [featureFlagLogic, ['featureFlags']], logic: [teamLogic] }),
     actions(() => ({
         renameInsight: (item: QueryBasedInsightModel) => ({ item }),
-        renameInsightSuccess: (item: QueryBasedInsightModel) => ({ item }),
+        renameInsightSuccess: (item: InsightModel) => ({ item }),
         //TODO this duplicates the insight but not the dashboard tile (e.g. if duplicated from dashboard you lose tile color
         duplicateInsight: (item: QueryBasedInsightModel) => ({ item }),
         duplicateInsightSuccess: (item: QueryBasedInsightModel) => ({ item }),
