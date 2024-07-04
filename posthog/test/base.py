@@ -519,10 +519,6 @@ class QueryMatchingTest:
 
     # :NOTE: Update snapshots by passing --snapshot-update to bin/tests
     def assertQueryMatchesSnapshot(self, query, params=None, replace_all_numbers=False):
-        if "/* celery:posthog.tasks.tasks.sync_insight_caching_state */" in query:
-            # we don't care about these queries in snapshot tests, and they tend to flap so let's ignore them
-            return
-
         # :TRICKY: team_id changes every test, avoid it messing with snapshots.
         if replace_all_numbers:
             query = re.sub(r"(\"?) = \d+", r"\1 = 2", query)
