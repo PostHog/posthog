@@ -21,20 +21,23 @@ function getInsightModel<Flag extends boolean>(
     } as ReturnedInsightModelByFlag<Flag>
 }
 
+async function _perform<Flag extends boolean>(
+    method: 'create' | 'update',
+    insight: Partial<QueryBasedInsightModel>,
+    options: InsightsApiOptions<Flag>,
+    id?: number
+): Promise<ReturnedInsightModelByFlag<Flag>> {
+    const { writeAsQuery, readAsQuery } = options
+
+    const data = 'filters' in insight ? getInsightModel(insight as QueryBasedInsightModel, writeAsQuery) : insight
+    const legacyInsight = method === 'create' ? await api.insights[method](data) : await api.insights[method](id!, data)
+
+    const response = readAsQuery ? getQueryBasedInsightModel(legacyInsight) : legacyInsight
+    return response as ReturnedInsightModelByFlag<Flag>
+}
+
 export const insightsApi = {
-    async _perform<Flag extends boolean>(
-        method: 'create' | 'update',
-        insight: QueryBasedInsightModel,
-        options: InsightsApiOptions<Flag>
-    ): Promise<ReturnedInsightModelByFlag<Flag>> {
-        const { writeAsQuery, readAsQuery } = options
-
-        const data = getInsightModel(insight, writeAsQuery)
-        const legacyInsight = await api.insights[method](data)
-
-        const response = readAsQuery ? getQueryBasedInsightModel(legacyInsight) : legacyInsight
-        return response as ReturnedInsightModelByFlag<Flag>
-    },
+    _perform,
     async create<Flag extends boolean>(
         insight: QueryBasedInsightModel,
         options: InsightsApiOptions<Flag>
@@ -42,10 +45,11 @@ export const insightsApi = {
         return this._perform('create', insight, options)
     },
     async update<Flag extends boolean>(
-        insight: QueryBasedInsightModel,
+        id: number,
+        insightUpdate: Partial<QueryBasedInsightModel>,
         options: InsightsApiOptions<Flag>
     ): Promise<ReturnedInsightModelByFlag<Flag>> {
-        return this._perform('update', insight, options)
+        return this._perform('update', insightUpdate, options, id)
     },
     async duplicate<Flag extends boolean>(
         insight: QueryBasedInsightModel,

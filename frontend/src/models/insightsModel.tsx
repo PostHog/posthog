@@ -46,7 +46,8 @@ export const insightsModel = kea<insightsModelType>([
                 },
                 onSubmit: async ({ insightName }) => {
                     const updatedItem = await insightsApi.update(
-                        { ...item, name: insightName },
+                        item.id,
+                        { name: insightName },
                         { writeAsQuery: values.queryBasedInsightSaving, readAsQuery: false }
                     )
                     lemonToast.success(
