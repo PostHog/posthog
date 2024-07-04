@@ -44,13 +44,11 @@ interface RawDateFilterProps extends DateFilterProps {
     dateTo?: string | null | dayjs.Dayjs
     max?: number | null
     allowedRollingDateOptions?: DateOption[]
-    showAbsoluteDatePickers?: boolean
 }
 
 export function DateFilter({
     showCustom,
     showRollingRangePicker = true,
-    showAbsoluteDatePickers = true,
     className,
     disabledReason,
     makeLabel,
@@ -197,25 +195,21 @@ export function DateFilter({
                         fullWidth
                     />
                 )}
-                {showAbsoluteDatePickers ? (
+                <LemonDivider />
+                {isFixedDateMode ? (
+                    <LemonButton onClick={openFixedDate} active={isFixedDate} fullWidth>
+                        Custom date...
+                    </LemonButton>
+                ) : (
                     <>
-                        <LemonDivider />
-                        {isFixedDateMode ? (
-                            <LemonButton onClick={openFixedDate} active={isFixedDate} fullWidth>
-                                Custom date...
-                            </LemonButton>
-                        ) : (
-                            <>
-                                <LemonButton onClick={openDateToNow} active={isDateToNow} fullWidth>
-                                    From custom date until now…
-                                </LemonButton>
-                                <LemonButton onClick={openFixedRange} active={isFixedRange} fullWidth>
-                                    Custom fixed date range…
-                                </LemonButton>
-                            </>
-                        )}
+                        <LemonButton onClick={openDateToNow} active={isDateToNow} fullWidth>
+                            From custom date until now…
+                        </LemonButton>
+                        <LemonButton onClick={openFixedRange} active={isFixedRange} fullWidth>
+                            Custom fixed date range…
+                        </LemonButton>
                     </>
-                ) : null}
+                )}
             </div>
         )
 

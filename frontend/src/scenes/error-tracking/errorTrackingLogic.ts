@@ -7,8 +7,10 @@ import { FilterLogicalOperator } from '~/types'
 
 import type { errorTrackingLogicType } from './errorTrackingLogicType'
 
-const oneHour = { value: '1h', label: '1h' }
-const twentyFourHour = { value: '24h', label: '24h' }
+const lastHour = { value: '1h', label: '1h' }
+const lastDay = { value: '24h', label: '24h' }
+const lastMonth = { value: 'mStart', label: 'Month' }
+const lastYear = { value: 'yStart', label: 'Year' }
 
 export type SparklineOption = LemonSegmentedButtonOption<string>
 
@@ -20,7 +22,7 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
         setOrder: (order: ErrorTrackingOrder) => ({ order }),
         setFilterGroup: (filterGroup: UniversalFiltersGroup) => ({ filterGroup }),
         setFilterTestAccounts: (filterTestAccounts: boolean) => ({ filterTestAccounts }),
-        setSparklineSelectedPeriod: (period: string) => ({ period }),
+        setSparklineSelectedPeriod: (period: string | null) => ({ period }),
         _setSparklineOptions: (options: SparklineOption[]) => ({ options }),
     }),
     reducers({
@@ -53,14 +55,14 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
             },
         ],
         sparklineSelectedPeriod: [
-            twentyFourHour.value,
+            lastDay.value as string | null,
             { persist: true },
             {
                 setSparklineSelectedPeriod: (_, { period }) => period,
             },
         ],
         sparklineOptions: [
-            [twentyFourHour, oneHour] as SparklineOption[],
+            [lastDay, lastHour] as SparklineOption[],
             { persist: true },
             {
                 _setSparklineOptions: (_, { options }) => options,
@@ -71,20 +73,38 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
         setDateRange: ({ dateRange: { date_from } }) => {
             const options: SparklineOption[] = []
 
-            // today and last 24 hours
             if (date_from === 'dStart' || date_from === '-24h') {
-                options.push(twentyFourHour, oneHour)
+                // today and last 24 hours
+                options.push(lastDay, lastHour)
+            } else if (date_from === '-1dStart') {
+                // yesterday
+                options.push({ value: '-1d24h', label: '24h' }, { value: '-1d1h', label: '1h' })
+            } else if (date_from === 'mStart') {
+                // this month
+                options.push(lastMonth, lastDay)
+            } else if (date_from === 'yStart') {
+                // this year
+                options.push(lastYear, lastMonth)
+            } else if (date_from === 'all') {
+                // all time
+                options.push(lastYear, lastMonth, lastDay)
             } else if (date_from) {
-                const value = date_from?.replace('-', '')
-                options.push({ value: value, label: value }, twentyFourHour)
+                const isRelative = date_from.match(/-\d+[hdmy]/)
+                if (isRelative) {
+                    const value = date_from?.replace('-', '')
+                    options.push({ value: value, label: value }, lastDay)
+                }
             }
 
-            const possibleValues = options.map((o) => o.value)
+            if (options.length === 0) {
+                actions.setSparklineSelectedPeriod(null)
+            } else {
+                const possibleValues = options.map((o) => o.value)
 
-            if (!possibleValues.includes(values.sparklineSelectedPeriod)) {
-                actions.setSparklineSelectedPeriod(options[0].value)
+                if (!values.sparklineSelectedPeriod || !possibleValues.includes(values.sparklineSelectedPeriod)) {
+                    actions.setSparklineSelectedPeriod(options[0].value)
+                }
             }
-
             actions._setSparklineOptions(options)
         },
     })),

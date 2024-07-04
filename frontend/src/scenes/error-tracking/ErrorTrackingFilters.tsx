@@ -40,34 +40,6 @@ export const ErrorTrackingFilters = ({ showOrder = true }: { showOrder?: boolean
                                 setDateRange({ date_from: changedDateFrom, date_to: changedDateTo })
                             }}
                             size="small"
-                            showAbsoluteDatePickers={false}
-                            dateOptions={[
-                                {
-                                    key: 'Last 24 hours',
-                                    values: ['-24h'],
-                                },
-                                {
-                                    key: 'Last 7 days',
-                                    values: ['-7d'],
-                                },
-                                {
-                                    key: 'Last 14 days',
-                                    values: ['-14d'],
-                                },
-                                {
-                                    key: 'Last 30 days',
-                                    values: ['-30d'],
-                                },
-                                {
-                                    key: 'Last 90 days',
-                                    values: ['-90d'],
-                                },
-                                {
-                                    key: 'All time',
-                                    values: ['all'],
-                                    defaultInterval: 'month',
-                                },
-                            ]}
                         />
                         {showOrder && (
                             <LemonSelect

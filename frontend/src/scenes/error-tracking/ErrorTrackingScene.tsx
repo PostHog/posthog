@@ -57,6 +57,10 @@ const CustomVolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName
     const { sparklineSelectedPeriod, sparklineOptions: options } = useValues(errorTrackingLogic)
     const { setSparklineSelectedPeriod } = useActions(errorTrackingLogic)
 
+    if (!sparklineSelectedPeriod) {
+        return null
+    }
+
     return (
         <div className="flex justify-between items-center min-w-64">
             <div>{columnName}</div>

@@ -7,16 +7,21 @@ import { AnyPropertyFilter, BaseMathType, ChartDisplayType } from '~/types'
 
 export type SparklineConfig = {
     value: number
-    displayAs: 'minute' | 'hour' | 'day'
+    displayAs: 'minute' | 'hour' | 'day' | 'week' | 'month'
+    offsetHours?: number
 }
 
 export const SPARKLINE_CONFIGURATIONS: Record<string, SparklineConfig> = {
+    '-1d1h': { value: 60, displayAs: 'minute', offsetHours: 24 },
+    '-1d24h': { value: 24, displayAs: 'hour', offsetHours: 24 },
     '1h': { value: 60, displayAs: 'minute' },
     '24h': { value: 24, displayAs: 'hour' },
     '7d': { value: 168, displayAs: 'hour' }, // 7d * 24h = 168h
     '14d': { value: 336, displayAs: 'hour' }, // 14d * 24h = 336h
     '90d': { value: 90, displayAs: 'day' },
-    '180d': { value: 180, displayAs: 'day' },
+    '180d': { value: 26, displayAs: 'week' }, // 180d / 7d = 26 weeks
+    mStart: { value: 31, displayAs: 'day' },
+    yStart: { value: 52, displayAs: 'week' },
 }
 
 export const errorTrackingQuery = ({
@@ -30,45 +35,52 @@ export const errorTrackingQuery = ({
     dateRange: DateRange
     filterTestAccounts: boolean
     filterGroup: UniversalFiltersGroup
-    sparklineSelectedPeriod: string
+    sparklineSelectedPeriod: string | null
 }): DataTableNode => {
-    const { value, displayAs } = parseSparklineSelection(sparklineSelectedPeriod)
-    const { labels, data } = generateSparklineProps({ value, displayAs })
+    const select = [
+        'any(properties) as "context.columns.error"',
+        'properties.$exception_type',
+        'count() as occurrences',
+        'count(distinct $session_id) as sessions',
+        'count(distinct distinct_id) as users',
+        'max(timestamp) as last_seen',
+        'min(timestamp) as first_seen',
+    ]
+
+    const columns = [
+        'context.columns.error',
+        '$exception_type',
+        'occurrences',
+        'sessions',
+        'users',
+        'last_seen',
+        'first_seen',
+    ]
+
+    if (sparklineSelectedPeriod) {
+        const { value, displayAs, offsetHours } = parseSparklineSelection(sparklineSelectedPeriod)
+        const { labels, data } = generateSparklineProps({ value, displayAs, offsetHours })
+
+        select.splice(2, 0, `<Sparkline data={${data}} labels={[${labels.join(',')}]} /> as "context.columns.volume"`)
+        columns.splice(2, 0, 'context.columns.volume')
+    }
 
     return {
         kind: NodeKind.DataTableNode,
         source: {
             kind: NodeKind.EventsQuery,
-            select: [
-                'any(properties) as "context.columns.error"',
-                'properties.$exception_type',
-                `<Sparkline data={${data}} labels={[${labels.join(',')}]} /> as "context.columns.volume"`,
-                'count() as occurrences',
-                'count(distinct $session_id) as sessions',
-                'count(distinct distinct_id) as users',
-                'max(timestamp) as last_seen',
-                'min(timestamp) as first_seen',
-            ],
+            select: select,
             orderBy: [order],
             ...defaultProperties({ dateRange, filterTestAccounts, filterGroup }),
         },
         hiddenColumns: ['$exception_type', 'last_seen', 'first_seen'],
         showActions: false,
         showTimings: false,
-        columns: [
-            'context.columns.error',
-            '$exception_type',
-            'context.columns.volume',
-            'occurrences',
-            'sessions',
-            'users',
-            'last_seen',
-            'first_seen',
-        ],
+        columns: columns,
     }
 }
 
-const parseSparklineSelection = (selection: string): SparklineConfig => {
+export const parseSparklineSelection = (selection: string): SparklineConfig => {
     if (selection in SPARKLINE_CONFIGURATIONS) {
         return SPARKLINE_CONFIGURATIONS[selection]
     }
@@ -77,19 +89,38 @@ const parseSparklineSelection = (selection: string): SparklineConfig => {
 
     if (result) {
         const [value, unit] = result
-        return { value: Number(value), displayAs: unit === 'm' ? 'minute' : unit === 'h' ? 'hour' : 'day' }
+        if (unit === 'y') {
+            return { value: Number(value) * 12, displayAs: 'month' }
+        }
+        return {
+            value: Number(value),
+            displayAs: unit === 'h' ? 'hour' : unit === 'd' ? 'day' : unit === 'w' ? 'week' : 'month',
+        }
     }
     return { value: 24, displayAs: 'hour' }
 }
 
-export const generateSparklineProps = ({ value, displayAs }: SparklineConfig): { labels: string[]; data: string } => {
-    const now = dayjs().startOf(displayAs)
+export const generateSparklineProps = ({
+    value,
+    displayAs,
+    offsetHours,
+}: SparklineConfig): { labels: string[]; data: string } => {
+    const offset = offsetHours ?? 0
+    const now = dayjs().subtract(offset, 'hours').startOf(displayAs)
     const dates = range(value).map((idx) => now.subtract(value - (idx + 1), displayAs))
     const labels = dates.map((d) => `'${d.format('D MMM, YYYY HH:mm')} (UTC)'`)
 
     const toStartOfIntervalFn =
-        displayAs === 'minute' ? 'toStartOfMinute' : displayAs === 'hour' ? 'toStartOfHour' : 'toStartOfDay'
-    const data = `reverse(arrayMap(x -> countEqual(groupArray(dateDiff('${displayAs}', ${toStartOfIntervalFn}(timestamp), ${toStartOfIntervalFn}(now()))), x), range(${value})))`
+        displayAs === 'minute'
+            ? 'toStartOfMinute'
+            : displayAs === 'hour'
+            ? 'toStartOfHour'
+            : displayAs === 'day'
+            ? 'toStartOfDay'
+            : displayAs === 'week'
+            ? 'toStartOfWeek'
+            : 'toStartOfMonth'
+    const data = `reverse(arrayMap(x -> countEqual(groupArray(dateDiff('${displayAs}', ${toStartOfIntervalFn}(timestamp), ${toStartOfIntervalFn}(subtractHours(now(), ${offset})))), x), range(${value})))`
 
     return { labels, data }
 }
@@ -139,7 +170,7 @@ export const errorTrackingGroupBreakdownQuery = ({
             series: [
                 {
                     kind: NodeKind.EventsNode,
-                    event: '$exception',
+                    event: '$pageview',
                     math: BaseMathType.TotalCount,
                     name: 'This is the series name',
                     custom_name: 'Boomer',
@@ -164,7 +195,7 @@ const defaultProperties = ({
     const properties = filterGroup.values as AnyPropertyFilter[]
 
     return {
-        event: '$exception',
+        event: '$pageview',
         after: dateRange.date_from || undefined,
         before: dateRange.date_to || undefined,
         filterTestAccounts,
