@@ -65,7 +65,10 @@ const CustomVolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName
                 value={sparklineSelection.value}
                 options={options}
                 onChange={(value) => {
-                    setSparklineSelection(options.find((o) => o.value === value))
+                    const selectedOption = options.find((o) => o.value == value)
+                    if (selectedOption) {
+                        setSparklineSelection(selectedOption)
+                    }
                 }}
             />
         </div>

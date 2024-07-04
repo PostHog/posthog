@@ -6,9 +6,8 @@ import { DateRange, ErrorTrackingOrder } from '~/queries/schema'
 import { FilterLogicalOperator } from '~/types'
 
 import type { errorTrackingLogicType } from './errorTrackingLogicType'
-import { ErrorTrackingSparklineConfig } from './queries'
 
-type SparklineOption = LemonSegmentedButtonOption<string> & Pick<ErrorTrackingSparklineConfig, 'offsetHours'>
+export type SparklineOption = LemonSegmentedButtonOption<string>
 
 const oneHour = { value: '1h', label: '1h' }
 const twentyFourHour = { value: '24h', label: '24h' }
@@ -21,7 +20,7 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
         setOrder: (order: ErrorTrackingOrder) => ({ order }),
         setFilterGroup: (filterGroup: UniversalFiltersGroup) => ({ filterGroup }),
         setFilterTestAccounts: (filterTestAccounts: boolean) => ({ filterTestAccounts }),
-        setSparklineSelection: (selection: string) => ({ selection }),
+        setSparklineSelection: (selection: SparklineOption) => ({ selection }),
         _setSparklineOptions: (options: SparklineOption[]) => ({ options }),
     }),
     reducers({
@@ -54,7 +53,7 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
             },
         ],
         sparklineSelection: [
-            '24h' as string,
+            twentyFourHour as SparklineOption,
             { persist: true },
             {
                 setSparklineSelection: (_, { selection }) => selection,
@@ -69,14 +68,11 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
         ],
     }),
     listeners(({ values, actions }) => ({
-        setDateRange: ({ dateRange: { date_from, date_to } }) => {
+        setDateRange: ({ dateRange: { date_from } }) => {
             const options: SparklineOption[] = []
 
-            // yesterday
-            if (date_from === '-1dStart' && date_to === '-1dEnd') {
-                options.push({ ...twentyFourHour, offsetHours: 24 }, { ...oneHour, offsetHours: 24 })
-            } // today and last 24 hours
-            else if (date_from === 'dStart' || date_from === '-24h') {
+            // today and last 24 hours
+            if (date_from === 'dStart' || date_from === '-24h') {
                 options.push(twentyFourHour, oneHour)
             } else if (date_from) {
                 const value = date_from?.replace('-', '')
@@ -85,8 +81,8 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
 
             const possibleValues = options.map((o) => o.value)
 
-            if (!possibleValues.includes(values.sparklineSelection)) {
-                actions.setSparklineSelection(options[0].value)
+            if (!possibleValues.includes(values.sparklineSelection.value)) {
+                actions.setSparklineSelection(options[0])
             }
 
             actions._setSparklineOptions(options)

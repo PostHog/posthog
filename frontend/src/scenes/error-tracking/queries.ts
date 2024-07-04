@@ -5,6 +5,8 @@ import { range } from 'lib/utils'
 import { DataTableNode, DateRange, ErrorTrackingOrder, EventsQuery, InsightVizNode, NodeKind } from '~/queries/schema'
 import { AnyPropertyFilter, BaseMathType, ChartDisplayType } from '~/types'
 
+import { SparklineOption } from './errorTrackingLogic'
+
 export type ErrorTrackingSparklineConfig = {
     value: number
     displayAs: 'minute' | 'hour' | 'day'
@@ -32,9 +34,9 @@ export const errorTrackingQuery = ({
     dateRange: DateRange
     filterTestAccounts: boolean
     filterGroup: UniversalFiltersGroup
-    sparklineSelection: ErrorTrackingSparklineConfig
+    sparklineSelection: SparklineOption
 }): DataTableNode => {
-    const { value, displayAs, gap, offsetHours } = sparklineSelection
+    const { value, displayAs, gap, offsetHours } = parseSelection(sparklineSelection)
 
     const { labels, data } = generateSparklineProps({ value, displayAs, gap, offsetHours })
 
@@ -68,6 +70,21 @@ export const errorTrackingQuery = ({
             'last_seen',
             'first_seen',
         ],
+    }
+}
+
+const parseSelection = (selection: SparklineOption): ErrorTrackingSparklineConfig => {
+    if (selection.value in SPARKLINE_CONFIGURATIONS) {
+        return { ...selection, ...SPARKLINE_CONFIGURATIONS[selection.value] }
+    }
+
+    const [value, unit] = selection.value.replace('-', '').split('')
+
+    return {
+        ...selection,
+        value: Number(value),
+        displayAs: unit === 'm' ? 'minute' : unit === 'h' ? 'hour' : 'day',
+        gap: 1,
     }
 }
 
