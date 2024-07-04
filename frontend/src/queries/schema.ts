@@ -84,12 +84,6 @@ export enum NodeKind {
     WebTopClicksQuery = 'WebTopClicksQuery',
     WebStatsTableQuery = 'WebStatsTableQuery',
 
-    // Time to see data
-    TimeToSeeDataSessionsQuery = 'TimeToSeeDataSessionsQuery',
-    TimeToSeeDataQuery = 'TimeToSeeDataQuery',
-    TimeToSeeDataSessionsJSONNode = 'TimeToSeeDataSessionsJSONNode',
-    TimeToSeeDataSessionsWaterfallNode = 'TimeToSeeDataSessionsWaterfallNode',
-
     // Database metadata
     DatabaseSchemaQuery = 'DatabaseSchemaQuery',
 }
@@ -98,7 +92,6 @@ export type AnyDataNode =
     | EventsNode // never queried directly
     | ActionsNode // old actions API endpoint
     | PersonsNode // old persons API endpoint
-    | TimeToSeeDataSessionsQuery // old API
     | EventsQuery
     | ActorsQuery
     | InsightActorsQuery
@@ -121,7 +114,6 @@ export type QuerySchema =
     | ActionsNode // old actions API endpoint
     | PersonsNode // old persons API endpoint
     | DataWarehouseNode
-    | TimeToSeeDataSessionsQuery // old API
     | EventsQuery
     | ActorsQuery
     | InsightActorsQuery
@@ -516,7 +508,6 @@ export interface DataTableNode
                     | PersonsNode
                     | ActorsQuery
                     | HogQLQuery
-                    | TimeToSeeDataSessionsQuery
                     | WebOverviewQuery
                     | WebStatsTableQuery
                     | WebTopClicksQuery
@@ -532,7 +523,6 @@ export interface DataTableNode
         | PersonsNode
         | ActorsQuery
         | HogQLQuery
-        | TimeToSeeDataSessionsQuery
         | WebOverviewQuery
         | WebStatsTableQuery
         | WebTopClicksQuery
@@ -1402,29 +1392,6 @@ export interface InsightActorsQueryOptions extends Node<InsightActorsQueryOption
     source: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery
 }
 
-export const dateRangeForFilter = (source: FilterType | undefined): DateRange | undefined => {
-    if (!source) {
-        return undefined
-    }
-    return { date_from: source.date_from, date_to: source.date_to }
-}
-
-export interface TimeToSeeDataSessionsQueryResponse {
-    results: Record<string, any>[]
-}
-
-export interface TimeToSeeDataSessionsQuery extends DataNode<TimeToSeeDataSessionsQueryResponse> {
-    kind: NodeKind.TimeToSeeDataSessionsQuery
-
-    /** Date range for the query */
-    dateRange?: DateRange
-
-    /**
-     * Project to filter on. Defaults to current project
-     */
-    teamId?: integer
-}
-
 export interface DatabaseSchemaSchema {
     id: string
     name: string
@@ -1508,34 +1475,6 @@ export type DatabaseSerializedFieldType =
     | 'field_traverser'
     | 'expression'
     | 'view'
-
-export interface TimeToSeeDataQuery extends DataNode<Record<string, any> /* TODO: Type specifically */> {
-    kind: NodeKind.TimeToSeeDataQuery
-
-    /**
-     * Project to filter on. Defaults to current project
-     */
-    teamId?: integer
-
-    /** Project to filter on. Defaults to current session */
-    sessionId?: string
-
-    /** Session start time. Defaults to current time - 2 hours */
-    sessionStart?: string
-    sessionEnd?: string
-}
-
-export interface TimeToSeeDataJSONNode {
-    kind: NodeKind.TimeToSeeDataSessionsJSONNode
-    source: TimeToSeeDataQuery
-}
-
-export interface TimeToSeeDataWaterfallNode {
-    kind: NodeKind.TimeToSeeDataSessionsWaterfallNode
-    source: TimeToSeeDataQuery
-}
-
-export type TimeToSeeDataNode = TimeToSeeDataJSONNode | TimeToSeeDataWaterfallNode
 
 export type HogQLExpression = string
 

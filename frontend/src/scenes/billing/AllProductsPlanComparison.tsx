@@ -166,11 +166,8 @@ export const AllProductsPlanComparison = ({
                             ? 'mailto:sales@posthog.com?subject=Enterprise%20plan%20request'
                             : getUpgradeProductLink({
                                   product,
-                                  upgradeToPlanKey: plan.plan_key || '',
                                   redirectPath,
                                   includeAddons,
-                                  subscriptionLevel: billing?.subscription_level,
-                                  featureFlags,
                               })
                     }
                     type={plan.current_plan || i < currentPlanIndex ? 'secondary' : 'primary'}
@@ -334,7 +331,7 @@ export const AllProductsPlanComparison = ({
                                 </span>
                             </span>
                         ),
-                        className: 'bg-white',
+                        className: 'bg-bg-3000',
                         key: currentProduct.type,
                         content: (
                             <table className="w-full table-fixed max-w-[920px]" ref={planComparisonRef}>

@@ -3742,9 +3742,9 @@ FROM
         (SELECT
             e.timestamp AS timestamp,
             person_id AS aggregation_target,
-            if(true, 1, 0) AS step_0,
+            if(1, 1, 0) AS step_0,
             if(equals(step_0, 1), timestamp, NULL) AS latest_0,
-            if(true, 1, 0) AS step_1,
+            if(1, 1, 0) AS step_1,
             if(equals(step_1, 1), timestamp, NULL) AS latest_1
         FROM
             events AS e
@@ -3802,9 +3802,9 @@ FROM
                 (SELECT
                     e.timestamp AS timestamp,
                     person_id AS aggregation_target,
-                    if(true, 1, 0) AS step_0,
+                    if(1, 1, 0) AS step_0,
                     if(equals(step_0, 1), timestamp, NULL) AS latest_0,
-                    if(true, 1, 0) AS step_1,
+                    if(1, 1, 0) AS step_1,
                     if(equals(step_1, 1), timestamp, NULL) AS latest_1
                 FROM
                     events AS e
@@ -3873,9 +3873,9 @@ FROM
                     (SELECT
                         e.timestamp AS timestamp,
                         person_id AS aggregation_target,
-                        if(true, 1, 0) AS step_0,
+                        if(1, 1, 0) AS step_0,
                         if(equals(step_0, 1), timestamp, NULL) AS latest_0,
-                        if(true, 1, 0) AS step_1,
+                        if(1, 1, 0) AS step_1,
                         if(equals(step_1, 1), timestamp, NULL) AS latest_1
                     FROM
                         events AS e

@@ -14,7 +14,6 @@ from posthog.caching.insights_api import (
     REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
     REAL_TIME_INSIGHT_REFRESH_INTERVAL,
 )
-from posthog.caching.utils import is_stale
 from posthog.clickhouse import query_tagging
 
 from posthog.hogql import ast
@@ -89,11 +88,6 @@ class TrendsQueryRunner(QueryRunner):
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
         self.update_hogql_modifiers()
         self.series = self.setup_series()
-
-    def _is_stale(self, cached_result_package):
-        date_to = self.query_date_range.date_to()
-        interval = self.query_date_range.interval_name
-        return is_stale(self.team, date_to, interval, cached_result_package)
 
     def _refresh_frequency(self):
         date_to = self.query_date_range.date_to()
