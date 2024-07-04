@@ -569,9 +569,6 @@ export const surveyLogic = kea<surveyLogicType>([
             actions.loadSurveys()
             router.actions.replace(urls.survey(survey.id))
             actions.reportSurveyCreated(survey)
-            if (survey.questions.some((question) => question.branching && Object.keys(question.branching).length > 0)) {
-                actions.reportSurveyWithBranchingCreated(survey)
-            }
         },
         updateSurveySuccess: ({ survey }) => {
             lemonToast.success(<>Survey {survey.name} updated</>)

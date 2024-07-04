@@ -559,7 +559,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportSurveyArchived: (survey: Survey) => ({ survey }),
         reportSurveyTemplateClicked: (template: SurveyTemplateType) => ({ template }),
         reportSurveyCycleDetected: (survey: Survey | NewSurvey) => ({ survey }),
-        reportSurveyWithBranchingCreated: (survey: Survey) => ({ survey }),
         reportProductUnsubscribed: (product: string) => ({ product }),
         // onboarding
         reportOnboardingProductSelected: (
@@ -1212,6 +1211,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                     survey.iteration_frequency_days == undefined ? 0 : survey.iteration_frequency_days,
                 shuffle_questions_enabled: !!survey.appearance?.shuffleQuestions,
                 shuffle_question_options_enabled_count: questionsWithShuffledOptions.length,
+                has_branching_logic: survey.questions.some(
+                    (question) => question.branching && Object.keys(question.branching).length > 0
+                ),
             })
         },
         reportSurveyLaunched: ({ survey }) => {
@@ -1275,6 +1277,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                     survey.iteration_frequency_days == undefined ? 0 : survey.iteration_frequency_days,
                 shuffle_questions_enabled: !!survey.appearance?.shuffleQuestions,
                 shuffle_question_options_enabled_count: questionsWithShuffledOptions.length,
+                has_branching_logic: survey.questions.some(
+                    (question) => question.branching && Object.keys(question.branching).length > 0
+                ),
             })
         },
         reportSurveyTemplateClicked: ({ template }) => {
@@ -1288,15 +1293,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 id: survey.id,
                 start_date: survey.start_date,
                 end_date: survey.end_date,
-            })
-        },
-        reportSurveyWithBranchingCreated: ({ survey }) => {
-            posthog.capture('survey with branching created', {
-                name: survey.name,
-                id: survey.id,
-                start_date: survey.start_date,
-                end_date: survey.end_date,
-                created_at: survey.created_at,
             })
         },
         reportProductUnsubscribed: ({ product }) => {
