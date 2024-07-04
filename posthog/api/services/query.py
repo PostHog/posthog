@@ -2,6 +2,7 @@ import structlog
 from typing import Optional
 
 from pydantic import BaseModel
+from rest_framework.exceptions import ValidationError
 
 from hogvm.python.debugger import color_bytecode
 from posthog.clickhouse.query_tagging import tag_queries
@@ -105,6 +106,8 @@ def process_query_model(
             database = create_hogql_database(team.pk, modifiers=create_default_modifiers_for_team(team))
             context = HogQLContext(team_id=team.pk, team=team, database=database)
             result = DatabaseSchemaQueryResponse(tables=serialize_database(context))
+        else:
+            raise ValidationError(f"Unsupported query kind: {query.__class__.__name__}")
     else:  # Query runner available - it will handle execution as well as caching
         if dashboard_filters:
             query_runner.apply_dashboard_filters(dashboard_filters)
