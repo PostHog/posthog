@@ -517,7 +517,7 @@ export function SavedInsights(): JSX.Element {
                                     Edit
                                 </LemonButton>
                                 <LemonButton
-                                    onClick={() => renameInsight(legacyInsight)}
+                                    onClick={() => renameInsight(insight)}
                                     data-attr={`insight-item-${insight.short_id}-dropdown-rename`}
                                     fullWidth
                                 >
