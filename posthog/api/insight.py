@@ -237,6 +237,10 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
     (see from_dashboard query parameter).
     """,
     )
+    cache_target_age = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="The target age of the cached results for this insight.",
+    )
     next_allowed_client_refresh = serializers.SerializerMethodField(
         read_only=True,
         help_text="""
@@ -283,6 +287,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             "dashboards",
             "dashboard_tiles",
             "last_refresh",
+            "cache_target_age",
             "next_allowed_client_refresh",
             "result",
             "columns",
@@ -486,6 +491,9 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
     def get_last_refresh(self, insight: Insight):
         return self.insight_result(insight).last_refresh
+
+    def get_cache_target_age(self, insight: Insight):
+        return self.insight_result(insight).cache_target_age
 
     def get_next_allowed_client_refresh(self, insight: Insight):
         return self.insight_result(insight).next_allowed_client_refresh

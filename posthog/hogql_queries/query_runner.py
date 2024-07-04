@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict
 from sentry_sdk import capture_exception, push_scope
 
 from posthog.cache_utils import OrjsonJsonSerializer
-from posthog.caching.utils import is_stale, last_refresh_from_cached_result, ThresholdMode
+from posthog.caching.utils import is_stale, last_refresh_from_cached_result, ThresholdMode, cache_target_age
 from posthog.clickhouse.client.execute_async import enqueue_process_query_task
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql import ast
@@ -443,6 +443,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             if not self._is_stale(cached_response):
                 QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="hit").inc()
                 # We have a valid result that's fresh enough, let's return it
+                cached_response.cache_target_age = self.cache_target_age(cached_response)
                 return cached_response
 
             QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="stale").inc()
@@ -554,6 +555,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
     def get_cache_key(self) -> str:
         return generate_cache_key(f"query_{bytes.decode(to_json(self.get_cache_payload()))}")
+
+    def cache_target_age(self, cached_result_package) -> datetime:
+        last_refresh = last_refresh_from_cached_result(cached_result_package)
+        query_date_range = getattr(self, "query_date_range", None)
+        interval = query_date_range.interval_name if query_date_range else "minute"
+        return cache_target_age(interval, last_refresh=last_refresh, mode=ThresholdMode.DEFAULT)
 
     def _is_stale(self, cached_result_package, lazy: bool = False) -> bool:
         last_refresh = last_refresh_from_cached_result(cached_result_package)

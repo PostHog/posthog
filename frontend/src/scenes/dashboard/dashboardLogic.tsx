@@ -718,8 +718,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }
 
                 const validDates = insightTiles
-                    .filter((i) => !!i.insight?.next_allowed_client_refresh)
-                    .map((i) => dayjs(i.insight?.next_allowed_client_refresh))
+                    .filter((i) => !!i.insight?.cache_target_age || !!i.insight?.next_allowed_client_refresh)
+                    .map((i) => dayjs(i.insight?.cache_target_age ?? i.insight?.next_allowed_client_refresh))
                     .filter((date) => date.isValid())
                 return sortDayJsDates(validDates)
             },

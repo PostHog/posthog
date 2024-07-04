@@ -1017,6 +1017,8 @@ interface CachedQueryResponseMixin {
     last_refresh: string
     /**  @format date-time */
     next_allowed_client_refresh: string
+    /**  @format date-time */
+    cache_target_age?: string
     cache_key: string
     timezone: string
     /** Query status indicates whether next to the provided data, a query is still running. */
