@@ -14,6 +14,7 @@ import { objectClean, objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
 
+import { NodeKind, RecordingsQueryResponse } from '~/queries/schema'
 import {
     AnyPropertyFilter,
     DurationType,
@@ -27,7 +28,6 @@ import {
     RecordingPropertyFilter,
     RecordingUniversalFilters,
     SessionRecordingId,
-    SessionRecordingsResponse,
     SessionRecordingType,
 } from '~/types'
 
@@ -344,10 +344,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             {
                 results: [],
                 has_next: false,
-            } as SessionRecordingsResponse,
+            } as RecordingsQueryResponse,
             {
                 loadSessionRecordings: async ({ direction }, breakpoint) => {
                     const params = {
+                        kind: NodeKind.RecordingsQuery,
                         // TODO: requires a backend change so will include in a separate PR
                         ...convertUniversalFiltersToLegacyFilters(values.filters),
                         person_uuid: props.personUUID ?? '',

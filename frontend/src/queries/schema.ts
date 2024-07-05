@@ -25,6 +25,7 @@ import {
     PropertyMathType,
     RetentionFilterType,
     SessionPropertyFilter,
+    SessionRecordingType,
     StickinessFilterType,
     TrendsFilterType,
 } from '~/types'
@@ -62,6 +63,7 @@ export enum NodeKind {
     FunnelsActorsQuery = 'FunnelsActorsQuery',
     FunnelCorrelationActorsQuery = 'FunnelCorrelationActorsQuery',
     SessionsTimelineQuery = 'SessionsTimelineQuery',
+    RecordingsQuery = 'RecordingsQuery',
 
     // Interface nodes
     DataTableNode = 'DataTableNode',
@@ -253,6 +255,19 @@ export interface HogQueryResponse {
 export interface HogQuery extends DataNode<HogQueryResponse> {
     kind: NodeKind.HogQuery
     code?: string
+}
+
+export interface RecordingsQueryResponse {
+    results: SessionRecordingType[]
+    has_next: boolean
+}
+
+export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
+    kind: NodeKind.RecordingsQuery
+    date_range: DateRange
+    entities: FilterType['events' | 'actions']
+    properties?: AnyPropertyFilter[]
+    having_predicates: AnyPropertyFilter[] // duration and snapshot_source filters
 }
 
 export interface HogQLNotice {

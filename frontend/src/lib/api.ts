@@ -8,7 +8,14 @@ import posthog from 'posthog-js'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
-import { DatabaseSerializedFieldType, QuerySchema, QueryStatusResponse, RefreshType } from '~/queries/schema'
+import {
+    DatabaseSerializedFieldType,
+    QuerySchema,
+    QueryStatusResponse,
+    RecordingsQuery,
+    RecordingsQueryResponse,
+    RefreshType,
+} from '~/queries/schema'
 import {
     ActionType,
     ActivityScope,
@@ -80,7 +87,6 @@ import {
     SessionRecordingPlaylistType,
     SessionRecordingSnapshotParams,
     SessionRecordingSnapshotResponse,
-    SessionRecordingsResponse,
     SessionRecordingType,
     SharingConfigurationType,
     SlackChannelType,
@@ -1733,7 +1739,7 @@ const api = {
     },
 
     recordings: {
-        async list(params: Record<string, any>): Promise<SessionRecordingsResponse> {
+        async list(params: RecordingsQuery): Promise<RecordingsQueryResponse> {
             return await new ApiRequest().recordings().withQueryString(toParams(params)).get()
         },
         async getMatchingEvents(params: string): Promise<{ results: string[] }> {
@@ -1821,7 +1827,7 @@ const api = {
         async listPlaylistRecordings(
             playlistId: SessionRecordingPlaylistType['short_id'],
             params: Record<string, any> = {}
-        ): Promise<SessionRecordingsResponse> {
+        ): Promise<RecordingsQueryResponse> {
             return await new ApiRequest()
                 .recordingPlaylist(playlistId)
                 .withAction('recordings')

@@ -989,11 +989,6 @@ export interface RecordingUniversalFilters {
     filter_group: UniversalFiltersGroup
 }
 
-export interface SessionRecordingsResponse {
-    results: SessionRecordingType[]
-    has_next: boolean
-}
-
 export type ErrorCluster = {
     cluster: number
     sample: string
