@@ -611,7 +611,7 @@ describe('PersonState.update()', () => {
                     uuid: newUserUuid,
                     properties: originalPersonProperties,
                     created_at: timestamp,
-                    version: 1,
+                    version: 0,
                     is_identified: false,
                 })
             )
