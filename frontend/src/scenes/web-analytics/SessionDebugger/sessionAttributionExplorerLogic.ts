@@ -52,22 +52,29 @@ export const sessionAttributionExplorerLogic = kea<sessionAttributionExplorerLog
                     },
                     query: `
 SELECT
-    "$entry_referring_domain" as 'context.columns.referring_domain',
-    "$entry_utm_source" as 'context.columns.utm_source',
-    "$entry_utm_medium" as 'context.columns.utm_medium',
-    "$entry_utm_campaign" as 'context.columns.utm_campaign',
+    "$entry_referring_domain" as "context.columns.referring_domain",
+    "$entry_utm_source" as "context.columns.utm_source",
+    "$entry_utm_medium" as "context.columns.utm_medium",
+    "$entry_utm_campaign" as "context.columns.utm_campaign",
     nullIf(arrayStringConcat([
         if(isNotNull($entry_gclid), 'glcid', NULL),
         if(isNotNull($entry_gad_source), 'gad_source', NULL)
         -- add more here if we add more ad ids
-    ], ','), '') as 'context.columns.has_ad_id',
-    topK(10)($entry_current_url) as 'context.columns.example_entry_urls',
-    "$channel_type" as 'context.columns.channel_type',
-    count() as 'context.columns.count'
+    ], ','), '') as "context.columns.has_ad_id",
+    topK(10)($entry_current_url) as "context.columns.example_entry_urls",
+    "$channel_type" as "context.columns.channel_type",
+    count() as "context.columns.count"
 FROM sessions
 WHERE {filters}
-GROUP BY 1,2,3,4,5,7
-ORDER BY 8 DESC
+GROUP BY
+    "context.columns.referring_domain",
+    "context.columns.utm_source",
+    "context.columns.utm_medium",
+    "context.columns.utm_campaign",
+    "context.columns.has_ad_id",
+    "context.columns.channel_type"
+ORDER BY 
+    "context.columns.count" DESC
 `,
                 }
                 return {
