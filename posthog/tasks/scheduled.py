@@ -93,6 +93,8 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
 
     add_periodic_task_with_expiry(sender, 20, start_poll_query_performance.s(), "20 sec query performance heartbeat")
 
+    add_periodic_task_with_expiry(sender, 60 * 60, check_all_alerts_task.s(), "check all alerts")
+
     # Update events table partitions twice a week
     sender.add_periodic_task(
         crontab(day_of_week="mon,fri", hour="0", minute="0"),
@@ -250,12 +252,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="*/12"),
         update_survey_iteration.s(),
         name="update survey iteration based on date",
-    )
-
-    sender.add_periodic_task(
-        crontab(hour="*", minute="20"),
-        check_all_alerts_task.s(),
-        name="detect alerts' anomalies and notify about them",
     )
 
     if settings.EE_AVAILABLE:
