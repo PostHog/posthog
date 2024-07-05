@@ -496,8 +496,10 @@ class TestCapture(BaseTest):
                     "timestamp": 1234567890,
                 },
                 {"type": 2, "data": {"lots": "of data"}, "$window_id": "the window id", "timestamp": 1234567890},
-            ]
+            ],
+            query_params="ver=1.2.3",
         )
+
         assert response.status_code == 200
 
         expected_data = make_processed_recording_event(
@@ -511,7 +513,17 @@ class TestCapture(BaseTest):
                 },
                 {
                     "type": 5,
-                    "data": {"tag": "Message too large"},
+                    "data": {
+                        "tag": "Message too large",
+                        "payload": {
+                            "error": "[Error 10] MessageSizeTooLargeError: Message size too large",
+                            "error_message": "MESSAGE_SIZE_TOO_LARGE",
+                            "kafka_size": None,  # none here because we're not really throwing MessageSizeTooLargeError
+                            "lib_version": "1.2.3",
+                            "posthog_calculation": 425,
+                            "size_difference": "unknown",
+                        },
+                    },
                     "timestamp": 1234567890,
                     "$window_id": "the window id",
                 },
@@ -2230,7 +2242,7 @@ class TestCapture(BaseTest):
                     },
                 ],
             )
-            sample_replay_data_to_object_storage(event, random_number, "the-team-token")
+            sample_replay_data_to_object_storage(event, random_number, "the-team-token", "1.2.3")
             contents = object_storage.read("token-the-team-token-session_id-abcdefgh.json", bucket=TEST_SAMPLES_BUCKET)
             assert contents == json.dumps(event)
 
@@ -2262,7 +2274,7 @@ class TestCapture(BaseTest):
                     },
                 ],
             )
-            sample_replay_data_to_object_storage(event, random_number, "another-team-token")
+            sample_replay_data_to_object_storage(event, random_number, "another-team-token", "1.2.3")
 
             with pytest.raises(ObjectStorageError):
                 object_storage.read("token-another-team-token-session_id-abcdefgh.json", bucket=TEST_SAMPLES_BUCKET)
