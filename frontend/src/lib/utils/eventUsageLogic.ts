@@ -1,7 +1,13 @@
 import { actions, connect, kea, listeners, path } from 'kea'
 import { BarStatus, ResultType } from 'lib/components/CommandBar/types'
-import { convertPropertyGroupToProperties, isGroupPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import {
+    convertPropertyGroupToProperties,
+    isGroupPropertyFilter,
+    isRecordingPropertyFilter,
+    isValidPropertyFilter,
+} from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { isActionFilter, isEventFilter } from 'lib/components/UniversalFilters/utils'
 import type { Dayjs } from 'lib/dayjs'
 import { now } from 'lib/dayjs'
 import { isCoreFilter, PROPERTY_KEYS } from 'lib/taxonomy'
@@ -10,6 +16,7 @@ import posthog from 'posthog-js'
 import { isFilterWithDisplay, isFunnelsFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { EventIndex } from 'scenes/session-recordings/player/eventIndex'
+import { filtersFromUniversalFilterGroups } from 'scenes/session-recordings/utils'
 import { NewSurvey, SurveyTemplateType } from 'scenes/surveys/constants'
 import { userLogic } from 'scenes/userLogic'
 
@@ -26,6 +33,7 @@ import {
     isEventsNode,
     isFunnelsQuery,
     isInsightQueryNode,
+    isInsightVizNode,
 } from '~/queries/utils'
 import {
     AccessLevel,
@@ -49,8 +57,8 @@ import {
     PropertyFilterValue,
     PropertyGroupFilter,
     RecordingDurationFilter,
-    RecordingFilters,
     RecordingReportLoadTimes,
+    RecordingUniversalFilters,
     Resource,
     SessionPlayerData,
     SessionRecordingPlayerTab,
@@ -224,6 +232,53 @@ function sanitizeFilterParams(filters: AnyPartialFilterType): Record<string, any
     }
 }
 
+/** Takes a query and returns an object with "useful" properties that don't contain sensitive data. */
+function sanitizeQuery(query: Node | null): Record<string, string | number | boolean | undefined> {
+    const payload: Record<string, string | number | boolean | undefined> = {
+        query_kind: query?.kind,
+    }
+
+    if (isInsightVizNode(query) || isInsightQueryNode(query)) {
+        const querySource = isInsightVizNode(query) ? query.source : query
+        const { dateRange, filterTestAccounts, samplingFactor, properties } = querySource
+
+        // date range and sampling
+        payload.date_from = dateRange?.date_from || undefined
+        payload.date_to = dateRange?.date_to || undefined
+        payload.interval = getInterval(querySource)
+        payload.samplingFactor = samplingFactor || undefined
+
+        // series
+        payload.series_length = getSeries(querySource)?.length
+        payload.event_entity_count = getSeries(querySource)?.filter((e) => isEventsNode(e)).length
+        payload.action_entity_count = getSeries(querySource)?.filter((e) => isActionsNode(e)).length
+        payload.data_warehouse_entity_count = getSeries(querySource)?.filter((e) => isDataWarehouseNode(e)).length
+        payload.has_data_warehouse_series = !!getSeries(querySource)?.find((e) => isDataWarehouseNode(e))
+
+        // properties
+        payload.has_properties = !!properties
+        payload.filter_test_accounts = filterTestAccounts
+
+        // breakdown
+        payload.breakdown_type = getBreakdown(querySource)?.breakdown_type || undefined
+        payload.breakdown_limit = getBreakdown(querySource)?.breakdown_limit || undefined
+        payload.breakdown_hide_other_aggregation =
+            getBreakdown(querySource)?.breakdown_hide_other_aggregation || undefined
+
+        // trends like
+        payload.has_formula = !!getFormula(querySource)
+        payload.display = getDisplay(querySource)
+        payload.compare = getCompareFilter(querySource)?.compare
+        payload.compare_to = getCompareFilter(querySource)?.compare_to
+
+        // funnels
+        payload.funnel_viz_type = isFunnelsQuery(querySource) ? querySource.funnelsFilter?.funnelVizType : undefined
+        payload.funnel_order_type = isFunnelsQuery(querySource) ? querySource.funnelsFilter?.funnelOrderType : undefined
+    }
+
+    return objectClean(payload)
+}
+
 export const eventUsageLogic = kea<eventUsageLogicType>([
     path(['lib', 'utils', 'eventUsageLogic']),
     connect(() => ({
@@ -286,8 +341,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             filtersLength,
         }),
         // insight funnel correlation
-        reportCorrelationViewed: (filters: Partial<FilterType>, delay?: number, propertiesTable?: boolean) => ({
-            filters,
+        reportCorrelationViewed: (query: Node | null, delay?: number, propertiesTable?: boolean) => ({
+            query,
             delay, // Number of delayed seconds to report event (useful to measure insights where users don't navigate immediately away)
             propertiesTable,
         }),
@@ -347,6 +402,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportPoEModeUpdated: (mode: string) => ({ mode }),
         reportPersonsJoinModeUpdated: (mode: string) => ({ mode }),
         reportBounceRatePageViewModeUpdated: (mode: string) => ({ mode }),
+        reportSessionTableVersionUpdated: (version: string) => ({ version }),
         reportPropertySelectOpened: true,
         reportCreatedDashboardFromModal: true,
         reportSavedInsightToDashboard: true,
@@ -367,7 +423,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
         reportRecordingsListFetched: (
             loadTime: number,
-            filters: RecordingFilters,
+            filters: RecordingUniversalFilters,
             defaultDurationFilter: RecordingDurationFilter
         ) => ({
             loadTime,
@@ -597,43 +653,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 is_saved: insightModel.saved,
                 description_length: insightModel.description?.length ?? 0,
                 tags_count: insightModel.tags?.length ?? 0,
-                query_kind: query?.kind,
-            }
-
-            if (isInsightQueryNode(query)) {
-                const { dateRange, filterTestAccounts, samplingFactor, properties } = query
-
-                // date range and sampling
-                payload.date_from = dateRange?.date_from || undefined
-                payload.date_to = dateRange?.date_to || undefined
-                payload.interval = getInterval(query)
-                payload.samplingFactor = samplingFactor || undefined
-
-                // series
-                payload.series_length = getSeries(query)?.length
-                payload.event_entity_count = getSeries(query)?.filter((e) => isEventsNode(e)).length
-                payload.action_entity_count = getSeries(query)?.filter((e) => isActionsNode(e)).length
-                payload.data_warehouse_entity_count = getSeries(query)?.filter((e) => isDataWarehouseNode(e)).length
-
-                // properties
-                payload.has_properties = !!properties
-                payload.filter_test_accounts = filterTestAccounts
-
-                // breakdown
-                payload.breakdown_type = getBreakdown(query)?.breakdown_type || undefined
-                payload.breakdown_limit = getBreakdown(query)?.breakdown_limit || undefined
-                payload.breakdown_hide_other_aggregation =
-                    getBreakdown(query)?.breakdown_hide_other_aggregation || undefined
-
-                // trends like
-                payload.has_formula = !!getFormula(query)
-                payload.display = getDisplay(query)
-                payload.compare = getCompareFilter(query)?.compare
-                payload.compare_to = getCompareFilter(query)?.compare_to
-
-                // funnels
-                payload.funnel_viz_type = isFunnelsQuery(query) ? query.funnelsFilter?.funnelVizType : undefined
-                payload.funnel_order_type = isFunnelsQuery(query) ? query.funnelsFilter?.funnelOrderType : undefined
+                ...sanitizeQuery(query),
             }
 
             const eventName = delay ? 'insight analyzed' : 'insight viewed'
@@ -798,6 +818,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportBounceRatePageViewModeUpdated: async ({ mode }) => {
             posthog.capture('bounce rate page view mode updated', { mode })
         },
+        reportSessionTableVersionUpdated: async ({ version }) => {
+            posthog.capture('session table version updated', { version })
+        },
         reportInsightFilterRemoved: async ({ index }) => {
             posthog.capture('local filter removed', { index })
         },
@@ -876,12 +899,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportCorrelationInteraction: ({ correlationType, action, props }) => {
             posthog.capture('correlation interaction', { correlation_type: correlationType, action, ...props })
         },
-        reportCorrelationViewed: ({ delay, filters, propertiesTable }) => {
+        reportCorrelationViewed: ({ delay, query, propertiesTable }) => {
+            const payload = sanitizeQuery(query)
             if (delay === 0) {
-                posthog.capture(`correlation${propertiesTable ? ' properties' : ''} viewed`, { filters })
+                posthog.capture(`correlation${propertiesTable ? ' properties' : ''} viewed`, payload)
             } else {
                 posthog.capture(`correlation${propertiesTable ? ' properties' : ''} analyzed`, {
-                    filters,
+                    ...payload,
                     delay,
                 })
             }
@@ -890,17 +914,25 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('recording list filter added', { filter_type: filterType })
         },
         reportRecordingsListFetched: ({ loadTime, filters, defaultDurationFilter }) => {
+            const filterValues = filtersFromUniversalFilterGroups(filters)
+
+            const eventFilters = filterValues.filter(isEventFilter)
+            const actionFilters = filterValues.filter(isActionFilter)
+            const propertyFilters = filterValues.filter(isValidPropertyFilter)
+            const consoleLogFilters = propertyFilters
+                .filter(isRecordingPropertyFilter)
+                .filter((f) => ['console_log_level', 'console_log_query'].includes(f.key))
+
             const filterBreakdown =
                 filters && defaultDurationFilter
                     ? {
-                          hasEventsFilters: !!filters.events?.length,
-                          hasActionsFilters: !!filters.actions?.length,
-                          hasPropertiesFilters: !!filters.properties?.length,
-                          hasCohortFilter: filters.properties?.some((p) => p.type === PropertyFilterType.Cohort),
-                          hasPersonFilter: filters.properties?.some((p) => p.type === PropertyFilterType.Person),
-                          hasDurationFilters:
-                              (filters.session_recording_duration?.value || -1) > defaultDurationFilter.value,
-                          hasConsoleLogsFilters: !!filters.console_logs?.length || !!filters.console_search_query,
+                          hasEventsFilters: !!eventFilters.length,
+                          hasActionsFilters: !!actionFilters.length,
+                          hasPropertiesFilters: !!propertyFilters.length,
+                          hasCohortFilter: propertyFilters.some((p) => p.type === PropertyFilterType.Cohort),
+                          hasPersonFilter: propertyFilters.some((p) => p.type === PropertyFilterType.Person),
+                          hasDurationFilters: (filters.duration[0].value || -1) > defaultDurationFilter.value,
+                          hasConsoleLogsFilters: !!consoleLogFilters.length,
                           isLiveMode: !!filters.live_mode,
                       }
                     : {}
@@ -1192,8 +1224,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 recurring_survey_iteration_count: survey.iteration_count == undefined ? 0 : survey.iteration_count,
                 recurring_survey_iteration_interval:
                     survey.iteration_frequency_days == undefined ? 0 : survey.iteration_frequency_days,
-                shuffle_questions_enabled: !!survey.appearance.shuffleQuestions,
+                shuffle_questions_enabled: !!survey.appearance?.shuffleQuestions,
                 shuffle_question_options_enabled_count: questionsWithShuffledOptions.length,
+                has_branching_logic: survey.questions.some(
+                    (question) => question.branching && Object.keys(question.branching).length > 0
+                ),
             })
         },
         reportSurveyLaunched: ({ survey }) => {
@@ -1255,8 +1290,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 recurring_survey_iteration_count: survey.iteration_count == undefined ? 0 : survey.iteration_count,
                 recurring_survey_iteration_interval:
                     survey.iteration_frequency_days == undefined ? 0 : survey.iteration_frequency_days,
-                shuffle_questions_enabled: !!survey.appearance.shuffleQuestions,
+                shuffle_questions_enabled: !!survey.appearance?.shuffleQuestions,
                 shuffle_question_options_enabled_count: questionsWithShuffledOptions.length,
+                has_branching_logic: survey.questions.some(
+                    (question) => question.branching && Object.keys(question.branching).length > 0
+                ),
             })
         },
         reportSurveyTemplateClicked: ({ template }) => {

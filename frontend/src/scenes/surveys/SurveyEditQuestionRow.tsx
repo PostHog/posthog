@@ -153,7 +153,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                 question.description
                             const editingThankYouMessage =
                                 defaultSurveyFieldValues[question.type].appearance.thankYouMessageHeader !==
-                                survey.appearance.thankYouMessageHeader
+                                survey.appearance?.thankYouMessageHeader
                             setDefaultForQuestionType(
                                 index,
                                 newType,
@@ -373,7 +373,9 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                 <LemonField name="buttonText" label="Button text">
                     <LemonInput
                         value={
-                            question.buttonText === undefined ? survey.appearance.submitButtonText : question.buttonText
+                            question.buttonText === undefined
+                                ? survey.appearance?.submitButtonText ?? 'Submit'
+                                : question.buttonText
                         }
                     />
                 </LemonField>

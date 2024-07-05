@@ -317,17 +317,12 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ]
         else:
             mapping = PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING.get(source.source_type)
-            if not mapping:
+            if mapping is None:
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": f'Source type "{source.source_type}" not found'},
                 )
-            mapping_fields = mapping.get(instance.name)
-            if not mapping_fields:
-                return Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": f'Incremental fields for "{source.source_type}.{instance.name}" can\'t be found'},
-                )
+            mapping_fields = mapping.get(instance.name, [])
 
             incremental_columns = mapping_fields
 

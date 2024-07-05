@@ -10,7 +10,6 @@ from django.db import transaction
 
 from posthog.clickhouse.client import execute_async as client
 from posthog.client import sync_execute
-from posthog.hogql.errors import ExposedHogQLError
 from posthog.models import Organization, Team
 from posthog.models.user import User
 from posthog.redis import get_client
@@ -68,7 +67,7 @@ class TestQueryStatusManager(SimpleTestCase):
         self.manager._store_clickhouse_query_progress_dict(query_status)
         self.assertEqual(self.manager.get_query_status(True), self.query_status)
 
-    def test_update_clickhouse_query_progress(self):
+    def test_update_clickhouse_query_progresses(self):
         self.manager.store_query_status(self.query_status)
 
         query_id_1 = f"{self.team_id}_{self.query_id}_1"
@@ -80,13 +79,16 @@ class TestQueryStatusManager(SimpleTestCase):
         }
 
         self.manager._store_clickhouse_query_progress_dict(query_progress_dict)
-        self.manager.update_clickhouse_query_progress(
-            query_id_2,
-            {**ZERO_PROGRESS, "bytes_read": 10},
-        )
-        self.manager.update_clickhouse_query_progress(
-            query_id_3,
-            {**ZERO_PROGRESS, "bytes_read": 20},
+        self.manager.update_clickhouse_query_progresses(
+            [
+                {
+                    **ZERO_PROGRESS,
+                    "bytes_read": 10,
+                    "initial_query_id": query_id_2,
+                    "query_id": query_id_2,
+                },
+                {**ZERO_PROGRESS, "bytes_read": 20, "initial_query_id": query_id_2, "query_id": query_id_3},
+            ]
         )
 
         self.query_status.query_progress = ClickhouseQueryProgress(**{**ZERO_PROGRESS, "bytes_read": 31})
@@ -148,11 +150,6 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
 
     def test_async_query_client_errors(self):
         query = build_query("SELECT WOW SUCH DATA FROM NOWHERE THIS WILL CERTAINLY WORK")
-        self.assertRaises(
-            ExposedHogQLError,
-            client.enqueue_process_query_task,
-            **{"team": self.team, "user": self.user, "query_json": query, "_test_only_bypass_celery": True},
-        )
         query_id = uuid.uuid4().hex
         try:
             client.enqueue_process_query_task(
@@ -165,6 +162,28 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         self.assertTrue(result.error)
         assert result.error_message
         self.assertRegex(result.error_message, "no viable alternative at input")
+
+    def test_async_query_server_errors(self):
+        query = build_query("SELECT * FROM events")
+
+        with patch("posthog.api.services.query.process_query_dict", side_effect=TimeoutError):
+            self.assertRaises(
+                TimeoutError,
+                client.enqueue_process_query_task,
+                **{"team": self.team, "user": self.user, "query_json": query, "_test_only_bypass_celery": True},
+            )
+
+            query_id = uuid.uuid4().hex
+            try:
+                client.enqueue_process_query_task(
+                    self.team, self.user, query, query_id=query_id, _test_only_bypass_celery=True
+                )
+            except Exception:
+                pass
+
+        result = client.get_query_status(self.team.id, query_id)
+        self.assertTrue(result.error)
+        assert result.error_message is None
 
     def test_async_query_client_uuid(self):
         query = build_query("SELECT toUUID('00000000-0000-0000-0000-000000000000')")

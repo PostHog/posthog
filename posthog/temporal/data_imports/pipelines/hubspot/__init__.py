@@ -112,11 +112,12 @@ def crm_objects(
         props = props + custom_props  # type: ignore
 
     props = ",".join(sorted(set(props)))
+    PROP_LENGTH_LIMIT = 20000
 
-    if len(props) > 10000:
+    if len(props) > PROP_LENGTH_LIMIT:
         raise ValueError(
             "Your request to Hubspot is too long to process. "
-            "Maximum allowed query length is 10000 symbols, while "
+            f"Maximum allowed query length is {PROP_LENGTH_LIMIT} symbols, while "
             f"your list of properties `{props[:200]}`... is {len(props)} "
             "symbols long. Use the `props` argument of the resource to "
             "set the list of properties to extract from the endpoint."

@@ -11,6 +11,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { DataWarehouseBetaNotice } from '../DataWarehouseBetaNotice'
+import { DataWarehouseInitialBillingLimitNotice } from '../DataWarehouseInitialBillingLimitNotice'
 import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 import { DataWarehouseTables } from './DataWarehouseTables'
 
@@ -73,6 +74,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
                 }
             />
             <DataWarehouseBetaNotice />
+            <DataWarehouseInitialBillingLimitNotice />
             <BindLogic logic={insightSceneLogic} props={{}}>
                 <DataWarehouseTables />
             </BindLogic>

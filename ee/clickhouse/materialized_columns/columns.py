@@ -134,7 +134,7 @@ def add_minmax_index(table: TablesWithMaterializedColumns, column_name: str):
         )
     except ServerException as err:
         if "index with this name already exists" not in str(err):
-            raise err
+            raise
 
     return index_name
 

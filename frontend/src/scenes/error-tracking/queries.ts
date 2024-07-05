@@ -21,6 +21,7 @@ export const errorTrackingQuery = ({
             select: [
                 'any(properties) -- Error',
                 'properties.$exception_type',
+                `sparkline(reverse(arrayMap(x -> countEqual(groupArray(dateDiff('hour', now() - INTERVAL 1 day, timestamp)), x), range(24)))) -- Volume`,
                 'count() as unique_occurrences -- Occurrences',
                 'count(distinct $session_id) as unique_sessions -- Sessions',
                 'count(distinct distinct_id) as unique_users -- Users',

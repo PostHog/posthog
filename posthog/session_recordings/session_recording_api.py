@@ -1,7 +1,7 @@
 import os
 import time
 from contextlib import contextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from prometheus_client import Histogram
 import json
 from typing import Any, cast
@@ -37,12 +37,9 @@ from posthog.session_recordings.models.session_recording_event import (
     SessionRecordingViewed,
 )
 
-from posthog.session_recordings.queries.session_recording_list_from_replay_summary import (
-    SessionRecordingListFromReplaySummary,
-    SessionIdEventsQuery,
-)
 from posthog.session_recordings.queries.session_recording_list_from_filters import (
     SessionRecordingListFromFilters,
+    ReplayFiltersEventsSubQuery,
 )
 from posthog.session_recordings.queries.session_recording_properties import (
     SessionRecordingProperties,
@@ -302,8 +299,21 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 "Must specify at least one event or action filter",
             )
 
-        matching_events: list[str] = SessionIdEventsQuery(filter=filter, team=self.team).matching_events()
-        return JsonResponse(data={"results": matching_events})
+        distinct_id = str(cast(User, request.user).distinct_id)
+        modifiers = safely_read_modifiers_overrides(distinct_id, self.team)
+        matching_events_query_response = ReplayFiltersEventsSubQuery(
+            filter=filter, team=self.team, hogql_query_modifiers=modifiers
+        ).get_event_ids_for_session()
+
+        response = JsonResponse(data={"results": matching_events_query_response.results})
+
+        response.headers["Server-Timing"] = ", ".join(
+            f"{key};dur={round(duration, ndigits=2)}"
+            for key, duration in _generate_timings(
+                matching_events_query_response.timings, ServerTimingsGathered()
+            ).items()
+        )
+        return response
 
     # Returns metadata about the recording
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
@@ -430,7 +440,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 # Keys are like 1619712000-1619712060
                 blob_key = full_key.replace(blob_prefix.rstrip("/") + "/", "")
                 blob_key_base = blob_key.split(".")[0]  # Remove the extension if it exists
-                time_range = [datetime.fromtimestamp(int(x) / 1000, tz=timezone.utc) for x in blob_key_base.split("-")]
+                time_range = [datetime.fromtimestamp(int(x) / 1000, tz=UTC) for x in blob_key_base.split("-")]
 
                 sources.append(
                     {
@@ -446,7 +456,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             newest_timestamp = min(sources, key=lambda k: k["end_timestamp"])["end_timestamp"]
 
             if might_have_realtime:
-                might_have_realtime = oldest_timestamp + timedelta(hours=24) > datetime.now(timezone.utc)
+                might_have_realtime = oldest_timestamp + timedelta(hours=24) > datetime.now(UTC)
         if might_have_realtime:
             sources.append(
                 {
@@ -756,23 +766,13 @@ def list_recordings(
             filter = filter.shallow_clone({SESSION_RECORDINGS_FILTER_IDS: remaining_session_ids})
 
     if (all_session_ids and filter.session_ids) or not all_session_ids:
-        has_hog_ql_filtering = request.GET.get("hog_ql_filtering", "false") == "true"
+        distinct_id = str(cast(User, request.user).distinct_id)
+        modifiers = safely_read_modifiers_overrides(distinct_id, team)
 
-        if has_hog_ql_filtering:
-            distinct_id = str(cast(User, request.user).distinct_id)
-            modifiers = safely_read_modifiers_overrides(distinct_id, team)
-
-            with timer("load_recordings_from_hogql"):
-                (ch_session_recordings, more_recordings_available, hogql_timings) = SessionRecordingListFromFilters(
-                    filter=filter, team=team, hogql_query_modifiers=modifiers
-                ).run()
-        else:
-            # Only go to clickhouse if we still have remaining specified IDs, or we are not specifying IDs
-            with timer("load_recordings_from_clickhouse"):
-                (
-                    ch_session_recordings,
-                    more_recordings_available,
-                ) = SessionRecordingListFromReplaySummary(filter=filter, team=team).run()
+        with timer("load_recordings_from_hogql"):
+            (ch_session_recordings, more_recordings_available, hogql_timings) = SessionRecordingListFromFilters(
+                filter=filter, team=team, hogql_query_modifiers=modifiers
+            ).run()
 
         with timer("build_recordings"):
             recordings_from_clickhouse = SessionRecording.get_or_build_from_clickhouse(team, ch_session_recordings)
