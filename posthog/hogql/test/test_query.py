@@ -1499,8 +1499,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 placeholders={},
                 pretty=False,
             )
-            # assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
-            # assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
             self.assertEqual(response.results, [(s2, "https://example.com/2")])
 
     def test_events_sessions_table(self):
