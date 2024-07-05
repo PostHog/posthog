@@ -52,6 +52,8 @@ export const sessionAttributionExplorerLogic = kea<sessionAttributionExplorerLog
                     },
                     query: `
 SELECT
+    count() as "context.columns.count",
+    "$channel_type" as "context.columns.channel_type",
     "$entry_referring_domain" as "context.columns.referring_domain",
     "$entry_utm_source" as "context.columns.utm_source",
     "$entry_utm_medium" as "context.columns.utm_medium",
@@ -61,9 +63,7 @@ SELECT
         if(isNotNull($entry_gad_source), 'gad_source', NULL)
         -- add more here if we add more ad ids
     ], ','), '') as "context.columns.has_ad_id",
-    topK(10)($entry_current_url) as "context.columns.example_entry_urls",
-    "$channel_type" as "context.columns.channel_type",
-    count() as "context.columns.count"
+    topK(3)($entry_current_url) as "context.columns.example_entry_urls"
 FROM sessions
 WHERE {filters}
 GROUP BY
