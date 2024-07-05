@@ -37,16 +37,6 @@ def check_all_alerts() -> None:
     task_groups.apply_async()
 
 
-@shared_task(ignore_result=True)
-def check_all_alerts_task() -> None:
-    check_all_alerts()
-
-
-@shared_task(ignore_result=True)
-def check_alert_task(alert_id: int) -> None:
-    check_alert(alert_id)
-
-
 def check_alert(alert_id: int) -> None:
     alert = Alert.objects.get(pk=alert_id)
     insight = alert.insight
@@ -82,6 +72,16 @@ def check_alert(alert_id: int) -> None:
         return
 
     send_notifications(alert, anomalies_descriptions)
+
+
+@shared_task(ignore_result=True)
+def check_all_alerts_task() -> None:
+    check_all_alerts()
+
+
+@shared_task(ignore_result=True)
+def check_alert_task(alert_id: int) -> None:
+    check_alert(alert_id)
 
 
 # TODO: make it a task

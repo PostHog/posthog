@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 from freezegun import freeze_time
 
 from posthog.models.instance_setting import set_instance_setting
-from posthog.tasks.check_alerts import check_all_alerts
+from posthog.tasks.alerts.checks import check_all_alerts
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events, ClickhouseDestroyTablesMixin
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.schema import ChartDisplayType, EventsNode, TrendsQuery, TrendsFilter
@@ -13,7 +13,7 @@ from posthog.tasks.test.utils_email_tests import mock_email_messages
 
 
 @freeze_time("2024-06-02T08:55:00.000Z")
-@patch("posthog.tasks.check_alerts.EmailMessage")
+@patch("posthog.tasks.alerts.checks.EmailMessage")
 class TestDetectAlertsAnomaliesTasks(APIBaseTest, ClickhouseDestroyTablesMixin):
     def setUp(self) -> None:
         super().setUp()

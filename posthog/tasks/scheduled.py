@@ -7,7 +7,7 @@ from celery.schedules import crontab
 from django.conf import settings
 
 from posthog.celery import app
-from posthog.tasks.check_alerts import check_all_alerts_task
+from posthog.tasks.alerts.checks import check_all_alerts_task
 from posthog.tasks.tasks import (
     calculate_cohort,
     calculate_decide_usage,
