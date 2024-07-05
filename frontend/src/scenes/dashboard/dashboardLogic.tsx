@@ -143,8 +143,8 @@ async function getSingleInsight(
         client_query_id: queryId,
         session_id: currentSessionId(),
     })}`
-    const polledInsightResponse: Response = await api.getResponse(apiUrl, methodOptions)
-    return await getJSONOrNull(polledInsightResponse)
+    const insightResponse: Response = await api.getResponse(apiUrl, methodOptions)
+    return await getJSONOrNull(insightResponse)
 }
 
 export const dashboardLogic = kea<dashboardLogicType>([
