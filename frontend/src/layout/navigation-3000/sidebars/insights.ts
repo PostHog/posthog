@@ -13,7 +13,7 @@ import { urls } from 'scenes/urls'
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { insightsModel } from '~/models/insightsModel'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { InsightModel } from '~/types'
+import { QueryBasedInsightModel } from '~/types'
 
 import { BasicListItem, SidebarCategory } from '../types'
 import type { insightsSidebarLogicType } from './insightsType'
@@ -36,11 +36,11 @@ export const insightsSidebarLogic = kea<insightsSidebarLogicType>([
     })),
     reducers(() => ({
         infiniteInsights: [
-            [] as (InsightModel | undefined)[],
+            [] as (QueryBasedInsightModel | undefined)[],
             {
                 [savedInsightsLogic.actionTypes.loadInsightsSuccess]: (state, { insights }) => {
                     // Reset array if offset is 0
-                    const items: (InsightModel | undefined)[] = insights.offset === 0 ? [] : state.slice()
+                    const items: (QueryBasedInsightModel | undefined)[] = insights.offset === 0 ? [] : state.slice()
                     for (let i = 0; i < insights.results.length; i++) {
                         items[insights.offset + i] = insights.results[i]
                     }
