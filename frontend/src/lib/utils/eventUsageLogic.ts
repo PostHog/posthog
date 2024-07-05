@@ -1,7 +1,13 @@
 import { actions, connect, kea, listeners, path } from 'kea'
 import { BarStatus, ResultType } from 'lib/components/CommandBar/types'
-import { convertPropertyGroupToProperties, isGroupPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import {
+    convertPropertyGroupToProperties,
+    isGroupPropertyFilter,
+    isRecordingPropertyFilter,
+    isValidPropertyFilter,
+} from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { isActionFilter, isEventFilter } from 'lib/components/UniversalFilters/utils'
 import type { Dayjs } from 'lib/dayjs'
 import { now } from 'lib/dayjs'
 import { isCoreFilter, PROPERTY_KEYS } from 'lib/taxonomy'
@@ -10,6 +16,7 @@ import posthog from 'posthog-js'
 import { isFilterWithDisplay, isFunnelsFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { EventIndex } from 'scenes/session-recordings/player/eventIndex'
+import { filtersFromUniversalFilterGroups } from 'scenes/session-recordings/utils'
 import { NewSurvey, SurveyTemplateType } from 'scenes/surveys/constants'
 import { userLogic } from 'scenes/userLogic'
 
@@ -50,8 +57,8 @@ import {
     PropertyFilterValue,
     PropertyGroupFilter,
     RecordingDurationFilter,
-    RecordingFilters,
     RecordingReportLoadTimes,
+    RecordingUniversalFilters,
     Resource,
     SessionPlayerData,
     SessionRecordingPlayerTab,
@@ -416,7 +423,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
         reportRecordingsListFetched: (
             loadTime: number,
-            filters: RecordingFilters,
+            filters: RecordingUniversalFilters,
             defaultDurationFilter: RecordingDurationFilter
         ) => ({
             loadTime,
@@ -907,17 +914,25 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('recording list filter added', { filter_type: filterType })
         },
         reportRecordingsListFetched: ({ loadTime, filters, defaultDurationFilter }) => {
+            const filterValues = filtersFromUniversalFilterGroups(filters)
+
+            const eventFilters = filterValues.filter(isEventFilter)
+            const actionFilters = filterValues.filter(isActionFilter)
+            const propertyFilters = filterValues.filter(isValidPropertyFilter)
+            const consoleLogFilters = propertyFilters
+                .filter(isRecordingPropertyFilter)
+                .filter((f) => ['console_log_level', 'console_log_query'].includes(f.key))
+
             const filterBreakdown =
                 filters && defaultDurationFilter
                     ? {
-                          hasEventsFilters: !!filters.events?.length,
-                          hasActionsFilters: !!filters.actions?.length,
-                          hasPropertiesFilters: !!filters.properties?.length,
-                          hasCohortFilter: filters.properties?.some((p) => p.type === PropertyFilterType.Cohort),
-                          hasPersonFilter: filters.properties?.some((p) => p.type === PropertyFilterType.Person),
-                          hasDurationFilters:
-                              (filters.session_recording_duration?.value || -1) > defaultDurationFilter.value,
-                          hasConsoleLogsFilters: !!filters.console_logs?.length || !!filters.console_search_query,
+                          hasEventsFilters: !!eventFilters.length,
+                          hasActionsFilters: !!actionFilters.length,
+                          hasPropertiesFilters: !!propertyFilters.length,
+                          hasCohortFilter: propertyFilters.some((p) => p.type === PropertyFilterType.Cohort),
+                          hasPersonFilter: propertyFilters.some((p) => p.type === PropertyFilterType.Person),
+                          hasDurationFilters: (filters.duration[0].value || -1) > defaultDurationFilter.value,
+                          hasConsoleLogsFilters: !!consoleLogFilters.length,
                           isLiveMode: !!filters.live_mode,
                       }
                     : {}
