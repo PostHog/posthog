@@ -38,4 +38,4 @@ class FunnelUDF(FunnelBase):
             GROUP BY
                  aggregation_target
             SETTINGS allow_experimental_analyzer=1
-        """
+        """)
