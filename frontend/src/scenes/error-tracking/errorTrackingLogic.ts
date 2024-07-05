@@ -12,6 +12,18 @@ const lastDay = { value: '24h', label: '24h' }
 const lastMonth = { value: 'mStart', label: 'Month' }
 const lastYear = { value: 'yStart', label: 'Year' }
 
+const customOptions = {
+    dStart: [lastDay, lastHour],
+    '-24h': [lastDay, lastHour],
+    '-1dStart': [
+        { value: '-1d24h', label: '24h' },
+        { value: '-1d1h', label: '1h' },
+    ],
+    mStart: [lastMonth, lastDay],
+    yStart: [lastYear, lastMonth],
+    all: [lastYear, lastMonth, lastDay],
+}
+
 export type SparklineOption = LemonSegmentedButtonOption<string>
 
 export const errorTrackingLogic = kea<errorTrackingLogicType>([
@@ -71,41 +83,34 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
     }),
     listeners(({ values, actions }) => ({
         setDateRange: ({ dateRange: { date_from } }) => {
-            const options: SparklineOption[] = []
+            if (date_from) {
+                const options: SparklineOption[] = customOptions[date_from] ?? []
 
-            if (date_from === 'dStart' || date_from === '-24h') {
-                // today and last 24 hours
-                options.push(lastDay, lastHour)
-            } else if (date_from === '-1dStart') {
-                // yesterday
-                options.push({ value: '-1d24h', label: '24h' }, { value: '-1d1h', label: '1h' })
-            } else if (date_from === 'mStart') {
-                // this month
-                options.push(lastMonth, lastDay)
-            } else if (date_from === 'yStart') {
-                // this year
-                options.push(lastYear, lastMonth)
-            } else if (date_from === 'all') {
-                // all time
-                options.push(lastYear, lastMonth, lastDay)
-            } else if (date_from) {
-                const isRelative = date_from.match(/-\d+[hdmy]/)
-                if (isRelative) {
-                    const value = date_from?.replace('-', '')
-                    options.push({ value: value, label: value }, lastDay)
+                if (options.length === 0) {
+                    const isRelative = date_from.match(/-\d+[hdmy]/)
+
+                    if (isRelative) {
+                        const value = date_from?.replace('-', '')
+                        // TODO does this add or replace?
+                        options.push({ value: value, label: value }, lastDay)
+                    }
                 }
-            }
 
-            if (options.length === 0) {
-                actions.setSparklineSelectedPeriod(null)
+                if (options.length === 0) {
+                    actions.setSparklineSelectedPeriod(null)
+                } else {
+                    const possibleValues = options.map((o) => o.value)
+
+                    if (!values.sparklineSelectedPeriod || !possibleValues.includes(values.sparklineSelectedPeriod)) {
+                        actions.setSparklineSelectedPeriod(options[0].value)
+                    }
+                }
+
+                actions._setSparklineOptions(options)
             } else {
-                const possibleValues = options.map((o) => o.value)
-
-                if (!values.sparklineSelectedPeriod || !possibleValues.includes(values.sparklineSelectedPeriod)) {
-                    actions.setSparklineSelectedPeriod(options[0].value)
-                }
+                actions.setSparklineSelectedPeriod(null)
+                actions._setSparklineOptions([])
             }
-            actions._setSparklineOptions(options)
         },
     })),
 ])

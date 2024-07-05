@@ -24,6 +24,14 @@ export const SPARKLINE_CONFIGURATIONS: Record<string, SparklineConfig> = {
     yStart: { value: 52, displayAs: 'week' },
 }
 
+const toStartOfIntervalFn = {
+    minute: 'toStartOfMinute',
+    hour: 'toStartOfHour',
+    day: 'toStartOfDay',
+    week: 'toStartOfWeek',
+    month: 'toStartOfMonth',
+}
+
 export const errorTrackingQuery = ({
     order,
     dateRange,
@@ -89,11 +97,9 @@ export const parseSparklineSelection = (selection: string): SparklineConfig => {
 
     if (result) {
         const [value, unit] = result
-        if (unit === 'y') {
-            return { value: Number(value) * 12, displayAs: 'month' }
-        }
+
         return {
-            value: Number(value),
+            value: Number(value) * (unit === 'y' ? 12 : 1),
             displayAs: unit === 'h' ? 'hour' : unit === 'd' ? 'day' : unit === 'w' ? 'week' : 'month',
         }
     }
@@ -110,17 +116,8 @@ export const generateSparklineProps = ({
     const dates = range(value).map((idx) => now.subtract(value - (idx + 1), displayAs))
     const labels = dates.map((d) => `'${d.format('D MMM, YYYY HH:mm')} (UTC)'`)
 
-    const toStartOfIntervalFn =
-        displayAs === 'minute'
-            ? 'toStartOfMinute'
-            : displayAs === 'hour'
-            ? 'toStartOfHour'
-            : displayAs === 'day'
-            ? 'toStartOfDay'
-            : displayAs === 'week'
-            ? 'toStartOfWeek'
-            : 'toStartOfMonth'
-    const data = `reverse(arrayMap(x -> countEqual(groupArray(dateDiff('${displayAs}', ${toStartOfIntervalFn}(timestamp), ${toStartOfIntervalFn}(subtractHours(now(), ${offset})))), x), range(${value})))`
+    const toStartOfInterval = toStartOfIntervalFn[displayAs]
+    const data = `reverse(arrayMap(x -> countEqual(groupArray(dateDiff('${displayAs}', ${toStartOfInterval}(timestamp), ${toStartOfInterval}(subtractHours(now(), ${offset})))), x), range(${value})))`
 
     return { labels, data }
 }
@@ -170,7 +167,7 @@ export const errorTrackingGroupBreakdownQuery = ({
             series: [
                 {
                     kind: NodeKind.EventsNode,
-                    event: '$pageview',
+                    event: '$exception',
                     math: BaseMathType.TotalCount,
                     name: 'This is the series name',
                     custom_name: 'Boomer',
@@ -195,7 +192,7 @@ const defaultProperties = ({
     const properties = filterGroup.values as AnyPropertyFilter[]
 
     return {
-        event: '$pageview',
+        event: '$exception',
         after: dateRange.date_from || undefined,
         before: dateRange.date_to || undefined,
         filterTestAccounts,
