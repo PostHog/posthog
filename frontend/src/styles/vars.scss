@@ -48,6 +48,7 @@ $colors: (
     // PostHog 3000
     'default-light': #111,
     'text-3000-light': #111,
+    'text-secondary-3000-light': rgba(#111, 0.7),
     'muted-3000-light': rgba(#111, 0.6),
     'trace-3000-light': rgba(#111, 0.25),
     'primary-3000-light': #f54e01,
@@ -83,6 +84,7 @@ $colors: (
     'shadow-elevation-3000-dark': 0 3px 0 var(--border-3000-dark),
     'text-3000-dark': #fff,
     'default-dark': #050505,
+    'text-secondary-3000-dark': rgba(#fff, 0.7),
     'muted-3000-dark': rgba(#fff, 0.5),
     'trace-3000-dark': rgba(#fff, 0.25),
     'primary-3000-dark': #f7a503,
@@ -119,6 +121,7 @@ $colors: (
     // The derived colors
     'default': var(--default),
     'text-3000': var(--text-3000),
+    'text-secondary-3000': var(--text-secondary-3000),
     'muted-3000': var(--muted-3000),
     'primary-3000': var(--primary-3000),
     'secondary-3000': var(--secondary-3000),
@@ -279,6 +282,7 @@ $_lifecycle_dormant: map.get($colors, 'danger');
 @mixin light-mode-3000-variables {
     --default: var(--default-light);
     --text-3000: var(--text-3000-light);
+    --text-secondary-3000: var(--text-secondary-3000-light);
     --muted-3000: var(--muted-3000-light);
     --trace-3000: var(--trace-3000-light);
     --primary-3000: var(--primary-3000-light);
@@ -317,6 +321,7 @@ $_lifecycle_dormant: map.get($colors, 'danger');
 @mixin dark-mode-3000-variables {
     --default: var(--default-dark);
     --text-3000: var(--text-3000-dark);
+    --text-secondary-3000: var(--text-secondary-3000-dark);
     --muted-3000: var(--muted-3000-dark);
     --trace-3000: var(--trace-3000-dark);
     --primary-3000: var(--primary-3000-dark);
