@@ -2,6 +2,8 @@ import './SavedInsights.scss'
 
 import {
     IconBrackets,
+    IconCorrelationAnalysis,
+    IconCursor,
     IconFunnels,
     IconGraph,
     IconHogQL,
@@ -22,7 +24,7 @@ import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TZLabel } from 'lib/components/TZLabel'
-import { IconAction, IconEvent, IconGridView, IconListView, IconSelectEvents, IconTableChart } from 'lib/lemon-ui/icons'
+import { IconAction, IconGridView, IconListView, IconTableChart } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -166,13 +168,13 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.FunnelCorrelationQuery]: {
         name: 'Funnel Correlation',
         description: 'See which events or properties correlate to a funnel result',
-        icon: IconPerson,
+        icon: IconCorrelationAnalysis,
         inMenu: false,
     },
     [NodeKind.EventsNode]: {
         name: 'Events',
         description: 'List and explore events',
-        icon: IconSelectEvents,
+        icon: IconCursor,
         inMenu: true,
     },
     [NodeKind.ActionsNode]: {
@@ -189,8 +191,8 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     },
     [NodeKind.EventsQuery]: {
         name: 'Events Query',
-        description: 'Hmmm, not every kind should be displayable I guess',
-        icon: IconEvent,
+        description: 'List and explore events',
+        icon: IconCursor,
         inMenu: true,
     },
     [NodeKind.PersonsNode]: {
@@ -262,7 +264,7 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.HogQLQuery]: {
         name: 'HogQL',
         description: 'Direct HogQL query',
-        icon: IconHogQL,
+        icon: IconBrackets,
         inMenu: true,
     },
     [NodeKind.HogQLMetadata]: {
