@@ -1,5 +1,6 @@
 import structlog
 from celery import shared_task
+from celery.canvas import group, chain
 from django.utils import timezone
 
 from posthog.api.services.query import ExecutionMode
@@ -15,20 +16,41 @@ logger = structlog.get_logger(__name__)
 
 
 def check_all_alerts() -> None:
-    alerts = Alert.objects.all().only("id")
-    for alert in alerts:
-        logger.info("scheduling alert", alert_id=alert.id)
-        _check_alert_task.delay(alert.id)
+    alert_ids = list(Alert.objects.all().values_list("id", flat=True))
+
+    group_count = 10
+    chunk_size = 10
+
+    alert_id_groups = [alert_ids[i : i + group_count] for i in range(0, len(alert_ids), group_count)]
+    task_groups = group(
+        chain(
+            *(
+                check_alert_task.chunks(
+                    [(alert_id,) for alert_id in g],
+                    chunk_size,
+                )
+                for g in alert_id_groups
+            )
+        )
+    )
+
+    task_groups.apply_async()
 
 
 @shared_task(ignore_result=True)
-def _check_alert_task(id: int) -> None:
-    _check_alert(id)
+def check_all_alerts_task() -> None:
+    check_all_alerts()
 
 
-def _check_alert(id: int) -> None:
-    alert = Alert.objects.get(pk=id)
+@shared_task(ignore_result=True)
+def check_alert_task(alert_id: int) -> None:
+    check_alert(alert_id)
+
+
+def check_alert(alert_id: int) -> None:
+    alert = Alert.objects.get(pk=alert_id)
     insight = alert.insight
+
     with conversion_to_query_based(insight):
         calculation_result = calculate_for_query_based_insight(
             insight,
@@ -37,7 +59,7 @@ def _check_alert(id: int) -> None:
         )
 
     if not calculation_result.result:
-        raise RuntimeError(f"no results for alert {alert.id}")
+        raise RuntimeError(f"No results for alert {alert.id}")
 
     anomaly_condition = AnomalyCondition.model_validate(alert.anomaly_condition)
     thresholds = anomaly_condition.absoluteThreshold
@@ -56,16 +78,16 @@ def _check_alert(id: int) -> None:
         ]
 
     if not anomalies_descriptions:
-        logger.info("no anomalies", alert_id=alert.id)
+        logger.info("No threshold met", alert_id=alert.id)
         return
 
-    _send_notifications(alert, anomalies_descriptions)
+    send_notifications(alert, anomalies_descriptions)
 
 
 # TODO: make it a task
-def _send_notifications(alert: Alert, anomalies_descriptions: list[str]) -> None:
+def send_notifications(alert: Alert, anomalies_descriptions: list[str]) -> None:
     subject = f"PostHog alert {alert.name} has anomalies"
-    campaign_key = f"alert-anomaly-notification-{alert.id}-{timezone.now().timestamp()}"
+    campaign_key = f"alert-anomaly-notification-{alert.id}-{timezone.now().isoformat()}"
     insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
     alert_url = f"{insight_url}/alerts/{alert.id}"
     message = EmailMessage(

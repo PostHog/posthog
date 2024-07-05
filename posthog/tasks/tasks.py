@@ -782,13 +782,6 @@ def update_survey_iteration() -> None:
     update_survey_iteration()
 
 
-@shared_task(ignore_result=True)
-def detect_alerts_anomalies() -> None:
-    from posthog.tasks.detect_alerts_anomalies import check_all_alerts
-
-    check_all_alerts()
-
-
 def recompute_materialized_columns_enabled() -> bool:
     from posthog.models.instance_setting import get_instance_setting
 

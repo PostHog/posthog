@@ -7,6 +7,7 @@ from celery.schedules import crontab
 from django.conf import settings
 
 from posthog.celery import app
+from posthog.tasks.check_alerts import check_all_alerts_task
 from posthog.tasks.tasks import (
     calculate_cohort,
     calculate_decide_usage,
@@ -25,7 +26,6 @@ from posthog.tasks.tasks import (
     clickhouse_row_count,
     clickhouse_send_license_usage,
     delete_expired_exported_assets,
-    detect_alerts_anomalies,
     ee_persist_finished_recordings,
     find_flags_with_enriched_analytics,
     graphile_worker_queue_size,
@@ -254,7 +254,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
 
     sender.add_periodic_task(
         crontab(hour="*", minute="20"),
-        detect_alerts_anomalies.s(),
+        check_all_alerts_task.s(),
         name="detect alerts' anomalies and notify about them",
     )
 
