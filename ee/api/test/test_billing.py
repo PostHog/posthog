@@ -280,7 +280,7 @@ class TestBillingAPI(APILicensedTest):
 
         res = self.client.get("/api/billing")
         assert res.status_code == 404
-        assert res.json()["detail"] == "Billing V2 is not supported for this license type"
+        assert res.json()["detail"] == "Billing is not supported for this license type"
 
     @patch("ee.api.billing.requests.get")
     @freeze_time("2022-01-01")
