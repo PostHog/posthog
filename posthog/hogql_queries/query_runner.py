@@ -440,10 +440,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 )
 
         if self.is_cached_response(cached_response_candidate):
+            cached_response.cache_target_age = self.cache_target_age(cached_response)
+
             if not self._is_stale(cached_response):
                 QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="hit").inc()
                 # We have a valid result that's fresh enough, let's return it
-                cached_response.cache_target_age = self.cache_target_age(cached_response)
                 return cached_response
 
             QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="stale").inc()
@@ -453,7 +454,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 return cached_response
             elif execution_mode == ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE:
                 # We're allowed to calculate, but we'll do it asynchronously and attach the query status
-                query_status_response = self.enqueue_async_calculation(cache_key=cache_key, user=user)
+                query_status_response = self.enqueue_async_calculation(
+                    cache_key=cache_key, user=user, refresh_requested=True
+                )
                 cached_response.query_status = query_status_response.query_status
                 return cached_response
             elif execution_mode == ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE:

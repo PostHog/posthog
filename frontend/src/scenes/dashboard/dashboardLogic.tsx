@@ -231,9 +231,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
         dashboard: [
             null as DashboardType | null,
             {
-                loadDashboard: async ({ refresh, action }) => {
+                loadDashboard: async ({ refresh, action }, breakpoint) => {
                     const dashboardQueryId = uuid()
                     actions.loadingDashboardItemsStarted(action, dashboardQueryId)
+                    await breakpoint(200)
 
                     try {
                         const apiUrl = values.apiUrl(refresh || 'async')

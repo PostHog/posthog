@@ -80,7 +80,7 @@ export function InsightMeta({
     const summary = useSummarizeInsight()(insight.query)
     const refreshDisabledReason =
         nextAllowedClientRefresh && dayjs(nextAllowedClientRefresh).isAfter(dayjs())
-            ? `Next refresh possible ${dayjs(nextAllowedClientRefresh).fromNow()}`
+            ? 'You are viewing the most recent calculated results.'
             : loading
             ? 'Refreshing...'
             : undefined
