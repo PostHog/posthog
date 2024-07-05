@@ -12,7 +12,6 @@ import { urls } from 'scenes/urls'
 
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { insightsModel } from '~/models/insightsModel'
-import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { QueryBasedInsightModel } from '~/types'
 
 import { BasicListItem, SidebarCategory } from '../types'
@@ -61,12 +60,10 @@ export const insightsSidebarLogic = kea<insightsSidebarLogicType>([
                     key: 'insights',
                     noun: 'insight',
                     onAdd: urls.insightNew(),
-                    items: infiniteInsights.map((legacyInsight) => {
-                        if (!legacyInsight) {
+                    items: infiniteInsights.map((insight) => {
+                        if (!insight) {
                             return undefined
                         }
-
-                        const insight = getQueryBasedInsightModel(legacyInsight)
 
                         return {
                             key: insight.short_id,
@@ -121,7 +118,7 @@ export const insightsSidebarLogic = kea<insightsSidebarLogicType>([
                                 const updatedItem = await insightsApi.update(
                                     insight.id,
                                     { name: newName },
-                                    { writeAsQuery: values.queryBasedInsightSaving, readAsQuery: false }
+                                    { writeAsQuery: values.queryBasedInsightSaving, readAsQuery: true }
                                 )
                                 insightsModel.actions.renameInsightSuccess(updatedItem)
                             },
