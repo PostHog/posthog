@@ -11,7 +11,7 @@ CREATE OR REPLACE VIEW persons_batch_export ON CLUSTER {settings.CLICKHOUSE_CLUS
         p.version AS person_version,
         multiIf(
             pd.is_updated AND p.is_updated,
-            MIN(p._timestamp, pd._timestamp),
+            least(p._timestamp, pd._timestamp),
             pd.is_updated,
             pd._timestamp,
             p.is_updated,
