@@ -4,6 +4,7 @@ from urllib.parse import urlparse, parse_qs
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
+from posthog.models.utils import uuid7
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -99,7 +100,7 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
     def _get_session_channel_type(self, properties=None):
         person_id = str(uuid.uuid4())
         properties = {
-            "$session_id": str(uuid.uuid4()),
+            "$session_id": str(uuid7()),
             **(properties or {}),
         }
         _create_event(
@@ -306,7 +307,7 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
         )
 
     def _get_initial_channel_type_from_wild_clicks(self, url: str, referrer: str):
-        session_id = str(uuid.uuid4())
+        session_id = str(uuid7())
         parsed_url = urlparse(url)
         query = parse_qs(parsed_url.query)
         person_properties = {}

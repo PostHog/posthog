@@ -15,6 +15,7 @@ import {
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { CodeEditorInline, CodeEditorInlineProps } from 'lib/monaco/CodeEditorInline'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { languages } from 'monaco-editor'
@@ -23,9 +24,9 @@ import { useEffect, useMemo, useState } from 'react'
 import { groupsModel } from '~/models/groupsModel'
 import { HogFunctionInputSchemaType } from '~/types'
 
+import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
 import { HogFunctionInputIntegration } from './integrations/HogFunctionInputIntegration'
 import { HogFunctionInputIntegrationField } from './integrations/HogFunctionInputIntegrationField'
-import { pipelineHogFunctionConfigurationLogic } from './pipelineHogFunctionConfigurationLogic'
 
 export type HogFunctionInputProps = {
     schema: HogFunctionInputSchemaType
@@ -177,6 +178,11 @@ function JsonConfigField(props: {
     )
 }
 
+function HogFunctionTemplateInput(props: Omit<CodeEditorInlineProps, 'globals'>): JSX.Element {
+    const { globalVars } = useValues(hogFunctionConfigurationLogic)
+    return <CodeEditorInline {...props} globals={globalVars} />
+}
+
 function DictionaryField({ onChange, value }: { onChange?: (value: any) => void; value: any }): JSX.Element {
     const [entries, setEntries] = useState<[string, string][]>(Object.entries(value ?? {}))
 
@@ -201,15 +207,15 @@ function DictionaryField({ onChange, value }: { onChange?: (value: any) => void;
                         placeholder="Key"
                     />
 
-                    <LemonInput
-                        className="flex-1"
+                    <HogFunctionTemplateInput
+                        className="flex-2"
                         value={val}
+                        language="hogTemplate"
                         onChange={(val) => {
                             const newEntries = [...entries]
-                            newEntries[index] = [newEntries[index][0], val]
+                            newEntries[index] = [newEntries[index][0], val ?? '']
                             setEntries(newEntries)
                         }}
-                        placeholder="Value"
                     />
 
                     <LemonButton
@@ -240,7 +246,14 @@ function DictionaryField({ onChange, value }: { onChange?: (value: any) => void;
 export function HogFunctionInputRenderer({ value, onChange, schema, disabled }: HogFunctionInputProps): JSX.Element {
     switch (schema.type) {
         case 'string':
-            return <LemonInput value={value} onChange={onChange} className="ph-no-capture" disabled={disabled} />
+            return (
+                <HogFunctionTemplateInput
+                    language="hogTemplate"
+                    value={value}
+                    onChange={disabled ? () => {} : onChange}
+                    className="ph-no-capture"
+                />
+            )
         case 'json':
             return <JsonConfigField value={value} onChange={onChange} className="ph-no-capture" />
         case 'choice':
@@ -382,8 +395,8 @@ function HogFunctionInputSchemaControls({ value, onChange, onDone }: HogFunction
 
 export function HogFunctionInputWithSchema({ schema }: HogFunctionInputWithSchemaProps): JSX.Element {
     const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: schema.key })
-    const { showSource, configuration } = useValues(pipelineHogFunctionConfigurationLogic)
-    const { setConfigurationValue } = useActions(pipelineHogFunctionConfigurationLogic)
+    const { showSource, configuration } = useValues(hogFunctionConfigurationLogic)
+    const { setConfigurationValue } = useActions(hogFunctionConfigurationLogic)
     const [editing, setEditing] = useState(showSource)
 
     const value = configuration.inputs?.[schema.key]
@@ -475,8 +488,8 @@ export function HogFunctionInputWithSchema({ schema }: HogFunctionInputWithSchem
 }
 
 export function HogFunctionInputs(): JSX.Element {
-    const { showSource, configuration } = useValues(pipelineHogFunctionConfigurationLogic)
-    const { setConfigurationValue } = useActions(pipelineHogFunctionConfigurationLogic)
+    const { showSource, configuration } = useValues(hogFunctionConfigurationLogic)
+    const { setConfigurationValue } = useActions(hogFunctionConfigurationLogic)
 
     if (!configuration?.inputs_schema?.length) {
         return <span className="italic text-muted-alt">This function does not require any input variables.</span>

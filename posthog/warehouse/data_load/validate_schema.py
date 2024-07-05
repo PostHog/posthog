@@ -22,6 +22,7 @@ from posthog.warehouse.models import (
     asave_external_data_schema,
     get_table_by_schema_id,
     aget_schema_by_id,
+    aget_external_data_jobs_by_schema_id,
 )
 
 from posthog.warehouse.models.external_data_job import ExternalDataJob
@@ -207,17 +208,15 @@ async def validate_schema_and_update_table(
             f"Data Warehouse: Could not validate schema for external data job {job.pk}",
             exc_info=e,
         )
-        raise e
+        raise
 
-    # TODO: figure out data deletes - currently borked right now
-    # if (
-    #     last_successful_job
-    #     and _schema_name not in PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING[job.pipeline.source_type]
-    # ):
-    #     try:
-    #         last_successful_job.delete_data_in_bucket()
-    #     except Exception as e:
-    #         logger.exception(
-    #             f"Data Warehouse: Could not delete deprecated data source {last_successful_job.pk}",
-    #             exc_info=e,
-    #         )
+    previous_jobs = await aget_external_data_jobs_by_schema_id(schema_id=_schema_id)
+    if len(previous_jobs) > 1:
+        for previous_job in previous_jobs[1:]:
+            try:
+                previous_job.delete_deprecated_data_in_bucket()
+            except Exception as e:
+                logger.exception(
+                    f"Data Warehouse: Could not delete deprecated data source {previous_job.pk}",
+                    exc_info=e,
+                )

@@ -651,7 +651,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         ? state.questions[idx].description
                         : defaultSurveyFieldValues[type].questions[0].description
                     const thankYouMessageHeader = isEditingThankYouMessage
-                        ? state.appearance.thankYouMessageHeader
+                        ? state.appearance?.thankYouMessageHeader
                         : defaultSurveyFieldValues[type].appearance.thankYouMessageHeader
                     const newQuestions = [...state.questions]
                     newQuestions[idx] = {
@@ -878,6 +878,11 @@ export const surveyLogic = kea<surveyLogicType>([
             (survey: Survey) => (questionIndex: number) => {
                 return survey.questions[questionIndex].descriptionContentType
             },
+        ],
+        surveyRepeatedActivationAvailable: [
+            (s) => [s.survey],
+            (survey: Survey): boolean =>
+                survey.conditions?.events?.values != undefined && survey.conditions?.events?.values?.length > 0,
         ],
         hasTargetingSet: [
             (s) => [s.survey],
@@ -1152,7 +1157,7 @@ export const surveyLogic = kea<surveyLogicType>([
         },
     })),
     urlToAction(({ actions, props }) => ({
-        [urls.survey(props.id ?? 'new')]: (_, __, ___, { method }) => {
+        [urls.survey(props.id ?? 'new')]: (_, { edit }, __, { method }) => {
             // We always set the editingSurvey to true when we create a new survey
             if (props.id === 'new') {
                 actions.editingSurvey(true)
@@ -1166,6 +1171,10 @@ export const surveyLogic = kea<surveyLogicType>([
                     actions.resetSurvey()
                 }
             }
+
+            if (edit) {
+                actions.editingSurvey(true)
+            }
         },
     })),
     actionToUrl(({ values }) => ({
@@ -1174,6 +1183,16 @@ export const surveyLogic = kea<surveyLogicType>([
             hashParams['fromTemplate'] = true
 
             return [urls.survey(values.survey.id), router.values.searchParams, hashParams]
+        },
+        editingSurvey: ({ editing }) => {
+            const searchParams = router.values.searchParams
+            if (editing) {
+                searchParams['edit'] = true
+            } else {
+                delete searchParams['edit']
+            }
+
+            return [router.values.location.pathname, router.values.searchParams, router.values.hashParams]
         },
     })),
     afterMount(({ props, actions }) => {

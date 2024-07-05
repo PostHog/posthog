@@ -357,16 +357,6 @@
          AND "posthog_person"."team_id" = 2)
   '''
 # ---
-# name: TestDjangoPropertiesToQ.test_icontains_with_array_value.2
-  '''
-  SELECT "posthog_person"."uuid"
-  FROM "posthog_person"
-  WHERE (("posthog_person"."properties" -> '$key') > '["2"]'::jsonb
-         AND "posthog_person"."properties" ? '$key'
-         AND NOT (("posthog_person"."properties" -> '$key') = 'null'::jsonb)
-         AND "posthog_person"."team_id" = 2)
-  '''
-# ---
 # name: TestDjangoPropertiesToQ.test_person_relative_date_parsing_with_invalid_date
   '''
   SELECT 1 AS "a"

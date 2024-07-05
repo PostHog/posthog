@@ -7,7 +7,6 @@ from posthog.caching.insights_api import (
     BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL,
     REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
 )
-from posthog.caching.utils import is_stale
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
@@ -62,11 +61,6 @@ class StickinessQueryRunner(QueryRunner):
     ):
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
         self.series = self.setup_series()
-
-    def _is_stale(self, cached_result_package):
-        date_to = self.query_date_range.date_to()
-        interval = self.query_date_range.interval_name
-        return is_stale(self.team, date_to, interval, cached_result_package)
 
     def _refresh_frequency(self):
         date_to = self.query_date_range.date_to()
@@ -181,7 +175,7 @@ class StickinessQueryRunner(QueryRunner):
 
         for series in self.series:
             events_query = self._events_query(series)
-            aggregation_alias = "person_id"
+            aggregation_alias = "actor_id"
             if series.series.math == "hogql" and series.series.math_hogql is not None:
                 aggregation_alias = "actor_id"
             elif series.series.math == "unique_group" and series.series.math_group_type_index is not None:

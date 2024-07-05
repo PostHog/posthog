@@ -8,6 +8,7 @@ import { urls } from 'scenes/urls'
 import { DataWarehouseSettingsTab } from '~/types'
 
 import { DataWarehouseBetaNotice } from '../DataWarehouseBetaNotice'
+import { DataWarehouseInitialBillingLimitNotice } from '../DataWarehouseInitialBillingLimitNotice'
 import { DataWarehouseManagedSourcesTable } from './DataWarehouseManagedSourcesTable'
 import { DataWarehouseSelfManagedSourcesTable } from './DataWarehouseSelfManagedSourcesTable'
 import { dataWarehouseSettingsLogic, humanFriendlyDataWarehouseSettingsTabName } from './dataWarehouseSettingsLogic'
@@ -46,6 +47,7 @@ export function DataWarehouseSettingsScene(): JSX.Element {
                 }
             />
             <DataWarehouseBetaNotice />
+            <DataWarehouseInitialBillingLimitNotice />
             <LemonTabs
                 activeKey={currentTab}
                 onChange={(tab) => router.actions.push(urls.dataWarehouseSettings(tab as DataWarehouseSettingsTab))}
