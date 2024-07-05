@@ -87,6 +87,7 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
         name="duration"
     ),  # alias of $session_duration, deprecated but included for backwards compatibility
     "$is_bounce": BooleanDatabaseField(name="$is_bounce"),
+    "timestamp": DateTimeDatabaseField(name="timestamp"),
 }
 
 
@@ -239,6 +240,8 @@ def select_from_sessions_table_v1(
         gclid=aggregate_fields["$entry_gclid"],
         gad_source=aggregate_fields["$entry_gad_source"],
     )
+    # include a "timestamp" field so that HogQl filters work on sessions
+    aggregate_fields["timestamp"] = aggregate_fields["$start_timestamp"]
 
     select_fields: list[ast.Expr] = []
     group_by_fields: list[ast.Expr] = [ast.Field(chain=[table_name, "session_id"])]
@@ -281,6 +284,7 @@ class SessionsTableV1(LazyTable):
 
     def avoid_asterisk_fields(self) -> list[str]:
         return [
+            "timestamp",  # alias of $start_timestamp, to make hogql filters work on sessions
             "duration",  # alias of $session_duration, deprecated but included for backwards compatibility
         ]
 
