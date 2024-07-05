@@ -16,6 +16,7 @@ import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
+import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { LayoutView, QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
 
 import { teamLogic } from '../teamLogic'
@@ -275,9 +276,11 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             actions.loadInsights()
         },
         [insightsModel.actionTypes.renameInsightSuccess]: ({ item }) => {
-            actions.setInsight(item)
+            const insight = getQueryBasedInsightModel(item)
+            actions.setInsight(insight)
         },
-        [dashboardsModel.actionTypes.updateDashboardInsight]: ({ insight }) => {
+        [dashboardsModel.actionTypes.updateDashboardInsight]: ({ insight: legacyInsight }) => {
+            const insight = getQueryBasedInsightModel(legacyInsight)
             const matchingInsightIndex = values.insights.results.findIndex((i) => i.id === insight.id)
             if (matchingInsightIndex >= 0) {
                 actions.setInsight(insight)

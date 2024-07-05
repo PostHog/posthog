@@ -16,7 +16,7 @@ import { InsightsResult, savedInsightsLogic } from './savedInsightsLogic'
 
 jest.spyOn(api, 'create')
 
-const createInsight = (id: number, string = 'hi'): InsightModel =>
+const createInsight = <T = InsightModel>(id: number, string = 'hi'): T =>
     ({
         id: id || 1,
         name: `${string} ${id || 1}`,
@@ -35,10 +35,14 @@ const createInsight = (id: number, string = 'hi'): InsightModel =>
         deleted: false,
         saved: true,
         filters: {},
-    } as any as InsightModel)
+    } as any)
 const createSavedInsights = (string = 'hello', offset: number): InsightsResult => ({
     count: 3,
-    results: [createInsight(1, string), createInsight(2, string), createInsight(3, string)].slice(offset),
+    results: [
+        createInsight<QueryBasedInsightModel>(1, string),
+        createInsight<QueryBasedInsightModel>(2, string),
+        createInsight<QueryBasedInsightModel>(3, string),
+    ].slice(offset),
     offset: 0,
 })
 
@@ -192,7 +196,7 @@ describe('savedInsightsLogic', () => {
     })
 
     it('can duplicate and does not use derived name for name', async () => {
-        const sourceInsight = createInsight(123, 'hello') as QueryBasedInsightModel
+        const sourceInsight = createInsight<QueryBasedInsightModel>(123, 'hello')
         sourceInsight.name = ''
         sourceInsight.derived_name = 'should be copied'
         await logic.asyncActions.duplicateInsight(sourceInsight)
@@ -204,7 +208,7 @@ describe('savedInsightsLogic', () => {
     })
 
     it('can duplicate using name', async () => {
-        const sourceInsight = createInsight(123, 'hello') as QueryBasedInsightModel
+        const sourceInsight = createInsight<QueryBasedInsightModel>(123, 'hello')
         sourceInsight.name = 'should be copied'
         sourceInsight.derived_name = ''
         await logic.asyncActions.duplicateInsight(sourceInsight)

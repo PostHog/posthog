@@ -118,7 +118,7 @@ export const insightsSidebarLogic = kea<insightsSidebarLogicType>([
                                 const updatedItem = await insightsApi.update(
                                     insight.id,
                                     { name: newName },
-                                    { writeAsQuery: values.queryBasedInsightSaving, readAsQuery: true }
+                                    { writeAsQuery: values.queryBasedInsightSaving, readAsQuery: false }
                                 )
                                 insightsModel.actions.renameInsightSuccess(updatedItem)
                             },

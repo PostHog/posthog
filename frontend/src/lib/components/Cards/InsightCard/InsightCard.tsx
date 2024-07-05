@@ -48,6 +48,7 @@ import {
     InsightLogicProps,
     InsightModel,
     InsightType,
+    QueryBasedInsightModel,
 } from '~/types'
 
 import { ResizeHandle1D, ResizeHandle2D } from '../handles'
@@ -126,7 +127,7 @@ function getDisplayedType(filters: Partial<FilterType>): DisplayedType {
 
 export interface InsightCardProps extends Resizeable, React.HTMLAttributes<HTMLDivElement> {
     /** Insight to display. */
-    insight: InsightModel
+    insight: InsightModel | QueryBasedInsightModel
     /** id of the dashboard the card is on (when the card is being displayed on a dashboard) **/
     dashboardId?: DashboardType['id']
     /** Whether the insight has been called to load. */
@@ -168,7 +169,8 @@ function VizComponentFallback(): JSX.Element {
 }
 
 export interface FilterBasedCardContentProps
-    extends Pick<InsightCardProps, 'insight' | 'loading' | 'apiErrored' | 'timedOut' | 'style' | 'stale'> {
+    extends Pick<InsightCardProps, 'loading' | 'apiErrored' | 'timedOut' | 'style' | 'stale'> {
+    insight: InsightModel
     insightProps: InsightLogicProps
     tooFewFunnelSteps?: boolean
     validationError?: string | null
@@ -235,6 +237,10 @@ export function FilterBasedCardContent({
     )
 }
 
+function isQueryBasedInsight(insight: Record<string, any>): insight is QueryBasedInsightModel {
+    return insight.filters == null || Object.keys(insight.filters).length === 0
+}
+
 function InsightCardInternal(
     {
         insight: legacyInsight,
@@ -267,7 +273,7 @@ function InsightCardInternal(
     }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
 ): JSX.Element {
-    const insight = getQueryBasedInsightModel(legacyInsight)
+    const insight = getQueryBasedInsightModel(legacyInsight) as QueryBasedInsightModel
     const { theme } = useValues(themeLogic)
     const insightLogicProps: InsightLogicProps = {
         dashboardItemId: insight.short_id,
@@ -317,7 +323,7 @@ function InsightCardInternal(
                         showDetailsControls={showDetailsControls}
                         moreButtons={moreButtons}
                     />
-                    {legacyInsight.query || useQueryDashboardCards ? (
+                    {isQueryBasedInsight(legacyInsight) || legacyInsight.query || useQueryDashboardCards ? (
                         <div className="InsightCard__viz">
                             <Query
                                 query={insight.query}
