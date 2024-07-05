@@ -804,7 +804,7 @@ class FunnelBase(ABC):
                 [
                     ast.Field(chain=[f"latest_{target_step}"]),
                     ast.Field(chain=[f"latest_{final_step}"]),
-                    ast.Field(chain=[f"latest_{first_step}"]),
+                    ast.Field(chain=[f" latest_{first_step}"]),
                 ],
                 [
                     parse_expr(f"argMax(latest_{target_step}, steps) AS timestamp"),
