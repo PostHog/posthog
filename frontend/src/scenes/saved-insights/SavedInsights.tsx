@@ -376,8 +376,8 @@ export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Eleme
 }
 
 function SavedInsightsGrid(): JSX.Element {
-    const { loadInsights, renameInsight, duplicateInsight, queryBasedInsightSaving } = useActions(savedInsightsLogic)
-    const { insights, insightsLoading, pagination } = useValues(savedInsightsLogic)
+    const { loadInsights, renameInsight, duplicateInsight } = useActions(savedInsightsLogic)
+    const { insights, insightsLoading, pagination, queryBasedInsightSaving } = useValues(savedInsightsLogic)
     const { currentTeamId } = useValues(teamLogic)
 
     const paginationState = usePagination(insights?.results || [], pagination)
