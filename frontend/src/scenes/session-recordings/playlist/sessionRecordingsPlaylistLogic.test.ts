@@ -449,7 +449,6 @@ describe('sessionRecordingsPlaylistLogic', () => {
                             ],
                         },
                         filter_test_accounts: false,
-                        live_mode: false,
                     },
                 })
         })
@@ -493,7 +492,6 @@ describe('sessionRecordingsPlaylistLogic', () => {
                             ],
                         },
                         filter_test_accounts: false,
-                        live_mode: false,
                     },
                 })
         })
@@ -668,7 +666,6 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     ],
                 },
                 filter_test_accounts: false,
-                live_mode: false,
             })
         })
         it('should parse even the most complex queries', () => {
@@ -727,7 +724,6 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     ],
                 },
                 filter_test_accounts: true,
-                live_mode: false,
             })
         })
     })
