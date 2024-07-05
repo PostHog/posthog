@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict
 from sentry_sdk import capture_exception, push_scope
 
 from posthog.cache_utils import OrjsonJsonSerializer
-from posthog.caching.utils import is_stale, last_refresh_from_cached_result, ThresholdMode
+from posthog.caching.utils import is_stale, last_refresh_from_cached_result, ThresholdMode, cache_target_age
 from posthog.clickhouse.client.execute_async import enqueue_process_query_task
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql import ast
@@ -101,6 +101,20 @@ def execution_mode_from_refresh(refresh_requested: bool | str | None) -> Executi
     if refresh_requested in refresh_map:
         return refresh_map[refresh_requested]
     return ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
+
+
+def shared_insights_execution_mode(execution_mode: ExecutionMode) -> ExecutionMode:
+    shared_mode_whitelist = {
+        # Cache only is default refresh mode - remap to async so shared insights stay fresh
+        ExecutionMode.CACHE_ONLY_NEVER_CALCULATE: ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
+        # Legacy refresh=true - but on shared insights, we don't give the ability to refresh at will
+        # TODO: Adjust once shared insights can poll for async query_status
+        ExecutionMode.CALCULATE_BLOCKING_ALWAYS: ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+        # Allow regular async
+        ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE: ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+        # - All others fall back to extended cache -
+    }
+    return shared_mode_whitelist.get(execution_mode, ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE)
 
 
 RunnableQueryNode = Union[
@@ -426,6 +440,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 )
 
         if self.is_cached_response(cached_response_candidate):
+            cached_response.cache_target_age = self.cache_target_age(cached_response)
+
             if not self._is_stale(cached_response):
                 QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="hit").inc()
                 # We have a valid result that's fresh enough, let's return it
@@ -438,7 +454,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 return cached_response
             elif execution_mode == ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE:
                 # We're allowed to calculate, but we'll do it asynchronously and attach the query status
-                query_status_response = self.enqueue_async_calculation(cache_key=cache_key, user=user)
+                query_status_response = self.enqueue_async_calculation(
+                    cache_key=cache_key, user=user, refresh_requested=True
+                )
                 cached_response.query_status = query_status_response.query_status
                 return cached_response
             elif execution_mode == ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE:
@@ -540,6 +558,14 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
     def get_cache_key(self) -> str:
         return generate_cache_key(f"query_{bytes.decode(to_json(self.get_cache_payload()))}")
+
+    def cache_target_age(self, cached_result_package) -> Optional[datetime]:
+        last_refresh = last_refresh_from_cached_result(cached_result_package)
+        if last_refresh is None:
+            return None
+        query_date_range = getattr(self, "query_date_range", None)
+        interval = query_date_range.interval_name if query_date_range else "minute"
+        return cache_target_age(interval, last_refresh=last_refresh, mode=ThresholdMode.DEFAULT)
 
     def _is_stale(self, cached_result_package, lazy: bool = False) -> bool:
         last_refresh = last_refresh_from_cached_result(cached_result_package)

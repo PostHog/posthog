@@ -20,7 +20,13 @@ export function renderColumnMeta(key: string, query: DataTableNode, context?: Qu
     const queryFeatures = getQueryFeatures(query.source)
     let align: ColumnMeta['align']
 
-    if (isHogQLQuery(query.source)) {
+    const queryContextColumnName = key.startsWith('context.columns.') ? trimQuotes(key.substring(16)) : undefined
+    const queryContextColumn = queryContextColumnName ? context?.columns?.[queryContextColumnName] : undefined
+
+    if (queryContextColumnName && queryContextColumn && (queryContextColumn.title || queryContextColumn.renderTitle)) {
+        const Component = queryContextColumn.renderTitle
+        title = Component ? <Component columnName={queryContextColumnName} query={query} /> : queryContextColumn.title
+    } else if (isHogQLQuery(query.source)) {
         title = key
         if (title.startsWith('`') && title.endsWith('`')) {
             title = title.substring(1, title.length - 1)
@@ -45,17 +51,6 @@ export function renderColumnMeta(key: string, query: DataTableNode, context?: Qu
                 disableIcon
             />
         )
-    } else if (key.startsWith('context.columns.')) {
-        const column = trimQuotes(key.substring(16)) // 16 = "context.columns.".length
-        const queryContextColumn = context?.columns?.[column]
-        const Component = queryContextColumn?.renderTitle
-        title = Component ? (
-            <Component columnName={column} query={query} />
-        ) : (
-            queryContextColumn?.title ?? column.replace('_', ' ')
-        )
-        align = queryContextColumn?.align
-        width = queryContextColumn?.width
     } else if (key === 'person.$delete') {
         title = ''
         width = 0
@@ -67,14 +62,20 @@ export function renderColumnMeta(key: string, query: DataTableNode, context?: Qu
                 disableIcon
             />
         )
+    } else if (queryContextColumnName) {
+        title = queryContextColumnName.replace('_', ' ')
     } else {
         title = queryFeatures.has(QueryFeature.selectAndOrderByColumns) ? extractExpressionComment(key) : key
     }
 
-    const specifiedWidth = context?.columns?.[key]?.width
+    if (queryContextColumn?.align) {
+        align = queryContextColumn.align
+    }
 
-    if (specifiedWidth) {
-        width = specifiedWidth
+    if (queryContextColumn?.width) {
+        width = queryContextColumn.width
+    } else if (context?.columns?.[key]?.width) {
+        width = context.columns[key].width
     }
 
     if (queryFeatures.has(QueryFeature.selectAndOrderByColumns) && !query.allowSorting) {
