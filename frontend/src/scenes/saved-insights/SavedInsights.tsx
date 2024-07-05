@@ -45,7 +45,14 @@ import { urls } from 'scenes/urls'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { NodeKind } from '~/queries/schema'
 import { isInsightVizNode } from '~/queries/utils'
-import { ActivityScope, InsightModel, InsightType, LayoutView, SavedInsightsTabs } from '~/types'
+import {
+    ActivityScope,
+    InsightModel,
+    InsightType,
+    LayoutView,
+    QueryBasedInsightModel,
+    SavedInsightsTabs,
+} from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import { INSIGHTS_PER_PAGE, savedInsightsLogic } from './savedInsightsLogic'
@@ -315,16 +322,26 @@ export const scene: SceneExport = {
     logic: savedInsightsLogic,
 }
 
-export function InsightIcon({ insight, className }: { insight: InsightModel; className?: string }): JSX.Element | null {
-    let insightType = insight?.filters?.insight || InsightType.TRENDS
-    if (!!insight.query && !isInsightVizNode(insight.query)) {
-        insightType = InsightType.JSON
+export function InsightIcon({
+    insight,
+    className,
+}: {
+    insight: InsightModel | QueryBasedInsightModel
+    className?: string
+}): JSX.Element | null {
+    let Icon: (props?: any) => JSX.Element | null = () => null
+
+    if ('filters' in insight && insight.filters != null) {
+        const insightType = insight.filters.insight || InsightType.TRENDS
+        const insightMetadata = INSIGHT_TYPES_METADATA[insightType]
+        Icon = insightMetadata && insightMetadata.icon
+    } else if ('query' in insight && insight.query != null) {
+        const insightType = isInsightVizNode(insight.query) ? insight.query.source.kind : insight.query.kind
+        const insightMetadata = QUERY_TYPES_METADATA[insightType]
+        Icon = insightMetadata && insightMetadata.icon
     }
-    const insightMetadata = INSIGHT_TYPES_METADATA[insightType]
-    if (insightMetadata && insightMetadata.icon) {
-        return <insightMetadata.icon className={className} />
-    }
-    return null
+
+    return Icon ? <Icon className={className} /> : null
 }
 
 export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Element {
