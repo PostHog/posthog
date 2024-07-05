@@ -99,6 +99,37 @@
   LIMIT 100
   '''
 # ---
+# name: TestQuery.test_hogql_query_session_filters
+  '''
+  -- ClickHouse
+  
+  SELECT sessions.session_id AS session_id, sessions.`$entry_current_url` AS `$entry_current_url` 
+  FROM (
+  SELECT sessions.session_id AS session_id, nullIf(nullIf(argMinMerge(sessions.entry_url), %(hogql_val_0)s), %(hogql_val_1)s) AS `$entry_current_url` 
+  FROM sessions 
+  WHERE equals(sessions.team_id, 420) 
+  GROUP BY sessions.session_id, sessions.session_id) AS sessions 
+  WHERE and(ifNull(equals(sessions.`$entry_current_url`, %(hogql_val_2)s), 0), 1) 
+  LIMIT 100 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=2000000, max_expanded_ast_elements=2000000, max_query_size=1048576, max_bytes_before_external_group_by=0
+  
+  -- HogQL
+  
+  SELECT session_id, $entry_current_url 
+  FROM sessions 
+  WHERE and(equals(sessions.$entry_current_url, 'https://example.com/1'), 1) 
+  LIMIT 100
+  '''
+# ---
+# name: TestQuery.test_hogql_query_session_filters.1
+  '''
+  
+  SELECT session_id, $entry_current_url 
+  FROM sessions 
+  WHERE and(equals(sessions.$entry_current_url, 'https://example.com/1'), 1) 
+  LIMIT 100
+  '''
+# ---
 # name: TestQuery.test_hogql_union_all_limits
   '''
   -- ClickHouse
