@@ -2,21 +2,13 @@ import { IconInfo, IconOpenSidebar } from '@posthog/icons'
 import { LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import posthog from 'posthog-js'
 import { useEffect } from 'react'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { getProductIcon } from 'scenes/products/Products'
 
-import {
-    AvailableFeature,
-    BillingFeatureType,
-    BillingProductV2AddonType,
-    BillingProductV2Type,
-    BillingType,
-} from '~/types'
+import { AvailableFeature, BillingFeatureType, BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
 import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
 import { PayGateButton } from './PayGateButton'
@@ -60,7 +52,7 @@ export function PayGateMini({
         featureInfoOnNextPlan,
     } = useValues(payGateMiniLogic({ featureKey: feature, currentUsage }))
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
-    const { billing, billingLoading } = useValues(billingLogic)
+    const { billingLoading } = useValues(billingLogic)
     const { hideUpgradeModal } = useActions(upgradeModalLogic)
 
     const scrollToProduct = !(featureInfo?.key === AvailableFeature.ORGANIZATIONS_PROJECTS && !isAddonProduct)
@@ -103,7 +95,6 @@ export function PayGateMini({
                 productWithFeature={productWithFeature}
                 isGrandfathered={isGrandfathered}
                 isAddonProduct={isAddonProduct}
-                billing={billing}
                 featureInfoOnNextPlan={featureInfoOnNextPlan}
                 handleCtaClick={handleCtaClick}
             >
@@ -113,7 +104,6 @@ export function PayGateMini({
                         productWithFeature={productWithFeature}
                         featureInfo={featureInfo}
                         onCtaClick={handleCtaClick}
-                        billing={billing}
                         scrollToProduct={scrollToProduct}
                         isAddonProduct={isAddonProduct}
                     />
@@ -145,7 +135,6 @@ interface PayGateContentProps {
     productWithFeature: BillingProductV2AddonType | BillingProductV2Type
     isGrandfathered?: boolean
     isAddonProduct?: boolean
-    billing: BillingType | null
     featureInfoOnNextPlan?: BillingFeatureType
     children: React.ReactNode
     handleCtaClick: () => void
@@ -160,12 +149,10 @@ function PayGateContent({
     productWithFeature,
     isGrandfathered,
     isAddonProduct,
-    billing,
     featureInfoOnNextPlan,
     children,
     handleCtaClick,
 }: PayGateContentProps): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
     return (
         <div
             className={clsx(
@@ -184,8 +171,6 @@ function PayGateContent({
                 gateVariant,
                 featureInfo,
                 productWithFeature,
-                billing,
-                featureFlags,
                 isAddonProduct,
                 handleCtaClick
             )}
@@ -202,8 +187,6 @@ const renderUsageLimitMessage = (
     gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
     featureInfo: BillingFeatureType,
     productWithFeature: BillingProductV2AddonType | BillingProductV2Type,
-    billing: BillingType | null,
-    featureFlags: FeatureFlagsSet,
     isAddonProduct?: boolean,
     handleCtaClick?: () => void
 ): JSX.Element => {
@@ -240,9 +223,7 @@ const renderUsageLimitMessage = (
                             .
                         </p>
                     </>
-                ) : featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' &&
-                  billing?.subscription_level === 'free' &&
-                  !isAddonProduct ? (
+                ) : !isAddonProduct ? (
                     <p>Upgrade to create more {featureInfo.name}</p>
                 ) : (
                     <p>
@@ -255,7 +236,7 @@ const renderUsageLimitMessage = (
     return (
         <>
             <p className="max-w-140">{featureInfo.description}</p>
-            <p>{renderGateVariantMessage(gateVariant, productWithFeature, billing, featureFlags, isAddonProduct)}</p>
+            <p>{renderGateVariantMessage(gateVariant, productWithFeature, isAddonProduct)}</p>
         </>
     )
 }
@@ -263,8 +244,6 @@ const renderUsageLimitMessage = (
 const renderGateVariantMessage = (
     gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
     productWithFeature: BillingProductV2AddonType | BillingProductV2Type,
-    billing: BillingType | null,
-    featureFlags: FeatureFlagsSet,
     isAddonProduct?: boolean
 ): JSX.Element => {
     if (gateVariant === 'move-to-cloud') {
@@ -275,18 +254,9 @@ const renderGateVariantMessage = (
                 Subscribe to the <b>{productWithFeature?.name}</b> addon to use this feature.
             </>
         )
-    } else if (
-        featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' &&
-        billing?.subscription_level === 'free'
-    ) {
-        return <>Upgrade to use this feature.</>
     }
 
-    return (
-        <>
-            Upgrade your <b>{productWithFeature?.name}</b> plan to use this feature.
-        </>
-    )
+    return <>Upgrade to use this feature.</>
 }
 
 const GrandfatheredMessage = (): JSX.Element => {
