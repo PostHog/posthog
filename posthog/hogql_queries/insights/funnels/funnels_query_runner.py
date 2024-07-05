@@ -17,6 +17,7 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.insights.funnels.funnel_time_to_convert import FunnelTimeToConvert
 from posthog.hogql_queries.insights.funnels.funnel_trends import FunnelTrends
+from posthog.hogql_queries.insights.funnels.funnel_udf import FunnelUDF
 from posthog.hogql_queries.insights.funnels.utils import get_funnel_actor_class, get_funnel_order_class
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -27,7 +28,7 @@ from posthog.schema import (
     FunnelVizType,
     FunnelsQuery,
     FunnelsQueryResponse,
-    HogQLQueryModifiers,
+    HogQLQueryModifiers, StepOrderValue,
 )
 
 
@@ -113,6 +114,8 @@ class FunnelsQueryRunner(QueryRunner):
         funnelVizType = self.context.funnelsFilter.funnelVizType
 
         if funnelVizType == FunnelVizType.TRENDS:
+            if self.query.funnelsFilter.funnelOrderType == StepOrderValue.STRICT:
+                return FunnelUDF(context=self.context, **self.kwargs)
             return FunnelTrends(context=self.context, **self.kwargs)
         elif funnelVizType == FunnelVizType.TIME_TO_CONVERT:
             return FunnelTimeToConvert(context=self.context)
