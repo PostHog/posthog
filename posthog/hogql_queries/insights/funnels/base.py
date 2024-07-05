@@ -3,7 +3,6 @@ from functools import cached_property
 from typing import Any, Optional, Union, cast
 import uuid
 from posthog.clickhouse.materialized_columns.column import ColumnName
-from posthog.constants import FunnelVizType
 from posthog.hogql import ast
 from posthog.hogql.constants import get_breakdown_limit_for_context
 from posthog.hogql.parser import parse_expr, parse_select
@@ -28,6 +27,7 @@ from posthog.schema import (
     EventsNode,
     FunnelExclusionActionsNode,
     FunnelTimeToConvertResults,
+    FunnelVizType,
 )
 from posthog.types import EntityNode, ExclusionEntityNode
 from rest_framework.exceptions import ValidationError
