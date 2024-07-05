@@ -1,3 +1,5 @@
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+
 import {
     AnyPersonScopeFilter,
     AnyPropertyFilter,
@@ -562,7 +564,7 @@ interface DataTableNodeViewProps {
     /** Include a free text search field (PersonsNode only) */
     showSearch?: boolean
     /** Include a property filter above the table */
-    showPropertyFilter?: boolean
+    showPropertyFilter?: boolean | TaxonomicFilterGroupType[]
     /** Show filter to exclude test accounts */
     showTestAccountFilters?: boolean
     /** Include a HogQL query editor above HogQL tables */
