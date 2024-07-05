@@ -123,28 +123,11 @@ $colors: (
     'text-3000': var(--text-3000),
     'text-secondary-3000': var(--text-secondary-3000),
     'muted-3000': var(--muted-3000),
-    'trace-3000': var(--trace-3000),
     'primary-3000': var(--primary-3000),
-    'primary-3000-hover': var(--primary-3000-hover),
     'secondary-3000': var(--secondary-3000),
     'secondary-3000-hover': var(--secondary-3000-hover),
     'accent-3000': var(--accent-3000),
     'bg-3000': var(--bg-3000),
-    'bg-hover-3000': var(--bg-hover-3000),
-    'border-3000': var(--border-3000),
-    'border-bold-3000': var(--border-bold-3000),
-    'glass-bg-3000': var(--glass-bg-3000),
-    'glass-border-3000': var(--border-3000),
-    'link-3000': var(--link-3000),
-    'tooltip-bg': var(--tooltip-bg),
-    'primary-3000-frame-bg': var(--primary-3000-frame-bg),
-    'primary-3000-button-bg': var(--primary-3000-button-bg),
-    'primary-3000-button-border': var(--primary-3000-button-border),
-    'primary-3000-button-border-hover': var(--primary-3000-button-border-hover),
-    'secondary-3000-frame-bg': var(--secondary-3000-frame-bg),
-    'secondary-3000-button-bg': var(--secondary-3000-button-bg),
-    'secondary-3000-button-border': var(--secondary-3000-button-border),
-    'secondary-3000-button-border-hover': var(--secondary-3000-button-border-hover),
 );
 
 // These vars are modified via SCSS for legacy reasons (e.g. darken/lighten), so keeping as SCSS vars for now.
@@ -383,7 +366,6 @@ $_lifecycle_dormant: map.get($colors, 'danger');
 // defined here so that they can be shared with the toolbar
 @mixin common-variables {
     --primary: var(--primary-3000);
-    --text-secondary: var(--text-secondary-3000);
     --muted: var(--muted-3000);
     --muted-alt: var(--muted-3000);
     --primary-alt: var(--text-3000);
