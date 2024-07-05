@@ -33,6 +33,7 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { isNonEmptyObject } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
@@ -44,7 +45,7 @@ import { urls } from 'scenes/urls'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { NodeKind } from '~/queries/schema'
-import { isInsightVizNode } from '~/queries/utils'
+import { isNodeWithSource } from '~/queries/utils'
 import {
     ActivityScope,
     InsightModel,
@@ -331,12 +332,12 @@ export function InsightIcon({
 }): JSX.Element | null {
     let Icon: (props?: any) => JSX.Element | null = () => null
 
-    if ('filters' in insight && insight.filters != null) {
+    if ('filters' in insight && isNonEmptyObject(insight.filters)) {
         const insightType = insight.filters.insight || InsightType.TRENDS
         const insightMetadata = INSIGHT_TYPES_METADATA[insightType]
         Icon = insightMetadata && insightMetadata.icon
-    } else if ('query' in insight && insight.query != null) {
-        const insightType = isInsightVizNode(insight.query) ? insight.query.source.kind : insight.query.kind
+    } else if ('query' in insight && isNonEmptyObject(insight.query)) {
+        const insightType = isNodeWithSource(insight.query) ? insight.query.source.kind : insight.query.kind
         const insightMetadata = QUERY_TYPES_METADATA[insightType]
         Icon = insightMetadata && insightMetadata.icon
     }
