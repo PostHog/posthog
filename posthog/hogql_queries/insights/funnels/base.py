@@ -3,6 +3,7 @@ from functools import cached_property
 from typing import Any, Optional, Union, cast
 import uuid
 from posthog.clickhouse.materialized_columns.column import ColumnName
+from posthog.constants import FunnelVizType
 from posthog.hogql import ast
 from posthog.hogql.constants import get_breakdown_limit_for_context
 from posthog.hogql.parser import parse_expr, parse_select
@@ -965,7 +966,7 @@ class FunnelBase(ABC):
         return exprs
 
     def _get_step_counts_query(self, outer_select: list[ast.Expr], inner_select: list[ast.Expr]) -> ast.SelectQuery:
-        max_steps = self.context.max_steps
+        max_steps, funnel_viz_type = self.context.max_steps, self.context.funnelsFilter.funnelVizType
         breakdown_exprs = self._get_breakdown_prop_expr()
         inner_timestamps, outer_timestamps = self._get_timestamp_selects()
         person_and_group_properties = self._get_person_and_group_properties(aggregate=True)
@@ -984,11 +985,16 @@ class FunnelBase(ABC):
             *outer_timestamps,
             *person_and_group_properties,
         ]
-        if breakdown and breakdownType in [
-            BreakdownType.PERSON,
-            BreakdownType.EVENT,
-            BreakdownType.GROUP,
-        ]:
+        if (
+            funnel_viz_type != FunnelVizType.TIME_TO_CONVERT
+            and breakdown
+            and breakdownType
+            in [
+                BreakdownType.PERSON,
+                BreakdownType.EVENT,
+                BreakdownType.GROUP,
+            ]
+        ):
             time_fields = [
                 parse_expr(f"min(step_{i}_conversion_time) as step_{i}_conversion_time") for i in range(1, max_steps)
             ]
