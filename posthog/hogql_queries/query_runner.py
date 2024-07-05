@@ -556,8 +556,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def get_cache_key(self) -> str:
         return generate_cache_key(f"query_{bytes.decode(to_json(self.get_cache_payload()))}")
 
-    def cache_target_age(self, cached_result_package) -> datetime:
+    def cache_target_age(self, cached_result_package) -> Optional[datetime]:
         last_refresh = last_refresh_from_cached_result(cached_result_package)
+        if last_refresh is None:
+            return None
         query_date_range = getattr(self, "query_date_range", None)
         interval = query_date_range.interval_name if query_date_range else "minute"
         return cache_target_age(interval, last_refresh=last_refresh, mode=ThresholdMode.DEFAULT)

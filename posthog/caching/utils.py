@@ -133,10 +133,10 @@ staleness_threshold_map = {
 
 
 def cache_target_age(
-    interval: Optional[str], last_refresh: Optional[datetime], mode: ThresholdMode = ThresholdMode.DEFAULT
+    interval: Optional[str], last_refresh: datetime, mode: ThresholdMode = ThresholdMode.DEFAULT
 ) -> Optional[datetime]:
     if interval not in staleness_threshold_map[mode]:
-        return
+        return None
     return last_refresh + staleness_threshold_map[mode][interval]
 
 
