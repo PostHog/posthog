@@ -10,12 +10,11 @@ CREATE OR REPLACE VIEW persons_batch_export ON CLUSTER {settings.CLICKHOUSE_CLUS
         pd.version AS person_distinct_id_version,
         p.version AS person_version,
         multiIf(
-            pd.is_updated AND p.is_updated,
-            least(p._timestamp, pd._timestamp),
-            pd.is_updated,
+            pd.is_updated AND NOT p.is_updated,
             pd._timestamp,
-            p.is_updated,
-            p._timestamp
+            p.is_updated AND NOT pd.is_updated,
+            p._timestamp,
+            least(p._timestamp, pd._timestamp)
         ) AS _inserted_at
     FROM (
         SELECT
