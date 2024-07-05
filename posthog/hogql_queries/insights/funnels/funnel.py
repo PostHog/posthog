@@ -48,6 +48,14 @@ class Funnel(FunnelBase):
             *breakdown_exprs,
         ]
 
+        events = self._get_matching_events(max_steps)
+        event_arrays = self._get_matching_event_arrays(max_steps)
+        breakdown_exprs = self._get_breakdown_prop_expr()
+
+        print(events, event_arrays, breakdown_exprs)
+
+        print(select, self.get_step_counts_query(), breakdown_exprs)
+
         return ast.SelectQuery(
             select=select,
             select_from=ast.JoinExpr(table=self.get_step_counts_query()),
