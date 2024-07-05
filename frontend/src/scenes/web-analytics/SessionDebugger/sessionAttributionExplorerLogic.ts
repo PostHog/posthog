@@ -72,15 +72,15 @@ ORDER BY 8 DESC
     }),
 
     actionToUrl(({ values }) => {
-        const stateToUrl = (): string => {
+        const stateToUrl = (): [string, Record<string, string>] => {
             const { filters } = values
 
-            const urlParams = new URLSearchParams()
+            const urlParams = {}
             if (filters.length > 0) {
-                urlParams.set('filters', JSON.stringify(filters))
+                urlParams['filters'] = filters
             }
 
-            return `${urls.sessionAttributionExplorer()}?${urlParams.toString()}`
+            return [urls.sessionAttributionExplorer(), urlParams]
         }
 
         return {
