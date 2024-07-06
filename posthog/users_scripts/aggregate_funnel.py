@@ -2,20 +2,22 @@
 
 import sys
 
+N_ARGS = 4
+
 def parse_args(line):
     t1 = line.find("\t")
     num_steps = int(line[:t1])
     t2 = line.find("\t", t1 + 1)
-    conversion_window_limit = int(line[t1+1:t2])
-    return num_steps, conversion_window_limit, eval(line[t2+1:])
+    conversion_window_limit = int(line[t1 + 1:t2])
+    t3 = line.find("\t", t2 + 1)
+    breakdown_attribution_type = line[t2 + 1:t3]
+    return num_steps, conversion_window_limit, breakdown_attribution_type, eval(line[t3 + 1:])
 
 
 # 60\t[(1719535134.119179,(1,0)),(1719988603.504339,(1,0)),(1720155830.04705,(1,0))]
 # Funnel is ordered, assume no time limit for now
 # Optimizations - tuple into a bitmask
-def parse_user_aggregation(num_steps, conversion_window_limit, timestamp_and_steps):
-    num_steps, conversion_window_limit, timestamp_and_steps = parse_args(line)
-
+def parse_user_aggregation(num_steps, conversion_window_limit, breakdown_attribution_type, timestamp_and_steps):
     next_index = 1
     for timestamp, steps in timestamp_and_steps:
         if next_index in steps:
@@ -28,7 +30,7 @@ def parse_user_aggregation(num_steps, conversion_window_limit, timestamp_and_ste
 
 # each one can be multiple steps here
 # it only matters when they entered the funnel - you can propagate the time from the previous step when you update
-def parse_user_aggregation_with_conversion_window(num_steps, conversion_window_limit, timestamp_and_steps):
+def parse_user_aggregation_with_conversion_window(num_steps, conversion_window_limit, breakdown_attribution_type, timestamp_and_steps):
     # an array of when the user entered the funnel
     entered_timestamp = [0] * (num_steps + 1)
 
@@ -50,7 +52,7 @@ def parse_user_aggregation_with_conversion_window(num_steps, conversion_window_l
 
 # each one can be multiple steps here
 # it only matters when they entered the funnel - you can propagate the time from the previous step when you update
-def parse_user_aggregation_with_conversion_window_and_breakdown(num_steps, conversion_window_limit, timestamp_and_steps):
+def parse_user_aggregation_with_conversion_window_and_breakdown(num_steps, conversion_window_limit, breakdown_attribution_type, timestamp_and_steps):
     # an array of when the user entered the funnel
     entered_timestamp = [0] * (num_steps + 1)
 

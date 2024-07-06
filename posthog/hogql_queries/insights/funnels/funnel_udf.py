@@ -49,6 +49,7 @@ class FunnelUDF(FunnelBase):
                 aggregate_funnel(
                     {self.context.max_steps}, 
                     {self.conversion_window_limit()},
+                    '{self.context.breakdownAttributionType}',
                     arraySort(t -> t.1, groupArray(tuple(toFloat(timestamp), {"prop" if self.context.breakdown else "''"}, arrayFilter((x) -> x != 0, [{steps}]))))
                 ) as af_tuple,
                 af_tuple.1 as af,

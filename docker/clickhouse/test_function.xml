@@ -12,6 +12,10 @@
             <name>conversion_window_limit</name>
         </argument>
         <argument>
+            <type>String</type>
+            <name>breakdown_attribution_type</name>
+        </argument>
+        <argument>
             <type>Array(Tuple(Nullable(Float64), Nullable(String), Array(UInt8)))</type>
             <name>value</name>
         </argument>
