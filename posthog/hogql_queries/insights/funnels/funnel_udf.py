@@ -67,9 +67,11 @@ class FunnelUDF(FunnelBase):
             SELECT
                 {step_results},
                 {mean_conversion_times},
-                {median_conversion_times}
+                {median_conversion_times},
+                breakdown as final_prop
             FROM 
                 {{inner_select}}
+            GROUP BY breakdown
         """, {'inner_select': inner_select})
 
         print(print_ast(s, context=HogQLContext(
