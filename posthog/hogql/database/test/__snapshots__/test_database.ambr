@@ -9,7 +9,7 @@
   SELECT groups.group_type_index AS index, groups.group_key AS key 
   FROM groups 
   WHERE equals(groups.team_id, 420) 
-  GROUP BY groups.group_type_index, groups.group_key) AS groups) AS events__some_field ON equals(nullIf(nullIf(mat_pp_email, ''), 'null'), events__some_field.events__some_field___key) 
+  GROUP BY groups.group_type_index, groups.group_key) AS groups) AS events__some_field ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), events__some_field.events__some_field___key) 
   WHERE equals(events.team_id, 420) 
   LIMIT 50000
   '''
