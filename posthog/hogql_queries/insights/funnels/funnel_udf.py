@@ -41,7 +41,7 @@ class FunnelUDF(FunnelBase):
         inner_event_query = self._get_inner_event_query(entity_name='events')
 
         # stores the steps as an array of integers from 1 to max_steps
-        # so if the event could be step_0, step_1 or step_4, it looks like [1,2,5]
+        # so if the event could be step_0, step_1 or step_4, it looks like [1,2,0,0,5]
         steps = ",".join([f"{i + 1} * step_{i}" for i in range(self.context.max_steps)])
 
         inner_select = parse_select(f"""

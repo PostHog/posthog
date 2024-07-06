@@ -832,7 +832,8 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "lagInFrame": HogQLFunctionMeta("lagInFrame", 1, 1),
     "leadInFrame": HogQLFunctionMeta("leadInFrame", 1, 1),
     ## UDFS
-    "aggregate_funnel": HogQLFunctionMeta("aggregate_funnel", 3, 3, aggregate=False)
+    "aggregate_funnel": HogQLFunctionMeta("aggregate_funnel", 3, 3, aggregate=False),
+    "test_function_python": HogQLFunctionMeta("test_function_python", 3, 3, aggregate=False)
 }
 # Permitted HogQL aggregations
 HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
