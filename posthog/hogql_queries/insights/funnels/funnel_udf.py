@@ -38,11 +38,27 @@ class FunnelUDF(FunnelBase):
 
 
         # SELECT aggregate_events(groupArray(Tuple(timestamp, step_0, step_1)))
-        s = parse_select("""
-            SELECT arraySort(t -> t.1, groupArray(tuple(timestamp, tuple(step_0, step_1))))
-            FROM {inner_event_query}
+        steps = ",".join([f"step_{i}" for i in range(self.context.max_steps)])
+
+        inner_select = parse_select(f"""
+            SELECT aggregate_funnel(arraySort(t -> t.1, groupArray(tuple(toFloat(timestamp), tuple({steps}))))) as af
+            FROM {{inner_event_query}}
             GROUP BY aggregation_target
-        """, {'inner_event_query': inner_event_query}, backend='python')
+        """, {'inner_event_query': inner_event_query})
+
+        step_results = ",".join([f"countIf(ifNull(equals(af, {i}), 0)) AS step_{i+1}" for i in range(self.context.max_steps)])
+
+        mean_conversion_times = ",".join([f"0 AS step_{i+1}_average_conversion_time" for i in range(self.context.max_steps)])
+        median_conversion_times = ",".join([f"0 AS step_{i + 1}_median_conversion_time" for i in range(self.context.max_steps)])
+
+        s = parse_select(f"""
+            SELECT
+                {step_results},
+                {mean_conversion_times},
+                {median_conversion_times}
+            FROM 
+                {{inner_select}}
+        """, {'inner_select': inner_select})
 
         print(print_ast(s, context=HogQLContext(
             team_id=self.context.team.pk,

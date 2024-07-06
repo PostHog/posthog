@@ -1,6 +1,18 @@
 <functions>
     <function>
         <type>executable</type>
+        <name>aggregate_funnel</name>
+        <return_type>UInt8</return_type>
+        <argument>
+            <type>Array(Tuple(Nullable(Float64), Tuple(UInt8, UInt8)))</type>
+            <name>value</name>
+        </argument>
+        <format>TabSeparated</format>
+        <command>aggregate_funnel.py</command>
+    </function>
+
+    <function>
+        <type>executable</type>
         <name>test_function_python</name>
         <return_type>String</return_type>
         <argument>
