@@ -45,7 +45,14 @@ class FunnelUDF(FunnelBase):
         steps = ",".join([f"{i + 1} * step_{i}" for i in range(self.context.max_steps)])
 
         inner_select = parse_select(f"""
-            SELECT aggregate_funnel({self.context.max_steps}, {self.conversion_window_limit()}, arraySort(t -> t.1, groupArray(tuple(toFloat(timestamp), arrayFilter((x) -> x != 0, [{steps}]))))) as af
+            SELECT 
+                aggregate_funnel(
+                    {self.context.max_steps}, 
+                    {self.conversion_window_limit()},
+                    arraySort(t -> t.1, groupArray(tuple(toFloat(timestamp), {"prop" if self.context.breakdown else "''"}, arrayFilter((x) -> x != 0, [{steps}]))))
+                ) as af_tuple,
+                af_tuple.1 as af,
+                af_tuple.2 as breakdown
             FROM {{inner_event_query}}
             GROUP BY aggregation_target
         """, {'inner_event_query': inner_event_query})
