@@ -14,6 +14,7 @@ from posthog.models.cohort.cohort import Cohort
 from posthog.queries.funnels.funnel_event_query import FunnelEventQuery
 from posthog.queries.util import correct_result_for_sampling, get_earliest_timestamp, get_interval_func_ch
 from posthog.schema import BreakdownType
+from posthog.utils import DATERANGE_MAP
 
 TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 HUMAN_READABLE_TIMESTAMP_FORMAT = "%-d-%b-%Y"
@@ -32,14 +33,17 @@ class FunnelUDF(FunnelBase):
             ],
         )
 
-    # Ignore "latest" - Can remove later. Just steps are important
+    def conversion_window_limit(self) -> int:
+        return int(self.context.funnelWindowInterval * DATERANGE_MAP[self.context.funnelWindowIntervalUnit].total_seconds())
+
+
     def get_query(self) -> ast.SelectQuery:
         inner_event_query = self._get_inner_event_query(entity_name='events')
 
         steps = ",".join([f"step_{i}" for i in range(self.context.max_steps)])
 
         inner_select = parse_select(f"""
-            SELECT aggregate_funnel(arraySort(t -> t.1, groupArray(tuple(toFloat(timestamp), array({steps}))))) as af
+            SELECT aggregate_funnel({self.conversion_window_limit()}, arraySort(t -> t.1, groupArray(tuple(toFloat(timestamp), array({steps}))))) as af
             FROM {{inner_event_query}}
             GROUP BY aggregation_target
         """, {'inner_event_query': inner_event_query})

@@ -4,6 +4,10 @@
         <name>aggregate_funnel</name>
         <return_type>UInt8</return_type>
         <argument>
+            <type>UInt64</type>
+            <name>conversion_window_limit</name>
+        </argument>
+        <argument>
             <type>Array(Tuple(Nullable(Float64), Array(UInt8)))</type>
             <name>value</name>
         </argument>
