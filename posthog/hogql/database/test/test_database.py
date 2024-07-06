@@ -503,3 +503,41 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
             with self.assertNumQueries(FuzzyInt(5, 6)):
                 create_hogql_database(team_id=self.team.pk)
+
+    def test_external_data_source_is_not_n_plus_1(self) -> None:
+        for i in range(10):
+            # we keep adding sources, credentials and tables, number of queries should be stable
+            source = ExternalDataSource.objects.create(
+                team=self.team,
+                source_id=f"source_id_{i}",
+                connection_id=f"connection_id_{i}",
+                status=ExternalDataSource.Status.COMPLETED,
+                source_type=ExternalDataSource.Type.STRIPE,
+            )
+            credentials = DataWarehouseCredential.objects.create(
+                access_key=f"blah-{i}", access_secret="blah", team=self.team
+            )
+            warehouse_table = DataWarehouseTable.objects.create(
+                name=f"table_{i}",
+                format="Parquet",
+                team=self.team,
+                external_data_source=source,
+                external_data_source_id=source.id,
+                credential=credentials,
+                url_pattern="https://bucket.s3/data/*",
+                columns={
+                    "id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}
+                },
+            )
+            ExternalDataSchema.objects.create(
+                team=self.team,
+                name=f"table_{i}",
+                source=source,
+                table=warehouse_table,
+                should_sync=True,
+                last_synced_at="2024-01-01",
+                # No status but should be completed because a data warehouse table already exists
+            )
+
+            with self.assertNumQueries(FuzzyInt(5, 6)):
+                create_hogql_database(team_id=self.team.pk)
