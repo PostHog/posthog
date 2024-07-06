@@ -50,9 +50,7 @@ def parse_user_aggregation_with_conversion_window(num_steps, conversion_window_l
             return
     print(num_steps - 1)
 
-# each one can be multiple steps here
-# it only matters when they entered the funnel - you can propagate the time from the previous step when you update
-def parse_user_aggregation_with_conversion_window_and_breakdown(num_steps, conversion_window_limit, breakdown_attribution_type, timestamp_and_steps):
+def parse_user_aggregation_with_conversion_window_and_breakdown_backup(num_steps, conversion_window_limit, breakdown_attribution_type, timestamp_and_steps):
     # an array of when the user entered the funnel
     entered_timestamp = [0] * (num_steps + 1)
 
@@ -71,6 +69,38 @@ def parse_user_aggregation_with_conversion_window_and_breakdown(num_steps, conve
             print((i - 2, ""))
             return
     print((num_steps - 1, ""))
+
+# each one can be multiple steps here
+# it only matters when they entered the funnel - you can propagate the time from the previous step when you update
+def parse_user_aggregation_with_conversion_window_and_breakdown(num_steps, conversion_window_limit, breakdown_attribution_type, timestamp_and_steps):
+    # an array of when the user entered the funnel
+    entered_timestamp = [(0, "")] * (num_steps + 1)
+
+    # todo:
+    # all matching breakdown types??? easiest to just do this separately for all breakdown types? what if multiple match?
+    # step breakdown mode
+
+    # This is the timestamp, breakdown value, and list of steps that it matches for each event
+    for timestamp, breakdown, steps in timestamp_and_steps:
+        # iterate the steps in reverse so we don't count this event multiple times
+        entered_timestamp[0] = (timestamp, breakdown)
+        for step in reversed(steps):
+            if timestamp - entered_timestamp[step - 1][0] < conversion_window_limit:
+                if breakdown_attribution_type == 'first_touch':
+                    # If first touch, propagate the starting breakdown value
+                    entered_timestamp[step] = entered_timestamp[step - 1]
+                elif breakdown_attribution_type == 'last_touch':
+                    # if last touch, always take the current value
+                    entered_timestamp[step] = (entered_timestamp[step - 1][0], breakdown)
+
+        if entered_timestamp[num_steps][0] > 0:
+            break
+
+    for i in range(1, num_steps + 1):
+        if entered_timestamp[i][0] == 0:
+            print((i - 2, entered_timestamp[i-1][1]))
+            return
+    print((num_steps - 1, entered_timestamp[num_steps][1]))
 
 if __name__ == '__main__':
     for line in sys.stdin:
