@@ -3,12 +3,14 @@
 import sys
 
 
-# [(1719535134.119179,(1,0)),(1719988603.504339,(1,0)),(1720155830.04705,(1,0))]
+# 60\t[(1719535134.119179,(1,0)),(1719988603.504339,(1,0)),(1720155830.04705,(1,0))]
 # Funnel is ordered, assume no time limit for now
 # Optimizations - tuple into a bitmask
 def parse_user_aggregation(line):
+    t = line.find("\t")
+    conversion_window_limit = int(line[:t])
     next_index = 0
-    for timestamp, steps in eval(line):
+    for timestamp, steps in eval(line[t+1:]):
         if steps[next_index]:
             next_index += 1
             if next_index == len(steps):
