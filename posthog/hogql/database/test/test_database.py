@@ -18,7 +18,7 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.schema import DatabaseSchemaDataWarehouseTable, HogQLQueryModifiers, PersonsOnEventsMode
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, QueryMatchingTest, FuzzyInt
 from posthog.warehouse.models import DataWarehouseTable, DataWarehouseCredential, DataWarehouseSavedQuery
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_in_tests
@@ -27,7 +27,7 @@ from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.join import DataWarehouseJoin
 
 
-class TestDatabase(BaseTest):
+class TestDatabase(BaseTest, QueryMatchingTest):
     snapshot: Any
 
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -483,3 +483,23 @@ class TestDatabase(BaseTest):
             "ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1)))"
             in query
         ), query
+
+    def test_database_credentials_is_not_n_plus_1(self) -> None:
+        for i in range(10):
+            # we keep adding credentials and tables, number of queries should be stable
+            credentials = DataWarehouseCredential.objects.create(
+                access_key=f"blah-{i}", access_secret="blah", team=self.team
+            )
+            DataWarehouseTable.objects.create(
+                name=f"table_{i}",
+                format="Parquet",
+                team=self.team,
+                credential=credentials,
+                url_pattern="https://bucket.s3/data/*",
+                columns={
+                    "id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}
+                },
+            )
+
+            with self.assertNumQueries(FuzzyInt(5, 6)):
+                create_hogql_database(team_id=self.team.pk)
