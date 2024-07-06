@@ -68,7 +68,7 @@ class FunnelUDF(FunnelBase):
                 {step_results},
                 {mean_conversion_times},
                 {median_conversion_times},
-                breakdown as final_prop
+                [breakdown] as final_prop
             FROM 
                 {{inner_select}}
             GROUP BY breakdown
