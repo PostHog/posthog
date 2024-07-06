@@ -2,7 +2,7 @@
     <function>
         <type>executable</type>
         <name>aggregate_funnel</name>
-        <return_type>UInt8</return_type>
+        <return_type>Tuple(UInt8, Nullable(String))</return_type>
         <argument>
             <type>UInt8</type>
             <name>num_steps</name>
@@ -12,7 +12,7 @@
             <name>conversion_window_limit</name>
         </argument>
         <argument>
-            <type>Array(Tuple(Nullable(Float64), Array(UInt8)))</type>
+            <type>Array(Tuple(Nullable(Float64), Nullable(String), Array(UInt8)))</type>
             <name>value</name>
         </argument>
         <format>TabSeparated</format>

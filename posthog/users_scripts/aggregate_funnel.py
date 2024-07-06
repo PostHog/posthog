@@ -48,9 +48,31 @@ def parse_user_aggregation_with_conversion_window(num_steps, conversion_window_l
             return
     print(num_steps - 1)
 
+# each one can be multiple steps here
+# it only matters when they entered the funnel - you can propagate the time from the previous step when you update
+def parse_user_aggregation_with_conversion_window_and_breakdown(num_steps, conversion_window_limit, timestamp_and_steps):
+    # an array of when the user entered the funnel
+    entered_timestamp = [0] * (num_steps + 1)
+
+    for timestamp, breakdown, steps in timestamp_and_steps:
+        # iterate the steps in reverse so we don't count this event multiple times
+        entered_timestamp[0] = timestamp
+        for step in reversed(steps):
+            if timestamp - entered_timestamp[step - 1] < conversion_window_limit:
+                entered_timestamp[step] = entered_timestamp[step - 1]
+
+        if entered_timestamp[num_steps] > 0:
+            break
+
+    for i in range(1, num_steps + 1):
+        if entered_timestamp[i] == 0:
+            print((i - 2, ""))
+            return
+    print((num_steps - 1, ""))
+
 if __name__ == '__main__':
     for line in sys.stdin:
-        parse_user_aggregation_with_conversion_window(*parse_args(line))
+        parse_user_aggregation_with_conversion_window_and_breakdown(*parse_args(line))
         sys.stdout.flush()
 
 """
