@@ -36,7 +36,8 @@ def parse_user_aggregation_with_conversion_window(num_steps, conversion_window_l
         # iterate the steps in reverse so we don't count this event multiple times
         entered_timestamp[0] = timestamp
         for step in reversed(steps):
-            entered_timestamp[step] = entered_timestamp[step - 1]
+            if timestamp - entered_timestamp[step - 1] < conversion_window_limit:
+                entered_timestamp[step] = entered_timestamp[step - 1]
 
         if entered_timestamp[num_steps] > 0:
             break
