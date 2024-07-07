@@ -251,6 +251,9 @@ export class EventPipelineRunner {
             event.team_id
         )
 
+        // TRICKY: old client might still be sending heatmap_data as passengers on other events
+        // so this step is here even though up-to-date clients will be sending heatmap events
+        // for separate processing
         const [preparedEventWithoutHeatmaps, heatmapKafkaAcks] = await this.runStep(
             extractHeatmapDataStep,
             [this, preparedEvent],
