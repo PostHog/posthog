@@ -75,14 +75,17 @@ class Breakdown:
 
     @cached_property
     def is_histogram_breakdown(self) -> bool:
-        if self.enabled:
-            breakdown_filter = self._breakdown_filter
-            if not self.is_multiple_breakdown:
-                return breakdown_filter.breakdown_histogram_bin_count is not None
+        if not self.enabled:
+            return False
 
-            for breakdown in cast(list[BreakdownSchema], breakdown_filter.breakdowns):
-                if breakdown.histogram_bin_count is not None:
-                    return True
+        breakdown_filter = self._breakdown_filter
+        if not self.is_multiple_breakdown:
+            return breakdown_filter.breakdown_histogram_bin_count is not None
+
+        for breakdown in cast(list[BreakdownSchema], breakdown_filter.breakdowns):
+            if breakdown.histogram_bin_count is not None:
+                return True
+
         return False
 
     @property
