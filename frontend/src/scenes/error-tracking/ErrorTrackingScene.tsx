@@ -77,10 +77,11 @@ const CustomVolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName
 
 const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
     const { value, record } = props
+
     const properties = JSON.parse(value as string)
 
-    const FirstAndLast = ({ record }: { record: string[] }): JSX.Element => {
-        const [last_seen, first_seen] = record.slice(-2)
+    const FirstAndLastSeen = ({ record }: { record: any[] }): JSX.Element => {
+        const [last_seen, first_seen] = record.slice(-2) as [string, string]
 
         return (
             <div className="space-x-1">
@@ -97,7 +98,7 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
             description={
                 <div className="space-y-1">
                     <div className="line-clamp-1">{properties.$exception_message}</div>
-                    <FirstAndLast record={record as string[]} />
+                    <FirstAndLastSeen record={record as any[]} />
                 </div>
             }
             to={urls.errorTrackingGroup(properties.$exception_type)}
