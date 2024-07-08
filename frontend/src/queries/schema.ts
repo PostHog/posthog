@@ -1014,6 +1014,8 @@ interface CachedQueryResponseMixin {
     timezone: string
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatus
+    /** What triggered the calculation of the query, leave empty if user/immediate */
+    calculation_trigger?: string
 }
 
 type CachedQueryResponse<T> = T & CachedQueryResponseMixin
@@ -1186,7 +1188,7 @@ export interface WebTopClicksQueryResponse extends AnalyticsQueryResponseBase<un
 
 export type CachedWebTopClicksQueryResponse = CachedQueryResponse<WebTopClicksQueryResponse>
 
-export type ErrorTrackingOrder = 'last_seen' | 'first_seen' | 'unique_occurrences' | 'unique_users' | 'unique_sessions'
+export type ErrorTrackingOrder = 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
 
 export enum WebStatsBreakdown {
     Page = 'Page',

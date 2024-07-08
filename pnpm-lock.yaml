@@ -8,6 +8,9 @@ overrides:
   playwright: 1.45.0
 
 patchedDependencies:
+  dayjs@1.11.11:
+    hash: lbfir4woetqmvzqg7l4q5mjtfq
+    path: patches/dayjs@1.11.11.patch
   heatmap.js@2.0.5:
     hash: gydrxrztd4ruyhouu6tu7zh43e
     path: patches/heatmap.js@2.0.5.patch
@@ -50,8 +53,8 @@ dependencies:
     specifier: 4.6.0
     version: 4.6.0(monaco-editor@0.49.0)(react-dom@18.2.0)(react@18.2.0)
   '@posthog/icons':
-    specifier: 0.7.0
-    version: 0.7.0(react-dom@18.2.0)(react@18.2.0)
+    specifier: 0.7.3
+    version: 0.7.3(react-dom@18.2.0)(react@18.2.0)
   '@posthog/plugin-scaffold':
     specifier: ^1.4.4
     version: 1.4.4
@@ -120,7 +123,7 @@ dependencies:
     version: 4.17.1(react-dom@18.2.0)(react@18.2.0)
   antd-dayjs-webpack-plugin:
     specifier: ^1.0.6
-    version: 1.0.6(dayjs@1.11.6)
+    version: 1.0.6(dayjs@1.11.11)
   autoprefixer:
     specifier: ^10.4.13
     version: 10.4.13(postcss@8.4.31)
@@ -132,7 +135,7 @@ dependencies:
     version: 3.9.1
   chartjs-adapter-dayjs-3:
     specifier: ^1.2.3
-    version: 1.2.3(chart.js@3.9.1)(dayjs@1.11.6)
+    version: 1.2.3(chart.js@3.9.1)(dayjs@1.11.11)
   chartjs-plugin-annotation:
     specifier: 2.2.1
     version: 2.2.1(chart.js@3.9.1)
@@ -167,8 +170,8 @@ dependencies:
     specifier: ^0.12.3
     version: 0.12.3
   dayjs:
-    specifier: ^1.10.7
-    version: 1.11.6
+    specifier: 1.11.11
+    version: 1.11.11(patch_hash=lbfir4woetqmvzqg7l4q5mjtfq)
   dompurify:
     specifier: ^3.0.6
     version: 3.0.6
@@ -260,8 +263,8 @@ dependencies:
     specifier: ^9.3.0
     version: 9.3.0(postcss@8.4.31)
   posthog-js:
-    specifier: 1.144.2
-    version: 1.144.2
+    specifier: 1.145.0
+    version: 1.145.0
   posthog-js-lite:
     specifier: 3.0.0
     version: 3.0.0
@@ -5384,8 +5387,8 @@ packages:
     resolution: {integrity: sha512-50/17A98tWUfQ176raKiOGXuYpLyyVMkxxG6oylzL3BPOlA6ADGdK7EYunSa4I064xerltq9TGXs8HmOk5E+vw==}
     dev: false
 
-  /@posthog/icons@0.7.0(react-dom@18.2.0)(react@18.2.0):
-    resolution: {integrity: sha512-wl9+On19tm/m7eh0KwogD8Vk4wd5//ewSOfKYhh1Z2kRcJbpWniWWo13rOIno18G5U2+ngaPndxEe2yJMtEDGQ==}
+  /@posthog/icons@0.7.3(react-dom@18.2.0)(react@18.2.0):
+    resolution: {integrity: sha512-dw8qLS6aSBGGIjo/d24/yuLOgkFAov4C7yOhomMfhce/RwS+u96XXghVolioRHppnAn48pgGnBQIXEELGVEvPA==}
     peerDependencies:
       react: '>=16.14.0'
       react-dom: '>=16.14.0'
@@ -9245,12 +9248,12 @@ packages:
     engines: {node: '>=12'}
     dev: true
 
-  /antd-dayjs-webpack-plugin@1.0.6(dayjs@1.11.6):
+  /antd-dayjs-webpack-plugin@1.0.6(dayjs@1.11.11):
     resolution: {integrity: sha512-UlK3BfA0iE2c5+Zz/Bd2iPAkT6cICtrKG4/swSik5MZweBHtgmu1aUQCHvICdiv39EAShdZy/edfP6mlkS/xXg==}
     peerDependencies:
       dayjs: '*'
     dependencies:
-      dayjs: 1.11.6
+      dayjs: 1.11.11(patch_hash=lbfir4woetqmvzqg7l4q5mjtfq)
     dev: false
 
   /antd@4.17.1(react-dom@18.2.0)(react@18.2.0):
@@ -10195,7 +10198,7 @@ packages:
     resolution: {integrity: sha512-Ro2JbLmvg83gXF5F4sniaQ+lTbSv18E+TIf2cOeiH1Iqd2PGFOtem+DUufMZsCJwFE7ywPOpfXFBwRTGq7dh6w==}
     dev: false
 
-  /chartjs-adapter-dayjs-3@1.2.3(chart.js@3.9.1)(dayjs@1.11.6):
+  /chartjs-adapter-dayjs-3@1.2.3(chart.js@3.9.1)(dayjs@1.11.11):
     resolution: {integrity: sha512-H8m1c2cFi9zdiJ0IfY7txUSSZusnS671sUuE6dbmvcaHmSFTMNoWH5lJvNj+oM1hLRsiP5pSTiB7InAMDJP+rQ==}
     engines: {node: '>=10'}
     peerDependencies:
@@ -10203,7 +10206,7 @@ packages:
       dayjs: ^1.9.7
     dependencies:
       chart.js: 3.9.1
-      dayjs: 1.11.6
+      dayjs: 1.11.11(patch_hash=lbfir4woetqmvzqg7l4q5mjtfq)
     dev: false
 
   /chartjs-plugin-annotation@2.2.1(chart.js@3.9.1):
@@ -10987,7 +10990,7 @@ packages:
       cli-table3: 0.6.3
       commander: 6.2.1
       common-tags: 1.8.2
-      dayjs: 1.11.6
+      dayjs: 1.11.11(patch_hash=lbfir4woetqmvzqg7l4q5mjtfq)
       debug: 4.3.4(supports-color@8.1.1)
       enquirer: 2.3.6
       eventemitter2: 6.4.7
@@ -11311,8 +11314,9 @@ packages:
     resolution: {integrity: sha512-dDCnyH2WnnKusqvZZ6+jA1O51Ibt8ZMRNkDZdyAyK4YfbDwa/cEmuztzG5pk6hqlp9aSBPYcjOlktquahGwGeA==}
     engines: {node: '>=0.11'}
 
-  /dayjs@1.11.6:
-    resolution: {integrity: sha512-zZbY5giJAinCG+7AGaw0wIhNZ6J8AhWuSXKvuc1KAyMiRsvGQWqh4L+MomvhdAYjN+lqvVCMq1I41e3YHvXkyQ==}
+  /dayjs@1.11.11(patch_hash=lbfir4woetqmvzqg7l4q5mjtfq):
+    resolution: {integrity: sha512-okzr3f11N6WuqYtZSvm+F776mB41wRZMhKP+hc34YdW+KmtYYK9iqvHSwo2k9FEH3fhGXvOPV6yz2IcSrfRUDg==}
+    patched: true
 
   /debug@2.6.9:
     resolution: {integrity: sha512-bC7ElrdJaJnPbAP+1EotYvqZsb3ecl5wi6Bfi6BJTUcNowp6cvspg0jXznRTKDjm/E7AdgFBVeAPVMNcKGsHMA==}
@@ -17706,8 +17710,8 @@ packages:
     resolution: {integrity: sha512-dyajjnfzZD1tht4N7p7iwf7nBnR1MjVaVu+MKr+7gBgA39bn28wizCIJZztZPtHy4PY0YwtSGgwfBCuG/hnHgA==}
     dev: false
 
-  /posthog-js@1.144.2:
-    resolution: {integrity: sha512-Kgq8/bJvrTbDDsfSqAURIiYdkJ5tPegR2JC6pqIeoFjnTx/Rrq0j4n3vDW7K1nCapBch7G5gTZdaK7O6t+rI9A==}
+  /posthog-js@1.145.0:
+    resolution: {integrity: sha512-LQdH6S2Ks3mnCI0q9aD5SZS0Uujc/90nuJuEeGDeGkWkVkYOSQJt4n0UHrIWEsZdmIKZf0a6OIBhTmO+yUiY3w==}
     dependencies:
       fflate: 0.4.8
       preact: 10.22.1
@@ -18386,7 +18390,7 @@ packages:
       '@babel/runtime': 7.24.0
       classnames: 2.3.2
       date-fns: 2.29.3
-      dayjs: 1.11.6
+      dayjs: 1.11.11(patch_hash=lbfir4woetqmvzqg7l4q5mjtfq)
       moment: 2.29.4
       rc-trigger: 5.3.3(react-dom@18.2.0)(react@18.2.0)
       rc-util: 5.24.4(react-dom@18.2.0)(react@18.2.0)

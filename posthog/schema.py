@@ -327,9 +327,9 @@ class EntityType(StrEnum):
 class ErrorTrackingOrder(StrEnum):
     LAST_SEEN = "last_seen"
     FIRST_SEEN = "first_seen"
-    UNIQUE_OCCURRENCES = "unique_occurrences"
-    UNIQUE_USERS = "unique_users"
-    UNIQUE_SESSIONS = "unique_sessions"
+    OCCURRENCES = "occurrences"
+    USERS = "users"
+    SESSIONS = "sessions"
 
 
 class EventDefinition(BaseModel):
@@ -1011,6 +1011,9 @@ class TestCachedBasicQueryResponse(BaseModel):
     )
     cache_key: str
     cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -1314,6 +1317,9 @@ class CachedActorsQueryResponse(BaseModel):
     )
     cache_key: str
     cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
     columns: list
     error: Optional[str] = Field(
         default=None,
@@ -1347,6 +1353,9 @@ class CachedEventsQueryResponse(BaseModel):
     )
     cache_key: str
     cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
     columns: list
     error: Optional[str] = Field(
         default=None,
@@ -1379,6 +1388,9 @@ class CachedFunnelCorrelationResponse(BaseModel):
     )
     cache_key: str
     cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
     columns: Optional[list] = None
     error: Optional[str] = Field(
         default=None,
@@ -1411,6 +1423,9 @@ class CachedFunnelsQueryResponse(BaseModel):
     )
     cache_key: str
     cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -1438,6 +1453,9 @@ class CachedLifecycleQueryResponse(BaseModel):
     )
     cache_key: str
     cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -1465,6 +1483,9 @@ class CachedPathsQueryResponse(BaseModel):
     )
     cache_key: str
     cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -1492,6 +1513,9 @@ class CachedSessionsTimelineQueryResponse(BaseModel):
     )
     cache_key: str
     cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -1520,6 +1544,9 @@ class CachedStickinessQueryResponse(BaseModel):
     )
     cache_key: str
     cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -1547,6 +1574,9 @@ class CachedTrendsQueryResponse(BaseModel):
     )
     cache_key: str
     cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -1574,6 +1604,9 @@ class CachedWebOverviewQueryResponse(BaseModel):
     )
     cache_key: str
     cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
     dateFrom: Optional[str] = None
     dateTo: Optional[str] = None
     error: Optional[str] = Field(
@@ -1604,6 +1637,9 @@ class CachedWebStatsTableQueryResponse(BaseModel):
     )
     cache_key: str
     cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
     columns: Optional[list] = None
     error: Optional[str] = Field(
         default=None,
@@ -1637,6 +1673,9 @@ class CachedWebTopClicksQueryResponse(BaseModel):
     )
     cache_key: str
     cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
     columns: Optional[list] = None
     error: Optional[str] = Field(
         default=None,
@@ -1958,6 +1997,9 @@ class FunnelsQueryResponse(BaseModel):
 class GenericCachedQueryResponse(BaseModel):
     cache_key: str
     cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
     is_cached: bool
     last_refresh: AwareDatetime
     next_allowed_client_refresh: AwareDatetime
@@ -2725,6 +2767,9 @@ class CachedHogQLQueryResponse(BaseModel):
     )
     cache_key: str
     cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
     clickhouse: Optional[str] = Field(default=None, description="Executed ClickHouse query")
     columns: Optional[list] = Field(default=None, description="Returned columns")
     error: Optional[str] = Field(
@@ -2763,6 +2808,9 @@ class CachedInsightActorsQueryOptionsResponse(BaseModel):
     breakdowns: Optional[list[MultipleBreakdownOptions]] = None
     cache_key: str
     cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
     compare: Optional[list[CompareItem]] = None
     day: Optional[list[DayItem]] = None
     interval: Optional[list[IntervalItem]] = None
@@ -2783,6 +2831,9 @@ class CachedRetentionQueryResponse(BaseModel):
     )
     cache_key: str
     cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
