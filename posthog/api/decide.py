@@ -1,7 +1,5 @@
-import re
 from random import random
-from typing import Any, Optional, Union
-from urllib.parse import urlparse
+from typing import Union
 
 import structlog
 from django.conf import settings
@@ -14,7 +12,7 @@ from statshog.defaults.django import statsd
 
 from posthog.api.geoip import get_geoip_properties
 from posthog.api.survey import SURVEY_TARGETING_FLAG_PREFIX
-from posthog.api.utils import get_project_id, get_token
+from posthog.api.utils import get_project_id, get_token, hostname_in_allowed_url_list, parse_domain
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.logging.timing import timed
@@ -54,32 +52,6 @@ def on_permitted_recording_domain(team: Team, request: HttpRequest) -> bool:
     )
 
     return is_authorized_web_client or is_authorized_mobile_client
-
-
-def hostname_in_allowed_url_list(allowed_url_list: Optional[list[str]], hostname: Optional[str]) -> bool:
-    if not hostname:
-        return False
-
-    permitted_domains = []
-    if allowed_url_list:
-        for url in allowed_url_list:
-            host = parse_domain(url)
-            if host:
-                permitted_domains.append(host)
-
-    for permitted_domain in permitted_domains:
-        if "*" in permitted_domain:
-            pattern = "^{}$".format(re.escape(permitted_domain).replace("\\*", "(.*)"))
-            if re.search(pattern, hostname):
-                return True
-        elif permitted_domain == hostname:
-            return True
-
-    return False
-
-
-def parse_domain(url: Any) -> Optional[str]:
-    return urlparse(url).hostname
 
 
 @csrf_exempt
