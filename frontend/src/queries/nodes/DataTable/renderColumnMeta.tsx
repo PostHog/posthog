@@ -72,10 +72,10 @@ export function renderColumnMeta(key: string, query: DataTableNode, context?: Qu
         align = queryContextColumn.align
     }
 
-    const specifiedWidth = context?.columns?.[key]?.width
-
-    if (specifiedWidth) {
-        width = specifiedWidth
+    if (queryContextColumn?.width) {
+        width = queryContextColumn.width
+    } else if (context?.columns?.[key]?.width) {
+        width = context.columns[key].width
     }
 
     if (queryFeatures.has(QueryFeature.selectAndOrderByColumns) && !query.allowSorting) {

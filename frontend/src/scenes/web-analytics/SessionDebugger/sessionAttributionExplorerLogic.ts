@@ -4,66 +4,84 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
-import { DataTableNode, HogQLQuery, NodeKind } from '~/queries/schema'
+import { DataTableNode, DateRange, HogQLQuery, NodeKind } from '~/queries/schema'
 import { isSessionPropertyFilters } from '~/queries/schema-guards'
 import { SessionPropertyFilter } from '~/types'
 
 import type { sessionAttributionExplorerLogicType } from './sessionAttributionExplorerLogicType'
 
-export const initialFilters = [] as SessionPropertyFilter[]
+export const initialProperties = [] as SessionPropertyFilter[]
+export const defaultDateRange: DateRange = { date_from: '-7d', date_to: 'now' }
 export const sessionAttributionExplorerLogic = kea<sessionAttributionExplorerLogicType>([
     path(['scenes', 'webAnalytics', 'sessionDebuggerLogic']),
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags']],
     })),
     actions({
-        setFilters: (filters: SessionPropertyFilter[]) => ({ filters }),
-        setStateFromUrl: (state: { filters: SessionPropertyFilter[] }) => ({
+        setProperties: (properties: SessionPropertyFilter[]) => ({ properties }),
+        setDateRange: (dateRange: DateRange) => ({ dateRange }),
+        setStateFromUrl: (state: { properties: SessionPropertyFilter[]; dateRange: DateRange | null }) => ({
             state,
         }),
     }),
     reducers({
-        filters: [
-            initialFilters,
+        properties: [
+            initialProperties,
             {
-                setFilters: (_, { filters }) => filters,
-                setStateFromUrl: (_, { state }) => state.filters,
+                setProperties: (_, { properties }) => properties,
+                setStateFromUrl: (_, { state }) => state.properties,
+            },
+        ],
+        dateRange: [
+            null as DateRange | null,
+            {
+                setDateRange: (_, { dateRange }) => dateRange,
+                setStateFromUrl: (_, { state }) => state.dateRange,
             },
         ],
     }),
     selectors({
         query: [
-            (s) => [s.filters],
-            (filters: SessionPropertyFilter[]): DataTableNode => {
+            (s) => [s.properties, s.dateRange],
+            (properties: SessionPropertyFilter[], dateRange): DataTableNode => {
                 const source: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
                     filters: {
-                        properties: filters,
+                        properties,
+                        dateRange: dateRange ?? defaultDateRange,
                     },
                     query: `
 SELECT
-    "$entry_referring_domain" as 'context.columns.referring_domain',
-    "$entry_utm_source" as 'context.columns.utm_source',
-    "$entry_utm_medium" as 'context.columns.utm_medium',
-    "$entry_utm_campaign" as 'context.columns.utm_campaign',
+    count() as "context.columns.count",
+    "$channel_type" as "context.columns.channel_type",
+    "$entry_referring_domain" as "context.columns.referring_domain",
+    "$entry_utm_source" as "context.columns.utm_source",
+    "$entry_utm_medium" as "context.columns.utm_medium",
+    "$entry_utm_campaign" as "context.columns.utm_campaign",
     nullIf(arrayStringConcat([
         if(isNotNull($entry_gclid), 'glcid', NULL),
         if(isNotNull($entry_gad_source), 'gad_source', NULL)
         -- add more here if we add more ad ids
-    ], ','), '') as 'context.columns.has_ad_id',
-    topK(10)($entry_current_url) as 'context.columns.example_entry_urls',
-    "$channel_type" as 'context.columns.channel_type',
-    count() as 'context.columns.count'
+    ], ','), '') as "context.columns.has_ad_id",
+    topK(3)($entry_current_url) as "context.columns.example_entry_urls"
 FROM sessions
-WHERE $start_timestamp >= now() - toIntervalDay(7) AND {filters}
-GROUP BY 1,2,3,4,5,7
-ORDER BY 8 DESC
+WHERE {filters}
+GROUP BY
+    "context.columns.referring_domain",
+    "context.columns.utm_source",
+    "context.columns.utm_medium",
+    "context.columns.utm_campaign",
+    "context.columns.has_ad_id",
+    "context.columns.channel_type"
+ORDER BY 
+    "context.columns.count" DESC
 `,
                 }
                 return {
                     kind: NodeKind.DataTableNode,
                     source: source,
                     showPropertyFilter: [TaxonomicFilterGroupType.SessionProperties],
+                    showDateRange: true,
                     showOpenEditorButton: true,
                     showReload: true,
                 }
@@ -73,27 +91,33 @@ ORDER BY 8 DESC
 
     actionToUrl(({ values }) => {
         const stateToUrl = (): [string, Record<string, string>] => {
-            const { filters } = values
+            const { properties, dateRange } = values
 
             const urlParams = {}
-            if (filters.length > 0) {
-                urlParams['filters'] = filters
+            if (properties.length > 0) {
+                urlParams['properties'] = properties
+            }
+            if (dateRange) {
+                urlParams['dateRange'] = dateRange
             }
 
             return [urls.sessionAttributionExplorer(), urlParams]
         }
 
         return {
-            setFilters: stateToUrl,
+            setProperties: stateToUrl,
+            setDateRange: stateToUrl,
         }
     }),
 
     urlToAction(({ actions }) => ({
-        [urls.sessionAttributionExplorer()]: (_, { filters }) => {
-            const parsedFilters = isSessionPropertyFilters(filters) ? filters : initialFilters
+        [urls.sessionAttributionExplorer()]: (_, { properties, dateRange }) => {
+            const parsedProperties = isSessionPropertyFilters(properties) ? properties : initialProperties
+            const parsedDateRange = dateRange ?? null
 
             actions.setStateFromUrl({
-                filters: parsedFilters,
+                properties: parsedProperties,
+                dateRange: parsedDateRange,
             })
         },
     })),

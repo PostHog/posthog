@@ -933,7 +933,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                           hasPersonFilter: propertyFilters.some((p) => p.type === PropertyFilterType.Person),
                           hasDurationFilters: (filters.duration[0].value || -1) > defaultDurationFilter.value,
                           hasConsoleLogsFilters: !!consoleLogFilters.length,
-                          isLiveMode: !!filters.live_mode,
                       }
                     : {}
             posthog.capture('recording list fetched', {

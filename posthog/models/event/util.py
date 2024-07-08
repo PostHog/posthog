@@ -224,11 +224,12 @@ def bulk_create_events(
 
                 except Group.DoesNotExist:
                     continue
+        properties = event.get("properties", {})
 
         event = {
             "uuid": str(event["event_uuid"]) if event.get("event_uuid") else str(uuid.uuid4()),
             "event": event["event"],
-            "properties": json.dumps(event["properties"]) if event.get("properties") else "{}",
+            "properties": json.dumps(properties),
             "timestamp": timestamp,
             "team_id": team_id,
             "distinct_id": str(event["distinct_id"]),

@@ -67,7 +67,7 @@ const queryContext: QueryContext = {
 
 export function SessionAttributionExplorer(): JSX.Element {
     const { query } = useValues(sessionAttributionExplorerLogic)
-    const { setFilters } = useActions(sessionAttributionExplorerLogic)
+    const { setDateRange, setProperties } = useActions(sessionAttributionExplorerLogic)
     const { preflight } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
 
@@ -116,7 +116,10 @@ export function SessionAttributionExplorer(): JSX.Element {
                 setQuery={(query) => {
                     const source = query.source as HogQLQuery
                     if (source.filters?.properties && isSessionPropertyFilters(source.filters.properties)) {
-                        setFilters(source.filters.properties)
+                        setProperties(source.filters.properties)
+                    }
+                    if (source.filters?.dateRange) {
+                        setDateRange(source.filters.dateRange)
                     }
                 }}
             />

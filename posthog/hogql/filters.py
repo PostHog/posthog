@@ -71,6 +71,8 @@ class ReplaceFilters(CloningVisitor):
                 else:
                     exprs.append(property_to_expr(self.filters.properties, self.team, scope="event"))
 
+            timestamp_field = ast.Field(chain=["timestamp"]) if found_events else ast.Field(chain=["$start_timestamp"])
+
             dateTo = self.filters.dateRange.date_to if self.filters.dateRange else None
             if dateTo is not None:
                 try:
@@ -80,7 +82,7 @@ class ReplaceFilters(CloningVisitor):
                 exprs.append(
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.Lt,
-                        left=ast.Field(chain=["timestamp"]),
+                        left=timestamp_field,
                         right=ast.Constant(value=parsed_date),
                     )
                 )
@@ -95,7 +97,7 @@ class ReplaceFilters(CloningVisitor):
                 exprs.append(
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.GtEq,
-                        left=ast.Field(chain=["timestamp"]),
+                        left=timestamp_field,
                         right=ast.Constant(value=parsed_date),
                     )
                 )
