@@ -803,6 +803,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             const params: Params = objectClean({
                 ...router.values.searchParams,
                 filters: values.filters ?? undefined,
+                simpleFilters: values.simpleFilters ?? undefined,
+                advancedFilters: values.advancedFilters ?? undefined,
                 sessionRecordingId: values.selectedRecordingId ?? undefined,
             })
 
@@ -843,11 +845,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     )
                 }
             } else if (params.filters && !equal(params.filters, values.filters)) {
-                if (values.useUniversalFiltering) {
-                    actions.setUniversalFilters(params.filters)
-                } else {
-                    actions.setAdvancedFilters(convertUniversalFiltersToLegacyFilters(params.filters))
-                }
+                actions.setUniversalFilters(params.filters)
+                actions.setAdvancedFilters(convertUniversalFiltersToLegacyFilters(params.filters))
             }
         }
         return {
