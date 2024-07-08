@@ -61,7 +61,7 @@ export function NewSourcesWizard({ onComplete }: NewSourcesWizardProps): JSX.Ele
         }
 
         return (
-            <div className="mt-2 flex flex-row justify-end gap-2">
+            <div className="mt-4 flex flex-row justify-end gap-2">
                 <LemonButton
                     type="secondary"
                     center
