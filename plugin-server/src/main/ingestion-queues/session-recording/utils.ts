@@ -1,8 +1,5 @@
 import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
-const { promisify } = require('node:util')
-const { unzip } = require('node:zlib')
-
 import { KafkaConsumer, Message, MessageHeader, PartitionMetadata, TopicPartition } from 'node-rdkafka'
 import path from 'path'
 import { Counter } from 'prom-client'
@@ -14,6 +11,9 @@ import { captureIngestionWarning } from '../../../worker/ingestion/utils'
 import { eventDroppedCounter } from '../metrics'
 import { TeamIDWithConfig } from './session-recordings-consumer'
 import { IncomingRecordingMessage, ParsedBatch, PersistedRecordingMessage } from './types'
+
+const { promisify } = require('node:util')
+const { unzip } = require('node:zlib')
 
 const GZIP_HEADER = Buffer.from([0x1f, 0x8b, 0x08, 0x00])
 
@@ -267,11 +267,9 @@ export const parseKafkaMessage = async (
     let messagePayload: RawEventMessage
     let event: PipelineEvent
 
-    const shouldDecompress = isGzipped(message.value)
-
     let messageUnzipped = message.value
     try {
-        if (shouldDecompress) {
+        if (isGzipped(message.value)) {
             messageUnzipped = await do_unzip(message.value)
         }
     } catch (error) {
