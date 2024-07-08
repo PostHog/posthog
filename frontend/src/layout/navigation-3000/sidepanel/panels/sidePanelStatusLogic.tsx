@@ -107,7 +107,7 @@ export const sidePanelStatusLogic = kea<sidePanelStatusLogicType>([
             { persist: true },
             {
                 loadStatusPageSuccess: (_, { statusPage }) => {
-                    const relevantGroups = RELEVANT_GROUPS_MAP['us.posthog.com']
+                    const relevantGroups = RELEVANT_GROUPS_MAP[window.location.hostname]
                     if (!relevantGroups) {
                         return 'operational'
                     }
