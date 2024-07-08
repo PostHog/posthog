@@ -13,7 +13,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.cohort.cohort import Cohort
 from posthog.queries.funnels.funnel_event_query import FunnelEventQuery
 from posthog.queries.util import correct_result_for_sampling, get_earliest_timestamp, get_interval_func_ch
-from posthog.schema import BreakdownType
+from posthog.schema import BreakdownType, BreakdownAttributionType
 from posthog.utils import DATERANGE_MAP
 
 TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -51,13 +51,15 @@ class FunnelUDF(FunnelBase):
 
         prop_selector = 'prop' if self.context.breakdown else default_breakdown_selector
 
+        breakdown_attribution_string = f"{self.context.breakdownAttributionType}{f'_{self.context.funnelsFilter.breakdownAttributionValue}' if self.context.breakdownAttributionType == BreakdownAttributionType.STEP else ''}"
+
 
         inner_select = parse_select(f"""
             SELECT 
                 {fn}(
                     {self.context.max_steps}, 
                     {self.conversion_window_limit()},
-                    '{self.context.breakdownAttributionType}',
+                    '{breakdown_attribution_string}',
                     arraySort(t -> t.1, groupArray(tuple(toFloat(timestamp), {prop_selector}, arrayFilter((x) -> x != 0, [{steps}]))))
                 ) as af_tuple,
                 af_tuple.1 as af,

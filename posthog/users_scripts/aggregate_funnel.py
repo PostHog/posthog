@@ -93,14 +93,22 @@ def parse_user_aggregation_with_conversion_window_and_breakdown(num_steps, conve
             in_match_window = timestamp - entered_timestamp[step - 1][0] < conversion_window_limit
             already_have_matching_event_with_same_entered_timestamp_at_this_step = entered_timestamp[step][0] == entered_timestamp[step - 1][0]
             if in_match_window and not already_have_matching_event_with_same_entered_timestamp_at_this_step:
+                if breakdown_attribution_type.startswith('step_'):
+                    # step is last_touchpoint attribution but it becomes first_touch at the step
+                    breakdown_step = int(breakdown_attribution_type[5:])
+                    breakdown_attribution_type = 'last_touch' if step < breakdown_step else 'first_touch'
+
                 if breakdown_attribution_type == 'first_touch':
                     # If first touch, propagate the starting breakdown value
                     # add the timestamp of the current event to the end of the timing tracker
                     # there is an issue with initial event attribution, otherwise take the first of the later events to happen
                     entered_timestamp[step] = (entered_timestamp[step - 1][0], entered_timestamp[step - 1][1], entered_timestamp[step - 1][2] + [timestamp])
-                elif breakdown_attribution_type == 'last_touch':
+                # TODO: See if all_events is prefiltered (it should be), so shouldn't matter what we use
+                elif breakdown_attribution_type == 'last_touch' or breakdown_attribution_type == 'all_events':
                     # if last touch, always take the current value
                     entered_timestamp[step] = (entered_timestamp[step - 1][0], breakdown, entered_timestamp[step - 1][2] + [timestamp])
+                else:
+                    raise Exception("Invalid Attribution String")
 
         if entered_timestamp[num_steps][0] > 0:
             break

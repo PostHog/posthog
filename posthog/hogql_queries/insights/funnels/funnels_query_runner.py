@@ -119,8 +119,8 @@ class FunnelsQueryRunner(QueryRunner):
             return FunnelTimeToConvert(context=self.context)
         else:
             # For testing
-            if self.query.funnelsFilter.funnelOrderType == StepOrderValue.STRICT:
-                return FunnelUDF(context=self.context)
+            # if self.query.funnelsFilter.funnelOrderType == StepOrderValue.STRICT:
+            #     return FunnelUDF(context=self.context)
             return self.funnel_order_class
 
     @cached_property
