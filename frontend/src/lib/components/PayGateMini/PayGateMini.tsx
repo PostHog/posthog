@@ -211,10 +211,12 @@ const renderUsageLimitMessage = (
                 </p>
                 {featureInfo.key === AvailableFeature.ORGANIZATIONS_PROJECTS && !isAddonProduct ? (
                     <>
-                        <p>
-                            Please enter your credit card details by subscribing to any product (eg. Product analytics
-                            or Session replay) to create up to <b>{featureInfoOnNextPlan?.limit} projects</b>.
-                        </p>
+                        {featureInfoOnNextPlan?.limit && (
+                            <p>
+                                Please enter your credit card details to create up to{' '}
+                                <b>{featureInfoOnNextPlan?.limit} projects</b>.
+                            </p>
+                        )}
                         <p className="italic text-xs text-muted mb-4">
                             Need unlimited projects? Check out the{' '}
                             <Link to="/organization/billing?products=platform_and_support" onClick={handleCtaClick}>
