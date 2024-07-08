@@ -128,7 +128,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         # override the entire method.
         permission_classes: list = [IsAuthenticated, APIScopePermission]
 
-        if self._is_team_view:  # TODO: Add project view branch
+        if self._is_team_view or self._is_project_view:
             permission_classes.append(TeamMemberAccessPermission)
         else:
             permission_classes.append(OrganizationMemberPermissions)
