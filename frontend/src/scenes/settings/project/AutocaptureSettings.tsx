@@ -121,7 +121,6 @@ export function WebVitalsAutocaptureSettings(): JSX.Element {
                     updateCurrentTeam({
                         autocapture_web_vitals_opt_in: checked,
                     })
-                    // reportAutocaptureExceptionsToggled(checked)
                 }}
                 checked={!!currentTeam?.autocapture_web_vitals_opt_in}
                 disabled={userLoading}
