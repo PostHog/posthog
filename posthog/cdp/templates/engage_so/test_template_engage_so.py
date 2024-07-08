@@ -29,6 +29,7 @@ class TestTemplateEngageso(BaseHogFunctionTemplateTest):
                     "event": event["name"],
                     "distinct_id": event["distinct_id"],
                     "properties": event["properties"],
+                    "person": {"email": "example@posthog.com"},
                 },
             },
         )
