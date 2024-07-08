@@ -107,18 +107,19 @@ export const sidePanelStatusLogic = kea<sidePanelStatusLogicType>([
             { persist: true },
             {
                 loadStatusPageSuccess: (_, { statusPage }) => {
-                    const relevantGroups = RELEVANT_GROUPS_MAP[window.location.hostname]
+                    const relevantGroups = RELEVANT_GROUPS_MAP['us.posthog.com']
                     if (!relevantGroups) {
                         return 'operational'
                     }
 
                     const componentStatus = statusPage.components.find(
-                        ({ group_id, status }) => relevantGroups.includes(group_id) && status !== 'operational'
+                        ({ group_id, status }) =>
+                            group_id && relevantGroups.includes(group_id) && status !== 'operational'
                     )?.status
                     // if we have any open incident we _can't_ be operational no matter what the components say
                     const incidents = statusPage.incidents
                         .filter(({ components }) =>
-                            components.some(({ group_id }) => relevantGroups.includes(group_id))
+                            components.some(({ group_id }) => group_id && relevantGroups.includes(group_id))
                         )
                         .map((i) => (i.status !== 'operational' ? i.status : 'degraded_performance'))
 
