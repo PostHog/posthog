@@ -72,7 +72,6 @@ export const startBatchConsumer = async ({
     callEachBatchWhenEmpty = false,
     debug,
     queuedMaxMessagesKBytes = 102400,
-    statsIntervalMs,
 }: {
     connectionConfig: GlobalConfig
     groupId: string
@@ -92,7 +91,6 @@ export const startBatchConsumer = async ({
     callEachBatchWhenEmpty?: boolean
     debug?: string
     queuedMaxMessagesKBytes?: number
-    statsIntervalMs?: number
 }): Promise<BatchConsumer> => {
     // Starts consuming from `topic` in batches of `fetchBatchSize` messages,
     // with consumer group id `groupId`. We use `connectionConfig` to connect
@@ -161,7 +159,6 @@ export const startBatchConsumer = async ({
         'partition.assignment.strategy': 'cooperative-sticky',
         rebalance_cb: true,
         offset_commit_cb: true,
-        'statistics.interval.ms': statsIntervalMs,
     }
 
     if (debug) {

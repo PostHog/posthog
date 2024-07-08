@@ -333,6 +333,8 @@ export class SessionRecordingIngester {
     }
 
     public async handleEachBatch(messages: Message[], heartbeat: () => void): Promise<void> {
+        heartbeat()
+
         if (messages.length !== 0) {
             status.info('🔁', `blob_ingester_consumer - handling batch`, {
                 size: messages.length,
@@ -509,7 +511,6 @@ export class SessionRecordingIngester {
             },
             callEachBatchWhenEmpty: true, // Useful as we will still want to account for flushing sessions
             debug: this.config.SESSION_RECORDING_KAFKA_DEBUG,
-            statsIntervalMs: this.config.SESSION_RECORDING_KAFKA_CONSUMPTION_STATS_INTERVAL_MS,
         })
 
         this.batchConsumer.consumer.on('event.stats', (stats) => {
