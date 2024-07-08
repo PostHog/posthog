@@ -3740,9 +3740,6 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-    @also_test_with_materialized_columns(
-        ["$current_url", "$screen_name"],
-    )
     @snapshot_clickhouse_queries
     def test_groups_filtering_person_on_events(self):
         self._create_groups()

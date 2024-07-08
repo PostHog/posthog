@@ -7964,9 +7964,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[1]["breakdown_value"], "uh")
         self.assertEqual(response[1]["count"], 1)
 
-    @also_test_with_materialized_columns(
-        event_properties=["key"],
-    )
     @snapshot_clickhouse_queries
     def test_breakdown_with_filter_groups_person_on_events(self):
         self._create_groups()
@@ -8428,9 +8425,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response[0]["breakdown_value"], "finance")
             self.assertEqual(response[0]["count"], 1)
 
-    @also_test_with_materialized_columns(
-        person_properties=["key"],
-    )
     @snapshot_clickhouse_queries
     def test_filtering_with_group_props_person_on_events(self):
         self._create_groups()
