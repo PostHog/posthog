@@ -280,7 +280,7 @@ class TestBillingAPI(APILicensedTest):
 
         res = self.client.get("/api/billing")
         assert res.status_code == 404
-        assert res.json()["detail"] == "Billing V2 is not supported for this license type"
+        assert res.json()["detail"] == "Billing is not supported for this license type"
 
     @patch("ee.api.billing.requests.get")
     @freeze_time("2022-01-01")
@@ -359,7 +359,7 @@ class TestBillingAPI(APILicensedTest):
             "available_product_features": [],
             "custom_limits_usd": {},
             "has_active_subscription": True,
-            "stripe_portal_url": "https://billing.stripe.com/p/session/test_1234",
+            "stripe_portal_url": "http://localhost:8000/api/billing/portal",
             "current_total_amount_usd": "100.00",
             "deactivated": False,
             "products": [
@@ -375,23 +375,15 @@ class TestBillingAPI(APILicensedTest):
                             "unit_amount_usd": "0.00",
                             "up_to": 1000000,
                             "current_amount_usd": "0.00",
-                            "current_usage": 0,
-                            "flat_amount_usd": "0",
-                            "projected_amount_usd": "None",
-                            "projected_usage": None,
                         },
                         {
                             "unit_amount_usd": "0.00045",
                             "up_to": 2000000,
                             "current_amount_usd": "0.00",
-                            "current_usage": 0,
-                            "flat_amount_usd": "0",
-                            "projected_amount_usd": "None",
-                            "projected_usage": None,
                         },
                     ],
                     "tiered": True,
-                    "current_amount_usd": 0.00,
+                    "current_amount_usd": "0.00",
                     "current_usage": 0,
                     "usage_limit": None,
                     "percentage_usage": 0,
@@ -402,7 +394,7 @@ class TestBillingAPI(APILicensedTest):
                     "usage_key": "events",
                     "addons": [
                         {
-                            "current_amount_usd": 0.00,
+                            "current_amount_usd": "0.00",
                             "current_usage": 0,
                             "description": "Test Addon",
                             "free_allocation": 10000,
@@ -418,19 +410,11 @@ class TestBillingAPI(APILicensedTest):
                             "tiers": [
                                 {
                                     "current_amount_usd": "0.00",
-                                    "current_usage": 0,
-                                    "flat_amount_usd": "0",
-                                    "projected_amount_usd": "None",
-                                    "projected_usage": None,
                                     "unit_amount_usd": "0.00",
                                     "up_to": 1000000,
                                 },
                                 {
                                     "current_amount_usd": "0.00",
-                                    "current_usage": 0,
-                                    "flat_amount_usd": "0",
-                                    "projected_amount_usd": "None",
-                                    "projected_usage": None,
                                     "unit_amount_usd": "0.0000135",
                                     "up_to": 2000000,
                                 },
@@ -578,7 +562,7 @@ class TestBillingAPI(APILicensedTest):
             "free_trial_until": None,
             "current_total_amount_usd": "0.00",
             "deactivated": False,
-            "stripe_portal_url": "https://billing.stripe.com/p/session/test_1234",
+            "stripe_portal_url": "http://localhost:8000/api/billing/portal",
         }
 
     @patch("ee.api.billing.requests.get")
@@ -758,216 +742,14 @@ class TestBillingAPI(APILicensedTest):
         res_json = res.json()
         # Should update product usage to reflect today's usage
         assert res_json["products"][0]["current_usage"] == 1101000
-        assert res_json["products"][0]["current_amount_usd"] == 45.45
-        assert res_json["products"][0]["tiers"][0]["current_usage"] == 1000000
+        assert res_json["products"][0]["current_amount_usd"] == "0.00"
         assert res_json["products"][0]["tiers"][0]["current_amount_usd"] == "0.00"
-        assert res_json["products"][0]["tiers"][1]["current_usage"] == 101000
-        assert res_json["products"][0]["tiers"][1]["current_amount_usd"] == "45.45"
-
-        assert res_json["products"][0]["addons"][0]["current_usage"] == 1101000
-        assert res_json["products"][0]["addons"][0]["current_amount_usd"] == 1.36
-        assert res_json["products"][0]["addons"][0]["tiers"][0]["current_usage"] == 1000000
-        assert res_json["products"][0]["addons"][0]["tiers"][0]["current_amount_usd"] == "0.00"
-        assert res_json["products"][0]["addons"][0]["tiers"][1]["current_usage"] == 101000
-        assert res_json["products"][0]["addons"][0]["tiers"][1]["current_amount_usd"] == "1.36"
-
-        # Now test when there is a usage_limit.
-        def mock_implementation_with_limit(url: str, headers: Any = None, params: Any = None) -> MagicMock:
-            mock = MagicMock()
-            mock.status_code = 404
-
-            if "api/billing/portal" in url:
-                mock.status_code = 200
-                mock.json.return_value = {"url": "https://billing.stripe.com/p/session/test_1234"}
-            elif "api/billing" in url:
-                mock.status_code = 200
-                mock.json.return_value = create_billing_response(
-                    customer=create_billing_customer(has_active_subscription=True),
-                )
-                mock.json.return_value["customer"]["usage_summary"]["events"]["usage"] = 1000000
-                mock.json.return_value["customer"]["usage_summary"]["events"]["limit"] = 1000000
-            elif "api/products" in url:
-                mock.status_code = 200
-                mock.json.return_value = create_billing_products_response()
-
-            return mock
-
-        mock_request.side_effect = mock_implementation_with_limit
-        self.organization.usage = {"events": {"limit": 1000000, "usage": 1000000, "todays_usage": 100}}
-        self.organization.save()
-
-        res = self.client.get("/api/billing")
-        assert res.status_code == 200
-        res_json = res.json()
-        # Should update product usage to reflect today's usage
-        assert res_json["products"][0]["current_usage"] == 1000100
-        assert res_json["products"][0]["current_amount_usd"] == 0.04
-        assert res_json["products"][0]["tiers"][0]["current_usage"] == 1000000
-        assert res_json["products"][0]["tiers"][0]["current_amount_usd"] == "0.00"
-        assert res_json["products"][0]["tiers"][1]["current_usage"] == 100
-        assert res_json["products"][0]["tiers"][1]["current_amount_usd"] == "0.04"
-
-        assert res_json["products"][0]["addons"][0]["current_usage"] == 1000100
-        assert res_json["products"][0]["addons"][0]["current_amount_usd"] == 0.0
-        assert res_json["products"][0]["addons"][0]["tiers"][0]["current_usage"] == 1000000
-        assert res_json["products"][0]["addons"][0]["tiers"][0]["current_amount_usd"] == "0.00"
-        assert res_json["products"][0]["addons"][0]["tiers"][1]["current_usage"] == 100
-        assert res_json["products"][0]["addons"][0]["tiers"][1]["current_amount_usd"] == "0.00"
-
-        def mock_implementation_exceeds_limit(url: str, headers: Any = None, params: Any = None) -> MagicMock:
-            mock = MagicMock()
-            mock.status_code = 404
-
-            if "api/billing/portal" in url:
-                mock.status_code = 200
-                mock.json.return_value = {"url": "https://billing.stripe.com/p/session/test_1234"}
-            elif "api/billing" in url:
-                mock.status_code = 200
-                mock.json.return_value = create_billing_response(
-                    customer=create_billing_customer(has_active_subscription=True),
-                )
-                mock.json.return_value["customer"]["usage_summary"]["events"]["usage"] = 1100000
-                mock.json.return_value["customer"]["usage_summary"]["events"]["limit"] = 1000000
-            elif "api/products" in url:
-                mock.status_code = 200
-                mock.json.return_value = create_billing_products_response()
-
-            return mock
-
-        mock_request.side_effect = mock_implementation_exceeds_limit
-        self.organization.usage = {"events": {"limit": 1000000, "usage": 1100000, "todays_usage": 1000}}
-        self.organization.save()
-
-        res = self.client.get("/api/billing")
-        assert res.status_code == 200
-        res_json = res.json()
-        # Should update product usage to reflect today's usage
-        assert res_json["products"][0]["current_usage"] == 1101000
-        assert res_json["products"][0]["current_amount_usd"] == 45.0
-        assert res_json["products"][0]["tiers"][0]["current_usage"] == 1000000
-        assert res_json["products"][0]["tiers"][0]["current_amount_usd"] == "0.00"
-        assert res_json["products"][0]["tiers"][1]["current_usage"] == 100000
-        assert res_json["products"][0]["tiers"][1]["current_amount_usd"] == "45.00"
-
-        assert res_json["products"][0]["addons"][0]["current_usage"] == 1101000
-        assert res_json["products"][0]["addons"][0]["current_amount_usd"] == 1.35
-        assert res_json["products"][0]["addons"][0]["tiers"][0]["current_usage"] == 1000000
-        assert res_json["products"][0]["addons"][0]["tiers"][0]["current_amount_usd"] == "0.00"
-        assert res_json["products"][0]["addons"][0]["tiers"][1]["current_usage"] == 100000
-        assert res_json["products"][0]["addons"][0]["tiers"][1]["current_amount_usd"] == "1.35"
-
-        # Test when the customer has no usage. Ensure that the tiered current_usage isn't set to the usage limit.
-        def mock_implementation_with_limit_no_usage(url: str, headers: Any = None, params: Any = None) -> MagicMock:
-            mock = MagicMock()
-            mock.status_code = 404
-
-            if "api/billing/portal" in url:
-                mock.status_code = 200
-                mock.json.return_value = {"url": "https://billing.stripe.com/p/session/test_1234"}
-            elif "api/billing" in url:
-                mock.status_code = 200
-                mock.json.return_value = create_billing_response(
-                    customer=create_billing_customer(has_active_subscription=True),
-                )
-                mock.json.return_value["customer"]["usage_summary"]["events"]["usage"] = 0
-                mock.json.return_value["customer"]["usage_summary"]["events"]["limit"] = 1000000
-            elif "api/products" in url:
-                mock.status_code = 200
-                mock.json.return_value = create_billing_products_response()
-
-            return mock
-
-        mock_request.side_effect = mock_implementation_with_limit_no_usage
-
-        self.organization.usage = {"events": {"limit": 1000000, "usage": 0, "todays_usage": 0}}
-        self.organization.save()
-
-        res = self.client.get("/api/billing")
-        assert res.status_code == 200
-        res_json = res.json()
-        # Should update product usage to reflect today's usage
-        assert res_json["products"][0]["current_usage"] == 0
-        assert res_json["products"][0]["current_amount_usd"] == 0
-        assert res_json["products"][0]["tiers"][0]["current_usage"] == 0
-        assert res_json["products"][0]["tiers"][0]["current_amount_usd"] == "0.00"
-        assert res_json["products"][0]["tiers"][1]["current_usage"] == 0
         assert res_json["products"][0]["tiers"][1]["current_amount_usd"] == "0.00"
 
         assert res_json["products"][0]["addons"][0]["current_usage"] == 0
-        assert res_json["products"][0]["addons"][0]["current_amount_usd"] == 0.0
-        assert res_json["products"][0]["addons"][0]["tiers"][0]["current_usage"] == 0
+        assert res_json["products"][0]["addons"][0]["current_amount_usd"] == "0.00"
         assert res_json["products"][0]["addons"][0]["tiers"][0]["current_amount_usd"] == "0.00"
-        assert res_json["products"][0]["addons"][0]["tiers"][1]["current_usage"] == 0
         assert res_json["products"][0]["addons"][0]["tiers"][1]["current_amount_usd"] == "0.00"
-
-        def mock_implementation_missing_customer(url: str, headers: Any = None, params: Any = None) -> MagicMock:
-            mock = MagicMock()
-            mock.status_code = 404
-
-            if "api/billing/portal" in url:
-                mock.status_code = 200
-                mock.json.return_value = {"url": "https://billing.stripe.com/p/session/test_1234"}
-            elif "api/billing" in url:
-                mock.status_code = 200
-                mock.json.return_value = create_billing_response(customer=create_missing_billing_customer())
-            elif "api/products" in url:
-                mock.status_code = 200
-                mock.json.return_value = create_billing_products_response()
-
-            return mock
-
-        mock_request.side_effect = mock_implementation_missing_customer
-
-        # Test unsubscribed config
-        res = self.client.get("/api/billing")
-        self.organization.refresh_from_db()
-        assert self.organization.usage == {
-            "events": {
-                "limit": None,
-                "todays_usage": 0,
-                "usage": 0,
-            },
-            "recordings": {
-                "limit": None,
-                "todays_usage": 0,
-                "usage": 0,
-            },
-            "rows_synced": {
-                "limit": None,
-                "todays_usage": 0,
-                "usage": 0,
-            },
-            "period": ["2022-10-07T11:12:48", "2022-11-07T11:12:48"],
-        }
-        assert self.organization.customer_id == "cus_123"
-
-        # Now test when there is a tiered product in the response that isn't in the usage dict
-        def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
-            mock = MagicMock()
-            mock.status_code = 404
-
-            if "api/billing/portal" in url:
-                mock.status_code = 200
-                mock.json.return_value = {"url": "https://billing.stripe.com/p/session/test_1234"}
-            elif "api/billing" in url:
-                mock.status_code = 200
-                mock.json.return_value = create_billing_response(
-                    customer=create_billing_customer(has_active_subscription=True),
-                )
-                mock.json.return_value["customer"]["products"][0]["usage_key"] = "feature_flag_requests"
-                mock.json.return_value["customer"]["usage_summary"]["events"]["usage"] = 1000
-            elif "api/products" in url:
-                mock.status_code = 200
-                mock.json.return_value = create_billing_products_response()
-
-            return mock
-
-        mock_request.side_effect = mock_implementation
-        self.organization.usage = {"events": {"limit": 1000000, "usage": 1000, "todays_usage": 1100000}}
-        self.organization.save()
-
-        res = self.client.get("/api/billing")
-        assert res.status_code == 200
 
     @patch("ee.api.billing.requests.get")
     def test_organization_usage_count_with_demo_project(self, mock_request, *args):
@@ -1057,21 +839,45 @@ class TestBillingAPI(APILicensedTest):
         assert self.organization.customer_trust_scores == {"recordings": 0, "events": 15, "rows_synced": 0}
 
 
-class TestActivationBillingAPI(APILicensedTest):
-    def test_activation_success(self):
-        url = "/api/billing-v2/activation"
+class TestPortalBillingAPI(APILicensedTest):
+    @patch("ee.api.billing.requests.get")
+    def test_portal_success(self, mock_request):
+        mock_request.return_value.status_code = 200
+        mock_request.return_value.json.return_value = {"url": "https://billing.stripe.com/p/session/test_1234"}
+
+        response = self.client.get("/api/billing/portal")
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertIn("https://billing.stripe.com/p/session/test_1234", response.url)
+
+
+class TestActivateBillingAPI(APILicensedTest):
+    def test_activate_success(self):
+        url = "/api/billing/activate"
         data = {"products": "product_1:plan_1,product_2:plan_2", "redirect_path": "custom/path"}
 
         response = self.client.get(url, data=data)
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
 
-        self.assertIn("/activation", response.url)
+        self.assertIn("/activate", response.url)
         self.assertIn("products=product_1:plan_1,product_2:plan_2", response.url)
         url_pattern = r"redirect_uri=http://[^/]+/custom/path"
         self.assertRegex(response.url, url_pattern)
 
-    def test_activation_with_default_redirect_path(self):
-        url = "/api/billing-v2/activation"
+    def test_deprecated_activation_success(self):
+        url = "/api/billing/activate"
+        data = {"products": "product_1:plan_1,product_2:plan_2", "redirect_path": "custom/path"}
+
+        response = self.client.get(url, data=data)
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+
+        self.assertIn("/activate", response.url)
+        self.assertIn("products=product_1:plan_1,product_2:plan_2", response.url)
+        url_pattern = r"redirect_uri=http://[^/]+/custom/path"
+        self.assertRegex(response.url, url_pattern)
+
+    def test_activate_with_default_redirect_path(self):
+        url = "/api/billing/activate"
         data = {
             "products": "product_1:plan_1,product_2:plan_2",
         }
@@ -1083,16 +889,16 @@ class TestActivationBillingAPI(APILicensedTest):
         url_pattern = r"redirect_uri=http://[^/]+/organization/billing"
         self.assertRegex(response.url, url_pattern)
 
-    def test_activation_failure(self):
-        url = "/api/billing-v2/activation"
+    def test_activate_failure(self):
+        url = "/api/billing/activate"
         data = {"none": "nothing"}
 
         response = self.client.get(url, data)
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_activation_with_plan_error(self):
-        url = "/api/billing-v2/activation"
+    def test_activate_with_plan_error(self):
+        url = "/api/billing/activate"
         data = {"plan": "plan"}
 
         response = self.client.get(url, data)
@@ -1117,7 +923,7 @@ class TestActivationBillingAPI(APILicensedTest):
             "products": [],
         }
 
-        url = "/api/billing-v2/deactivate"
+        url = "/api/billing/deactivate"
         data = {"products": "product_1"}
 
         response = self.client.get(url, data)
@@ -1127,7 +933,7 @@ class TestActivationBillingAPI(APILicensedTest):
         mock_get_billing.assert_called_once_with(self.organization, None)
 
     def test_deactivate_failure(self):
-        url = "/api/billing-v2/deactivate"
+        url = "/api/billing/deactivate"
         data = {"none": "nothing"}
 
         response = self.client.get(url, data)

@@ -139,7 +139,7 @@ class TestTeam(BaseTest):
             with override_instance_config("PERSON_ON_EVENTS_ENABLED", False):
                 team = Team.objects.create_with_data(organization=self.organization)
                 self.assertEqual(
-                    team.person_on_events_mode, PersonsOnEventsMode.person_id_override_properties_on_events
+                    team.person_on_events_mode, PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
                 )
                 # called more than once when evaluating hogql
                 mock_feature_enabled.assert_called_with(
@@ -162,7 +162,7 @@ class TestTeam(BaseTest):
             with override_instance_config("PERSON_ON_EVENTS_V2_ENABLED", True):
                 team = Team.objects.create_with_data(organization=self.organization)
                 self.assertEqual(
-                    team.person_on_events_mode, PersonsOnEventsMode.person_id_override_properties_on_events
+                    team.person_on_events_mode, PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
                 )
                 for args_list in mock_feature_enabled.call_args_list:
                     # It is ok if we check other feature flags, just not `persons-on-events-v2-reads-enabled`
@@ -170,7 +170,7 @@ class TestTeam(BaseTest):
 
             with override_instance_config("PERSON_ON_EVENTS_V2_ENABLED", False):
                 team = Team.objects.create_with_data(organization=self.organization)
-                self.assertEqual(team.person_on_events_mode, PersonsOnEventsMode.disabled)
+                self.assertEqual(team.person_on_events_mode, PersonsOnEventsMode.DISABLED)
                 for args_list in mock_feature_enabled.call_args_list:
                     # It is ok if we check other feature flags, just not `persons-on-events-v2-reads-enabled`
                     assert args_list[0][0] != "persons-on-events-v2-reads-enabled"

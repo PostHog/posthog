@@ -1,6 +1,7 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import api from 'lib/api'
+import posthog from 'posthog-js'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
 import { DatabaseSchemaTable, DatabaseSerializedFieldType } from '~/queries/schema'
@@ -36,6 +37,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         setEditSchemaIsLoading: (isLoading: boolean) => ({ isLoading }),
         cancelEditSchema: () => ({ database: values.database }),
         deleteDataWarehouseTable: (tableId: string) => ({ tableId }),
+        toggleSchemaModal: true,
     })),
     reducers({
         selectedRow: [
@@ -122,6 +124,12 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                 loadDatabaseFailure: () => false,
             },
         ],
+        schemaModalIsOpen: [
+            false,
+            {
+                toggleSchemaModal: (state) => !state,
+            },
+        ],
     }),
     selectors({
         dataWarehouseTablesBySourceType: [
@@ -143,11 +151,18 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                 }, {})
             },
         ],
+        dataWarehouseTablesAndViews: [
+            (s) => [s.dataWarehouseTables, s.views],
+            (dataWarehouseTables, views): DatabaseSchemaTable[] => {
+                return [...dataWarehouseTables, ...views]
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
         deleteDataWarehouseSavedQuery: async (tableId) => {
-            await api.dataWarehouseTables.delete(tableId)
+            await api.dataWarehouseSavedQueries.delete(tableId)
             actions.selectRow(null)
+            actions.loadDatabase()
             lemonToast.success('View successfully deleted')
         },
         selectRow: () => {
@@ -175,6 +190,13 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             try {
                 await api.dataWarehouseTables.updateSchema(tableId, schemaUpdates)
                 actions.loadDatabase()
+
+                if (values.selectedRow) {
+                    posthog.capture('source schema saved', {
+                        name: values.selectedRow.name,
+                        tableType: values.selectedRow.type,
+                    })
+                }
             } catch (e: any) {
                 lemonToast.error(e.message)
                 actions.setEditSchemaIsLoading(false)
@@ -197,6 +219,14 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             await api.dataWarehouseTables.delete(tableId)
             actions.selectRow(null)
             lemonToast.success('Table successfully deleted')
+        },
+        toggleSchemaModal: () => {
+            if (values.schemaModalIsOpen && values.selectedRow) {
+                posthog.capture('source schema viewed', {
+                    name: values.selectedRow.name,
+                    tableType: values.selectedRow.type,
+                })
+            }
         },
     })),
 ])

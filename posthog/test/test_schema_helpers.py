@@ -17,6 +17,7 @@ from posthog.schema import (
     StepOrderValue,
     BreakdownAttributionType,
     TrendsQuery,
+    RetentionQuery,
 )
 from posthog.schema_helpers import to_dict
 
@@ -35,8 +36,8 @@ class TestSchemaHelpers(TestCase):
         equal property filters can be distinguished.
         """
 
-        q1 = EventPropertyFilter(key="abc", operator=PropertyOperator.gt)
-        q2 = PersonPropertyFilter(key="abc", operator=PropertyOperator.gt)
+        q1 = EventPropertyFilter(key="abc", operator=PropertyOperator.GT)
+        q2 = PersonPropertyFilter(key="abc", operator=PropertyOperator.GT)
 
         self.assertNotEqual(to_dict(q1), to_dict(q2))
         self.assertIn("'type': 'event'", str(to_dict(q1)))
@@ -50,7 +51,7 @@ class TestSchemaHelpers(TestCase):
 
         q1 = EventPropertyFilter(key="abc")
         q2 = EventPropertyFilter(key="abc", operator=None)
-        q3 = EventPropertyFilter(key="abc", operator=PropertyOperator.exact)
+        q3 = EventPropertyFilter(key="abc", operator=PropertyOperator.EXACT)
 
         self.assertEqual(to_dict(q1), to_dict(q2))
         self.assertEqual(to_dict(q2), to_dict(q3))
@@ -90,6 +91,15 @@ class TestSchemaHelpers(TestCase):
         result_dict = to_dict(query)
 
         self.assertEqual(result_dict, {"kind": "TrendsQuery", "series": []})
+
+    def test_serializes_retention_filter_without_frontend_only_props(self):
+        query = RetentionQuery(**{"retentionFilter": {"targetEntity": {"uuid": "1"}, "returningEntity": {"uuid": "2"}}})
+
+        result_dict = to_dict(query)
+
+        self.assertEqual(
+            result_dict, {"kind": "RetentionQuery", "retentionFilter": {"targetEntity": {}, "returningEntity": {}}}
+        )
 
     def test_serializes_display_with_canonic_alternatives(self):
         # time series (gets removed as ActionsLineGraph is the default)
@@ -149,29 +159,29 @@ class TestSchemaHelpers(TestCase):
             (None, {}, 0),
             # general: ordering of keys
             (
-                {"funnelVizType": FunnelVizType.time_to_convert, "funnelOrderType": StepOrderValue.strict},
-                {"funnelOrderType": StepOrderValue.strict, "funnelVizType": FunnelVizType.time_to_convert},
+                {"funnelVizType": FunnelVizType.TIME_TO_CONVERT, "funnelOrderType": StepOrderValue.STRICT},
+                {"funnelOrderType": StepOrderValue.STRICT, "funnelVizType": FunnelVizType.TIME_TO_CONVERT},
                 2,
             ),
             # binCount
             # ({}, {"binCount": 4}, 0),
             (
-                {"binCount": 4, "funnelVizType": FunnelVizType.time_to_convert},
-                {"binCount": 4, "funnelVizType": FunnelVizType.time_to_convert},
+                {"binCount": 4, "funnelVizType": FunnelVizType.TIME_TO_CONVERT},
+                {"binCount": 4, "funnelVizType": FunnelVizType.TIME_TO_CONVERT},
                 2,
             ),
             # breakdownAttributionType
-            ({}, {"breakdownAttributionType": BreakdownAttributionType.first_touch}, 0),
+            ({}, {"breakdownAttributionType": BreakdownAttributionType.FIRST_TOUCH}, 0),
             (
-                {"breakdownAttributionType": BreakdownAttributionType.last_touch},
-                {"breakdownAttributionType": BreakdownAttributionType.last_touch},
+                {"breakdownAttributionType": BreakdownAttributionType.LAST_TOUCH},
+                {"breakdownAttributionType": BreakdownAttributionType.LAST_TOUCH},
                 1,
             ),
             # breakdownAttributionValue
             # ({}, {"breakdownAttributionValue": 2}, 0),
             (
-                {"breakdownAttributionType": BreakdownAttributionType.step, "breakdownAttributionValue": 2},
-                {"breakdownAttributionType": BreakdownAttributionType.step, "breakdownAttributionValue": 2},
+                {"breakdownAttributionType": BreakdownAttributionType.STEP, "breakdownAttributionValue": 2},
+                {"breakdownAttributionType": BreakdownAttributionType.STEP, "breakdownAttributionValue": 2},
                 2,
             ),
             # exclusions
@@ -187,35 +197,35 @@ class TestSchemaHelpers(TestCase):
             # funnelFromStep and funnelToStep
             ({"funnelFromStep": 1, "funnelToStep": 2}, {"funnelFromStep": 1, "funnelToStep": 2}, 2),
             # funnelOrderType
-            ({}, {"funnelOrderType": StepOrderValue.ordered}, 0),
-            ({"funnelOrderType": StepOrderValue.strict}, {"funnelOrderType": StepOrderValue.strict}, 1),
+            ({}, {"funnelOrderType": StepOrderValue.ORDERED}, 0),
+            ({"funnelOrderType": StepOrderValue.STRICT}, {"funnelOrderType": StepOrderValue.STRICT}, 1),
             # funnelStepReference
-            ({}, {"funnelStepReference": FunnelStepReference.total}, 0),
+            ({}, {"funnelStepReference": FunnelStepReference.TOTAL}, 0),
             (
-                {"funnelStepReference": FunnelStepReference.previous},
-                {"funnelStepReference": FunnelStepReference.previous},
+                {"funnelStepReference": FunnelStepReference.PREVIOUS},
+                {"funnelStepReference": FunnelStepReference.PREVIOUS},
                 1,
             ),
             # funnelVizType
-            ({}, {"funnelVizType": FunnelVizType.steps}, 0),
-            ({"funnelVizType": FunnelVizType.trends}, {"funnelVizType": FunnelVizType.trends}, 1),
+            ({}, {"funnelVizType": FunnelVizType.STEPS}, 0),
+            ({"funnelVizType": FunnelVizType.TRENDS}, {"funnelVizType": FunnelVizType.TRENDS}, 1),
             # funnelWindowInterval
             ({}, {"funnelWindowInterval": 14}, 0),
             ({"funnelWindowInterval": 12}, {"funnelWindowInterval": 12}, 1),
             # funnelWindowIntervalUnit
-            ({}, {"funnelWindowIntervalUnit": FunnelConversionWindowTimeUnit.day}, 0),
+            ({}, {"funnelWindowIntervalUnit": FunnelConversionWindowTimeUnit.DAY}, 0),
             (
-                {"funnelWindowIntervalUnit": FunnelConversionWindowTimeUnit.week},
-                {"funnelWindowIntervalUnit": FunnelConversionWindowTimeUnit.week},
+                {"funnelWindowIntervalUnit": FunnelConversionWindowTimeUnit.WEEK},
+                {"funnelWindowIntervalUnit": FunnelConversionWindowTimeUnit.WEEK},
                 1,
             ),
             # hidden_legend_breakdowns
             # ({}, {"hidden_legend_breakdowns": []}, 0),
             # layout
-            ({}, {"breakdownAttributionType": BreakdownAttributionType.first_touch}, 0),
+            ({}, {"breakdownAttributionType": BreakdownAttributionType.FIRST_TOUCH}, 0),
             (
-                {"breakdownAttributionType": BreakdownAttributionType.last_touch},
-                {"breakdownAttributionType": BreakdownAttributionType.last_touch},
+                {"breakdownAttributionType": BreakdownAttributionType.LAST_TOUCH},
+                {"breakdownAttributionType": BreakdownAttributionType.LAST_TOUCH},
                 1,
             ),
         ]

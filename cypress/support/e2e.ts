@@ -2,6 +2,7 @@ import 'givens/setup'
 import './commands'
 import 'cypress-axe'
 import { decideResponse } from '../fixtures/api/decide'
+import { urls } from 'scenes/urls'
 
 try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -50,6 +51,8 @@ beforeEach(() => {
 
     if (Cypress.spec.name.includes('before-onboarding')) {
         cy.visit('/?no-preloaded-app-context=true')
+    } else if (Cypress.spec.name.includes('organizationSettings')) {
+        cy.visit(urls.settings('organization'))
     } else {
         cy.visit('/insights')
         cy.wait('@getInsights').then(() => {

@@ -43,7 +43,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         license = get_cached_instance_license()
         if license and not license.is_v2_license:
-            raise NotFound("Billing V2 is not supported for this license type")
+            raise NotFound("Billing is not supported for this license type")
 
         org = self._get_org()
 
@@ -87,12 +87,13 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         return self.list(request, *args, **kwargs)
 
-    class ActivationSerializer(serializers.Serializer):
+    class ActivateSerializer(serializers.Serializer):
         plan = serializers.CharField(required=False)
         products = serializers.CharField(
             required=False
         )  # This is required but in order to support an error for the legacy 'plan' param we need to set required=False
         redirect_path = serializers.CharField(required=False)
+        intent_product = serializers.CharField(required=False)
 
         def validate(self, data):
             plan = data.get("plan")
@@ -109,12 +110,22 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
             return data
 
+    # This is deprecated and should be removed in the future in favor of 'activate'
     @action(methods=["GET"], detail=False)
     def activation(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        return self.handle_activate(request, *args, **kwargs)
+
+    @action(methods=["GET"], detail=False)
+    def activate(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        return self.handle_activate(request, *args, **kwargs)
+
+    # A viewset action cannot call another action directly so this is in place until
+    # the 'activation' endpoint is removed. Once removed, this method can move to the 'activate' action
+    def handle_activate(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         license = get_cached_instance_license()
         organization = self._get_org_required()
 
-        serializer = self.ActivationSerializer(data=request.GET)
+        serializer = self.ActivateSerializer(data=request.GET)
         serializer.is_valid(raise_exception=True)
 
         redirect_path = serializer.validated_data.get("redirect_path", "organization/billing")
@@ -122,10 +133,14 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             redirect_path = redirect_path[1:]
 
         redirect_uri = f"{settings.SITE_URL or request.headers.get('Host')}/{redirect_path}"
-        url = f"{BILLING_SERVICE_URL}/activation?redirect_uri={redirect_uri}&organization_name={organization.name}"
+        url = f"{BILLING_SERVICE_URL}/activate?redirect_uri={redirect_uri}&organization_name={organization.name}"
 
         products = serializer.validated_data.get("products")
         url = f"{url}&products={products}"
+
+        intent_product = serializer.validated_data.get("intent_product")
+        if intent_product:
+            url = f"{url}&intent_product={intent_product}"
 
         if license:
             billing_service_token = build_billing_token(license, organization)
@@ -161,9 +176,23 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             else:
-                raise e
+                raise
 
         return self.list(request, *args, **kwargs)
+
+    @action(methods=["GET"], detail=False)
+    def portal(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        license = get_cached_instance_license()
+        if not license:
+            return Response(
+                {"sucess": True},
+                status=status.HTTP_200_OK,
+            )
+
+        organization = self._get_org_required()
+
+        res = BillingManager(license)._get_stripe_portal_url(organization)
+        return redirect(res)
 
     @action(methods=["GET"], detail=False)
     def get_invoices(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
@@ -184,7 +213,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             if len(e.args) > 2:
                 detail_object = e.args[2]
                 if not isinstance(detail_object, dict):
-                    raise e
+                    raise
                 return Response(
                     {
                         "statusText": e.args[0],
@@ -194,7 +223,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             else:
-                raise e
+                raise
 
         return Response(
             {

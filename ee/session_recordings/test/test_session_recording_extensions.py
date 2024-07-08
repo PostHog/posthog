@@ -1,5 +1,5 @@
 import gzip
-from datetime import timedelta, datetime, timezone
+from datetime import timedelta, datetime, UTC
 from secrets import token_urlsafe
 from unittest.mock import patch, MagicMock
 from uuid import uuid4
@@ -84,7 +84,7 @@ class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
 
     def test_persists_recording_from_blob_ingested_storage(self):
         with self.settings(OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_FOLDER=TEST_BUCKET):
-            two_minutes_ago = (datetime.now() - timedelta(minutes=2)).replace(tzinfo=timezone.utc)
+            two_minutes_ago = (datetime.now() - timedelta(minutes=2)).replace(tzinfo=UTC)
 
             with freeze_time(two_minutes_ago):
                 session_id = f"test_persists_recording_from_blob_ingested_storage-s1-{uuid4()}"

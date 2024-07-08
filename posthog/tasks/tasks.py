@@ -10,6 +10,7 @@ from prometheus_client import Gauge
 from redis import Redis
 from structlog import get_logger
 
+from posthog.clickhouse.client.limit import limit_concurrency, CeleryConcurrencyLimitExceeded
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.hogql.constants import LimitContext
@@ -40,18 +41,25 @@ def redis_heartbeat() -> None:
     autoretry_for=(
         # Important: Only retry for things that might be okay on the next try
         CHQueryErrorTooManySimultaneousQueries,
+        CeleryConcurrencyLimitExceeded,
     ),
     retry_backoff=1,
-    retry_backoff_max=2,
+    retry_backoff_max=10,
     max_retries=3,
+    expires=60 * 10,  # Do not run queries that got stuck for more than this
+    reject_on_worker_lost=True,
 )
+@limit_concurrency(90)  # Do not go above what CH can handle (max_concurrent_queries)
+@limit_concurrency(
+    10, key=lambda *args, **kwargs: kwargs.get("team_id") or args[0]
+)  # Do not run too many queries at once for the same team
 def process_query_task(
     team_id: int,
-    user_id: int,
+    user_id: Optional[int],
     query_id: str,
     query_json: dict,
     limit_context: Optional[LimitContext] = None,
-    refresh_requested: bool = False,
+    refresh_requested: bool = False,  # TODO: Remove this parameter after the next deploy
 ) -> None:
     """
     Kick off query
@@ -65,7 +73,6 @@ def process_query_task(
         query_id=query_id,
         query_json=query_json,
         limit_context=limit_context,
-        refresh_requested=refresh_requested,
     )
 
 
@@ -174,7 +181,6 @@ CLICKHOUSE_TABLES = [
     "log_entries",
 ]
 
-
 HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC = {
     "heartbeat": "ingestion",
     "heartbeat_buffer": "ingestion_buffer",
@@ -220,6 +226,60 @@ def ingestion_lag() -> None:
                 lag_gauge.labels(scenario=metric).set(lag)
     except:
         pass
+
+
+@shared_task(ignore_result=True, queue=CeleryQueue.SESSION_REPLAY_GENERAL.value)
+def replay_count_metrics() -> None:
+    try:
+        logger.info("[replay_count_metrics] running task")
+
+        from posthog.client import sync_execute
+
+        # ultimately I want to observe values by team id, but at the moment that would be lots of series, let's reduce the value first
+        query = """
+        select
+            --team_id,
+            count() as all_recordings,
+            countIf(snapshot_source == 'mobile') as mobile_recordings,
+            countIf(snapshot_source == 'web') as web_recordings,
+            countIf(snapshot_source =='web' and first_url is null) as invalid_web_recordings
+        from (
+            select any(team_id) as team_id, argMinMerge(first_url) as first_url, argMinMerge(snapshot_source) as snapshot_source
+            from session_replay_events
+            where min_first_timestamp >= now() - interval 65 minute
+            and min_first_timestamp <= now() - interval 5 minute
+            group by session_id
+        )
+        --group by team_id
+        """
+
+        results = sync_execute(
+            query,
+        )
+
+        metrics = [
+            "all_recordings",
+            "mobile_recordings",
+            "web_recordings",
+            "invalid_web_recordings",
+        ]
+        descriptions = [
+            "All recordings that started in the last hour",
+            "Recordings started in the last hour that are from mobile",
+            "Recordings started in the last hour that are from web",
+            "Acts as a proxy for replay sessions which haven't received a full snapshot",
+        ]
+        with pushed_metrics_registry("celery_replay_tracking") as registry:
+            for i in range(0, 4):
+                gauge = Gauge(
+                    f"replay_tracking_{metrics[i]}",
+                    descriptions[i],
+                    registry=registry,
+                )
+                count = results[0][i]
+                gauge.set(count)
+    except Exception as e:
+        logger.exception("Failed to run invalid web replays task", error=e, inc_exc_info=True)
 
 
 KNOWN_CELERY_TASK_IDENTIFIERS = {
@@ -503,7 +563,7 @@ def monitoring_check_clickhouse_schema_drift() -> None:
     check_clickhouse_schema_drift()
 
 
-@shared_task(ignore_result=True)
+@shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value)
 def calculate_cohort() -> None:
     from posthog.tasks.calculate_cohort import calculate_cohorts
 
@@ -557,7 +617,7 @@ def poll_query_performance(last_known_run_time_ns: int) -> None:
 
         poll_query_performance_nontask()
     except Exception as e:
-        logger.error("Poll query performance failed", error=e)
+        logger.exception("Poll query performance failed", error=e)
 
     elapsed_ns = time.time_ns() - start_time_ns
     if elapsed_ns > Polling.TIME_BETWEEN_RUNS_NANOSECONDS:
@@ -587,7 +647,7 @@ def start_poll_query_performance() -> None:
             poll_query_performance.delay(last_run_start_time_ns)
 
     except Exception as e:
-        logger.error("Restarting poll query performance because of an error", error=e)
+        logger.exception("Restarting poll query performance because of an error", error=e)
         poll_query_performance.delay(last_run_start_time_ns)
 
 
@@ -626,6 +686,7 @@ def schedule_cache_updates_task() -> None:
     retry_backoff_max=30,
     max_retries=3,
     retry_jitter=True,
+    queue=CeleryQueue.LONG_RUNNING.value,
 )
 def update_cache_task(caching_state_id: UUID) -> None:
     from posthog.caching.insight_cache import update_cache
@@ -712,6 +773,13 @@ def stop_surveys_reached_target() -> None:
     from posthog.tasks.stop_surveys_reached_target import stop_surveys_reached_target
 
     stop_surveys_reached_target()
+
+
+@shared_task(ignrore_result=True)
+def update_survey_iteration() -> None:
+    from posthog.tasks.update_survey_iteration import update_survey_iteration
+
+    update_survey_iteration()
 
 
 def recompute_materialized_columns_enabled() -> bool:
@@ -854,3 +922,13 @@ def calculate_replay_error_clusters() -> None:
         pass
     except Exception as e:
         logger.error("Failed to calculate replay error clusters", error=e, exc_info=True)
+
+
+@shared_task(ignore_result=True)
+def calculate_external_data_rows_synced() -> None:
+    try:
+        from posthog.tasks.warehouse import capture_external_data_rows_synced
+    except ImportError:
+        pass
+    else:
+        capture_external_data_rows_synced()

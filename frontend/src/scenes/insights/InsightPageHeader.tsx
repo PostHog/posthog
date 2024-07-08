@@ -37,10 +37,16 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { setInsightMode } = useActions(insightSceneLogic)
 
     // insightLogic
-    const logic = insightLogic(insightLogicProps)
-    const { insightProps, canEditInsight, insight, insightChanged, insightSaving, hasDashboardItemId } =
-        useValues(logic)
-    const { setInsightMetadata } = useActions(logic)
+    const {
+        insightProps,
+        canEditInsight,
+        queryBasedInsight: insight,
+        legacyInsight,
+        insightChanged,
+        insightSaving,
+        hasDashboardItemId,
+    } = useValues(insightLogic(insightLogicProps))
+    const { setInsightMetadata } = useActions(insightLogic(insightLogicProps))
 
     // savedInsightsLogic
     const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
@@ -78,7 +84,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                     <AddToDashboardModal
                         isOpen={addToDashboardModalOpen}
                         closeModal={() => setAddToDashboardModalOpenModal(false)}
-                        insight={insight}
+                        insightProps={insightProps}
                         canEditInsight={canEditInsight}
                     />
                     <AlertsModal
@@ -99,7 +105,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                     {hasDashboardItemId && (
                                         <>
                                             <LemonButton
-                                                onClick={() => duplicateInsight(insight as InsightModel, true)}
+                                                onClick={() => duplicateInsight(legacyInsight as InsightModel, true)}
                                                 fullWidth
                                                 data-attr="duplicate-insight-from-insight-view"
                                             >
@@ -211,7 +217,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                 status="danger"
                                                 onClick={() =>
                                                     void deleteWithUndo({
-                                                        object: insight,
+                                                        object: legacyInsight,
                                                         endpoint: `projects/${currentTeamId}/insights`,
                                                         callback: () => {
                                                             loadInsights()

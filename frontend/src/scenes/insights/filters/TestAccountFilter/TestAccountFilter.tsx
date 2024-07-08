@@ -1,7 +1,7 @@
 import { IconGear } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
+import { LemonSwitch, LemonSwitchProps } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -10,10 +10,12 @@ import { FilterType } from '~/types'
 
 export function TestAccountFilter({
     filters,
+    size,
     onChange,
     disabledReason,
 }: {
     filters: Partial<FilterType>
+    size?: LemonSwitchProps['size']
     onChange: (filters: Partial<FilterType>) => void
     disabledReason?: string | null | false
 }): JSX.Element | null {
@@ -31,7 +33,7 @@ export function TestAccountFilter({
             id="test-account-filter"
             bordered
             label={
-                <div className="flex items-center">
+                <div className="flex items-center whitespace-nowrap">
                     <span>Filter out internal and test users</span>
                     <LemonButton
                         icon={<IconGear />}
@@ -43,6 +45,7 @@ export function TestAccountFilter({
                 </div>
             }
             fullWidth
+            size={size}
             disabledReason={!hasFilters ? "You haven't set any internal and test filters" : disabledReason}
         />
     )

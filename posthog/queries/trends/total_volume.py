@@ -53,9 +53,9 @@ class TrendsTotalVolume:
         interval_func = get_interval_func_ch(filter.interval)
 
         person_id_alias = f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
-        if team.person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events:
+        if team.person_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
             person_id_alias = f"if(notEmpty({self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.person_id), {self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.person_id, {self.EVENT_TABLE_ALIAS}.person_id)"
-        elif team.person_on_events_mode == PersonsOnEventsMode.person_id_no_override_properties_on_events:
+        elif team.person_on_events_mode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
             person_id_alias = f"{self.EVENT_TABLE_ALIAS}.person_id"
 
         aggregate_operation, join_condition, math_params = process_math(
@@ -70,10 +70,12 @@ class TrendsTotalVolume:
             filter=filter,
             entity=entity,
             team=team,
-            should_join_distinct_ids=True
-            if join_condition != ""
-            or (entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE] and not team.aggregate_users_by_distinct_id)
-            else False,
+            should_join_distinct_ids=(
+                True
+                if join_condition != ""
+                or (entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE] and not team.aggregate_users_by_distinct_id)
+                else False
+            ),
             person_on_events_mode=team.person_on_events_mode,
         )
         event_query_base, event_query_params = trend_event_query.get_query_base()

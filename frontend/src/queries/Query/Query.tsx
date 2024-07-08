@@ -14,14 +14,12 @@ import { QueryContext } from '~/queries/types'
 
 import { DataTableVisualization } from '../nodes/DataVisualization/DataVisualization'
 import { SavedInsight } from '../nodes/SavedInsight/SavedInsight'
-import { TimeToSeeData } from '../nodes/TimeToSeeData/TimeToSeeData'
 import {
     isDataTableNode,
     isDataVisualizationNode,
     isHogQuery,
     isInsightVizNode,
     isSavedInsightNode,
-    isTimeToSeeDataSessionsNode,
     isWebOverviewQuery,
 } from '../utils'
 
@@ -31,7 +29,7 @@ export interface QueryProps<Q extends Node> {
     /** The query to render */
     query: Q | string | null
     /** Set this if you're controlling the query parameter */
-    setQuery?: (query: Q) => void
+    setQuery?: (query: Q, isSourceUpdate?: boolean) => void
 
     /** Custom components passed down to a few query nodes (e.g. custom table columns) */
     context?: QueryContext
@@ -110,8 +108,6 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 embedded={embedded}
             />
         )
-    } else if (isTimeToSeeDataSessionsNode(query)) {
-        component = <TimeToSeeData query={query} cachedResults={props.cachedResults} />
     } else if (isWebOverviewQuery(query)) {
         component = <WebOverview query={query} cachedResults={props.cachedResults} context={queryContext} />
     } else if (isHogQuery(query)) {
@@ -134,7 +130,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                         <>
                             <QueryEditor
                                 query={JSON.stringify(query)}
-                                setQuery={(stringQuery) => setQuery?.(JSON.parse(stringQuery))}
+                                setQuery={(stringQuery) => setQuery?.(JSON.parse(stringQuery), true)}
                                 context={queryContext}
                             />
                             <div className="my-4">
