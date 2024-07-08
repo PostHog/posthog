@@ -14,8 +14,6 @@ materialized_view = KafkaDebugMaterializedView(to_table=debug_table, from_table=
 
 
 operations = [
-    # We just need to drop and recreate the kafka and MV tables here to
-    # correct the serialization type (LineAsString from JSONEachRow)
     run_sql_with_exceptions(kafka_table.get_drop_table_sql()),
     run_sql_with_exceptions(materialized_view.get_drop_view_sql()),
     run_sql_with_exceptions(debug_table.get_create_view_sql()),
