@@ -20,9 +20,6 @@ export const STL: Record<string, (args: any[], name: string, timeout: number) =>
     toFloat: (args) => {
         return !isNaN(parseFloat(args[0])) ? parseFloat(args[0]) : null
     },
-    ifNull: (args) => {
-        return args[0] !== null ? args[0] : args[1]
-    },
     length: (args) => {
         return args[0].length
     },

@@ -45,13 +45,6 @@ def toInt(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[l
         return None
 
 
-def ifNull(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int):
-    if args[0] is not None:
-        return args[0]
-    else:
-        return args[1]
-
-
 def length(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int):
     return len(args[0])
 
@@ -162,7 +155,6 @@ STL: dict[str, Callable[[str, list[Any], Optional["Team"], list[str] | None, int
     "toUUID": toString,
     "toInt": toInt,
     "toFloat": toInt,
-    "ifNull": ifNull,
     "length": length,
     "empty": empty,
     "notEmpty": notEmpty,
