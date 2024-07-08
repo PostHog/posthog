@@ -371,7 +371,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                                               val,
                                                                                       })
                                                                                   }
-                                                                                  placeholder="ex: Close"
+                                                                                  placeholder="example: Close"
                                                                               />
                                                                           </LemonField.Pure>
                                                                           <LemonField.Pure className="mt-2">
