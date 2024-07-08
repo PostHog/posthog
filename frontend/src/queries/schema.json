@@ -2882,7 +2882,7 @@
             "type": "string"
         },
         "ErrorTrackingOrder": {
-            "enum": ["last_seen", "first_seen", "unique_occurrences", "unique_users", "unique_sessions"],
+            "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
             "type": "string"
         },
         "EventDefinition": {

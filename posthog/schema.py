@@ -339,9 +339,9 @@ class EntityType(StrEnum):
 class ErrorTrackingOrder(StrEnum):
     LAST_SEEN = "last_seen"
     FIRST_SEEN = "first_seen"
-    UNIQUE_OCCURRENCES = "unique_occurrences"
-    UNIQUE_USERS = "unique_users"
-    UNIQUE_SESSIONS = "unique_sessions"
+    OCCURRENCES = "occurrences"
+    USERS = "users"
+    SESSIONS = "sessions"
 
 
 class EventDefinition(BaseModel):

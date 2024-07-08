@@ -210,10 +210,7 @@ def session_recording_kafka_producer() -> _KafkaProducer:
         kafka_hosts=settings.SESSION_RECORDING_KAFKA_HOSTS,
         kafka_security_protocol=settings.SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL,
         max_request_size=settings.SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES,
-        # if the message has already been serialized with gzip, we don't need to double compress it
-        compression_type=settings.SESSION_RECORDING_KAFKA_COMPRESSION
-        if settings.SESSION_RECORDING_KAFKA_COMPRESSION == "gzip"
-        else None,
+        compression_type="gzip",
     )
 
 
