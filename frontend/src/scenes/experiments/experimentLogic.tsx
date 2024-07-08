@@ -1277,28 +1277,23 @@ export const experimentLogic = kea<experimentLogicType>([
                 return variantsWithResults
             },
         ],
-        sortedConversionRates: [
-            (s) => [s.experimentResults, s.variants, s.conversionRateForVariant],
+        sortedWinProbabilities: [
+            (s) => [s.experimentResults, s.conversionRateForVariant],
             (
-                experimentResults: any,
-                variants: any,
-                conversionRateForVariant: any
-            ): { key: string; conversionRate: number; index: number }[] => {
-                const conversionRates = []
-                for (let index = 0; index < variants.length; index++) {
-                    const variant = variants[index].key
-                    const conversionRate = parseFloat(conversionRateForVariant(experimentResults, variant))
-                    conversionRates.push({ key: variant, conversionRate, index })
+                experimentResults,
+                conversionRateForVariant
+            ): { key: string; winProbability: number; conversionRate: number }[] => {
+                if (!experimentResults) {
+                    return []
                 }
-                return conversionRates.sort((a, b) => {
-                    if (!a.conversionRate) {
-                        return 1
-                    } // Push a to the end if it doesn't exist
-                    if (!b.conversionRate) {
-                        return -1
-                    }
-                    return b.conversionRate - a.conversionRate
-                })
+
+                return Object.keys(experimentResults.probability)
+                    .map((key) => ({
+                        key,
+                        winProbability: experimentResults.probability[key],
+                        conversionRate: parseFloat(conversionRateForVariant(experimentResults, key)),
+                    }))
+                    .sort((a, b) => b.winProbability - a.winProbability)
             },
         ],
         funnelResultsPersonsTotal: [

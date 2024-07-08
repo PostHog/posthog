@@ -22,14 +22,14 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
     const initialBillingLimit = currentAndUpgradePlans?.currentPlan?.initial_billing_limit
     const usingInitialBillingLimit = customLimitUsd === initialBillingLimit
 
-    if (billing?.billing_period?.interval !== 'month' || !product.subscribed) {
+    if (billing?.billing_period?.interval !== 'month' || !product.subscribed || product.inclusion_only) {
         return null
     }
 
     return (
         <Form formKey="billingLimitInput" props={{ product: product }} logic={billingProductLogic} enableFormOnSubmit>
             <div className="border-t border-border p-8" data-attr={`billing-limit-input-${product.type}`}>
-                <h3 className="mb-2">Billing limit</h3>
+                <h4 className="mb-2">Billing limit</h4>
                 <div className="flex">
                     {!isEditingBillingLimit ? (
                         <div className="flex items-center justify-center gap-1">
@@ -37,14 +37,14 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
                                 <>
                                     {usingInitialBillingLimit ? (
                                         <Tooltip title="Initial limits protect you from accidentally incurring large unexpected charges. Some features may stop working and data may be dropped if your usage exceeds your limit.">
-                                            <span>
+                                            <span className="text-sm">
                                                 This product has a default initial billing limit of{' '}
                                                 <b>${initialBillingLimit}</b>.
                                             </span>
                                         </Tooltip>
                                     ) : (
                                         <Tooltip title="Set a billing limit to control your recurring costs. Some features may stop working and data may be dropped if your usage exceeds your limit.">
-                                            <span>
+                                            <span className="text-sm">
                                                 You have a <b>${customLimitUsd}</b> billing limit set for{' '}
                                                 {product?.name?.toLowerCase()}.
                                             </span>
@@ -61,7 +61,9 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
                                 </>
                             ) : (
                                 <>
-                                    <span>You do not have a billing limit set for {product?.name?.toLowerCase()}.</span>
+                                    <span className="text-sm">
+                                        You do not have a billing limit set for {product?.name?.toLowerCase()}.
+                                    </span>
                                     <LemonButton
                                         onClick={() => setIsEditingBillingLimit(true)}
                                         status="danger"

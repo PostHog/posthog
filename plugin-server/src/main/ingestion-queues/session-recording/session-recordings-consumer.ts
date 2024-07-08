@@ -340,6 +340,7 @@ export class SessionRecordingIngester {
                 assignedPartitions: this.assignedPartitions,
             })
         }
+
         await runInstrumentedFunction({
             statsKey: `recordingingester.handleEachBatch`,
             sendTimeoutGuardToSentry: false,

@@ -43,7 +43,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         license = get_cached_instance_license()
         if license and not license.is_v2_license:
-            raise NotFound("Billing V2 is not supported for this license type")
+            raise NotFound("Billing is not supported for this license type")
 
         org = self._get_org()
 
