@@ -287,7 +287,7 @@ export const parseKafkaMessage = async (
 
     // NOTE: This is simple validation - ideally we should do proper schema based validation
     if (event.event !== '$snapshot_items' || !$snapshot_items || !$session_id) {
-        return dropMessage('received_non_snapshot_message')
+        return dropMessage('received_non_snapshot_message', { team_id: teamIdWithConfig.teamId })
     }
 
     const events: RRWebEvent[] = $snapshot_items.filter((event: any) => {
