@@ -201,7 +201,7 @@ export class EventsProcessor {
         preIngestionEvent: PreIngestionEvent,
         person: Person,
         processPerson: boolean
-    ): Promise<[RawClickHouseEvent, Promise<void>]> {
+    ): [RawClickHouseEvent, Promise<void>] {
         const { eventUuid: uuid, event, teamId, distinctId, properties, timestamp } = preIngestionEvent
 
         let elementsChain = ''
