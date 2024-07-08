@@ -98,7 +98,7 @@ class FunnelUDF(FunnelBase):
                 {step_results2},
                 {mean_conversion_times},
                 {median_conversion_times},
-                groupArray(row_number),
+                groupArray(row_number) as row_number,
                 final_prop
             FROM 
                 {{s}}
@@ -118,6 +118,7 @@ class FunnelUDF(FunnelBase):
                 {step_results3},
                 {mean_conversion_times3},
                 {median_conversion_times3},
+                row_number,
                 final_prop
             FROM 
                 {{s}}
