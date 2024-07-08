@@ -86,20 +86,17 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
             <div className="space-x-1">
                 <TZLabel time={first_seen} className="border-dotted border-b" />
                 <span>|</span>
-                <TZLabel time={last_seen} showPopover={false} className="border-dotted border-b" />
+                <TZLabel time={last_seen} className="border-dotted border-b" />
             </div>
         )
     }
 
     return (
         <LemonTableLink
-            title={properties.$exception_type || 'Title'}
+            title={properties.$exception_type}
             description={
                 <div className="space-y-1">
-                    <div className="line-clamp-1">
-                        {properties.$exception_message ||
-                            'This is a super long message that should be truncated should be truncated should be truncated should be truncated should be truncated should be truncated'}
-                    </div>
+                    <div className="line-clamp-1">{properties.$exception_message}</div>
                     <FirstAndLast record={record as string[]} />
                 </div>
             }

@@ -138,7 +138,7 @@ export const errorTrackingGroupQuery = ({
     return {
         kind: NodeKind.EventsQuery,
         select: ['uuid', 'properties', 'timestamp', 'person'],
-        // where: [`properties.$exception_type = '${group}'`],
+        where: [`properties.$exception_type = '${group}'`],
         ...defaultProperties({ dateRange, filterTestAccounts, filterGroup }),
     }
 }
@@ -169,7 +169,7 @@ export const errorTrackingGroupBreakdownQuery = ({
             series: [
                 {
                     kind: NodeKind.EventsNode,
-                    event: '$pageview',
+                    event: '$exception',
                     math: BaseMathType.TotalCount,
                 },
             ],
@@ -192,7 +192,7 @@ const defaultProperties = ({
     const properties = filterGroup.values as AnyPropertyFilter[]
 
     return {
-        event: '$pageview',
+        event: '$exception',
         after: dateRange.date_from || undefined,
         before: dateRange.date_to || undefined,
         filterTestAccounts,
