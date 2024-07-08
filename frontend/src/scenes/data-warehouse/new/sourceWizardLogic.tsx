@@ -338,7 +338,7 @@ const manualLinkSourceMap: Record<ManualLinkSourceType, string> = {
     'cloudflare-r2': 'Cloudflare R2',
 }
 
-interface SourceWizardLogicProps {
+export interface SourceWizardLogicProps {
     onComplete?: () => void
 }
 
