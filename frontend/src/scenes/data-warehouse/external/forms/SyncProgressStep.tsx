@@ -1,4 +1,4 @@
-import { LemonButton, LemonTable, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTableColumns, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { sourceWizardLogic } from 'scenes/data-warehouse/new/sourceWizardLogic'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
@@ -43,7 +43,7 @@ export const SyncProgressStep = (): JSX.Element => {
         }
     }
 
-    const columns = [
+    const columns: LemonTableColumns<ExternalDataSourceSchema> = [
         {
             title: 'Table',
             key: 'table',
