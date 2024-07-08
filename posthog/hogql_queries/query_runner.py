@@ -12,7 +12,7 @@ from sentry_sdk import capture_exception, push_scope
 
 from posthog.cache_utils import OrjsonJsonSerializer
 from posthog.caching.utils import is_stale, last_refresh_from_cached_result, ThresholdMode, cache_target_age
-from posthog.clickhouse.client.execute_async import enqueue_process_query_task
+from posthog.clickhouse.client.execute_async import enqueue_process_query_task, get_query_status, QueryNotFoundError
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
@@ -52,6 +52,7 @@ from posthog.schema import (
     WebTopClicksQuery,
     QueryStatusResponse,
     GenericCachedQueryResponse,
+    QueryStatus,
 )
 from posthog.schema_helpers import to_dict, to_json
 from posthog.utils import generate_cache_key, get_from_dict_or_attr, get_safe_cache
@@ -406,15 +407,24 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
     def enqueue_async_calculation(
         self, *, cache_key: str, refresh_requested: bool = False, user: Optional[User] = None
-    ) -> QueryStatusResponse:
-        query_status = enqueue_process_query_task(
+    ) -> QueryStatus:
+        return enqueue_process_query_task(
             team=self.team,
             user=user,
             query_json=self.query.model_dump(),
             query_id=self.query_id or cache_key,  # Use cache key as query ID to avoid duplicates
             refresh_requested=refresh_requested,
         )
-        return QueryStatusResponse(query_status=query_status)
+
+    def get_async_query_status(self, *, cache_key: str) -> Optional[QueryStatus]:
+        try:
+            query_status = get_query_status(team_id=self.team.pk, query_id=self.query_id or cache_key)
+            if query_status.complete:
+                return None
+            return query_status
+
+        except QueryNotFoundError:
+            return None
 
     def handle_cache_and_async_logic(
         self, execution_mode: ExecutionMode, cache_key: str, user: Optional[User] = None
@@ -443,42 +453,43 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             cached_response.cache_target_age = self.cache_target_age(cached_response)
 
             if not self._is_stale(cached_response):
-                QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="hit").inc()
                 # We have a valid result that's fresh enough, let's return it
+                QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="hit").inc()
+                cached_response.query_status = self.get_async_query_status(cache_key=cache_key)
                 return cached_response
 
             QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="stale").inc()
             # We have a stale result. If we aren't allowed to calculate, let's still return it
             # – otherwise let's proceed to calculation
             if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
+                cached_response.query_status = self.get_async_query_status(cache_key=cache_key)
                 return cached_response
             elif execution_mode == ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE:
                 # We're allowed to calculate, but we'll do it asynchronously and attach the query status
-                query_status_response = self.enqueue_async_calculation(
+                cached_response.query_status = self.enqueue_async_calculation(
                     cache_key=cache_key, user=user, refresh_requested=True
                 )
-                cached_response.query_status = query_status_response.query_status
                 return cached_response
             elif execution_mode == ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE:
                 # We're allowed to calculate if the lazy check fails, but we'll do it asynchronously
                 assert isinstance(cached_response, CachedResponse)
                 if self._is_stale(cached_response, lazy=True):
-                    query_status_response = self.enqueue_async_calculation(cache_key=cache_key, user=user)
-                    cached_response.query_status = query_status_response.query_status
+                    cached_response.query_status = self.enqueue_async_calculation(cache_key=cache_key, user=user)
+                cached_response.query_status = self.get_async_query_status(cache_key=cache_key)
                 return cached_response
         else:
             QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="miss").inc()
             # We have no cached result. If we aren't allowed to calculate, let's return the cache miss
             # – otherwise let's proceed to calculation
             if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
+                cached_response.query_status = self.get_async_query_status(cache_key=cache_key)
                 return cached_response
             elif execution_mode in (
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
                 ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
             ):
                 # We're allowed to calculate, but we'll do it asynchronously
-                query_status_response = self.enqueue_async_calculation(cache_key=cache_key, user=user)
-                cached_response.query_status = query_status_response.query_status
+                cached_response.query_status = self.enqueue_async_calculation(cache_key=cache_key, user=user)
                 return cached_response
 
         # Nothing useful out of cache, nor async query status
@@ -497,7 +508,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         if execution_mode == ExecutionMode.CALCULATE_ASYNC_ALWAYS:
             # We should always kick off async calculation and disregard the cache
-            return self.enqueue_async_calculation(refresh_requested=True, cache_key=cache_key, user=user)
+            return QueryStatusResponse(
+                query_status=self.enqueue_async_calculation(refresh_requested=True, cache_key=cache_key, user=user)
+            )
         elif execution_mode != ExecutionMode.CALCULATE_BLOCKING_ALWAYS:
             # Let's look in the cache first
             results = self.handle_cache_and_async_logic(execution_mode=execution_mode, cache_key=cache_key, user=user)
