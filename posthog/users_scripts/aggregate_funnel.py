@@ -90,7 +90,7 @@ def parse_user_aggregation_with_conversion_window_and_breakdown(num_steps, conve
         for step in reversed(steps):
             # if we are in a window and if we don't already have a matching event with the same entered timestamp:
             # if we already have a matching event here with the same entered timestamp, don't do anything
-            in_match_window = timestamp - entered_timestamp[step - 1][0] < conversion_window_limit
+            in_match_window = timestamp - entered_timestamp[step - 1][0] <= conversion_window_limit
             already_have_matching_event_with_same_entered_timestamp_at_this_step = entered_timestamp[step][0] == entered_timestamp[step - 1][0]
             if in_match_window and not already_have_matching_event_with_same_entered_timestamp_at_this_step:
                 if breakdown_attribution_type.startswith('step_'):
