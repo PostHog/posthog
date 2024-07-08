@@ -83,6 +83,72 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
         def test_null(self):
             self.assertEqual(self._expr("null"), ast.Constant(value=None))
 
+        def test_nullish(self):
+            self.assertEqual(
+                self._expr("1 ?? 2"),
+                ast.Call(
+                    name="ifNull",
+                    args=[
+                        ast.Constant(value=1),
+                        ast.Constant(value=2),
+                    ],
+                ),
+            )
+
+        def test_null_property(self):
+            self.assertEqual(
+                self._expr("a?.b"),
+                ast.ArrayAccess(
+                    array=ast.Call(
+                        name="ifNull",
+                        args=[
+                            ast.Field(chain=["a"]),
+                            ast.Dict(items=[]),
+                        ],
+                    ),
+                    property=ast.Constant(value="b"),
+                ),
+            )
+
+        def test_null_tuple(self):
+            self.assertEqual(
+                self._expr("a?.1"),
+                ast.TupleAccess(
+                    tuple=ast.Call(
+                        name="ifNull",
+                        args=[
+                            ast.Field(chain=["a"]),
+                            ast.Dict(items=[]),
+                        ],
+                    ),
+                    index=1,
+                ),
+            )
+
+        def test_null_property_nested(self):
+            self.assertEqual(
+                self._expr("a?.b?.['c']"),
+                ast.ArrayAccess(
+                    array=ast.Call(
+                        name="ifNull",
+                        args=[
+                            ast.ArrayAccess(
+                                array=ast.Call(
+                                    name="ifNull",
+                                    args=[
+                                        ast.Field(chain=["a"]),
+                                        ast.Dict(items=[]),
+                                    ],
+                                ),
+                                property=ast.Constant(value="b"),
+                            ),
+                            ast.Dict(items=[]),
+                        ],
+                    ),
+                    property=ast.Constant(value="c"),
+                ),
+            )
+
         def test_conditional(self):
             self.assertEqual(
                 self._expr("1 > 2 ? 1 : 2"),

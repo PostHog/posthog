@@ -19,6 +19,7 @@ from hogql_parser import (
     parse_order_expr as _parse_order_expr_cpp,
     parse_select as _parse_select_cpp,
     parse_full_template_string as _parse_full_template_string_cpp,
+    parse_program as _parse_program_cpp,
 )
 
 
@@ -53,8 +54,7 @@ RULE_TO_PARSE_FUNCTION: dict[
         "order_expr": lambda string: _parse_order_expr_cpp(string),
         "select": lambda string: _parse_select_cpp(string),
         "full_template_string": lambda string: _parse_full_template_string_cpp(string),
-        "program": safe_lambda(lambda string: HogQLParseTreeConverter().visit(get_parser(string).program())),
-        # "program": lambda string: _parse_program_cpp(string),
+        "program": lambda string: _parse_program_cpp(string),
     },
 }
 

@@ -1819,6 +1819,49 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     RETURN_NEW_AST_NODE("ArrayAccess", "{s:N,s:N}", "array", object, "property", property);
   }
 
+  VISIT(ColumnExprNullArrayAccess) {
+    PyObject* property = visitAsPyObject(ctx->columnExpr(1));
+    int is_property_a_constant = is_ast_node_instance(property, "Constant");
+    if (is_property_a_constant == -1) {
+      Py_DECREF(property);
+      throw PyInternalError();
+    }
+    if (is_property_a_constant) {
+      PyObject* property_value = PyObject_GetAttrString(property, "value");
+      if (!property_value) {
+        Py_DECREF(property);
+        throw PyInternalError();
+      }
+      PyObject* zero = PyLong_FromLong(0);
+      if (!zero) {
+        Py_DECREF(property_value);
+        Py_DECREF(property);
+        throw PyInternalError();
+      }
+      int is_property_zero = PyObject_RichCompareBool(property_value, zero, Py_EQ);
+      Py_DECREF(zero);
+      Py_DECREF(property_value);
+      if (is_property_zero == -1) {
+        Py_DECREF(property);
+        throw PyInternalError();
+      }
+      if (is_property_zero) {
+        Py_DECREF(property);
+        throw SyntaxError("SQL indexes start from one, not from zero. E.g: array[1]");
+      }
+    }
+    PyObject* object;
+    try {
+      object = visitAsPyObject(ctx->columnExpr(0));
+    } catch (...) {
+      Py_DECREF(property);
+      throw;
+    }
+    PyObject* dict = build_ast_node("Dict", "{s:[]}", "items");
+    PyObject* objectOrDict = build_ast_node("Call", "{s:s,s:[N,N]}", "name", "ifNull", "args", object, dict);
+    RETURN_NEW_AST_NODE("ArrayAccess", "{s:N,s:N}", "array", objectOrDict, "property", property);
+  }
+
   VISIT(ColumnExprPropertyAccess) {
     string identifier = visitAsString(ctx->identifier());
     PyObject* property = build_ast_node("Constant", "{s:s#}", "value", identifier.data(), identifier.size());
@@ -1833,6 +1876,24 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       throw;
     }
     RETURN_NEW_AST_NODE("ArrayAccess", "{s:N,s:N}", "array", object, "property", property);
+  }
+
+  VISIT(ColumnExprNullPropertyAccess) {
+    string identifier = visitAsString(ctx->identifier());
+    PyObject* property = build_ast_node("Constant", "{s:s#}", "value", identifier.data(), identifier.size());
+    if (!property) {
+      throw PyInternalError();
+    }
+    PyObject* object;
+    try {
+      object = visitAsPyObject(ctx->columnExpr());
+    } catch (...) {
+      Py_DECREF(property);
+      throw;
+    }
+    PyObject* dict = build_ast_node("Dict", "{s:[]}", "items");
+    PyObject* objectOrDict = build_ast_node("Call", "{s:s,s:[N,N]}", "name", "ifNull", "args", object, dict);
+    RETURN_NEW_AST_NODE("ArrayAccess", "{s:N,s:N}", "array", objectOrDict, "property", property);
   }
 
   VISIT_UNSUPPORTED(ColumnExprBetween)
@@ -1953,6 +2014,36 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       throw;
     }
     RETURN_NEW_AST_NODE("TupleAccess", "{s:N,s:N}", "tuple", tuple, "index", index);
+  }
+
+  VISIT(ColumnExprNullTupleAccess) {
+    PyObject* index = PyLong_FromString(ctx->DECIMAL_LITERAL()->getText().c_str(), NULL, 10);
+    if (!index) throw PyInternalError();
+    PyObject* zero = PyLong_FromLong(0);
+    if (!zero) {
+      Py_DECREF(index);
+      throw PyInternalError();
+    }
+    int is_index_zero = PyObject_RichCompareBool(index, zero, Py_EQ);
+    Py_DECREF(zero);
+    if (is_index_zero == -1) {
+      Py_DECREF(index);
+      throw PyInternalError();
+    }
+    if (is_index_zero) {
+      Py_DECREF(index);
+      throw SyntaxError("SQL indexes start from one, not from zero. E.g: array[1]");
+    }
+    PyObject* tuple;
+    try {
+      tuple = visitAsPyObject(ctx->columnExpr());
+    } catch (...) {
+      Py_DECREF(index);
+      throw;
+    }
+    PyObject* dict = build_ast_node("Dict", "{s:[]}", "items");
+    PyObject* objectOrDict = build_ast_node("Call", "{s:s,s:[N,N]}", "name", "ifNull", "args", tuple, dict);
+    RETURN_NEW_AST_NODE("TupleAccess", "{s:N,s:N}", "tuple", objectOrDict, "index", index);
   }
 
   VISIT(ColumnExprCase) {
