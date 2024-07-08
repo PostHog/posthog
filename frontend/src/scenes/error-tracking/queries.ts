@@ -73,12 +73,14 @@ export const errorTrackingQuery = ({
         columns.splice(2, 0, 'context.columns.volume')
     }
 
+    const orderDirection = order === 'first_seen' ? 'ASC' : 'DESC'
+
     return {
         kind: NodeKind.DataTableNode,
         source: {
             kind: NodeKind.EventsQuery,
             select: select,
-            orderBy: [order],
+            orderBy: [`${order} ${orderDirection}`],
             ...defaultProperties({ dateRange, filterTestAccounts, filterGroup }),
         },
         hiddenColumns: ['properties.$exception_type', 'last_seen', 'first_seen'],
