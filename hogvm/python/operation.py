@@ -51,3 +51,4 @@ class Operation(int, Enum):
     TUPLE = 44
     GET_PROPERTY = 45
     SET_PROPERTY = 46
+    JUMP_IF_STACK_NOT_NULL = 47
