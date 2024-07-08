@@ -43,7 +43,7 @@ from posthog.api.capture import (
 )
 from posthog.api.test.mock_sentry import mock_sentry_context_for_tagging
 from posthog.api.test.openapi_validation import validate_response
-from posthog.kafka_client.client import KafkaProducer, sessionRecordingKafkaProducer
+from posthog.kafka_client.client import KafkaProducer, session_recording_kafka_producer
 from posthog.kafka_client.topics import (
     KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
@@ -371,6 +371,7 @@ class TestCapture(BaseTest):
                 data=ANY,
                 key=None if expect_random_partitioning else ANY,
                 headers=None,
+                value_serializer=None,
             )
 
             if not expect_random_partitioning:
@@ -1946,7 +1947,7 @@ class TestCapture(BaseTest):
             self._send_august_2023_version_session_recording_event(event_data=None)
 
             session_recording_producer_singleton_mock.assert_called_with(
-                compression_type=None,
+                compression_type="gzip",
                 kafka_hosts=[
                     "another-server:9092",
                     "a-fourth.server:9092",
@@ -1955,7 +1956,7 @@ class TestCapture(BaseTest):
                 max_request_size=1234,
             )
 
-    @patch("posthog.api.capture.sessionRecordingKafkaProducer")
+    @patch("posthog.api.capture.session_recording_kafka_producer")
     @patch("posthog.api.capture.KafkaProducer")
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_can_redirect_session_recordings_to_alternative_kafka(
@@ -1972,7 +1973,7 @@ class TestCapture(BaseTest):
             ],
         ):
             default_kafka_producer_mock.return_value = KafkaProducer()
-            session_recording_producer_factory_mock.return_value = sessionRecordingKafkaProducer()
+            session_recording_producer_factory_mock.return_value = session_recording_kafka_producer()
 
             session_id = "test_can_redirect_session_recordings_to_alternative_kafka"
             # just a single thing to send (it should be an rrweb event but capture doesn't validate that)
@@ -1988,6 +1989,37 @@ class TestCapture(BaseTest):
             data_sent_to_recording_kafka = json.loads(call_one["data"]["data"])
             assert data_sent_to_recording_kafka["event"] == "$snapshot_items"
             assert len(data_sent_to_recording_kafka["properties"]["$snapshot_items"]) == 1
+
+    @patch("posthog.api.capture.session_recording_kafka_producer")
+    @patch("posthog.api.capture.KafkaProducer")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_can_compress_messages_before_kafka(
+        self,
+        kafka_produce: MagicMock,
+        _default_kafka_producer_mock: MagicMock,
+        session_recording_producer_factory_mock: MagicMock,
+    ) -> None:
+        with self.settings(
+            KAFKA_HOSTS=["first.server:9092", "second.server:9092"],
+            SESSION_RECORDING_KAFKA_HOSTS=[
+                "another-server:9092",
+                "a-fourth.server:9092",
+            ],
+            SESSION_RECORDING_KAFKA_COMPRESSION="gzip-in-capture",
+        ):
+            session_recording_producer_factory_mock.return_value = session_recording_kafka_producer()
+
+            session_id = "test_can_redirect_session_recordings_to_alternative_kafka"
+            self._send_august_2023_version_session_recording_event(event_data={}, session_id=session_id)
+
+            assert len(kafka_produce.call_args_list) == 1
+
+            call_one = kafka_produce.call_args_list[0][1]
+            assert call_one["key"] == session_id
+            assert call_one["value_serializer"] is not None
+
+            serialized = call_one["value_serializer"]({"i am": "a string"})
+            assert serialized.startswith(b"\x1f\x8b\x08\x00")
 
     def test_get_distinct_id_non_json_properties(self) -> None:
         with self.assertRaises(ValueError):

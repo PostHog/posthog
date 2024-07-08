@@ -967,10 +967,6 @@ export type DurationType = 'duration' | 'active_seconds' | 'inactive_seconds'
 export type FilterableLogLevel = 'info' | 'warn' | 'error'
 
 export interface RecordingFilters {
-    /**
-     * live mode is front end only, sets date_from and date_to to the last hour
-     */
-    live_mode?: boolean
     date_from?: string | null
     date_to?: string | null
     events?: FilterType['events']
@@ -986,10 +982,6 @@ export interface RecordingFilters {
 }
 
 export interface RecordingUniversalFilters {
-    /**
-     * live mode is front end only, sets date_from and date_to to the last hour
-     */
-    live_mode?: boolean
     date_from?: string | null
     date_to?: string | null
     duration: RecordingDurationFilter[]
