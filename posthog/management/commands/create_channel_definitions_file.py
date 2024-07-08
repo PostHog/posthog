@@ -104,7 +104,6 @@ class Command(BaseCommand):
         # The Google-provided list is missing some other search engines, or miss some subdomains, so add them here
         for search_domain in (
             # from https://en.wikipedia.org/wiki/List_of_search_engines
-            "ask.com",
             "www.ask.com",
             "search.brave.com",
             # Baidu is included already
@@ -144,8 +143,6 @@ class Command(BaseCommand):
             "seznam.cz",
         ):
             entries[(search_domain, EntryKind.source)] = SourceEntry("Search", "Paid Search", "Organic Search")
-            if search_domain[0:4] == "www.":
-                entries[(search_domain[4:], EntryKind.source)] = SourceEntry("Search", "Paid Search", "Organic Search")
 
         # add other sources
         for email_spelling in ("email", "e-mail", "e_mail", "e mail"):
@@ -169,6 +166,12 @@ class Command(BaseCommand):
             entries[audio_medium, EntryKind.medium] = SourceEntry(None, None, "Audio")
         for push_medium in ("push", "mobile", "notification"):
             entries[push_medium, EntryKind.medium] = SourceEntry(None, None, "Push")
+
+        # add without www. for all entries
+        without_www = {
+            (hostname[4:], kind): entry for ((hostname, kind), entry) in entries.items() if hostname.startswith("www.")
+        }
+        entries.update(without_www)
 
         rows = [
             [hostname, kind, entry.hostname_type, entry.type_if_paid, entry.type_if_organic]
