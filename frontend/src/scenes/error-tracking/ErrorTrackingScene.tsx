@@ -1,5 +1,5 @@
 import { TZLabel } from '@posthog/apps-common'
-import { LemonSegmentedButton, Tooltip } from '@posthog/lemon-ui'
+import { LemonSegmentedButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { useMemo } from 'react'
@@ -84,13 +84,9 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
 
         return (
             <div className="space-x-1">
-                <Tooltip title="First seen" delayMs={250}>
-                    <TZLabel time={first_seen} showPopover={false} className="border-dotted border-b" />
-                </Tooltip>
+                <TZLabel time={first_seen} className="border-dotted border-b" />
                 <span>|</span>
-                <Tooltip title="Last seen" delayMs={250}>
-                    <TZLabel time={last_seen} showPopover={false} className="border-dotted border-b" />
-                </Tooltip>
+                <TZLabel time={last_seen} showPopover={false} className="border-dotted border-b" />
             </div>
         )
     }
