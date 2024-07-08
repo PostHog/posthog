@@ -199,6 +199,44 @@ class BytecodeBuilder(Visitor):
             for arg in reversed(node.args):
                 args.extend(self.visit(arg))
             return [*args, Operation.OR, len(node.args)]
+        if node.name == "if" and len(node.args) >= 2:
+            expr = self.visit(node.args[0])
+            then = self.visit(node.args[1])
+            else_ = self.visit(node.args[2]) if len(node.args) == 3 else None
+            response = []
+            response.extend(expr)
+            response.extend([Operation.JUMP_IF_FALSE, len(then) + (2 if else_ else 0)])
+            response.extend(then)
+            if else_:
+                response.extend([Operation.JUMP, len(else_)])
+                response.extend(else_)
+            return response
+        if node.name == "multiIf" and len(node.args) >= 2:
+            if len(node.args) <= 3:
+                return self.visit(ast.Call(name="if", args=node.args))
+            prev = None if len(node.args) % 2 == 0 else self.visit(node.args[-1])
+            for i in range(len(node.args) - 2 - (len(node.args) % 2), -1, -2):
+                expr = self.visit(node.args[i])
+                then = self.visit(node.args[i + 1])
+                response = []
+                response.extend(expr)
+                response.extend([Operation.JUMP_IF_FALSE, len(then) + (2 if prev else 0)])
+                response.extend(then)
+                if prev:
+                    response.extend([Operation.JUMP, len(prev)])
+                    response.extend(prev)
+                prev = response
+            return prev
+        if node.name == "ifNull" and len(node.args) == 2:
+            expr = self.visit(node.args[0])
+            if_null = self.visit(node.args[1])
+            response = []
+            response.extend(expr)
+            response.extend([Operation.JUMP_IF_STACK_NOT_NULL, len(if_null) + 1])
+            response.extend([Operation.POP])
+            response.extend(if_null)
+            return response
+
         if node.name not in STL and node.name not in self.functions and node.name not in self.supported_functions:
             raise QueryError(f"HogQL function `{node.name}` is not implemented")
         if node.name in self.functions and len(node.args) != len(self.functions[node.name].params):
