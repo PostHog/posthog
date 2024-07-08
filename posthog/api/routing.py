@@ -247,14 +247,14 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
 
     @cached_property
     def team(self) -> Team:
+        team_from_token = self._get_team_from_request()
+        if team_from_token:
+            return team_from_token
+
         if self._is_project_view:
             return Team.objects.get(
                 id=self.project_id  # KLUDGE: This is just for the period of transition to project environments
             )
-
-        team_from_token = self._get_team_from_request()
-        if team_from_token:
-            return team_from_token
 
         if self.param_derived_from_user_current_team == "team_id":
             user = cast(User, self.request.user)
