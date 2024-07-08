@@ -82,6 +82,8 @@ class FunnelUDF(FunnelBase):
             [f"if(isNaN(step_{i}_median_conversion_time_nan), null, step_{i}_median_conversion_time_nan) AS step_{i}_median_conversion_time" for i in
              range(1, self.context.max_steps)])
 
+        order_by = ",".join([f"step_{i+1} DESC" for i in reversed(range(self.context.max_steps))])
+
         s = parse_select(f"""
             SELECT
                 {step_results},
@@ -91,6 +93,7 @@ class FunnelUDF(FunnelBase):
             FROM 
                 {{inner_select}}
             GROUP BY breakdown
+            ORDER BY {order_by}
         """, {'inner_select': inner_select})
 
         s = parse_select(f"""
