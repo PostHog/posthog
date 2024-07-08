@@ -62,7 +62,7 @@ class FunnelUDF(FunnelBase):
         step_results = ",".join([f"countIf(ifNull(equals(af, {i}), 0)) AS step_{i+1}" for i in range(self.context.max_steps)])
 
         mean_conversion_times = ",".join([f"avgIf(timings[{i}], timings[{i}] > 0) AS step_{i}_average_conversion_time" for i in range(1, self.context.max_steps)])
-        median_conversion_times = ",".join([f"medianExactIf(timings[{i}], timings[{i}] > 0) AS step_{i}_median_conversion_time" for i in range(1, self.context.max_steps)])
+        median_conversion_times = ",".join([f"medianIf(timings[{i}], timings[{i}] > 0) AS step_{i}_median_conversion_time" for i in range(1, self.context.max_steps)])
 
         s = parse_select(f"""
             SELECT

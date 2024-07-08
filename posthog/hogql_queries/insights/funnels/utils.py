@@ -17,8 +17,8 @@ def get_funnel_order_class(funnelsFilter: FunnelsFilter):
         return FunnelUnordered
     elif funnelsFilter.funnelOrderType == StepOrderValue.STRICT:
         return FunnelStrict
-    return Funnel
-    #return FunnelUDF
+    #return Funnel
+    return FunnelUDF
 
 
 def get_funnel_actor_class(funnelsFilter: FunnelsFilter):
