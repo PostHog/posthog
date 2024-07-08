@@ -138,7 +138,7 @@ export const errorTrackingGroupQuery = ({
     return {
         kind: NodeKind.EventsQuery,
         select: ['uuid', 'properties', 'timestamp', 'person'],
-        where: [`properties.$exception_type = '${group}'`],
+        // where: [`properties.$exception_type = '${group}'`],
         ...defaultProperties({ dateRange, filterTestAccounts, filterGroup }),
     }
 }
