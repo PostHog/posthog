@@ -53,7 +53,6 @@ class FunnelUDF(FunnelBase):
 
         breakdown_attribution_string = f"{self.context.breakdownAttributionType}{f'_{self.context.funnelsFilter.breakdownAttributionValue}' if self.context.breakdownAttributionType == BreakdownAttributionType.STEP else ''}"
 
-
         inner_select = parse_select(f"""
             SELECT 
                 {fn}(
@@ -70,23 +69,9 @@ class FunnelUDF(FunnelBase):
         """, {'inner_event_query': inner_event_query})
 
         step_results = ",".join([f"countIf(ifNull(equals(af, {i}), 0)) AS step_{i+1}" for i in range(self.context.max_steps)])
-        step_results2 = ",".join([f"sum(step_{i+1})" for i in range(self.context.max_steps)])
+        step_results2 = ",".join([f"sum(step_{i+1}) AS step_{i+1}" for i in range(self.context.max_steps)])
 
-        conversion_time_arrays = ",".join([f"groupArrayIf(timings[{i}], timings[{i}] > 0) AS step_{i}_conversion_time" for i in range(1, self.context.max_steps)])
-
-        """
-        mean_conversion_times1 = ",".join([f"avgIf(timings[{i}], timings[{i}] > 0) AS step_{i}_average_conversion_time_nan" for i in range(1, self.context.max_steps)])
-        mean_conversion_times2 = ",".join(
-            [f"if(isNaN(step_{i}_average_conversion_time_nan), null, step_{i}_average_conversion_time_nan) AS step_{i}_average_conversion_time" for i in
-             range(1, self.context.max_steps)])
-        median_conversion_times1 = ",".join([f"medianIf(timings[{i}], timings[{i}] > 0) AS step_{i}_median_conversion_time_nan" for i in range(1, self.context.max_steps)])
-        median_conversion_times2 = ",".join(
-            [f"if(isNaN(step_{i}_median_conversion_time_nan), null, step_{i}_median_conversion_time_nan) AS step_{i}_median_conversion_time" for i in
-             range(1, self.context.max_steps)])
-        """
-
-        mean_conversion_times = ",".join([f"0 AS step_{i}_average_conversion_time_nan" for i in range(1, self.context.max_steps)])
-        median_conversion_times = ",".join([f"0 AS step_{i}_median_conversion_time_nan" for i in range(1, self.context.max_steps)])
+        conversion_time_arrays = ",".join([f"groupArrayIf(timings[{i}], timings[{i}] > 0) AS step_{i}_conversion_times" for i in range(1, self.context.max_steps)])
 
         order_by = ",".join([f"step_{i+1} DESC" for i in reversed(range(self.context.max_steps))])
 
@@ -104,6 +89,9 @@ class FunnelUDF(FunnelBase):
             ORDER BY {order_by}
         """, {'inner_select': inner_select})
 
+        mean_conversion_times = ",".join([f"avgArray(step_{i}_conversion_times) AS step_{i}_average_conversion_time" for i in range(1, self.context.max_steps)])
+        median_conversion_times = ",".join([f"medianArray(step_{i}_conversion_times) AS step_{i}_median_conversion_time" for i in range(1, self.context.max_steps)])
+
         # Weird: unless you reference row_number in this outer block, it doesn't work correctly
         s = parse_select(f"""
             SELECT
@@ -115,6 +103,24 @@ class FunnelUDF(FunnelBase):
             FROM 
                 {{s}}
             GROUP BY final_prop
+        """, {'s': s})
+
+        step_results3 = ",".join([f"step_{i+1}" for i in range(self.context.max_steps)])
+        mean_conversion_times3 = ",".join(
+            [f"if(isNaN(step_{i}_average_conversion_time), NULL, step_{i}_average_conversion_time) as step_{i}_average_conversion_time" for i in
+             range(1, self.context.max_steps)])
+        median_conversion_times3 = ",".join(
+            [f"if(isNaN(step_{i}_median_conversion_time), NULL, step_{i}_median_conversion_time) as step_{i}_median_conversion_time" for i in
+             range(1, self.context.max_steps)])
+
+        s = parse_select(f"""
+            SELECT
+                {step_results3},
+                {mean_conversion_times3},
+                {median_conversion_times3},
+                final_prop
+            FROM 
+                {{s}}
         """, {'s': s})
 
         print(print_ast(s, context=HogQLContext(
