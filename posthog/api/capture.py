@@ -217,7 +217,7 @@ def log_event(
     # TODO: Handle Kafka being unavailable with exponential backoff retries
     try:
         if event_name in SESSION_RECORDING_DEDICATED_KAFKA_EVENTS:
-            producer = session_recording_kafka_producer()
+            producer = session_recording_kafka_producer(_headers_include_compression(headers))
         else:
             producer = KafkaProducer()
 
@@ -583,6 +583,7 @@ def get_event(request):
                         capture_kwargs = {
                             "extra_headers": [
                                 ("lib_version", lib_version),
+                                ("compression_in_capture", str(compression_in_capture)),
                             ],
                         }
                         this_future = capture_internal(*capture_args, **capture_kwargs)
@@ -652,10 +653,13 @@ def get_event(request):
 
 def _compress_in_capture(token: str | None) -> bool:
     if (
-        # this check is only here so that we can test in a limited way in production
-        # ultimately we'll only check this setting
+        # messages are compressed by the kafka producer (by default)
+        # but it checks size limits before compression,
+        # so we want to compress first
+        # in order to test that we want to compress only PostHog messages
+        # and only those that meet a sample rate
         (settings.DEBUG or settings.TEST or token == "sTMFPsFhdP1Ssg")
-        and settings.SESSION_RECORDING_KAFKA_COMPRESSION == "gzip-in-capture"
+        and random() < settings.REPLAY_COMPRESS_IN_CAPTURE_SAMPLE_RATE
     ):
         return True
     return False
@@ -796,6 +800,18 @@ def parse_event(event):
     return event
 
 
+def _headers_include_compression(extra_headers: list[tuple[str, str]] | None) -> bool:
+    # we default to signalling False here as we want to ensure the producer compresses
+    # if the header compression_in_capture is present then we already compressed the message
+    if not extra_headers:
+        return False
+
+    for header in extra_headers:
+        if header[0] == "compression_in_capture" and header[1] == "True":
+            return True
+    return False
+
+
 def capture_internal(
     event,
     distinct_id,
@@ -832,7 +848,7 @@ def capture_internal(
     if event["event"] in SESSION_RECORDING_EVENT_NAMES:
         session_id = event["properties"]["$session_id"]
         headers = [("token", token), *extra_headers]
-        value_serializer = gzip_json_serializer if (_compress_in_capture(token)) else None
+        value_serializer = gzip_json_serializer if _headers_include_compression(extra_headers) else None
 
         overflowing = False
         if token in settings.REPLAY_OVERFLOW_FORCED_TOKENS:

@@ -32,12 +32,8 @@ REPLAY_MESSAGE_TOO_LARGE_SAMPLE_BUCKET = get_from_env(
     "REPLAY_MESSAGE_TOO_LARGE_SAMPLE_BUCKET", "posthog-cloud-prod-us-east-1-k8s-replay-samples"
 )
 
-# NB if you want to set a compression you need to install it... the producer compresses not kafka
-# accepts
-# * None - no compression
-# * gzip - gzip compression by the kafka producer (auto decompressed by the consumer in blobby)
-# * gzip-in-capture - gzip in compression in the capture service (manually decompressed by the consumer in blobby)
-#
-# gzip is the current default in production
-# TODO we can clean this up once we've tested the new gzip-in-capture compression and don't need a setting
-SESSION_RECORDING_KAFKA_COMPRESSION = get_from_env("SESSION_RECORDING_KAFKA_COMPRESSION", "gzip")
+# we want to compress messages before passing them to the kafka producer
+# because it checks message size limits before compressing
+# messages should always be compressed so if the message is not "manually" compressed in capture
+# then the producer should compress it
+REPLAY_COMPRESS_IN_CAPTURE_SAMPLE_RATE = get_from_env("REPLAY_COMPRESS_IN_CAPTURE_SAMPLE_RATE", 0, type_cast=float)

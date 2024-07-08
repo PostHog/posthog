@@ -1908,6 +1908,8 @@ class TestCapture(BaseTest):
                     "lib_version",
                     "unknown",
                 ),
+                # by default, we want to signal that the producer should compress
+                ("compression_in_capture", "False"),
             ]
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
@@ -1924,6 +1926,7 @@ class TestCapture(BaseTest):
                     "lib_version",
                     "1.123.4",
                 ),
+                ("compression_in_capture", "False"),
             ]
 
     @patch("posthog.kafka_client.client.SessionRecordingKafkaProducer")
@@ -1940,6 +1943,8 @@ class TestCapture(BaseTest):
             ],
             SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL="SSL",
             SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES=1234,
+            # will always compress in the producer
+            REPLAY_COMPRESS_IN_CAPTURE_SAMPLE_RATE=0,
         ):
             # avoid logs from being printed because the mock is None
             session_recording_producer_singleton_mock.return_value = KafkaProducer()
@@ -2005,7 +2010,8 @@ class TestCapture(BaseTest):
                 "another-server:9092",
                 "a-fourth.server:9092",
             ],
-            SESSION_RECORDING_KAFKA_COMPRESSION="gzip-in-capture",
+            # will always compress in capture
+            REPLAY_COMPRESS_IN_CAPTURE_SAMPLE_RATE=1,
         ):
             session_recording_producer_factory_mock.return_value = session_recording_kafka_producer()
 
