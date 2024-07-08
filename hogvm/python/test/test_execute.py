@@ -661,3 +661,143 @@ class TestBytecodeExecute:
         ) == {"event": "$autocapture", "properties": {"$browser": "Firefox"}}
         assert globals["globalEvent"]["event"] == "$pageview"
         assert globals["globalEvent"]["properties"]["$browser"] == "Chrome"
+
+    def test_bytecode_if_multiif_ternary(self):
+        values = []
+
+        def noisy_print(str):
+            nonlocal values
+            values.append(str)
+            return str
+
+        self._run_program(
+            """
+            if (true) {
+              noisy_print('true')
+            } else {
+              noisy_print('false')
+            }
+            """,
+            {"noisy_print": noisy_print},
+        )
+        assert values == ["true"]
+
+        values = []
+        assert (
+            self._run_program("return true ? noisy_print('true') : noisy_print('false')", {"noisy_print": noisy_print})
+            == "true"
+        )
+        assert values == ["true"]
+
+        values = []
+        assert (
+            self._run_program(
+                "return true ? true ? noisy_print('true1') : noisy_print('true') : noisy_print('false')",
+                {"noisy_print": noisy_print},
+            )
+            == "true1"
+        )
+        assert values == ["true1"]
+
+        values = []
+        assert (
+            self._run_program(
+                "return true ? false ? noisy_print('true1') : noisy_print('false1') : noisy_print('false2')",
+                {"noisy_print": noisy_print},
+            )
+            == "false1"
+        )
+        assert values == ["false1"]
+
+        values = []
+        assert (
+            self._run_program(
+                "return false ? false ? noisy_print('true1') : noisy_print('false1') : noisy_print('false2')",
+                {"noisy_print": noisy_print},
+            )
+            == "false2"
+        )
+        assert values == ["false2"]
+
+        values = []
+        assert (
+            self._run_program("return false ? noisy_print('true') : noisy_print('false')", {"noisy_print": noisy_print})
+            == "false"
+        )
+        assert values == ["false"]
+
+        values = []
+        assert (
+            self._run_program(
+                "return if(false, noisy_print('true'), noisy_print('false'))", {"noisy_print": noisy_print}
+            )
+            == "false"
+        )
+        assert values == ["false"]
+
+        values = []
+        assert (
+            self._run_program(
+                "return multiIf(false, noisy_print('true'), false, noisy_print('true'), noisy_print('false2'))",
+                {"noisy_print": noisy_print},
+            )
+            == "false2"
+        )
+        assert values == ["false2"]
+
+        values = []
+        assert (
+            self._run_program(
+                "return multiIf(false, noisy_print('true'), true, noisy_print('true'), noisy_print('false2'))",
+                {"noisy_print": noisy_print},
+            )
+            == "true"
+        )
+        assert values == ["true"]
+
+        values = []
+        assert (
+            self._run_program(
+                "return multiIf(true, noisy_print('true1'), false, noisy_print('true2'), noisy_print('false2'))",
+                {"noisy_print": noisy_print},
+            )
+            == "true1"
+        )
+        assert values == ["true1"]
+
+        values = []
+        assert (
+            self._run_program(
+                "return multiIf(true, noisy_print('true1'), true, noisy_print('true2'), noisy_print('false2'))",
+                {"noisy_print": noisy_print},
+            )
+            == "true1"
+        )
+        assert values == ["true1"]
+
+    def test_bytecode_ifnull(self):
+        values = []
+
+        def noisy_print(str):
+            nonlocal values
+            values.append(str)
+            return str
+
+        assert (
+            self._run_program(
+                "return null ?? noisy_print('no'); noisy_print('post')",
+                {"noisy_print": noisy_print},
+            )
+            == "no"
+        )
+        assert values == ["no"]
+
+        values = []
+        assert (
+            self._run_program(
+                "return noisy_print('yes') ?? noisy_print('no'); noisy_print('post')",
+                {"noisy_print": noisy_print},
+            )
+            == "yes"
+        )
+        assert values == ["yes"]

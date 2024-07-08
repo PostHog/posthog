@@ -4,8 +4,9 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select, parse_expr
-from posthog.hogql.printer import prepare_ast_for_printing
+from posthog.hogql.printer import prepare_ast_for_printing, print_ast
 from posthog.hogql.visitor import clone_expr, CloningVisitor
+from posthog.models import PropertyDefinition
 from posthog.schema import PersonsOnEventsMode, PersonsArgMaxVersion
 from posthog.test.base import ClickhouseTestMixin, APIBaseTest
 
@@ -36,18 +37,21 @@ class RemoveHiddenAliases(CloningVisitor):
 
 
 class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
-    def get_clause(self, query: str):
+    def prep_context(self):
         team = self.team
         modifiers = create_default_modifiers_for_team(team)
         modifiers.optimizeJoinedFilters = True
         modifiers.personsOnEventsMode = PersonsOnEventsMode.DISABLED
         modifiers.personsArgMaxVersion = PersonsArgMaxVersion.V1
-        context = HogQLContext(
+        return HogQLContext(
             team_id=team.pk,
             team=team,
             enable_select_queries=True,
             modifiers=modifiers,
         )
+
+    def get_clause(self, query: str):
+        context = self.prep_context()
         select = _select(query)
         new_select = prepare_ast_for_printing(select, context, "clickhouse")
 
@@ -67,6 +71,10 @@ class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
         where = RemoveHiddenAliases().visit(where)
         assert isinstance(where, ast.Expr)
         return clone_expr(where, clear_types=True, clear_locations=True)
+
+    def print_query(self, query: str):
+        context = self.prep_context()
+        return print_ast(node=_select(query), context=context, dialect="clickhouse", pretty=False)
 
     def test_person_properties(self):
         actual = self.get_clause("SELECT * FROM events WHERE person.properties.email = 'jimmy@posthog.com'")
@@ -161,3 +169,16 @@ class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
             "SELECT * FROM events WHERE properties.email = 'bla@posthog.com' and substring(person.properties.email, event = 'bla') = 'jimmy@posthog.com'"
         )
         assert actual is None
+
+    def test_boolean(self):
+        PropertyDefinition.objects.get_or_create(
+            team=self.team,
+            name="person_boolean",
+            defaults={"property_type": "Boolean"},
+            type=PropertyDefinition.Type.PERSON,
+        )
+        actual = self.print_query("SELECT * FROM events WHERE person.properties.person_boolean = false")
+        assert (
+            f"FROM person WHERE and(equals(person.team_id, {self.team.id}), ifNull(equals(transform(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties"
+            in actual
+        )

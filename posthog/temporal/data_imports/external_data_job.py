@@ -145,10 +145,10 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 ),
             )
         except Exception as e:
-            logger.error(
+            logger.exception(
                 f"External data job failed on create_external_data_job_model_activity for {inputs.external_data_source_id} with error: {e}"
             )
-            raise e
+            raise
 
         update_inputs = UpdateExternalDataJobStatusInputs(
             id=run_id,
@@ -192,13 +192,13 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 update_inputs.status = ExternalDataJob.Status.CANCELLED
             else:
                 update_inputs.status = ExternalDataJob.Status.FAILED
-            logger.error(
+            logger.exception(
                 f"External data job failed for external data source {inputs.external_data_source_id} with error: {e.cause}"
             )
             update_inputs.latest_error = str(e.cause)
             raise
         except Exception as e:
-            logger.error(
+            logger.exception(
                 f"External data job failed for external data source {inputs.external_data_source_id} with error: {e}"
             )
             # Catch all

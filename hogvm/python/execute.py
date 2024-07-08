@@ -190,6 +190,10 @@ def execute_bytecode(
                 count = next_token()
                 if not pop_stack():
                     ip += count
+            case Operation.JUMP_IF_STACK_NOT_NULL:
+                count = next_token()
+                if len(stack) > 0 and stack[-1] is not None:
+                    ip += count
             case Operation.DECLARE_FN:
                 name = next_token()
                 arg_len = next_token()

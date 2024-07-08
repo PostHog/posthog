@@ -35,7 +35,7 @@ from posthog.hogql.resolver import resolve_types
 from posthog.hogql.resolver_utils import lookup_field_by_name
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
-from posthog.hogql.transforms.property_types import resolve_property_types
+from posthog.hogql.transforms.property_types import build_property_swapper, PropertySwapper
 from posthog.hogql.visitor import Visitor, clone_expr
 from posthog.models.property import PropertyName, TableColumn
 from posthog.models.team.team import WeekStartDay
@@ -78,6 +78,8 @@ def print_ast(
     pretty: bool = False,
 ) -> str:
     prepared_ast = prepare_ast_for_printing(node=node, context=context, dialect=dialect, stack=stack, settings=settings)
+    if prepared_ast is None:
+        return ""
     return print_prepared_ast(
         node=prepared_ast,
         context=context,
@@ -94,7 +96,7 @@ def prepare_ast_for_printing(
     dialect: Literal["hogql", "clickhouse"],
     stack: Optional[list[ast.SelectQuery]] = None,
     settings: Optional[HogQLGlobalSettings] = None,
-) -> ast.Expr:
+) -> ast.Expr | None:
     with context.timings.measure("create_hogql_database"):
         context.database = context.database or create_hogql_database(context.team_id, context.modifiers, context.team)
 
@@ -105,14 +107,39 @@ def prepare_ast_for_printing(
             resolve_in_cohorts_conjoined(node, dialect, context, stack)
     with context.timings.measure("resolve_types"):
         node = resolve_types(node, context, dialect=dialect, scopes=[node.type for node in stack] if stack else None)
-    if context.modifiers.inCohortVia == InCohortVia.LEFTJOIN:
-        with context.timings.measure("resolve_in_cohorts"):
-            resolve_in_cohorts(node, dialect, stack, context)
+
     if dialect == "clickhouse":
         with context.timings.measure("resolve_property_types"):
-            node = resolve_property_types(node, context)
+            build_property_swapper(node, context)
+            if context.property_swapper is None:
+                return None
+
+            # It would be nice to be able to run property swapping after we resolve lazy tables, so that logic added onto the lazy tables
+            # could pass through the swapper. However, in the PropertySwapper, the group_properties and the S3 Table join
+            # rely on the existence of lazy tables in the AST. They must be run before we resolve lazy tables. Because groups are
+            # not currently used in any sort of where clause optimization (WhereClauseExtractor or PersonsTable), this is okay.
+            # We also have to call the group property swapper manually in `lazy_tables.py` after we do a join
+            node = PropertySwapper(
+                timezone=context.property_swapper.timezone,
+                group_properties=context.property_swapper.group_properties,
+                event_properties={},
+                person_properties={},
+                context=context,
+                setTimeZones=False,
+            ).visit(node)
+
         with context.timings.measure("resolve_lazy_tables"):
             resolve_lazy_tables(node, dialect, stack, context)
+
+        with context.timings.measure("swap_properties"):
+            node = PropertySwapper(
+                timezone=context.property_swapper.timezone,
+                group_properties={},
+                person_properties=context.property_swapper.person_properties,
+                event_properties=context.property_swapper.event_properties,
+                context=context,
+                setTimeZones=True,
+            ).visit(node)
 
         # We support global query settings, and local subquery settings.
         # If the global query is a select query with settings, merge the two.
@@ -121,6 +148,10 @@ def prepare_ast_for_printing(
                 if value is not None:
                     settings.__setattr__(key, value)
             node.settings = None
+
+    if context.modifiers.inCohortVia == InCohortVia.LEFTJOIN:
+        with context.timings.measure("resolve_in_cohorts"):
+            resolve_in_cohorts(node, dialect, stack, context)
 
     # We add a team_id guard right before printing. It's not a separate step here.
     return node
@@ -504,6 +535,12 @@ class _Printer(Visitor):
 
     def visit_array(self, node: ast.Array):
         return f"[{', '.join([self.visit(expr) for expr in node.exprs])}]"
+
+    def visit_dict(self, node: ast.Dict):
+        str = "tuple('__hx_tag', '__hx_obj'"
+        for key, value in node.items:
+            str += f", {self.visit(key)}, {self.visit(value)}"
+        return str + ")"
 
     def visit_lambda(self, node: ast.Lambda):
         identifiers = [self._print_identifier(arg) for arg in node.args]

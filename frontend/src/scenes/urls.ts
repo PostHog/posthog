@@ -115,6 +115,7 @@ export const urls = {
     replaySingle: (id: string, filters?: Partial<FilterType>): string =>
         combineUrl(`/replay/${id}`, filters ? { filters } : {}).url,
     replayFilePlayback: (): string => combineUrl('/replay/file-playback').url,
+
     personByDistinctId: (id: string, encode: boolean = true): string =>
         encode ? `/person/${encodeURIComponent(id)}` : `/person/${id}`,
     personByUUID: (uuid: string, encode: boolean = true): string =>
@@ -244,4 +245,5 @@ export const urls = {
         `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
     alert: (id: InsightShortId, alertId: string): string => `/insights/${id}/alerts/${alertId}`,
     alerts: (id: InsightShortId): string => `/insights/${id}/alerts`,
+    sessionAttributionExplorer: (): string => '/web/session-attribution-explorer',
 }

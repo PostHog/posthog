@@ -7,7 +7,6 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
-import { Sparkline } from 'lib/lemon-ui/Sparkline'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { autoCaptureEventToDescription } from 'lib/utils'
@@ -16,17 +15,11 @@ import { PersonDisplay, PersonDisplayProps } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
 import { errorColumn, loadingColumn } from '~/queries/nodes/DataTable/dataTableLogic'
+import { renderHogQLX } from '~/queries/nodes/HogQLX/render'
 import { DeletePersonButton } from '~/queries/nodes/PersonsNode/DeletePersonButton'
 import { DataTableNode, EventsQueryPersonColumn, HasPropertiesNode } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
-import {
-    isActorsQuery,
-    isEventsQuery,
-    isHogQLQuery,
-    isPersonsNode,
-    isTimeToSeeDataSessionsQuery,
-    trimQuotes,
-} from '~/queries/utils'
+import { isActorsQuery, isEventsQuery, isHogQLQuery, isPersonsNode, trimQuotes } from '~/queries/utils'
 import { AnyPropertyFilter, EventType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
 
 export function renderColumn(
@@ -37,6 +30,9 @@ export function renderColumn(
     setQuery?: (query: DataTableNode) => void,
     context?: QueryContext
 ): JSX.Element | string {
+    const queryContextColumnName = key.startsWith('context.columns.') ? trimQuotes(key.substring(16)) : undefined
+    const queryContextColumn = queryContextColumnName ? context?.columns?.[queryContextColumnName] : undefined
+
     if (value === loadingColumn) {
         return <Spinner />
     } else if (value === errorColumn) {
@@ -49,6 +45,11 @@ export function renderColumn(
                 </span>
             </Tooltip>
         )
+    } else if (queryContextColumnName && queryContextColumn?.render) {
+        const Component = queryContextColumn?.render
+        return <Component record={record} columnName={queryContextColumnName} value={value} query={query} />
+    } else if (typeof value === 'object' && Array.isArray(value) && value[0] === '__hx_tag') {
+        return renderHogQLX(value)
     } else if (isHogQLQuery(query.source)) {
         if (typeof value === 'string') {
             try {
@@ -73,32 +74,12 @@ export function renderColumn(
             } catch (e) {
                 // do nothing
             }
-            if (value.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3,6})?Z$/)) {
+            if (value.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3,6})?(?:Z|[+-]\d{2}:\d{2})?$/)) {
                 return <TZLabel time={value} showSeconds />
             }
         }
         if (typeof value === 'object') {
             if (Array.isArray(value)) {
-                if (value[0] === '__hogql_chart_type' && value[1] === 'sparkline') {
-                    const object: Record<string, any> = {}
-                    for (let i = 0; i < value.length; i += 2) {
-                        object[value[i]] = value[i + 1]
-                    }
-                    if ('results' in object && Array.isArray(object.results)) {
-                        // TODO: If results aren't an array of numbers, show a helpful message on using sparkline()
-                        return (
-                            <Sparkline
-                                data={[
-                                    {
-                                        name: key.includes('__hogql_chart_type') ? 'Data' : key,
-                                        values: object.results.map((v: any) => Number(v)),
-                                    },
-                                ]}
-                            />
-                        )
-                    }
-                }
-
                 return <JSONViewer src={value} name={key} collapsed={value.length > 10 ? 0 : 1} />
             }
             return <JSONViewer src={value} name={key} collapsed={Object.keys(value).length > 10 ? 0 : 1} />
@@ -262,9 +243,6 @@ export function renderColumn(
                 {String(value)}
             </CopyToClipboardInline>
         )
-    } else if (key.startsWith('user.') && isTimeToSeeDataSessionsQuery(query.source)) {
-        const [parent, child] = key.split('.')
-        return typeof record === 'object' ? record[parent][child] : 'unknown'
     }
     if (typeof value === 'object') {
         return <JSONViewer src={value} name={null} collapsed={Object.keys(value).length > 10 ? 0 : 1} />

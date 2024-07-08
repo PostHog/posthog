@@ -44,6 +44,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
         simpleFilters,
         activeSessionRecordingId,
         hasNext,
+        universalFilters,
     } = useValues(logic)
     const {
         maybeLoadSessionRecordings,
@@ -52,6 +53,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
         setAdvancedFilters,
         setSimpleFilters,
         resetFilters,
+        setUniversalFilters,
     } = useActions(logic)
 
     const { featureFlags } = useValues(featureFlagLogic)
@@ -68,7 +70,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
         summarizeSession(recording.id)
     }
 
-    if (!useUniversalFiltering || notebookNode) {
+    if (!useUniversalFiltering) {
         headerActions.push({
             key: 'filters',
             tooltip: 'Filter recordings',
@@ -125,16 +127,18 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
             />
         ),
         footer: (
-            <div className="m-4 h-10 flex items-center justify-center gap-2 text-muted-alt">
-                {sessionRecordingsResponseLoading ? (
-                    <>
-                        <Spinner textColored /> Loading older recordings
-                    </>
-                ) : hasNext ? (
-                    <LemonButton onClick={() => maybeLoadSessionRecordings('older')}>Load more</LemonButton>
-                ) : (
-                    'No more results'
-                )}
+            <div className="p-4">
+                <div className="h-10 flex items-center justify-center gap-2 text-muted-alt">
+                    {sessionRecordingsResponseLoading ? (
+                        <>
+                            <Spinner textColored /> Loading older recordings
+                        </>
+                    ) : hasNext ? (
+                        <LemonButton onClick={() => maybeLoadSessionRecordings('older')}>Load more</LemonButton>
+                    ) : (
+                        'No more results'
+                    )}
+                </div>
             </div>
         ),
     })
@@ -142,11 +146,17 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
     return (
         <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
             <div className="h-full space-y-2">
-                {useUniversalFiltering && <RecordingsUniversalFilters />}
+                {useUniversalFiltering && !notebookNode ? (
+                    <RecordingsUniversalFilters
+                        filters={universalFilters}
+                        setFilters={setUniversalFilters}
+                        className="border"
+                    />
+                ) : null}
                 <Playlist
                     data-attr="session-recordings-playlist"
                     notebooksHref={urls.replay(ReplayTabs.Recent, filters)}
-                    title={!notebookNode ? 'Recordings' : undefined}
+                    title="Recordings"
                     embedded={!!notebookNode}
                     sections={sections}
                     headerActions={headerActions}

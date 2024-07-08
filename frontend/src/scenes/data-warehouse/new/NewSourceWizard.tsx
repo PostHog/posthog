@@ -7,6 +7,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { ManualLinkSourceType, SourceConfig } from '~/types'
 
 import { DataWarehouseBetaNotice } from '../DataWarehouseBetaNotice'
+import { DataWarehouseInitialBillingLimitNotice } from '../DataWarehouseInitialBillingLimitNotice'
 import PostgresSchemaForm from '../external/forms/PostgresSchemaForm'
 import SourceForm from '../external/forms/SourceForm'
 import { SyncProgressStep } from '../external/forms/SyncProgressStep'
@@ -73,6 +74,7 @@ export function NewSourceWizard(): JSX.Element {
                 }
             />
             <DataWarehouseBetaNotice />
+            <DataWarehouseInitialBillingLimitNotice />
             <>
                 <h3>{modalTitle}</h3>
                 <p>{modalCaption}</p>
@@ -124,10 +126,10 @@ function FirstStep(): JSX.Element {
         <ModalPage page={1}>
             <h2 className="mt-4">Managed by PostHog</h2>
 
-            <span>
+            <p>
                 Data will be synced to PostHog and regularly refreshed.{' '}
                 <Link to="https://posthog.com/docs/data-warehouse/setup#stripe">Learn more</Link>
-            </span>
+            </p>
             <LemonTable
                 dataSource={connectors}
                 loading={false}
@@ -165,10 +167,10 @@ function FirstStep(): JSX.Element {
 
             <h2 className="mt-4">Self Managed</h2>
 
-            <span>
+            <p>
                 Data will be queried directly from your data source that you manage.{' '}
                 <Link to="https://posthog.com/docs/data-warehouse/setup#linking-a-custom-source">Learn more</Link>
-            </span>
+            </p>
             <LemonTable
                 dataSource={manualConnectors}
                 loading={false}

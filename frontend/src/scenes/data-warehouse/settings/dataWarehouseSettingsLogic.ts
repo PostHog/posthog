@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, urlToAction } from 'kea-router'
 import api, { ApiMethodOptions, PaginatedResponse } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import posthog from 'posthog-js'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -38,7 +39,6 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
         resyncSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
         sourceLoadingFinished: (source: ExternalDataStripeSource) => ({ source }),
         schemaLoadingFinished: (schema: ExternalDataSourceSchema) => ({ schema }),
-        updateSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
         abortAnyRunningQuery: true,
         setCurrentTab: (tab: DataWarehouseSettingsTab = DataWarehouseSettingsTab.Managed) => ({ tab }),
         deleteSelfManagedTable: (tableId: string) => ({ tableId }),
@@ -71,6 +71,30 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                             values.dataWarehouseSources?.results.map((s) => (s.id === updatedSource.id ? source : s)) ||
                             [],
                     }
+                },
+            },
+        ],
+        schemas: [
+            null,
+            {
+                updateSchema: async (schema: ExternalDataSourceSchema) => {
+                    // Optimistic UI updates before sending updates to the backend
+                    const clonedSources = JSON.parse(
+                        JSON.stringify(values.dataWarehouseSources?.results ?? [])
+                    ) as ExternalDataStripeSource[]
+                    const sourceIndex = clonedSources.findIndex((n) => n.schemas.find((m) => m.id === schema.id))
+                    const schemaIndex = clonedSources[sourceIndex].schemas.findIndex((n) => n.id === schema.id)
+                    clonedSources[sourceIndex].schemas[schemaIndex] = schema
+
+                    actions.loadSourcesSuccess({
+                        ...values.dataWarehouseSources,
+                        results: clonedSources,
+                    })
+
+                    await api.externalDataSchemas.update(schema.id, schema)
+                    actions.loadSources(null)
+
+                    return null
                 },
             },
         ],
@@ -171,6 +195,8 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             await api.externalDataSources.delete(source.id)
             actions.loadSources(null)
             actions.sourceLoadingFinished(source)
+
+            posthog.capture('source deleted', { sourceType: source.source_type })
         },
         reloadSource: async ({ source }) => {
             // Optimistic UI updates before sending updates to the backend
@@ -198,6 +224,8 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             try {
                 await api.externalDataSources.reload(source.id)
                 actions.loadSources(null)
+
+                posthog.capture('source reloaded', { sourceType: source.source_type })
             } catch (e: any) {
                 if (e.message) {
                     lemonToast.error(e.message)
@@ -226,6 +254,8 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                 await api.externalDataSchemas.reload(schema.id)
                 actions.schemaLoadingFinished(schema)
                 actions.loadSources(null)
+
+                posthog.capture('schema reloaded', { sourceType: clonedSources[sourceIndex].source_type })
             } catch (e: any) {
                 if (e.message) {
                     lemonToast.error(e.message)
@@ -253,6 +283,8 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                 await api.externalDataSchemas.resync(schema.id)
                 actions.schemaLoadingFinished(schema)
                 actions.loadSources(null)
+
+                posthog.capture('schema resynced', { sourceType: clonedSources[sourceIndex].source_type })
             } catch (e: any) {
                 if (e.message) {
                     lemonToast.error(e.message)
@@ -261,28 +293,14 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                 }
             }
         },
-        updateSchema: async ({ schema }) => {
-            // Optimistic UI updates before sending updates to the backend
-            const clonedSources = JSON.parse(
-                JSON.stringify(values.dataWarehouseSources?.results ?? [])
-            ) as ExternalDataStripeSource[]
-            const sourceIndex = clonedSources.findIndex((n) => n.schemas.find((m) => m.id === schema.id))
-            const schemaIndex = clonedSources[sourceIndex].schemas.findIndex((n) => n.id === schema.id)
-            clonedSources[sourceIndex].schemas[schemaIndex] = schema
-
-            actions.loadSourcesSuccess({
-                ...values.dataWarehouseSources,
-                results: clonedSources,
-            })
-
-            await api.externalDataSchemas.update(schema.id, schema)
-            actions.loadSources(null)
-        },
         abortAnyRunningQuery: () => {
             if (cache.abortController) {
                 cache.abortController.abort()
                 cache.abortController = null
             }
+        },
+        updateSchema: (schema) => {
+            posthog.capture('schema updated', { shouldSync: schema.should_sync, syncType: schema.sync_type })
         },
     })),
     afterMount(({ actions }) => {

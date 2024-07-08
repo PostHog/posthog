@@ -222,7 +222,6 @@ const teamActionsMapping: Record<
     correlation_config: () => null,
     data_attributes: () => null,
     effective_membership_level: () => null,
-    groups_on_events_querying_enabled: () => null,
     has_group_types: () => null,
     ingested_event: () => null,
     is_demo: () => null,

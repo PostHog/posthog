@@ -1,6 +1,7 @@
 <component name="ProjectRunConfigurationManager">
   <configuration default="false" name="PostHog" type="Python.DjangoServer" factoryName="Django server">
     <module name="posthog" />
+    <option name="ENV_FILES" value="" />
     <option name="INTERPRETER_OPTIONS" value="" />
     <option name="PARENT_ENVS" value="true" />
     <envs>
@@ -15,15 +16,14 @@
       <env name="PRINT_SQL" value="1" />
       <env name="PYDEVD_USE_CYTHON" value="NO" />
       <env name="PYTHONUNBUFFERED" value="1" />
-      <env name="SESSION_RECORDING_KAFKA_COMPRESSION" value="gzip" />
+      <env name="SESSION_RECORDING_KAFKA_COMPRESSION" value="gzip-in-capture" />
       <env name="SESSION_RECORDING_KAFKA_HOSTS" value="localhost" />
       <env name="SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES" value="20971520" />
       <env name="SKIP_SERVICE_VERSION_REQUIREMENTS" value="1" />
     </envs>
     <option name="SDK_HOME" value="$PROJECT_DIR$/env/bin/python" />
-    <option name="SDK_NAME" value="Python 3.10 (posthog)" />
     <option name="WORKING_DIRECTORY" value="" />
-    <option name="IS_MODULE_SDK" value="false" />
+    <option name="IS_MODULE_SDK" value="true" />
     <option name="ADD_CONTENT_ROOTS" value="true" />
     <option name="ADD_SOURCE_ROOTS" value="true" />
     <EXTENSION ID="net.ashald.envfile">

@@ -10,7 +10,7 @@ from posthog.constants import (
 )
 from posthog.hogql import ast
 from posthog.hogql.base import AST
-from posthog.hogql.errors import NotImplementedError
+from posthog.hogql.errors import NotImplementedError, QueryError
 from posthog.hogql.functions import find_hogql_aggregation
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
@@ -78,13 +78,13 @@ def property_to_expr(
         # The property was saved as an incomplete object. Instead of crashing the entire query, pretend it's not there.
         # TODO: revert this when removing legacy insights?
         except ValueError:
-            return ast.Constant(value=True)
+            return ast.Constant(value=1)
         except TypeError:
-            return ast.Constant(value=True)
+            return ast.Constant(value=1)
     elif isinstance(property, list):
         properties = [property_to_expr(p, team, scope) for p in property]
         if len(properties) == 0:
-            return ast.Constant(value=True)
+            return ast.Constant(value=1)
         if len(properties) == 1:
             return properties[0]
         return ast.And(exprs=properties)
@@ -102,16 +102,16 @@ def property_to_expr(
             and property.type != PropertyOperatorType.AND
             and property.type != PropertyOperatorType.OR
         ):
-            raise NotImplementedError(f'PropertyGroup of unknown type "{property.type}"')
+            raise QueryError(f'PropertyGroup of unknown type "{property.type}"')
         if (
             (isinstance(property, PropertyGroupFilter) or isinstance(property, PropertyGroupFilterValue))
             and property.type != FilterLogicalOperator.AND_
             and property.type != FilterLogicalOperator.OR_
         ):
-            raise NotImplementedError(f'PropertyGroupFilter of unknown type "{property.type}"')
+            raise QueryError(f'PropertyGroupFilter of unknown type "{property.type}"')
 
         if len(property.values) == 0:
-            return ast.Constant(value=True)
+            return ast.Constant(value=1)
         if len(property.values) == 1:
             return property_to_expr(property.values[0], team, scope)
 
@@ -120,15 +120,15 @@ def property_to_expr(
         else:
             return ast.Or(exprs=[property_to_expr(p, team, scope) for p in property.values])
     elif isinstance(property, EmptyPropertyFilter):
-        return ast.Constant(value=True)
+        return ast.Constant(value=1)
     elif isinstance(property, BaseModel):
         try:
             property = Property(**property.dict())
         except ValueError:
             # The property was saved as an incomplete object. Instead of crashing the entire query, pretend it's not there.
-            return ast.Constant(value=True)
+            return ast.Constant(value=1)
     else:
-        raise NotImplementedError(f"property_to_expr with property of type {type(property).__name__} not implemented")
+        raise QueryError(f"property_to_expr with property of type {type(property).__name__} not implemented")
 
     if property.type == "hogql":
         return parse_expr(property.key)
@@ -142,7 +142,7 @@ def property_to_expr(
         or property.type == "session"
     ):
         if (scope == "person" and property.type != "person") or (scope == "session" and property.type != "session"):
-            raise NotImplementedError(f"The '{property.type}' property filter does not work in '{scope}' scope")
+            raise QueryError(f"The '{property.type}' property filter does not work in '{scope}' scope")
         operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.EXACT
         value = property.value
 
@@ -158,7 +158,7 @@ def property_to_expr(
                 chain = ["person", table]
                 property.key = key
             else:
-                raise NotImplementedError("Data warehouse person property filter value must be a string")
+                raise QueryError("Data warehouse person property filter value must be a string")
         elif property.type == "group":
             chain = [f"group_{property.group_type_index}", "properties"]
         elif property.type == "data_warehouse":
@@ -170,7 +170,11 @@ def property_to_expr(
         else:
             chain = ["properties"]
 
-        properties_field = ast.Field(chain=chain)
+        if property.type == "session":
+            properties_field = None
+        else:
+            properties_field = ast.Field(chain=chain)
+
         field = ast.Field(chain=[*chain, property.key])
 
         if isinstance(value, list):
@@ -219,7 +223,7 @@ def property_to_expr(
                 ]
                 + (
                     []
-                    if properties_field == field
+                    if not properties_field or properties_field == field
                     else [
                         ast.Not(
                             expr=ast.Call(
@@ -247,7 +251,7 @@ def property_to_expr(
                 name="ifNull",
                 args=[
                     ast.Call(name="match", args=[ast.Call(name="toString", args=[field]), ast.Constant(value=value)]),
-                    ast.Constant(value=False),
+                    ast.Constant(value=0),
                 ],
             )
         elif operator == PropertyOperator.NOT_REGEX:
@@ -262,7 +266,7 @@ def property_to_expr(
                             )
                         ],
                     ),
-                    ast.Constant(value=True),
+                    ast.Constant(value=1),
                 ],
             )
         elif operator == PropertyOperator.EXACT or operator == PropertyOperator.IS_DATE_EXACT:
