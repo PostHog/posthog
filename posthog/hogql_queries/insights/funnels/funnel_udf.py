@@ -40,6 +40,9 @@ class FunnelUDF(FunnelBase):
     def get_query(self) -> ast.SelectQuery:
         inner_event_query = self._get_inner_event_query(entity_name='events')
 
+        #default_breakdown_selector = "[]" if self._query_has_array_breakdown() else "NULL"
+        breakdown_selector = "prop[1]" if self._query_has_array_breakdown() else "prop"
+
         # stores the steps as an array of integers from 1 to max_steps
         # so if the event could be step_0, step_1 or step_4, it looks like [1,2,0,0,5]
         steps = ",".join([f"{i + 1} * step_{i}" for i in range(self.context.max_steps)])
@@ -50,7 +53,7 @@ class FunnelUDF(FunnelBase):
                     {self.context.max_steps}, 
                     {self.conversion_window_limit()},
                     '{self.context.breakdownAttributionType}',
-                    arraySort(t -> t.1, groupArray(tuple(toFloat(timestamp), {"prop[1]" if self.context.breakdown else "''"}, arrayFilter((x) -> x != 0, [{steps}]))))
+                    arraySort(t -> t.1, groupArray(tuple(toFloat(timestamp), {breakdown_selector if self.context.breakdown else "''"}, arrayFilter((x) -> x != 0, [{steps}]))))
                 ) as af_tuple,
                 af_tuple.1 as af,
                 af_tuple.2 as breakdown,
@@ -60,20 +63,38 @@ class FunnelUDF(FunnelBase):
         """, {'inner_event_query': inner_event_query})
 
         step_results = ",".join([f"countIf(ifNull(equals(af, {i}), 0)) AS step_{i+1}" for i in range(self.context.max_steps)])
+        step_results2 = ",".join([f"step_{i+1}" for i in range(self.context.max_steps)])
 
-        mean_conversion_times = ",".join([f"avgIf(timings[{i}], timings[{i}] > 0) AS step_{i}_average_conversion_time" for i in range(1, self.context.max_steps)])
-        median_conversion_times = ",".join([f"medianIf(timings[{i}], timings[{i}] > 0) AS step_{i}_median_conversion_time" for i in range(1, self.context.max_steps)])
+
+        mean_conversion_times1 = ",".join([f"avgIf(timings[{i}], timings[{i}] > 0) AS step_{i}_average_conversion_time_nan" for i in range(1, self.context.max_steps)])
+        mean_conversion_times2 = ",".join(
+            [f"if(isNaN(step_{i}_average_conversion_time_nan), null, step_{i}_average_conversion_time_nan) AS step_{i}_average_conversion_time" for i in
+             range(1, self.context.max_steps)])
+        median_conversion_times1 = ",".join([f"medianIf(timings[{i}], timings[{i}] > 0) AS step_{i}_median_conversion_time_nan" for i in range(1, self.context.max_steps)])
+        median_conversion_times2 = ",".join(
+            [f"if(isNaN(step_{i}_median_conversion_time_nan), null, step_{i}_median_conversion_time_nan) AS step_{i}_median_conversion_time" for i in
+             range(1, self.context.max_steps)])
 
         s = parse_select(f"""
             SELECT
                 {step_results},
-                {mean_conversion_times},
-                {median_conversion_times},
-                [breakdown] as final_prop
+                {mean_conversion_times1},
+                {median_conversion_times1},
+                breakdown as final_prop
             FROM 
                 {{inner_select}}
             GROUP BY breakdown
         """, {'inner_select': inner_select})
+
+        s = parse_select(f"""
+            SELECT
+                {step_results2},
+                {mean_conversion_times2},
+                {median_conversion_times2},
+                final_prop
+            FROM 
+                {{s}}
+        """, {'s': s})
 
         print(print_ast(s, context=HogQLContext(
             team_id=self.context.team.pk,
