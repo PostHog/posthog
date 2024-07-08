@@ -30,7 +30,7 @@ export const OverviewTab = (): JSX.Element => {
                     listEmptyState={<div className="flex justify-center p-4">No exceptions found</div>}
                     content={({ activeItem: event }) =>
                         event ? (
-                            <div className="pl-2">
+                            <div className="h-full overflow-auto pl-2">
                                 <ErrorDisplay eventProperties={event.properties} />
                             </div>
                         ) : (
