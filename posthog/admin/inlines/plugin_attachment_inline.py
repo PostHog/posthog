@@ -3,9 +3,6 @@ import json
 from django.contrib import admin
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
-from pygments import highlight
-from pygments.formatters.html import HtmlFormatter
-from pygments.lexers.data import JsonLexer
 
 from posthog.models import PluginAttachment
 
@@ -36,10 +33,7 @@ class PluginAttachmentInline(admin.StackedInline):
                 )
 
             response = json.dumps(json.loads(attachment.contents), sort_keys=True, indent=4)
-            formatter = HtmlFormatter()
-            response = highlight(response, JsonLexer(), formatter)
-            style = "<style>" + formatter.get_style_defs() + "</style><br>"
-            return mark_safe(style + response)
+            return mark_safe(f"<pre>{response}</pre>")
         except Exception as err:
             return format_html(f"cannot preview: {err}")
 
