@@ -3,6 +3,7 @@ from django.db.models import Prefetch
 from django.conf import settings
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, UUIDModel, sane_repr
+from posthog.settings import TEST
 from posthog.warehouse.s3 import get_s3_client
 from uuid import UUID
 from posthog.warehouse.util import database_sync_to_async
@@ -30,19 +31,27 @@ class ExternalDataJob(CreatedMetaFields, UUIDModel):
 
     __repr__ = sane_repr("id")
 
-    @property
     def folder_path(self) -> str:
-        if self.schema and self.schema.is_incremental:
-            return f"team_{self.team_id}_{self.pipeline.source_type}_{str(self.schema.pk)}".lower().replace("-", "_")
+        return f"team_{self.team_id}_{self.pipeline.source_type}_{str(self.schema_id)}".lower().replace("-", "_")
 
+    def deprecated_folder_path(self) -> str:
         return f"team_{self.team_id}_{self.pipeline.source_type}_{str(self.pk)}".lower().replace("-", "_")
 
     def url_pattern_by_schema(self, schema: str) -> str:
-        return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/{self.folder_path}/{schema.lower()}/*.parquet"
+        if TEST:
+            return (
+                f"http://{settings.AIRBYTE_BUCKET_DOMAIN}/test-pipeline/{self.folder_path()}/{schema.lower()}/*.parquet"
+            )
 
-    def delete_data_in_bucket(self) -> None:
+        return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/{self.folder_path()}/{schema.lower()}/*.parquet"
+
+    def delete_deprecated_data_in_bucket(self) -> None:
         s3 = get_s3_client()
-        s3.delete(f"{settings.BUCKET_URL}/{self.folder_path}", recursive=True)
+
+        if s3.exists(f"{settings.BUCKET_URL}/{self.deprecated_folder_path()}"):
+            s3.delete(f"{settings.BUCKET_URL}/{self.deprecated_folder_path()}", recursive=True)
+
+        return
 
 
 @database_sync_to_async
@@ -52,6 +61,20 @@ def get_external_data_job(job_id: UUID) -> ExternalDataJob:
     return ExternalDataJob.objects.prefetch_related(
         "pipeline", Prefetch("schema", queryset=ExternalDataSchema.objects.prefetch_related("source"))
     ).get(pk=job_id)
+
+
+@database_sync_to_async
+def aget_external_data_jobs_by_schema_id(schema_id: UUID) -> list[ExternalDataJob]:
+    from posthog.warehouse.models import ExternalDataSchema
+
+    return list(
+        ExternalDataJob.objects.prefetch_related(
+            "pipeline", Prefetch("schema", queryset=ExternalDataSchema.objects.prefetch_related("source"))
+        )
+        .filter(schema_id=schema_id)
+        .order_by("-created_at")
+        .all()
+    )
 
 
 @database_sync_to_async

@@ -140,7 +140,7 @@ export function DatabaseTable({ table, tables, inEditSchemaMode, schemaOnChange 
                             )
                         }
 
-                        const tagType: LemonTagType = schema_valid ? 'success' : 'danger'
+                        const tagType: LemonTagType = schema_valid ? 'default' : 'danger'
 
                         return (
                             <LemonTag type={tagType} className="uppercase">

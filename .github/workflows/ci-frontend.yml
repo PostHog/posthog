@@ -35,7 +35,6 @@ jobs:
                         # NOTE: we are at risk of missing a dependency here.
                         - 'bin/**'
                         - 'frontend/**'
-                        - 'hogvm/typescript/**'
                         - 'ee/frontend/**'
                         # Make sure we run if someone is explicitly change the workflow
                         - .github/workflows/ci-frontend.yml
@@ -118,13 +117,6 @@ jobs:
                   pattern: 'frontend/dist/toolbar.js'
                   # we only care if the toolbar will increase a lot
                   minimum-change-threshold: 1000
-
-            - name: Test HogVM TypeScript
-              run: |
-                  cd hogvm/typescript
-                  pnpm install --frozen-lockfile
-                  pnpm run test
-              if: needs.changes.outputs.frontend == 'true'
 
     jest:
         runs-on: ubuntu-latest

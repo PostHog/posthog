@@ -124,8 +124,25 @@ replica_opt_in = os.environ.get("READ_REPLICA_OPT_IN", "")
 READ_REPLICA_OPT_IN: list[str] = get_list(replica_opt_in)
 
 
+# Xdist Settings
+# When running concurrent tests, PYTEST_XDIST_WORKER gets set to "gw0" ... "gwN"
+# We use this setting to create multiple databases to achieve test isolation
+PYTEST_XDIST_WORKER: str | None = os.getenv("PYTEST_XDIST_WORKER")
+PYTEST_XDIST_WORKER_NUM: int | None = None
+SUFFIX = ""
+XDIST_SUFFIX = ""
+try:
+    if PYTEST_XDIST_WORKER is not None:
+        XDIST_SUFFIX = f"_{PYTEST_XDIST_WORKER}"
+        PYTEST_XDIST_WORKER_NUM = int("".join([x for x in PYTEST_XDIST_WORKER if x.isdigit()]))
+except:
+    pass
+
+if TEST:
+    SUFFIX = "_test" + XDIST_SUFFIX
+
 # Clickhouse Settings
-CLICKHOUSE_TEST_DB: str = "posthog_test"
+CLICKHOUSE_TEST_DB: str = "posthog" + SUFFIX
 
 CLICKHOUSE_HOST: str = os.getenv("CLICKHOUSE_HOST", "localhost")
 CLICKHOUSE_OFFLINE_CLUSTER_HOST: str | None = os.getenv("CLICKHOUSE_OFFLINE_CLUSTER_HOST", None)
@@ -195,11 +212,6 @@ SESSION_RECORDING_KAFKA_HOSTS = _parse_kafka_hosts(os.getenv("SESSION_RECORDING_
 # Useful if clickhouse is hosted outside the cluster.
 KAFKA_HOSTS_FOR_CLICKHOUSE = _parse_kafka_hosts(os.getenv("KAFKA_URL_FOR_CLICKHOUSE", "")) or KAFKA_HOSTS
 
-# can set ('gzip', 'snappy', 'lz4', 'zstd' None)
-# NB if you want to set a compression you need to install it... the producer compresses not kafka
-# so, at time of writing only 'gzip' and None/'uncompressed' are available
-SESSION_RECORDING_KAFKA_COMPRESSION = os.getenv("SESSION_RECORDING_KAFKA_COMPRESSION", None)
-
 # To support e.g. Multi-tenanted plans on Heroko, we support specifying a prefix for
 # Kafka Topics. See
 # https://devcenter.heroku.com/articles/multi-tenant-kafka-on-heroku#differences-to-dedicated-kafka-plans
@@ -222,8 +234,6 @@ KAFKA_SASL_MECHANISM = os.getenv("KAFKA_SASL_MECHANISM", None)
 KAFKA_SASL_USER = os.getenv("KAFKA_SASL_USER", None)
 KAFKA_SASL_PASSWORD = os.getenv("KAFKA_SASL_PASSWORD", None)
 
-SUFFIX = "_test" if TEST else ""
-
 KAFKA_EVENTS_PLUGIN_INGESTION: str = (
     f"{KAFKA_PREFIX}events_plugin_ingestion{SUFFIX}"  # can be overridden in settings.py
 )
@@ -241,7 +251,10 @@ TOKENS_HISTORICAL_DATA = os.getenv("TOKENS_HISTORICAL_DATA", "").split(",")
 
 # The last case happens when someone upgrades Heroku but doesn't have Redis installed yet. Collectstatic gets called before we can provision Redis.
 if TEST or DEBUG or IS_COLLECT_STATIC:
-    REDIS_URL = os.getenv("REDIS_URL", "redis://localhost/")
+    if PYTEST_XDIST_WORKER_NUM is not None:
+        REDIS_URL = os.getenv("REDIS_URL", f"redis://localhost/{PYTEST_XDIST_WORKER_NUM}")
+    else:
+        REDIS_URL = os.getenv("REDIS_URL", "redis://localhost/")
 else:
     REDIS_URL = os.getenv("REDIS_URL", "")
 
@@ -271,7 +284,7 @@ if not REDIS_URL:
 # Controls whether the TolerantZlibCompressor is used for Redis compression when writing to Redis.
 # The TolerantZlibCompressor is a drop-in replacement for the standard Django ZlibCompressor that
 # can cope with compressed and uncompressed reading at the same time
-USE_REDIS_COMPRESSION = get_from_env("USE_REDIS_COMPRESSION", False, type_cast=str_to_bool)
+USE_REDIS_COMPRESSION = get_from_env("USE_REDIS_COMPRESSION", True, type_cast=str_to_bool)
 
 # AWS ElastiCache supports "reader" endpoints.
 # See "Finding a Redis (Cluster Mode Disabled) Cluster's Endpoints (Console)"
@@ -286,6 +299,14 @@ REDIS_READER_URL = os.getenv("REDIS_READER_URL", None)
 # pubsub channel, pushed to when plugin configs change.
 # We should move away to a different communication channel and remove this.
 PLUGINS_RELOAD_REDIS_URL = os.getenv("PLUGINS_RELOAD_REDIS_URL", REDIS_URL)
+
+
+CDP_FUNCTION_EXECUTOR_API_URL = get_from_env("CDP_FUNCTION_EXECUTOR_API_URL", "")
+
+if not CDP_FUNCTION_EXECUTOR_API_URL:
+    CDP_FUNCTION_EXECUTOR_API_URL = (
+        "http://localhost:6738" if DEBUG else "http://ingestion-cdp-function-callbacks.posthog.svc.cluster.local"
+    )
 
 CACHES = {
     "default": {

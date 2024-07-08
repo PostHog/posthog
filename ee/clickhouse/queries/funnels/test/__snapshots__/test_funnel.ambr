@@ -141,11 +141,12 @@
          count(*) as count
   FROM events e
   LEFT OUTER JOIN
-    (SELECT argMax(override_person_id, version) as person_id,
-            old_person_id
-     FROM person_overrides
-     WHERE team_id = 2
-     GROUP BY old_person_id) AS overrides ON e.person_id = overrides.old_person_id
+    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+            person_distinct_id_overrides.distinct_id AS distinct_id
+     FROM person_distinct_id_overrides
+     WHERE equals(person_distinct_id_overrides.team_id, 2)
+     GROUP BY person_distinct_id_overrides.distinct_id
+     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
   LEFT JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
@@ -240,7 +241,7 @@
                        FROM
                          (SELECT e.timestamp as timestamp,
                                  e."$group_0" as aggregation_target,
-                                 if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) as person_id,
+                                 if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as person_id,
                                  if(event = 'sign up', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'play movie', 1, 0) as step_1,
@@ -252,11 +253,12 @@
                                  argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                           FROM events e
                           LEFT OUTER JOIN
-                            (SELECT argMax(override_person_id, version) as person_id,
-                                    old_person_id
-                             FROM person_overrides
-                             WHERE team_id = 2
-                             GROUP BY old_person_id) AS overrides ON e.person_id = overrides.old_person_id
+                            (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                                    person_distinct_id_overrides.distinct_id AS distinct_id
+                             FROM person_distinct_id_overrides
+                             WHERE equals(person_distinct_id_overrides.team_id, 2)
+                             GROUP BY person_distinct_id_overrides.distinct_id
+                             HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
                           LEFT JOIN
                             (SELECT group_key,
                                     argMax(group_properties, _timestamp) AS group_properties_0
@@ -1140,11 +1142,12 @@
          count(*) as count
   FROM events e
   LEFT OUTER JOIN
-    (SELECT argMax(override_person_id, version) as person_id,
-            old_person_id
-     FROM person_overrides
-     WHERE team_id = 2
-     GROUP BY old_person_id) AS overrides ON e.person_id = overrides.old_person_id
+    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+            person_distinct_id_overrides.distinct_id AS distinct_id
+     FROM person_distinct_id_overrides
+     WHERE equals(person_distinct_id_overrides.team_id, 2)
+     GROUP BY person_distinct_id_overrides.distinct_id
+     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
   LEFT JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
@@ -1239,7 +1242,7 @@
                        FROM
                          (SELECT e.timestamp as timestamp,
                                  e."$group_0" as aggregation_target,
-                                 if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) as person_id,
+                                 if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as person_id,
                                  if(event = 'sign up', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'play movie', 1, 0) as step_1,
@@ -1251,11 +1254,12 @@
                                  argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                           FROM events e
                           LEFT OUTER JOIN
-                            (SELECT argMax(override_person_id, version) as person_id,
-                                    old_person_id
-                             FROM person_overrides
-                             WHERE team_id = 2
-                             GROUP BY old_person_id) AS overrides ON e.person_id = overrides.old_person_id
+                            (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                                    person_distinct_id_overrides.distinct_id AS distinct_id
+                             FROM person_distinct_id_overrides
+                             WHERE equals(person_distinct_id_overrides.team_id, 2)
+                             GROUP BY person_distinct_id_overrides.distinct_id
+                             HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
                           LEFT JOIN
                             (SELECT group_key,
                                     argMax(group_properties, _timestamp) AS group_properties_0
@@ -2047,11 +2051,12 @@
          count(*) as count
   FROM events e
   LEFT OUTER JOIN
-    (SELECT argMax(override_person_id, version) as person_id,
-            old_person_id
-     FROM person_overrides
-     WHERE team_id = 2
-     GROUP BY old_person_id) AS overrides ON e.person_id = overrides.old_person_id
+    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+            person_distinct_id_overrides.distinct_id AS distinct_id
+     FROM person_distinct_id_overrides
+     WHERE equals(person_distinct_id_overrides.team_id, 2)
+     GROUP BY person_distinct_id_overrides.distinct_id
+     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
   LEFT JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
@@ -2146,7 +2151,7 @@
                        FROM
                          (SELECT e.timestamp as timestamp,
                                  e."$group_0" as aggregation_target,
-                                 if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) as person_id,
+                                 if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as person_id,
                                  if(event = 'sign up', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'play movie', 1, 0) as step_1,
@@ -2158,11 +2163,12 @@
                                  argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                           FROM events e
                           LEFT OUTER JOIN
-                            (SELECT argMax(override_person_id, version) as person_id,
-                                    old_person_id
-                             FROM person_overrides
-                             WHERE team_id = 2
-                             GROUP BY old_person_id) AS overrides ON e.person_id = overrides.old_person_id
+                            (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                                    person_distinct_id_overrides.distinct_id AS distinct_id
+                             FROM person_distinct_id_overrides
+                             WHERE equals(person_distinct_id_overrides.team_id, 2)
+                             GROUP BY person_distinct_id_overrides.distinct_id
+                             HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
                           LEFT JOIN
                             (SELECT group_key,
                                     argMax(group_properties, _timestamp) AS group_properties_0

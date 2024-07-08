@@ -116,7 +116,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
             },
         ],
         clickmapsEnabled: [
-            true,
+            false,
             { persist: true },
             {
                 toggleClickmapsEnabled: (state, { enabled }) => (enabled === undefined ? !state : enabled),
@@ -612,7 +612,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
         window.addEventListener('keyup', cache.keyUpListener)
 
         cache.scrollCheckTimer = setInterval(() => {
-            const scrollY = (values.posthog as any)?.scrollManager?.scrollY() ?? 0
+            const scrollY = values.posthog?.scrollManager?.scrollY() ?? 0
             if (values.heatmapScrollY !== scrollY) {
                 actions.setHeatmapScrollY(scrollY)
             }

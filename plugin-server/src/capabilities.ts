@@ -23,6 +23,9 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 personOverrides: true,
                 appManagementSingleton: true,
                 preflightSchedules: true,
+                cdpProcessedEvents: true,
+                cdpFunctionCallbacks: true,
+                cdpFunctionOverflow: true,
                 ...sharedCapabilities,
             }
         case PluginServerMode.ingestion:
@@ -85,6 +88,22 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
         case PluginServerMode.person_overrides:
             return {
                 personOverrides: true,
+                ...sharedCapabilities,
+            }
+
+        case PluginServerMode.cdp_processed_events:
+            return {
+                cdpProcessedEvents: true,
+                ...sharedCapabilities,
+            }
+        case PluginServerMode.cdp_function_callbacks:
+            return {
+                cdpFunctionCallbacks: true,
+                ...sharedCapabilities,
+            }
+        case PluginServerMode.cdp_function_overflow:
+            return {
+                cdpFunctionOverflow: true,
                 ...sharedCapabilities,
             }
     }

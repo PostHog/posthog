@@ -1,27 +1,29 @@
-from datetime import datetime, timedelta
-
-from unittest.mock import ANY
-import pytest
 import re
-from rest_framework import status
+from datetime import datetime, timedelta
+from unittest.mock import ANY
+
+import pytest
 from django.core.cache import cache
 from django.test.client import Client
 from freezegun.api import freeze_time
 from posthog.api.survey import nh3_clean_with_allow_list
 from posthog.models.cohort.cohort import Cohort
+from nanoid import generate
+from rest_framework import status
+
+from posthog.constants import AvailableFeature
+from posthog.models import FeatureFlag
 
 from posthog.models.feedback.survey import Survey
 from posthog.test.base import (
     APIBaseTest,
-    ClickhouseTestMixin,
     BaseTest,
+    ClickhouseTestMixin,
     QueryMatchingTest,
-    snapshot_postgres_queries,
-    snapshot_clickhouse_queries,
     _create_event,
+    snapshot_clickhouse_queries,
+    snapshot_postgres_queries,
 )
-
-from posthog.models import FeatureFlag
 
 
 class TestSurvey(APIBaseTest):
@@ -256,8 +258,6 @@ class TestSurvey(APIBaseTest):
         ]
 
     def test_used_in_survey_is_populated_correctly_for_feature_flag_list(self) -> None:
-        self.maxDiff = None
-
         ff_key = "notebooks"
         notebooks_flag = FeatureFlag.objects.create(team=self.team, key=ff_key, created_by=self.user)
 
@@ -970,8 +970,8 @@ class TestSurvey(APIBaseTest):
                     "internal_targeting_flag": {
                         "id": ANY,
                         "team_id": self.team.id,
-                        "name": "Targeting flag for survey Notebooks power users survey",
                         "key": ANY,
+                        "name": "Targeting flag for survey Notebooks power users survey",
                         "filters": {
                             "groups": [
                                 {
@@ -1005,6 +1005,11 @@ class TestSurvey(APIBaseTest):
                     "start_date": None,
                     "end_date": None,
                     "responses_limit": None,
+                    "iteration_count": None,
+                    "iteration_frequency_days": None,
+                    "iteration_start_dates": None,
+                    "current_iteration": None,
+                    "current_iteration_start_date": None,
                 }
             ],
         }
@@ -1243,6 +1248,7 @@ class TestSurveyQuestionValidation(APIBaseTest):
                     "thankYouMessageHeader": "Thanks for your feedback!",
                     "thankYouMessageDescription": "<b>We'll use it to make notebooks better.<script>alert(0)</script>",
                     "shuffleQuestions": True,
+                    "surveyPopupDelaySeconds": 60,
                 },
             },
             format="json",
@@ -1265,6 +1271,7 @@ class TestSurveyQuestionValidation(APIBaseTest):
             "thankYouMessageHeader": "Thanks for your feedback!",
             "thankYouMessageDescription": "<b>We'll use it to make notebooks better.</b>",
             "shuffleQuestions": True,
+            "surveyPopupDelaySeconds": 60,
         }
         assert response_data["created_by"]["id"] == self.user.id
 
@@ -1580,6 +1587,413 @@ class TestSurveyQuestionValidation(APIBaseTest):
         assert response_data["detail"] == "Question choices must be a list of strings"
 
 
+class TestSurveyQuestionValidationWithEnterpriseFeatures(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization = self.create_organization_with_features([AvailableFeature.SURVEYS_TEXT_HTML])
+        self.team = self.create_team_with_organization(self.organization)
+        self.user = self.create_user_with_organization(self.organization)
+        self.client.force_login(self.user)
+
+    def test_create_survey_with_valid_question_description_content_type(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks beta release survey",
+                "description": "Get feedback on the new notebooks feature",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "What's a survey?",
+                        "description": "This is a description",
+                        "descriptionContentType": "text",
+                    }
+                ],
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        assert response_data["questions"][0]["descriptionContentType"] == "text"
+
+    def test_validate_question_description_content_type(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks beta release survey",
+                "description": "Get feedback on the new notebooks feature",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "What's a survey?",
+                        "description": "This is a description",
+                        "descriptionContentType": "text/html",
+                    }
+                ],
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
+        assert response_data["detail"] == "Question descriptionContentType must be one of ['text', 'html']"
+
+    def test_create_survey_with_valid_thank_you_description_content_type(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks beta release survey",
+                "description": "Get feedback on the new notebooks feature",
+                "type": "popover",
+                "appearance": {
+                    "thankYouMessageHeader": "Thanks for your feedback!",
+                    "thankYouMessageDescription": "This is a thank you message",
+                    "thankYouMessageDescriptionContentType": "text",
+                },
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        assert response_data["appearance"]["thankYouMessageDescriptionContentType"] == "text"
+
+    def test_validate_thank_you_description_content_type(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks beta release survey",
+                "description": "Get feedback on the new notebooks feature",
+                "type": "popover",
+                "appearance": {
+                    "thankYouMessageHeader": "Thanks for your feedback!",
+                    "thankYouMessageDescription": "This is a thank you message",
+                    "thankYouMessageDescriptionContentType": "text/html",
+                },
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
+        assert response_data["detail"] == "thankYouMessageDescriptionContentType must be one of ['text', 'html']"
+
+    def test_create_survey_with_survey_popup_delay(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks beta release survey",
+                "type": "popover",
+                "appearance": {
+                    "surveyPopupDelaySeconds": 6000,
+                },
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        assert response_data["appearance"]["surveyPopupDelaySeconds"] == 6000
+
+    def test_validate_survey_popup_delay(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks beta release survey",
+                "type": "popover",
+                "appearance": {
+                    "surveyPopupDelaySeconds": -100,
+                },
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
+        assert response_data["detail"] == "Survey popup delay seconds must be a positive integer"
+
+    def test_create_survey_with_valid_question_description_content_type_html(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks beta release survey",
+                "description": "Get feedback on the new notebooks feature",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "What's a survey?",
+                        "description": "<b>This is a description</b>",
+                        "descriptionContentType": "html",
+                    }
+                ],
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        assert Survey.objects.filter(id=response_data["id"]).exists()
+        assert response_data["questions"][0]["descriptionContentType"] == "html"
+        assert response_data["questions"][0]["description"] == "<b>This is a description</b>"
+
+    def test_create_survey_with_html_without_feature_flag(self):
+        # Remove the SURVEYS_TEXT_HTML feature
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks beta release survey",
+                "description": "Get feedback on the new notebooks feature",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "What's a survey?",
+                        "description": "<b>This is a description</b>",
+                        "descriptionContentType": "html",
+                    }
+                ],
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
+        assert response_data["detail"] == "You need to upgrade to PostHog Enterprise to use HTML in survey questions"
+
+    def test_create_survey_with_valid_thank_you_description_content_type_html(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks beta release survey",
+                "description": "Get feedback on the new notebooks feature",
+                "type": "popover",
+                "appearance": {
+                    "thankYouMessageHeader": "Thanks for your feedback!",
+                    "thankYouMessageDescription": "<b>This is a thank you message</b>",
+                    "thankYouMessageDescriptionContentType": "html",
+                },
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        assert Survey.objects.filter(id=response_data["id"]).exists()
+        assert response_data["appearance"]["thankYouMessageDescriptionContentType"] == "html"
+        assert response_data["appearance"]["thankYouMessageDescription"] == "<b>This is a thank you message</b>"
+
+    def test_create_survey_with_html_thank_you_without_feature_flag(self):
+        # Remove the SURVEYS_TEXT_HTML feature
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks beta release survey",
+                "description": "Get feedback on the new notebooks feature",
+                "type": "popover",
+                "appearance": {
+                    "thankYouMessageHeader": "Thanks for your feedback!",
+                    "thankYouMessageDescription": "<b>This is a thank you message</b>",
+                    "thankYouMessageDescriptionContentType": "html",
+                },
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
+        assert (
+            response_data["detail"]
+            == "You need to upgrade to PostHog Enterprise to use HTML in survey thank you message"
+        )
+
+
+class TestSurveysRecurringIterations(APIBaseTest):
+    def _create_recurring_survey(self) -> Survey:
+        random_id = generate("1234567890abcdef", 10)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": f"Recurring NPS Survey {random_id}",
+                "description": "Get feedback on the new notebooks feature",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "What's a survey?",
+                    }
+                ],
+                "iteration_count": 2,
+                "iteration_frequency_days": 30,
+            },
+        )
+
+        response_data = response.json()
+        assert response_data["iteration_start_dates"] is None
+        assert response_data["current_iteration"] is None
+        survey = Survey.objects.get(id=response_data["id"])
+        return survey
+
+    def test_can_create_recurring_survey(self):
+        survey = self._create_recurring_survey()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "start_date": datetime.now() - timedelta(days=1),
+                "iteration_count": 2,
+                "iteration_frequency_days": 30,
+            },
+        )
+        response_data = response.json()
+        assert response_data["iteration_start_dates"] is not None
+        assert len(response_data["iteration_start_dates"]) == 2
+        assert response_data["current_iteration"] == 1
+
+    def test_can_set_internal_targeting_flag(self):
+        survey = self._create_recurring_survey()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "start_date": datetime.now() - timedelta(days=1),
+                "iteration_count": 2,
+                "iteration_frequency_days": 30,
+            },
+        )
+        response_data = response.json()
+        assert response_data["iteration_start_dates"] is not None
+        assert len(response_data["iteration_start_dates"]) == 2
+        assert response_data["current_iteration"] == 1
+        survey.refresh_from_db()
+        assert survey.internal_targeting_flag
+        survey_id = response_data["id"]
+        user_submitted_dismissed_filter = {
+            "groups": [
+                {
+                    "variant": "",
+                    "rollout_percentage": 100,
+                    "properties": [
+                        {
+                            "key": f"$survey_dismissed/{survey_id}/1",
+                            "type": "person",
+                            "value": "is_not_set",
+                            "operator": "is_not_set",
+                        },
+                        {
+                            "key": f"$survey_responded/{survey_id}/1",
+                            "type": "person",
+                            "value": "is_not_set",
+                            "operator": "is_not_set",
+                        },
+                    ],
+                }
+            ]
+        }
+
+        assert survey.internal_targeting_flag.filters == user_submitted_dismissed_filter
+
+    @freeze_time("2024-05-22 14:40:09")
+    def test_iterations_always_start_from_start_date(self):
+        survey = self._create_recurring_survey()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"start_date": datetime.now(), "iteration_count": 2, "iteration_frequency_days": 30},
+        )
+        response_data = response.json()
+        assert response_data["iteration_start_dates"] is not None
+        assert len(response_data["iteration_start_dates"]) == 2
+        assert response_data["current_iteration"] == 1
+        assert response_data["iteration_start_dates"] == ["2024-05-22T14:40:09Z", "2024-06-21T14:40:09Z"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"iteration_count": 4, "iteration_frequency_days": 30},
+        )
+        response_data = response.json()
+        assert len(response_data["iteration_start_dates"]) == 4
+        assert response_data["iteration_start_dates"] == [
+            "2024-05-22T14:40:09Z",
+            "2024-06-21T14:40:09Z",
+            "2024-07-21T14:40:09Z",
+            "2024-08-20T14:40:09Z",
+        ]
+
+    def test_cannot_reduce_iterations_lt_current_iteration(self):
+        survey = self._create_recurring_survey()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "start_date": datetime.now() - timedelta(days=1),
+                "iteration_count": 2,
+                "iteration_frequency_days": 30,
+            },
+        )
+        response_data = response.json()
+        assert response_data["iteration_start_dates"] is not None
+        assert len(response_data["iteration_start_dates"]) == 2
+        assert response_data["current_iteration"] == 1
+
+        survey.refresh_from_db()
+        survey.current_iteration = 2
+        survey.save()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "start_date": datetime.now() - timedelta(days=1),
+                "iteration_count": 1,
+                "iteration_frequency_days": 30,
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "Cannot change survey recurrence to 1, should be at least 2"
+
+    def test_can_turn_off_recurring_schedule(self):
+        survey = self._create_recurring_survey()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "start_date": datetime.now() - timedelta(days=1),
+                "iteration_count": 0,
+            },
+        )
+        response_data = response.json()
+        assert len(response_data["iteration_start_dates"]) == 0
+        assert response_data["current_iteration"] is None
+
+    def test_can_stop_and_resume_survey(self):
+        # start the survey with a recurring schedule
+        survey = self._create_recurring_survey()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "start_date": datetime.now() - timedelta(days=1),
+                "iteration_count": 2,
+                "iteration_frequency_days": 30,
+            },
+        )
+        response_data = response.json()
+        assert response_data["iteration_start_dates"] is not None
+        assert len(response_data["iteration_start_dates"]) == 2
+        assert response_data["current_iteration"] == 1
+
+        survey.refresh_from_db()
+
+        # now stop  the survey with a recurring schedule
+        survey = self._create_recurring_survey()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "start_date": datetime.now() - timedelta(days=1),
+                "end_date": datetime.now() + timedelta(days=2),
+                "iteration_count": 2,
+                "iteration_frequency_days": 30,
+            },
+        )
+        response_data = response.json()
+        assert response_data["iteration_start_dates"] is not None
+        assert len(response_data["iteration_start_dates"]) == 2
+        assert response_data["current_iteration"] == 1
+
+
 class TestSurveysAPIList(BaseTest, QueryMatchingTest):
     def setUp(self):
         cache.clear()
@@ -1600,6 +2014,16 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
             HTTP_ORIGIN=origin,
             REMOTE_ADDR=ip,
         )
+
+    def test_options_unauthenticated(self):
+        unauthenticated_client = Client(enforce_csrf_checks=True)
+        unauthenticated_client.logout()
+        request_headers = {"HTTP_ACCESS_CONTROL_REQUEST_METHOD": "GET", "HTTP_ORIGIN": "*", "USER_AGENT": "Agent 008"}
+        response = unauthenticated_client.options(
+            "/api/surveys", data={}, follow=False, secure=False, headers={}, **request_headers
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["Access-Control-Allow-Origin"], "*")
 
     @snapshot_postgres_queries
     def test_list_surveys(self):
@@ -1645,6 +2069,8 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                         "appearance": None,
                         "start_date": None,
                         "end_date": None,
+                        "current_iteration": None,
+                        "current_iteration_start_date": None,
                     },
                     {
                         "id": str(survey_with_flags.id),
@@ -1656,6 +2082,8 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                         "questions": [{"type": "open", "question": "What's a hedgehog?"}],
                         "linked_flag_key": "linked-flag",
                         "targeting_flag_key": "targeting-flag",
+                        "current_iteration": None,
+                        "current_iteration_start_date": None,
                         "internal_targeting_flag_key": "custom-targeting-flag",
                         "start_date": None,
                         "end_date": None,

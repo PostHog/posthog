@@ -25,6 +25,7 @@ import {
 import { ActionManager } from '../../worker/ingestion/action-manager'
 import { ActionMatcher } from '../../worker/ingestion/action-matcher'
 import { AppMetrics } from '../../worker/ingestion/app-metrics'
+import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { OrganizationManager } from '../../worker/ingestion/organization-manager'
 import { EventsProcessor } from '../../worker/ingestion/process-event'
 import { TeamManager } from '../../worker/ingestion/team-manager'
@@ -146,15 +147,11 @@ export async function createHub(
     const organizationManager = new OrganizationManager(postgres, teamManager)
     const pluginsApiKeyManager = new PluginsApiKeyManager(db)
     const rootAccessManager = new RootAccessManager(db)
-    const rustyHook = new RustyHook(
-        buildIntegerMatcher(serverConfig.RUSTY_HOOK_FOR_TEAMS, true),
-        serverConfig.RUSTY_HOOK_ROLLOUT_PERCENTAGE,
-        serverConfig.RUSTY_HOOK_URL,
-        serverConfig.EXTERNAL_REQUEST_TIMEOUT_MS
-    )
+    const rustyHook = new RustyHook(serverConfig)
 
     const actionManager = new ActionManager(postgres, serverConfig)
     const actionMatcher = new ActionMatcher(postgres, actionManager, teamManager)
+    const groupTypeManager = new GroupTypeManager(postgres, teamManager)
 
     const enqueuePluginJob = async (job: EnqueuedPluginJob) => {
         // NOTE: we use the producer directly here rather than using the wrapper
@@ -189,6 +186,7 @@ export async function createHub(
         kafkaProducer,
         enqueuePluginJob,
         objectStorage: objectStorage,
+        groupTypeManager,
 
         plugins: new Map(),
         pluginConfigs: new Map(),
@@ -209,7 +207,6 @@ export async function createHub(
         pluginConfigsToSkipElementsParsing: buildIntegerMatcher(process.env.SKIP_ELEMENTS_PARSING_PLUGINS, true),
         poeEmbraceJoinForTeams: buildIntegerMatcher(process.env.POE_EMBRACE_JOIN_FOR_TEAMS, true),
         poeWritesExcludeTeams: buildIntegerMatcher(process.env.POE_WRITES_EXCLUDE_TEAMS, false),
-        lazyPersonCreationTeams: buildIntegerMatcher(process.env.LAZY_PERSON_CREATION_TEAMS, true),
         eventsToDropByToken: createEventsToDropByToken(process.env.DROP_EVENTS_BY_TOKEN_DISTINCT_ID),
     }
 

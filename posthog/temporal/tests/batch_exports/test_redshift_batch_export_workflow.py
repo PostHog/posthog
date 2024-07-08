@@ -130,7 +130,7 @@ async def assert_clickhouse_records_in_redshfit(
                         remove_escaped_whitespace_recursive(json.loads(v)), ensure_ascii=False
                     )
                 elif isinstance(v, dt.datetime):
-                    expected_record[k] = v.replace(tzinfo=dt.timezone.utc)  # type: ignore
+                    expected_record[k] = v.replace(tzinfo=dt.UTC)  # type: ignore
                 else:
                     expected_record[k] = v
 
@@ -215,7 +215,7 @@ TEST_SCHEMAS = [
     {
         "fields": [
             {"expression": "event", "alias": "event"},
-            {"expression": "inserted_at", "alias": "inserted_at"},
+            {"expression": "_inserted_at", "alias": "inserted_at"},
             {"expression": "toInt8(1 + 1)", "alias": "two"},
         ],
         "values": {},
@@ -242,8 +242,8 @@ async def test_insert_into_redshift_activity_inserts_data_into_redshift_table(
     Once we have these events, we pass them to the assert_events_in_redshift function to check
     that they appear in the expected Redshift table.
     """
-    data_interval_start = dt.datetime(2023, 4, 20, 14, 0, 0, tzinfo=dt.timezone.utc)
-    data_interval_end = dt.datetime(2023, 4, 25, 15, 0, 0, tzinfo=dt.timezone.utc)
+    data_interval_start = dt.datetime(2023, 4, 20, 14, 0, 0, tzinfo=dt.UTC)
+    data_interval_end = dt.datetime(2023, 4, 25, 15, 0, 0, tzinfo=dt.UTC)
 
     # Generate a random team id integer. There's still a chance of a collision,
     # but it's very small.
@@ -511,7 +511,6 @@ async def test_redshift_export_workflow_handles_insert_activity_errors(ateam, re
     assert run.status == "FailedRetryable"
     assert run.latest_error == "ValueError: A useful error message"
     assert run.records_completed is None
-    assert run.records_total_count == 1
 
 
 async def test_redshift_export_workflow_handles_insert_activity_non_retryable_errors(
@@ -564,4 +563,3 @@ async def test_redshift_export_workflow_handles_insert_activity_non_retryable_er
     assert run.status == "Failed"
     assert run.latest_error == "InsufficientPrivilege: A useful error message"
     assert run.records_completed is None
-    assert run.records_total_count == 1

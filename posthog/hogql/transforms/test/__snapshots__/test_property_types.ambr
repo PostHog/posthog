@@ -2,26 +2,39 @@
 # name: TestPropertyTypes.test_data_warehouse_person_property_types
   '''
   
-  SELECT persons__extended_properties.string_prop AS string_prop, persons__extended_properties.int_prop AS int_prop, transform(persons__extended_properties.bool_prop, %(hogql_val_7)s, %(hogql_val_8)s, NULL) AS bool_prop 
+  SELECT persons__extended_properties.string_prop AS string_prop, persons__extended_properties.int_prop AS int_prop, transform(persons__extended_properties.bool_prop, %(hogql_val_8)s, %(hogql_val_9)s, NULL) AS bool_prop 
   FROM (
   SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), person.version) AS persons___properties___email, person.id AS id 
   FROM person 
   WHERE equals(person.team_id, 420) 
   GROUP BY person.id 
-  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0)) 
+  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_1)s), person.version), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1))), 0)) 
   SETTINGS optimize_aggregation_in_order=1) AS persons LEFT JOIN (
   SELECT extended_properties.string_prop AS string_prop, extended_properties.int_prop AS int_prop, extended_properties.bool_prop AS bool_prop, string_prop AS persons__extended_properties___string_prop 
-  FROM s3(%(hogql_val_2_sensitive)s, %(hogql_val_5_sensitive)s, %(hogql_val_6_sensitive)s, %(hogql_val_3)s, %(hogql_val_4)s) AS extended_properties) AS persons__extended_properties ON equals(persons.persons___properties___email, persons__extended_properties.persons__extended_properties___string_prop) 
-  WHERE ifNull(equals(bool_prop, true), 0) 
+  FROM s3(%(hogql_val_3_sensitive)s, %(hogql_val_6_sensitive)s, %(hogql_val_7_sensitive)s, %(hogql_val_4)s, %(hogql_val_5)s) AS extended_properties) AS persons__extended_properties ON equals(persons.persons___properties___email, persons__extended_properties.persons__extended_properties___string_prop) 
+  WHERE ifNull(equals(bool_prop, 1), 0) 
+  LIMIT 50000
+  '''
+# ---
+# name: TestPropertyTypes.test_group_boolean_property_types
+  '''
+  
+  SELECT ifNull(equals(transform(events__group_0.properties___group_boolean, %(hogql_val_2)s, %(hogql_val_3)s, NULL), 1), 0), ifNull(equals(transform(events__group_0.properties___group_boolean, %(hogql_val_4)s, %(hogql_val_5)s, NULL), 0), 0), isNull(transform(events__group_0.properties___group_boolean, %(hogql_val_6)s, %(hogql_val_7)s, NULL)) 
+  FROM events LEFT JOIN (
+  SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, %(hogql_val_1)s)) AS properties___group_boolean, groups.group_type_index AS index, groups.group_key AS key 
+  FROM groups 
+  WHERE and(equals(groups.team_id, 420), ifNull(equals(index, 0), 0)) 
+  GROUP BY groups.group_type_index, groups.group_key) AS events__group_0 ON equals(events.`$group_0`, events__group_0.key) 
+  WHERE equals(events.team_id, 420) 
   LIMIT 50000
   '''
 # ---
 # name: TestPropertyTypes.test_group_property_types
   '''
   
-  SELECT accurateCastOrNull(events__group_0.properties___inty, %(hogql_val_1)s) AS inty 
+  SELECT accurateCastOrNull(events__group_0.properties___inty, %(hogql_val_2)s) AS inty 
   FROM events LEFT JOIN (
-  SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___inty, groups.group_type_index AS index, groups.group_key AS key 
+  SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, %(hogql_val_1)s)) AS properties___inty, groups.group_type_index AS index, groups.group_key AS key 
   FROM groups 
   WHERE and(equals(groups.team_id, 420), ifNull(equals(index, 0), 0)) 
   GROUP BY groups.group_type_index, groups.group_key) AS events__group_0 ON equals(events.`$group_0`, events__group_0.key) 
@@ -32,18 +45,19 @@
 # name: TestPropertyTypes.test_resolve_property_types_combined
   '''
   
-  SELECT multiply(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_2)s), ''), 'null'), '^"|"$', ''), %(hogql_val_3)s), accurateCastOrNull(events__pdi__person.properties___tickets, %(hogql_val_4)s)) 
+  SELECT multiply(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_4)s), ''), 'null'), '^"|"$', ''), %(hogql_val_5)s), events__pdi__person.properties___tickets) 
   FROM events INNER JOIN (
   SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS events__pdi___person_id, argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
   FROM person_distinct_id2 
   WHERE equals(person_distinct_id2.team_id, 420) 
   GROUP BY person_distinct_id2.distinct_id 
-  HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) LEFT JOIN (
-  SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), person.version) AS properties___tickets, person.id AS id 
+  HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) 
+  SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) LEFT JOIN (
+  SELECT argMax(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), person.version) AS properties___tickets, person.id AS id 
   FROM person 
   WHERE equals(person.team_id, 420) 
   GROUP BY person.id 
-  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0)) 
+  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_2)s), person.version), plus(now64(6, %(hogql_val_3)s), toIntervalDay(1))), 0)) 
   SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id) 
   WHERE equals(events.team_id, 420) 
   LIMIT 50000
@@ -61,18 +75,19 @@
 # name: TestPropertyTypes.test_resolve_property_types_event_person_poe_off
   '''
   
-  SELECT parseDateTime64BestEffortOrNull(events__pdi__person.properties___provided_timestamp, 6, %(hogql_val_2)s) AS provided_timestamp 
+  SELECT events__pdi__person.properties___provided_timestamp AS provided_timestamp 
   FROM events INNER JOIN (
   SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS events__pdi___person_id, argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
   FROM person_distinct_id2 
   WHERE equals(person_distinct_id2.team_id, 420) 
   GROUP BY person_distinct_id2.distinct_id 
-  HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) LEFT JOIN (
-  SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), person.version) AS properties___provided_timestamp, person.id AS id 
+  HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) 
+  SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) LEFT JOIN (
+  SELECT argMax(parseDateTime64BestEffortOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), 6, %(hogql_val_1)s), person.version) AS properties___provided_timestamp, person.id AS id 
   FROM person 
   WHERE equals(person.team_id, 420) 
   GROUP BY person.id 
-  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0)) 
+  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_2)s), person.version), plus(now64(6, %(hogql_val_3)s), toIntervalDay(1))), 0)) 
   SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id) 
   WHERE equals(events.team_id, 420) 
   LIMIT 50000

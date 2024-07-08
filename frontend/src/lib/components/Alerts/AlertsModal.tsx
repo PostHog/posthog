@@ -5,11 +5,11 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { isBoldNumberDisplay } from 'scenes/insights/sharedUtils'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { InsightModel, InsightShortId } from '~/types'
+import { isInsightVizNode, isTrendsQuery } from '~/queries/utils'
+import { ChartDisplayType, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import { EditAlert } from './views/EditAlert'
 import { ManageAlerts } from './views/ManageAlerts'
@@ -50,7 +50,7 @@ export function AlertsModal(props: AlertsModalProps): JSX.Element {
 }
 
 export interface AlertsButtonProps {
-    insight: Partial<InsightModel>
+    insight: Partial<QueryBasedInsightModel>
 }
 
 export function AlertsButton({ insight }: AlertsButtonProps): JSX.Element {
@@ -61,7 +61,12 @@ export function AlertsButton({ insight }: AlertsButtonProps): JSX.Element {
     if (!showAlerts) {
         return <></>
     }
-    const isAlertAvailableForInsight = isBoldNumberDisplay(insight.filters)
+    const isAlertAvailableForInsight =
+        isInsightVizNode(insight.query) &&
+        isTrendsQuery(insight.query.source) &&
+        insight.query.source.trendsFilter != null &&
+        insight.query.source.trendsFilter.display == ChartDisplayType.BoldNumber
+
     if (!isAlertAvailableForInsight) {
         return (
             <LemonButton

@@ -28,7 +28,7 @@ function CloseAllTags({ elements }: { elements: ElementType[] }): JSX.Element {
                         }}
                     >
                         <pre
-                            className="whitespace-pre-wrap break-all p-0 m-0 rounded-none text-default text-sm"
+                            className="whitespace-pre-wrap break-all p-0 m-0 rounded-none text-text-3000 text-sm"
                             key={index}
                         >
                             {indent(elements.length - index - 2)}
@@ -161,7 +161,7 @@ export function HTMLElementsDisplay({
                     <>
                         {elementsToShowDepth ? (
                             <pre
-                                className="p-1 m-0 opacity-50 text-default text-sm cursor-pointer"
+                                className="p-1 m-0 opacity-50 text-text-3000 text-sm cursor-pointer"
                                 data-attr="elements-display-show-more-of-chain"
                                 onClick={showAdditionalElements}
                             >

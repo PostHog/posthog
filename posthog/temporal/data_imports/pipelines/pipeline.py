@@ -8,13 +8,13 @@ from dlt.pipeline.exceptions import PipelineStepFailed
 
 from asgiref.sync import async_to_sync
 import asyncio
-import os
 from posthog.settings.base_variables import TEST
 from structlog.typing import FilteringBoundLogger
 from dlt.sources import DltSource
 from collections import Counter
 
 from posthog.warehouse.data_load.validate_schema import validate_schema_and_update_table
+from posthog.warehouse.models.external_data_source import ExternalDataSource
 
 
 @dataclass
@@ -23,7 +23,7 @@ class PipelineInputs:
     run_id: str
     schema_id: UUID
     dataset_name: str
-    job_type: str
+    job_type: ExternalDataSource.Type
     team_id: int
 
 
@@ -31,7 +31,12 @@ class DataImportPipeline:
     loader_file_format: Literal["parquet"] = "parquet"
 
     def __init__(
-        self, inputs: PipelineInputs, source: DltSource, logger: FilteringBoundLogger, incremental: bool = False
+        self,
+        inputs: PipelineInputs,
+        source: DltSource,
+        logger: FilteringBoundLogger,
+        reset_pipeline: bool,
+        incremental: bool = False,
     ):
         self.inputs = inputs
         self.logger = logger
@@ -42,30 +47,15 @@ class DataImportPipeline:
             self.source = source
 
         self._incremental = incremental
-
-    @property
-    def _get_pipeline_name_base(self):
-        return f"{self.inputs.job_type}_pipeline_{self.inputs.team_id}_run"
+        self.refresh_dlt = reset_pipeline
+        self.should_chunk_pipeline = (
+            incremental
+            and inputs.job_type != ExternalDataSource.Type.POSTGRES
+            and inputs.job_type != ExternalDataSource.Type.SNOWFLAKE
+        )
 
     def _get_pipeline_name(self):
-        base = self._get_pipeline_name_base
-
-        if self._incremental:
-            return f"{base}_{self.inputs.source_id}"
-
-        return f"{base}_{self.inputs.run_id}"
-
-    @property
-    def _get_pipelines_dir_base(self):
-        return f"{os.getcwd()}/.dlt/{self.inputs.team_id}"
-
-    def _get_pipelines_dir(self):
-        base = self._get_pipelines_dir_base
-
-        if self._incremental:
-            return f"{base}/{self.inputs.source_id}/{self.inputs.job_type}"
-
-        return f"{base}/{self.inputs.run_id}/{self.inputs.job_type}"
+        return f"{self.inputs.job_type}_pipeline_{self.inputs.team_id}_run_{self.inputs.schema_id}"
 
     def _get_destination(self):
         if TEST:
@@ -88,27 +78,36 @@ class DataImportPipeline:
 
     def _create_pipeline(self):
         pipeline_name = self._get_pipeline_name()
-        pipelines_dir = self._get_pipelines_dir()
         destination = self._get_destination()
 
         return dlt.pipeline(
             pipeline_name=pipeline_name,
-            pipelines_dir=pipelines_dir,
             destination=destination,
             dataset_name=self.inputs.dataset_name,
         )
 
     def _run(self) -> dict[str, int]:
+        if self.refresh_dlt:
+            self.logger.info("Pipeline getting a full refresh due to reset_pipeline being set")
+
         pipeline = self._create_pipeline()
 
         total_counts: Counter[str] = Counter({})
 
-        if self._incremental:
+        # Do chunking for incremental syncing on API based endpoints (e.g. not sql databases)
+        if self.should_chunk_pipeline:
             # will get overwritten
             counts: Counter[str] = Counter({"start": 1})
+            pipeline_runs = 0
 
             while counts:
-                pipeline.run(self.source, loader_file_format=self.loader_file_format)
+                self.logger.info(f"Running incremental (non-sql) pipeline, run ${pipeline_runs}")
+
+                pipeline.run(
+                    self.source,
+                    loader_file_format=self.loader_file_format,
+                    refresh="drop_sources" if self.refresh_dlt and pipeline_runs == 0 else None,
+                )
 
                 row_counts = pipeline.last_trace.last_normalize_info.row_counts
                 # Remove any DLT tables from the counts
@@ -123,8 +122,16 @@ class DataImportPipeline:
                     table_schema=self.source.schema.tables,
                     row_count=total_counts.total(),
                 )
+
+                pipeline_runs = pipeline_runs + 1
         else:
-            pipeline.run(self.source, loader_file_format=self.loader_file_format)
+            self.logger.info("Running standard pipeline")
+
+            pipeline.run(
+                self.source,
+                loader_file_format=self.loader_file_format,
+                refresh="drop_sources" if self.refresh_dlt else None,
+            )
             row_counts = pipeline.last_trace.last_normalize_info.row_counts
             filtered_rows = dict(filter(lambda pair: not pair[0].startswith("_dlt"), row_counts.items()))
             counts = Counter(filtered_rows)
@@ -143,6 +150,6 @@ class DataImportPipeline:
     async def run(self) -> dict[str, int]:
         try:
             return await asyncio.to_thread(self._run)
-        except PipelineStepFailed:
-            self.logger.error(f"Data import failed for endpoint")
+        except PipelineStepFailed as e:
+            self.logger.exception(f"Data import failed for endpoint with exception {e}", exc_info=e)
             raise

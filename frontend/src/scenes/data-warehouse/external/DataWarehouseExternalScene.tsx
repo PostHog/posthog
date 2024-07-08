@@ -1,14 +1,17 @@
 import { IconGear } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { InsightSaveButton } from 'scenes/insights/InsightSaveButton'
+import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { DataWarehouseBetaNotice } from '../DataWarehouseBetaNotice'
+import { DataWarehouseInitialBillingLimitNotice } from '../DataWarehouseInitialBillingLimitNotice'
 import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 import { DataWarehouseTables } from './DataWarehouseTables'
 
@@ -18,30 +21,36 @@ export const scene: SceneExport = {
 }
 
 export function DataWarehouseExternalScene(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { insightProps, insightChanged, insightSaving, hasDashboardItemId } = useValues(
+        insightLogic({
+            dashboardItemId: 'new',
+            cachedInsight: null,
+        })
+    )
+
+    const { saveInsight, saveAs } = useActions(insightDataLogic(insightProps))
 
     return (
         <div>
             <PageHeader
                 buttons={
                     <>
-                        {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] && (
-                            <LemonButton
-                                type="secondary"
-                                data-attr="new-data-warehouse-view"
-                                key="new-data-warehouse-view"
-                                to={urls.insightNewHogQL('SELECT event AS event FROM events LIMIT 100')}
-                            >
-                                Create View
-                            </LemonButton>
-                        )}
+                        <InsightSaveButton
+                            saveAs={saveAs}
+                            saveInsight={saveInsight}
+                            isSaved={hasDashboardItemId}
+                            addingToDashboard={false}
+                            insightSaving={insightSaving}
+                            insightChanged={insightChanged}
+                        />
+
                         <LemonButton
                             type="primary"
                             data-attr="new-data-warehouse-easy-link"
                             key="new-data-warehouse-easy-link"
                             to={urls.dataWarehouseTable()}
                         >
-                            Link Source
+                            Link source
                         </LemonButton>
 
                         <LemonButton
@@ -65,7 +74,10 @@ export function DataWarehouseExternalScene(): JSX.Element {
                 }
             />
             <DataWarehouseBetaNotice />
-            <DataWarehouseTables />
+            <DataWarehouseInitialBillingLimitNotice />
+            <BindLogic logic={insightSceneLogic} props={{}}>
+                <DataWarehouseTables />
+            </BindLogic>
         </div>
     )
 }

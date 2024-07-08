@@ -58,4 +58,20 @@ describe('property definitions auto discovery', () => {
             expect(detectPropertyDefinitionTypes(12, '$feature_flag_response')).toEqual(PropertyType.String)
         })
     })
+
+    describe('can detect $survey_response (the first question in a given survey) properties and cast them to strings', () => {
+        it('detects regular survey response properties as string', () => {
+            expect(detectPropertyDefinitionTypes('10', '$survey_response')).toEqual(PropertyType.String)
+            expect(detectPropertyDefinitionTypes('true', '$survey_response')).toEqual(PropertyType.String)
+            expect(detectPropertyDefinitionTypes('false', '$survey_response')).toEqual(PropertyType.String)
+            expect(detectPropertyDefinitionTypes(12, '$survey_response')).toEqual(PropertyType.String)
+        })
+
+        it('detects $survey_response_* (any subsequent question in a given survey) as a string', () => {
+            expect(detectPropertyDefinitionTypes('10', '$survey_response_2')).toEqual(PropertyType.String)
+            expect(detectPropertyDefinitionTypes('true', '$survey_response_2')).toEqual(PropertyType.String)
+            expect(detectPropertyDefinitionTypes('false', '$survey_response_2')).toEqual(PropertyType.String)
+            expect(detectPropertyDefinitionTypes(12, '$survey_response_2')).toEqual(PropertyType.String)
+        })
+    })
 })

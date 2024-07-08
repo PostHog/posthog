@@ -40,7 +40,7 @@ from posthog.api import (
     uploaded_media,
     user,
 )
-from posthog.api.decide import hostname_in_allowed_url_list
+from .api.utils import hostname_in_allowed_url_list
 from posthog.api.early_access_feature import early_access_features
 from posthog.api.survey import surveys
 from posthog.constants import PERMITTED_FORUM_DOMAINS

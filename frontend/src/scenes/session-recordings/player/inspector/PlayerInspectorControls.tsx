@@ -108,7 +108,7 @@ export function PlayerInspectorControls({
     }
 
     return (
-        <div className="bg-side border-b pb-2">
+        <div className="bg-bg-3000 border-b pb-2">
             <div className="flex justify-between flex-nowrap">
                 <div className="w-2.5 mb-2 border-b shrink-0" />
                 <TabButtons tabs={tabs} logicProps={logicProps} />

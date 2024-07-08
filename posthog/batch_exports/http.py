@@ -5,7 +5,7 @@ import posthoganalytics
 import structlog
 from django.db import transaction
 from django.utils.timezone import now
-from rest_framework import request, response, serializers, viewsets, filters
+from rest_framework import filters, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import (
     NotAuthenticated,
@@ -53,7 +53,7 @@ from posthog.utils import relative_date_parse
 logger = structlog.get_logger(__name__)
 
 
-def validate_date_input(date_input: Any) -> dt.datetime:
+def validate_date_input(date_input: Any, team: Team | None = None) -> dt.datetime:
     """Parse any datetime input as a proper dt.datetime.
 
     Args:
@@ -73,6 +73,15 @@ def validate_date_input(date_input: Any) -> dt.datetime:
         parsed = dt.datetime.fromisoformat(date_input.replace("Z", "+00:00"))
     except (TypeError, ValueError):
         raise ValidationError(f"Input {date_input} is not a valid ISO formatted datetime.")
+
+    if parsed.tzinfo is None:
+        if team:
+            parsed = parsed.replace(tzinfo=team.timezone_info).astimezone(dt.UTC)
+        else:
+            parsed = parsed.replace(tzinfo=dt.UTC)
+    else:
+        parsed = parsed.astimezone(dt.UTC)
+
     return parsed
 
 
@@ -190,6 +199,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
             "id",
             "team_id",
             "name",
+            "model",
             "destination",
             "interval",
             "paused",
@@ -357,8 +367,8 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if start_at_input is None or end_at_input is None:
             raise ValidationError("Both 'start_at' and 'end_at' must be specified")
 
-        start_at = validate_date_input(start_at_input)
-        end_at = validate_date_input(end_at_input)
+        start_at = validate_date_input(start_at_input, request.user.current_team)
+        end_at = validate_date_input(end_at_input, request.user.current_team)
 
         if start_at >= end_at:
             raise ValidationError("The initial backfill datetime 'start_at' happens after 'end_at'")
