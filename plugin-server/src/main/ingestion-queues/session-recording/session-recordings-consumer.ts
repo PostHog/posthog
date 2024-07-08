@@ -513,10 +513,6 @@ export class SessionRecordingIngester {
             debug: this.config.SESSION_RECORDING_KAFKA_DEBUG,
         })
 
-        this.batchConsumer.consumer.on('event.stats', (stats) => {
-            const statsJson = JSON.parse(stats.message) // Example field, actual field may differ
-            status.info('🪵', 'consumer stats', statsJson)
-        })
         this.totalNumPartitions = (await getPartitionsForTopic(this.connectedBatchConsumer, this.topic)).length
 
         addSentryBreadcrumbsEventListeners(this.batchConsumer.consumer)
