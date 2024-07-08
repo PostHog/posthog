@@ -492,11 +492,16 @@ export class SessionRecordingIngester {
             // we only use 9 or 10MB but there's no reason to limit this 🤷️
             consumerMaxBytes: this.config.KAFKA_CONSUMPTION_MAX_BYTES,
             consumerMaxBytesPerPartition: this.config.KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION,
-            // our messages are very big, so we don't want to buffer too many
+            // our messages are very big, so we don't want to queue too many
             queuedMinMessages: this.config.SESSION_RECORDING_KAFKA_QUEUE_SIZE,
+            // we'll anyway never queue more than the value set here
+            // since we have large messages we'll need this to be a reasonable multiple
+            // of the likely message size times the fetchBatchSize
+            // or we'll always hit the batch timeout
+            queuedMaxMessagesKBytes: this.config.SESSION_RECORDING_KAFKA_QUEUE_SIZE_KB,
+            fetchBatchSize: this.config.SESSION_RECORDING_KAFKA_BATCH_SIZE,
             consumerMaxWaitMs: this.config.KAFKA_CONSUMPTION_MAX_WAIT_MS,
             consumerErrorBackoffMs: this.config.KAFKA_CONSUMPTION_ERROR_BACKOFF_MS,
-            fetchBatchSize: this.config.SESSION_RECORDING_KAFKA_BATCH_SIZE,
             batchingTimeoutMs: this.config.KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS,
             topicCreationTimeoutMs: this.config.KAFKA_TOPIC_CREATION_TIMEOUT_MS,
             eachBatch: async (messages, { heartbeat }) => {
