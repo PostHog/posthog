@@ -845,7 +845,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     )
                 }
             }
-            if (params.filters && !equal(params.filters, values.filters)) {
+            if (values.useUniversalFiltering && params.filters && !equal(params.filters, values.filters)) {
                 actions.setUniversalFilters(params.filters)
                 actions.setAdvancedFilters(convertUniversalFiltersToLegacyFilters(params.filters))
             }
