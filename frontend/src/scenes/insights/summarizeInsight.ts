@@ -29,8 +29,6 @@ import {
     isPersonsNode,
     isRetentionQuery,
     isStickinessQuery,
-    isTimeToSeeDataSessionsNode,
-    isTimeToSeeDataSessionsQuery,
     isTrendsQuery,
 } from '~/queries/utils'
 import { BreakdownKeyType, BreakdownType, EntityFilter, FilterType, FunnelVizType, StepOrderValue } from '~/types'
@@ -216,12 +214,6 @@ function summarizeQuery(query: Node): string {
         return 'SQL query'
     }
 
-    if (isTimeToSeeDataSessionsNode(query)) {
-        return `Time to see data in ${
-            query.source.sessionId ? `session ${query.source.sessionId}` : 'the current session'
-        }`
-    }
-
     if (isDataTableNode(query)) {
         if (isHogQLQuery(query.source)) {
             return summarizeQuery(query.source)
@@ -236,9 +228,6 @@ function summarizeQuery(query: Node): string {
         } else if (isPersonsNode(query.source)) {
             selected = []
             source = 'persons'
-        } else if (isTimeToSeeDataSessionsQuery(query.source)) {
-            selected = ['sessions']
-            source = 'time to see data stats'
         }
 
         if (query.columns) {

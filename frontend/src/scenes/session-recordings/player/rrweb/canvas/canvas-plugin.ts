@@ -163,7 +163,8 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
                         img.src = url
                     }
                 },
-                'image/jpeg',
+                // ensures transparency is possible
+                'image/webp',
                 0.5
             )
         }

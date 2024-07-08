@@ -13,7 +13,6 @@ from posthog.caching.insights_api import (
     REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
     REAL_TIME_INSIGHT_REFRESH_INTERVAL,
 )
-from posthog.caching.utils import is_stale
 from posthog.clickhouse import query_tagging
 
 from posthog.hogql import ast
@@ -91,11 +90,6 @@ class TrendsQueryRunner(QueryRunner):
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
         self.update_hogql_modifiers()
         self.series = self.setup_series()
-
-    def _is_stale(self, cached_result_package):
-        date_to = self.query_date_range.date_to()
-        interval = self.query_date_range.interval_name
-        return is_stale(self.team, date_to, interval, cached_result_package)
 
     def _refresh_frequency(self):
         date_to = self.query_date_range.date_to()
@@ -326,13 +320,14 @@ class TrendsQueryRunner(QueryRunner):
             response_hogql = to_printed_hogql(response_hogql_query, self.team, self.modifiers)
 
         res_matrix: list[list[Any] | Any | None] = [None] * len(queries)
-        timings_matrix: list[list[QueryTiming] | None] = [None] * len(queries)
+        timings_matrix: list[list[QueryTiming] | None] = [None] * (2 + len(queries))
         errors: list[Exception] = []
         debug_errors: list[str] = []
 
         def run(
             index: int,
             query: ast.SelectQuery | ast.SelectUnionQuery,
+            timings: HogQLTimings,
             is_parallel: bool,
             query_tags: Optional[dict] = None,
         ):
@@ -346,12 +341,12 @@ class TrendsQueryRunner(QueryRunner):
                     query_type="TrendsQuery",
                     query=query,
                     team=self.team,
-                    timings=self.timings,
+                    timings=timings,
                     modifiers=self.modifiers,
                     limit_context=self.limit_context,
                 )
 
-                timings_matrix[index] = response.timings
+                timings_matrix[index + 1] = response.timings
                 res_matrix[index] = self.build_series_response(response, series_with_extra, len(queries))
                 if response.error:
                     debug_errors.append(response.error)
@@ -364,26 +359,31 @@ class TrendsQueryRunner(QueryRunner):
                     # This will only close the DB connection for the newly spawned thread and not the whole app
                     connection.close()
 
-        # This exists so that we're not spawning threads during unit tests. We can't do
-        # this right now due to the lack of multithreaded support of Django
-        if settings.IN_UNIT_TESTING:
-            for index, query in enumerate(queries):
-                run(index, query, False)
-        elif len(queries) == 1:
-            run(0, queries[0], False)
-        else:
-            jobs = [
-                threading.Thread(target=run, args=(index, query, True, query_tagging.get_query_tags()))
-                for index, query in enumerate(queries)
-            ]
+        with self.timings.measure("execute_queries"):
+            timings_matrix[0] = self.timings.to_list(back_out_stack=False)
+            self.timings.clear_timings()
 
-            # Start the threads
-            for j in jobs:
-                j.start()
-
-            # Ensure all of the threads have finished
-            for j in jobs:
-                j.join()
+            # This exists so that we're not spawning threads during unit tests. We can't do
+            # this right now due to the lack of multithreaded support of Django
+            if len(queries) == 1 or settings.IN_UNIT_TESTING:
+                for index, query in enumerate(queries):
+                    run(index, query, self.timings.clone_for_subquery(index), False)
+            else:
+                jobs = [
+                    threading.Thread(
+                        target=run,
+                        args=(
+                            index,
+                            query,
+                            self.timings.clone_for_subquery(index),
+                            True,
+                            query_tagging.get_query_tags(),
+                        ),
+                    )
+                    for index, query in enumerate(queries)
+                ]
+                [j.start() for j in jobs]  # type:ignore
+                [j.join() for j in jobs]  # type:ignore
 
         # Raise any errors raised in a seperate thread
         if len(errors) > 0:
@@ -396,11 +396,6 @@ class TrendsQueryRunner(QueryRunner):
                 returned_results.append(result)
             elif isinstance(result, dict):
                 returned_results.append([result])
-
-        timings: list[QueryTiming] = []
-        for timing in timings_matrix:
-            if isinstance(timing, list):
-                timings.extend(timing)
 
         if (
             self.query.trendsFilter is not None
@@ -425,6 +420,13 @@ class TrendsQueryRunner(QueryRunner):
                     final_result.extend(result)
                 elif isinstance(result, dict):
                     raise ValueError("This should not happen")
+
+        timings_matrix[-1] = self.timings.to_list()
+
+        timings: list[QueryTiming] = []
+        for timing in timings_matrix:
+            if isinstance(timing, list):
+                timings.extend(timing)
 
         return TrendsQueryResponse(
             results=final_result,

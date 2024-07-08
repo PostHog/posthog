@@ -33,8 +33,10 @@ pub struct Config {
     #[envconfig(default = "capture")]
     pub otel_service_name: String,
 
+    // Used for integration tests
     #[envconfig(default = "true")]
     pub export_prometheus: bool,
+    pub redis_key_prefix: Option<String>,
 }
 
 #[derive(Envconfig, Clone)]

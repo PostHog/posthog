@@ -1,3 +1,5 @@
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+
 import {
     AnyPersonScopeFilter,
     AnyPropertyFilter,
@@ -40,10 +42,10 @@ type integer = number
  * This file acts as the source of truth for:
  *
  * - frontend/src/queries/schema.json
- *   - generated from typescript via "pnpm run generate:schema:json"
+ *   - generated from typescript via "pnpm run schema:build:json"
  *
  * - posthog/schema.py
- *   - generated from json the above json via "pnpm run generate:schema:python"
+ *   - generated from json the above json via "pnpm run schema:build:python"
  * */
 
 export enum NodeKind {
@@ -83,12 +85,6 @@ export enum NodeKind {
     WebTopClicksQuery = 'WebTopClicksQuery',
     WebStatsTableQuery = 'WebStatsTableQuery',
 
-    // Time to see data
-    TimeToSeeDataSessionsQuery = 'TimeToSeeDataSessionsQuery',
-    TimeToSeeDataQuery = 'TimeToSeeDataQuery',
-    TimeToSeeDataSessionsJSONNode = 'TimeToSeeDataSessionsJSONNode',
-    TimeToSeeDataSessionsWaterfallNode = 'TimeToSeeDataSessionsWaterfallNode',
-
     // Database metadata
     DatabaseSchemaQuery = 'DatabaseSchemaQuery',
 }
@@ -97,7 +93,6 @@ export type AnyDataNode =
     | EventsNode // never queried directly
     | ActionsNode // old actions API endpoint
     | PersonsNode // old persons API endpoint
-    | TimeToSeeDataSessionsQuery // old API
     | EventsQuery
     | ActorsQuery
     | InsightActorsQuery
@@ -120,7 +115,6 @@ export type QuerySchema =
     | ActionsNode // old actions API endpoint
     | PersonsNode // old persons API endpoint
     | DataWarehouseNode
-    | TimeToSeeDataSessionsQuery // old API
     | EventsQuery
     | ActorsQuery
     | InsightActorsQuery
@@ -515,7 +509,6 @@ export interface DataTableNode
                     | PersonsNode
                     | ActorsQuery
                     | HogQLQuery
-                    | TimeToSeeDataSessionsQuery
                     | WebOverviewQuery
                     | WebStatsTableQuery
                     | WebTopClicksQuery
@@ -531,7 +524,6 @@ export interface DataTableNode
         | PersonsNode
         | ActorsQuery
         | HogQLQuery
-        | TimeToSeeDataSessionsQuery
         | WebOverviewQuery
         | WebStatsTableQuery
         | WebTopClicksQuery
@@ -571,7 +563,7 @@ interface DataTableNodeViewProps {
     /** Include a free text search field (PersonsNode only) */
     showSearch?: boolean
     /** Include a property filter above the table */
-    showPropertyFilter?: boolean
+    showPropertyFilter?: boolean | TaxonomicFilterGroupType[]
     /** Show filter to exclude test accounts */
     showTestAccountFilters?: boolean
     /** Include a HogQL query editor above HogQL tables */
@@ -1016,6 +1008,8 @@ interface CachedQueryResponseMixin {
     last_refresh: string
     /**  @format date-time */
     next_allowed_client_refresh: string
+    /**  @format date-time */
+    cache_target_age?: string
     cache_key: string
     timezone: string
     /** Query status indicates whether next to the provided data, a query is still running. */
@@ -1408,35 +1402,12 @@ export interface InsightActorsQueryOptions extends Node<InsightActorsQueryOption
     source: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery
 }
 
-export const dateRangeForFilter = (source: FilterType | undefined): DateRange | undefined => {
-    if (!source) {
-        return undefined
-    }
-    return { date_from: source.date_from, date_to: source.date_to }
-}
-
-export interface TimeToSeeDataSessionsQueryResponse {
-    results: Record<string, any>[]
-}
-
-export interface TimeToSeeDataSessionsQuery extends DataNode<TimeToSeeDataSessionsQueryResponse> {
-    kind: NodeKind.TimeToSeeDataSessionsQuery
-
-    /** Date range for the query */
-    dateRange?: DateRange
-
-    /**
-     * Project to filter on. Defaults to current project
-     */
-    teamId?: integer
-}
-
 export interface DatabaseSchemaSchema {
     id: string
     name: string
     should_sync: boolean
     incremental: boolean
-    status: string
+    status?: string
     last_synced_at?: string
 }
 
@@ -1514,34 +1485,6 @@ export type DatabaseSerializedFieldType =
     | 'field_traverser'
     | 'expression'
     | 'view'
-
-export interface TimeToSeeDataQuery extends DataNode<Record<string, any> /* TODO: Type specifically */> {
-    kind: NodeKind.TimeToSeeDataQuery
-
-    /**
-     * Project to filter on. Defaults to current project
-     */
-    teamId?: integer
-
-    /** Project to filter on. Defaults to current session */
-    sessionId?: string
-
-    /** Session start time. Defaults to current time - 2 hours */
-    sessionStart?: string
-    sessionEnd?: string
-}
-
-export interface TimeToSeeDataJSONNode {
-    kind: NodeKind.TimeToSeeDataSessionsJSONNode
-    source: TimeToSeeDataQuery
-}
-
-export interface TimeToSeeDataWaterfallNode {
-    kind: NodeKind.TimeToSeeDataSessionsWaterfallNode
-    source: TimeToSeeDataQuery
-}
-
-export type TimeToSeeDataNode = TimeToSeeDataJSONNode | TimeToSeeDataWaterfallNode
 
 export type HogQLExpression = string
 
