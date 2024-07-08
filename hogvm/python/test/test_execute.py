@@ -774,3 +774,30 @@ class TestBytecodeExecute:
             == "true1"
         )
         assert values == ["true1"]
+
+    def test_bytecode_ifnull(self):
+        values = []
+
+        def noisy_print(str):
+            nonlocal values
+            values.append(str)
+            return str
+
+        assert (
+            self._run_program(
+                "return null ?? noisy_print('no'); noisy_print('post')",
+                {"noisy_print": noisy_print},
+            )
+            == "no"
+        )
+        assert values == ["no"]
+
+        values = []
+        assert (
+            self._run_program(
+                "return noisy_print('yes') ?? noisy_print('no'); noisy_print('post')",
+                {"noisy_print": noisy_print},
+            )
+            == "yes"
+        )
+        assert values == ["yes"]

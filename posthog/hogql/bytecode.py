@@ -227,6 +227,15 @@ class BytecodeBuilder(Visitor):
                     response.extend(prev)
                 prev = response
             return prev
+        if node.name == "ifNull" and len(node.args) == 2:
+            expr = self.visit(node.args[0])
+            if_null = self.visit(node.args[1])
+            response = []
+            response.extend(expr)
+            response.extend([Operation.JUMP_IF_STACK_NOT_NULL, len(if_null) + 1])
+            response.extend([Operation.POP])
+            response.extend(if_null)
+            return response
 
         if node.name not in STL and node.name not in self.functions and node.name not in self.supported_functions:
             raise QueryError(f"HogQL function `{node.name}` is not implemented")
