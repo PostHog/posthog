@@ -53,15 +53,16 @@ class FunnelUDF(FunnelBase):
                     arraySort(t -> t.1, groupArray(tuple(toFloat(timestamp), {"prop[1]" if self.context.breakdown else "''"}, arrayFilter((x) -> x != 0, [{steps}]))))
                 ) as af_tuple,
                 af_tuple.1 as af,
-                af_tuple.2 as breakdown
+                af_tuple.2 as breakdown,
+                af_tuple.3 as timings
             FROM {{inner_event_query}}
             GROUP BY aggregation_target
         """, {'inner_event_query': inner_event_query})
 
         step_results = ",".join([f"countIf(ifNull(equals(af, {i}), 0)) AS step_{i+1}" for i in range(self.context.max_steps)])
 
-        mean_conversion_times = ",".join([f"0 AS step_{i+1}_average_conversion_time" for i in range(self.context.max_steps)])
-        median_conversion_times = ",".join([f"0 AS step_{i+1}_median_conversion_time" for i in range(self.context.max_steps)])
+        mean_conversion_times = ",".join([f"avgIf(timings[{i}], timings[{i}] > 0) AS step_{i}_average_conversion_time" for i in range(1, self.context.max_steps)])
+        median_conversion_times = ",".join([f"medianExactIf(timings[{i}], timings[{i}] > 0) AS step_{i}_median_conversion_time" for i in range(1, self.context.max_steps)])
 
         s = parse_select(f"""
             SELECT
