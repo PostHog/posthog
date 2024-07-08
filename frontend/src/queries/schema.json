@@ -520,6 +520,10 @@
                 "cache_key": {
                     "type": "string"
                 },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
                 "calculation_trigger": {
                     "description": "What triggered the calculation of the query, leave empty if user/immediate",
                     "type": "string"
@@ -612,6 +616,10 @@
                 "cache_key": {
                     "type": "string"
                 },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
                 "calculation_trigger": {
                     "description": "What triggered the calculation of the query, leave empty if user/immediate",
                     "type": "string"
@@ -699,6 +707,10 @@
                 "cache_key": {
                     "type": "string"
                 },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
                 "calculation_trigger": {
                     "description": "What triggered the calculation of the query, leave empty if user/immediate",
                     "type": "string"
@@ -777,6 +789,10 @@
                 "cache_key": {
                     "type": "string"
                 },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
                 "calculation_trigger": {
                     "description": "What triggered the calculation of the query, leave empty if user/immediate",
                     "type": "string"
@@ -849,6 +865,10 @@
             "additionalProperties": false,
             "properties": {
                 "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "calculation_trigger": {
@@ -974,6 +994,10 @@
                 "cache_key": {
                     "type": "string"
                 },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
                 "calculation_trigger": {
                     "description": "What triggered the calculation of the query, leave empty if user/immediate",
                     "type": "string"
@@ -1097,6 +1121,10 @@
                 "cache_key": {
                     "type": "string"
                 },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
                 "calculation_trigger": {
                     "description": "What triggered the calculation of the query, leave empty if user/immediate",
                     "type": "string"
@@ -1159,6 +1187,10 @@
             "additionalProperties": false,
             "properties": {
                 "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "calculation_trigger": {
@@ -1225,6 +1257,10 @@
                 "cache_key": {
                     "type": "string"
                 },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
                 "calculation_trigger": {
                     "description": "What triggered the calculation of the query, leave empty if user/immediate",
                     "type": "string"
@@ -1287,6 +1323,10 @@
             "additionalProperties": false,
             "properties": {
                 "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "calculation_trigger": {
@@ -1356,6 +1396,10 @@
                 "cache_key": {
                     "type": "string"
                 },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
                 "calculation_trigger": {
                     "description": "What triggered the calculation of the query, leave empty if user/immediate",
                     "type": "string"
@@ -1420,6 +1464,10 @@
                 "cache_key": {
                     "type": "string"
                 },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
                 "calculation_trigger": {
                     "description": "What triggered the calculation of the query, leave empty if user/immediate",
                     "type": "string"
@@ -1482,6 +1530,10 @@
             "additionalProperties": false,
             "properties": {
                 "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "calculation_trigger": {
@@ -1555,6 +1607,10 @@
             "additionalProperties": false,
             "properties": {
                 "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "calculation_trigger": {
@@ -1637,6 +1693,10 @@
             "additionalProperties": false,
             "properties": {
                 "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "calculation_trigger": {
@@ -2216,8 +2276,18 @@
                     "type": "boolean"
                 },
                 "showPropertyFilter": {
-                    "description": "Include a property filter above the table",
-                    "type": "boolean"
+                    "anyOf": [
+                        {
+                            "type": "boolean"
+                        },
+                        {
+                            "items": {
+                                "$ref": "#/definitions/TaxonomicFilterGroupType"
+                            },
+                            "type": "array"
+                        }
+                    ],
+                    "description": "Include a property filter above the table"
                 },
                 "showReload": {
                     "description": "Show a reload button",
@@ -2872,7 +2942,7 @@
             "type": "string"
         },
         "ErrorTrackingOrder": {
-            "enum": ["last_seen", "first_seen", "unique_occurrences", "unique_users", "unique_sessions"],
+            "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
             "type": "string"
         },
         "EventDefinition": {
@@ -3939,6 +4009,10 @@
         "GenericCachedQueryResponse": {
             "properties": {
                 "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "calculation_trigger": {
@@ -7376,8 +7450,18 @@
                     "type": "boolean"
                 },
                 "showPropertyFilter": {
-                    "description": "Include a property filter above the table",
-                    "type": "boolean"
+                    "anyOf": [
+                        {
+                            "type": "boolean"
+                        },
+                        {
+                            "items": {
+                                "$ref": "#/definitions/TaxonomicFilterGroupType"
+                            },
+                            "type": "array"
+                        }
+                    ],
+                    "description": "Include a property filter above the table"
                 },
                 "showReload": {
                     "description": "Show a reload button",
@@ -7665,6 +7749,40 @@
             "required": ["results"],
             "type": "object"
         },
+        "TaxonomicFilterGroupType": {
+            "enum": [
+                "metadata",
+                "actions",
+                "cohorts",
+                "cohorts_with_all",
+                "data_warehouse",
+                "data_warehouse_properties",
+                "data_warehouse_person_properties",
+                "elements",
+                "events",
+                "event_properties",
+                "event_feature_flags",
+                "numerical_event_properties",
+                "person_properties",
+                "pageview_urls",
+                "screens",
+                "custom_events",
+                "wildcard",
+                "groups",
+                "persons",
+                "feature_flags",
+                "insights",
+                "experiments",
+                "plugins",
+                "dashboards",
+                "name_groups",
+                "session_properties",
+                "hogql_expression",
+                "notebooks",
+                "replay"
+            ],
+            "type": "string"
+        },
         "TestBasicQueryResponse": {
             "additionalProperties": false,
             "deprecated": "Only exported for use in test_query_runner.py! Don't use anywhere else.",
@@ -7701,6 +7819,10 @@
             "deprecated": "Only exported for use in test_query_runner.py! Don't use anywhere else.",
             "properties": {
                 "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "calculation_trigger": {

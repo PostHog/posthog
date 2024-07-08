@@ -1,3 +1,5 @@
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+
 import {
     AnyPersonScopeFilter,
     AnyPropertyFilter,
@@ -562,7 +564,7 @@ interface DataTableNodeViewProps {
     /** Include a free text search field (PersonsNode only) */
     showSearch?: boolean
     /** Include a property filter above the table */
-    showPropertyFilter?: boolean
+    showPropertyFilter?: boolean | TaxonomicFilterGroupType[]
     /** Show filter to exclude test accounts */
     showTestAccountFilters?: boolean
     /** Include a HogQL query editor above HogQL tables */
@@ -1007,6 +1009,8 @@ interface CachedQueryResponseMixin {
     last_refresh: string
     /**  @format date-time */
     next_allowed_client_refresh: string
+    /**  @format date-time */
+    cache_target_age?: string
     cache_key: string
     timezone: string
     /** Query status indicates whether next to the provided data, a query is still running. */
@@ -1185,7 +1189,7 @@ export interface WebTopClicksQueryResponse extends AnalyticsQueryResponseBase<un
 
 export type CachedWebTopClicksQueryResponse = CachedQueryResponse<WebTopClicksQueryResponse>
 
-export type ErrorTrackingOrder = 'last_seen' | 'first_seen' | 'unique_occurrences' | 'unique_users' | 'unique_sessions'
+export type ErrorTrackingOrder = 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
 
 export enum WebStatsBreakdown {
     Page = 'Page',

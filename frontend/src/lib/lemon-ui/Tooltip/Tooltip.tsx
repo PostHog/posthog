@@ -118,7 +118,7 @@ export function Tooltip({
                     >
                         <div
                             className={clsx(
-                                'bg-tooltip-bg py-1.5 px-2 break-words rounded text-start text-white',
+                                'bg-[var(--tooltip-bg)] py-1.5 px-2 break-words rounded text-start text-white',
                                 className
                             )}
                             // eslint-disable-next-line react/forbid-dom-props
