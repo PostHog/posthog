@@ -120,6 +120,52 @@ def funnel_conversion_time_test_factory(funnel_order_type: FunnelOrderType, Funn
             self.assertEqual(results[1]["median_conversion_time"], 7200)
             self.assertEqual(results[2]["median_conversion_time"], 5400)
 
+        def test_funnel_step_conversion_times_multiple_first_events(self):
+            filters = {
+                "insight": INSIGHT_FUNNELS,
+                "funnel_order_type": funnel_order_type,
+                "events": [
+                    {"id": "sign up", "order": 0},
+                    {"id": "play movie", "order": 1},
+                    {"id": "buy", "order": 2},
+                ],
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-08",
+                "funnel_window_days": 7,
+            }
+
+            journeys_for(
+                {
+                    "person1": [
+                        {"event": "sign up", "timestamp": datetime(2020, 1, 1, 12)},
+                        {"event": "sign up", "timestamp": datetime(2020, 1, 1, 18)},
+                        {"event": "play movie", "timestamp": datetime(2020, 1, 1, 13)},
+                        {"event": "buy", "timestamp": datetime(2020, 1, 1, 15)},
+                    ],
+                    "person2": [
+                        {"event": "sign up", "timestamp": datetime(2020, 1, 2, 14)},
+                        {"event": "play movie", "timestamp": datetime(2020, 1, 2, 16)},
+                    ],
+                    "person3": [
+                        {"event": "sign up", "timestamp": datetime(2020, 1, 2, 14)},
+                        {"event": "play movie", "timestamp": datetime(2020, 1, 2, 16)},
+                        {"event": "buy", "timestamp": datetime(2020, 1, 2, 17)},
+                    ],
+                },
+                self.team,
+            )
+
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+            self.assertEqual(results[0]["average_conversion_time"], None)
+            self.assertEqual(results[1]["average_conversion_time"], 6000)
+            self.assertEqual(results[2]["average_conversion_time"], 5400)
+
+            self.assertEqual(results[0]["median_conversion_time"], None)
+            self.assertEqual(results[1]["median_conversion_time"], 7200)
+            self.assertEqual(results[2]["median_conversion_time"], 5400)
+
         def test_funnel_times_with_different_conversion_windows(self):
             filters = {
                 "insight": INSIGHT_FUNNELS,
