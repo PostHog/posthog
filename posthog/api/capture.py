@@ -1,3 +1,4 @@
+import gzip
 import json
 import re
 from random import random
@@ -15,19 +16,20 @@ from django.views.decorators.csrf import csrf_exempt
 from enum import Enum
 from kafka.errors import KafkaError, MessageSizeTooLargeError, KafkaTimeoutError
 from kafka.producer.future import FutureRecordMetadata
-from prometheus_client import Counter, Gauge
+from prometheus_client import Counter, Gauge, Histogram
 from rest_framework import status
 from sentry_sdk import configure_scope
 from sentry_sdk.api import capture_exception, start_span
 from statshog.defaults.django import statsd
 from token_bucket import Limiter, MemoryStorage
 from typing import Any, Optional, Literal
+from collections.abc import Callable
 
 from ee.billing.quota_limiting import QuotaLimitingCaches
 from posthog.api.utils import get_data, get_token, safe_clickhouse_string
 from posthog.cache_utils import cache_for
 from posthog.exceptions import generate_exception_response
-from posthog.kafka_client.client import KafkaProducer, sessionRecordingKafkaProducer
+from posthog.kafka_client.client import KafkaProducer, session_recording_kafka_producer
 from posthog.kafka_client.topics import (
     KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
     KAFKA_SESSION_RECORDING_EVENTS,
@@ -116,6 +118,12 @@ KAFKA_TIMEOUT_ERROR_COUNTER = Counter(
     labelnames=["retry_count", "status_code"],
 )
 
+REPLAY_MESSAGE_PRODUCTION_TIMER = Histogram(
+    "capture_replay_message_production_seconds",
+    "Time taken to produce a set of replay messages",
+    labelnames=["compress_in_capture"],
+)
+
 # This is a heuristic of ids we have seen used as anonymous. As they frequently
 # have significantly more traffic than non-anonymous distinct_ids, and likely
 # don't refer to the same underlying person we prefer to partition them randomly
@@ -200,6 +208,7 @@ def log_event(
     headers: Optional[list] = None,
     historical: bool = False,
     overflowing: bool = False,
+    value_serializer: Optional[Callable[[Any], Any]] = None,
 ) -> FutureRecordMetadata:
     kafka_topic = _kafka_topic(event_name, historical=historical, overflowing=overflowing)
 
@@ -208,11 +217,13 @@ def log_event(
     # TODO: Handle Kafka being unavailable with exponential backoff retries
     try:
         if event_name in SESSION_RECORDING_DEDICATED_KAFKA_EVENTS:
-            producer = sessionRecordingKafkaProducer()
+            producer = session_recording_kafka_producer()
         else:
             producer = KafkaProducer()
 
-        future = producer.produce(topic=kafka_topic, data=data, key=partition_key, headers=headers)
+        future = producer.produce(
+            topic=kafka_topic, data=data, key=partition_key, headers=headers, value_serializer=value_serializer
+        )
         statsd.incr("posthog_cloud_plugin_server_ingestion")
         return future
     except Exception:
@@ -556,36 +567,40 @@ def get_event(request):
             # This is mostly a copy of above except we only log, we don't error out
             if alternative_replay_events:
                 processed_events = list(preprocess_events(alternative_replay_events))
-                for event, event_uuid, distinct_id in processed_events:
-                    capture_args = (
-                        event,
-                        distinct_id,
-                        ip,
-                        site_url,
-                        now,
-                        sent_at,
-                        event_uuid,
-                        token,
-                    )
-                    capture_kwargs = {
-                        "extra_headers": [("lib_version", lib_version)],
-                    }
-                    this_future = capture_internal(*capture_args, **capture_kwargs)
-                    replay_futures.append((this_future, capture_args, capture_kwargs))
+                compression_in_capture = _compress_in_capture(token)
+                with REPLAY_MESSAGE_PRODUCTION_TIMER.labels(compress_in_capture=compression_in_capture).time():
+                    for event, event_uuid, distinct_id in processed_events:
+                        capture_args = (
+                            event,
+                            distinct_id,
+                            ip,
+                            site_url,
+                            now,
+                            sent_at,
+                            event_uuid,
+                            token,
+                        )
+                        capture_kwargs = {
+                            "extra_headers": [
+                                ("lib_version", lib_version),
+                            ],
+                        }
+                        this_future = capture_internal(*capture_args, **capture_kwargs)
+                        replay_futures.append((this_future, capture_args, capture_kwargs))
 
-                start_time = time.monotonic()
-                for future, args, kwargs in replay_futures:
-                    if future is not None:
-                        try:
-                            future.get(
-                                timeout=settings.KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS - (time.monotonic() - start_time)
-                            )
-                        except MessageSizeTooLargeError as mstle:
-                            REPLAY_MESSAGE_SIZE_TOO_LARGE_COUNTER.inc()
-                            warning_event = replace_with_warning(args[0], token, mstle, lib_version)
-                            if warning_event:
-                                warning_future = capture_internal(warning_event, *args[1:], **kwargs)
-                                warning_future.get(timeout=settings.KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS)
+                    start_time = time.monotonic()
+                    for future, args, kwargs in replay_futures:
+                        if future is not None:
+                            try:
+                                future.get(
+                                    timeout=settings.KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS - (time.monotonic() - start_time)
+                                )
+                            except MessageSizeTooLargeError as mstle:
+                                REPLAY_MESSAGE_SIZE_TOO_LARGE_COUNTER.inc()
+                                warning_event = replace_with_warning(args[0], token, mstle, lib_version)
+                                if warning_event:
+                                    warning_future = capture_internal(warning_event, *args[1:], **kwargs)
+                                    warning_future.get(timeout=settings.KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS)
 
     except ValueError as e:
         with sentry_sdk.push_scope() as scope:
@@ -633,6 +648,17 @@ def get_event(request):
 
     statsd.incr("posthog_cloud_raw_endpoint_success", tags={"endpoint": "capture"})
     return cors_response(request, JsonResponse({"status": 1}))
+
+
+def _compress_in_capture(token: str | None) -> bool:
+    if (
+        # this check is only here so that we can test in a limited way in production
+        # ultimately we'll only check this setting
+        (settings.DEBUG or settings.TEST or token == "sTMFPsFhdP1Ssg")
+        and settings.SESSION_RECORDING_KAFKA_COMPRESSION == "gzip-in-capture"
+    ):
+        return True
+    return False
 
 
 def replace_with_warning(
@@ -799,9 +825,14 @@ def capture_internal(
         token=token,
     )
 
+    def gzip_json_serializer(data):
+        json_data = json.dumps(data).encode("utf-8")
+        return gzip.compress(json_data)
+
     if event["event"] in SESSION_RECORDING_EVENT_NAMES:
         session_id = event["properties"]["$session_id"]
         headers = [("token", token), *extra_headers]
+        value_serializer = gzip_json_serializer if (_compress_in_capture(token)) else None
 
         overflowing = False
         if token in settings.REPLAY_OVERFLOW_FORCED_TOKENS:
@@ -810,7 +841,12 @@ def capture_internal(
             overflowing = session_id in _list_overflowing_keys(InputType.REPLAY)
 
         return log_event(
-            parsed_event, event["event"], partition_key=session_id, headers=headers, overflowing=overflowing
+            parsed_event,
+            event["event"],
+            partition_key=session_id,
+            headers=headers,
+            overflowing=overflowing,
+            value_serializer=value_serializer,
         )
 
     # We aim to always partition by {team_id}:{distinct_id} but allow
