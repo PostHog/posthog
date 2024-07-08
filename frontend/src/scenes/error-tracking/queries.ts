@@ -169,10 +169,8 @@ export const errorTrackingGroupBreakdownQuery = ({
             series: [
                 {
                     kind: NodeKind.EventsNode,
-                    event: '$exception',
+                    event: '$pageview',
                     math: BaseMathType.TotalCount,
-                    name: 'This is the series name',
-                    custom_name: 'Boomer',
                 },
             ],
             dateRange: dateRange,
