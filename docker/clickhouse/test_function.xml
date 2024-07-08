@@ -25,6 +25,54 @@
 
     <function>
         <type>executable</type>
+        <name>aggregate_funnel</name>
+        <return_type>Tuple(UInt8, Array(String), Array(Float64))</return_type>
+        <argument>
+            <type>UInt8</type>
+            <name>num_steps</name>
+        </argument>
+        <argument>
+            <type>UInt64</type>
+            <name>conversion_window_limit</name>
+        </argument>
+        <argument>
+            <type>String</type>
+            <name>breakdown_attribution_type</name>
+        </argument>
+        <argument>
+            <type>Array(Tuple(Nullable(Float64), Array(String), Array(UInt8)))</type>
+            <name>value</name>
+        </argument>
+        <format>TabSeparated</format>
+        <command>aggregate_funnel.py</command>
+    </function>
+
+    <function>
+        <type>executable</type>
+        <name>aggregate_funnel_array</name>
+        <return_type>Tuple(UInt8, Array(String), Array(Float64))</return_type>
+        <argument>
+            <type>UInt8</type>
+            <name>num_steps</name>
+        </argument>
+        <argument>
+            <type>UInt64</type>
+            <name>conversion_window_limit</name>
+        </argument>
+        <argument>
+            <type>String</type>
+            <name>breakdown_attribution_type</name>
+        </argument>
+        <argument>
+            <type>Array(Tuple(Nullable(Float64), Array(String), Array(UInt8)))</type>
+            <name>value</name>
+        </argument>
+        <format>TabSeparated</format>
+        <command>aggregate_funnel_array.py</command>
+    </function>
+
+    <function>
+        <type>executable</type>
         <name>test_function_python</name>
         <return_type>String</return_type>
         <argument>

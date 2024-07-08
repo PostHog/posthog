@@ -40,20 +40,25 @@ class FunnelUDF(FunnelBase):
     def get_query(self) -> ast.SelectQuery:
         inner_event_query = self._get_inner_event_query(entity_name='events')
 
-        #default_breakdown_selector = "[]" if self._query_has_array_breakdown() else "NULL"
-        breakdown_selector = "prop[1]" if self._query_has_array_breakdown() else "prop"
+        default_breakdown_selector = "[]" if self._query_has_array_breakdown() else "''"
+        #breakdown_selector = "prop[1]" if self._query_has_array_breakdown() else "prop"
 
         # stores the steps as an array of integers from 1 to max_steps
         # so if the event could be step_0, step_1 or step_4, it looks like [1,2,0,0,5]
         steps = ",".join([f"{i + 1} * step_{i}" for i in range(self.context.max_steps)])
 
+        fn = 'aggregate_funnel_array' if self._query_has_array_breakdown() else 'aggregate_funnel'
+
+        prop_selector = 'prop' if self.context.breakdown else default_breakdown_selector
+
+
         inner_select = parse_select(f"""
             SELECT 
-                aggregate_funnel(
+                {fn}(
                     {self.context.max_steps}, 
                     {self.conversion_window_limit()},
                     '{self.context.breakdownAttributionType}',
-                    arraySort(t -> t.1, groupArray(tuple(toFloat(timestamp), {breakdown_selector if self.context.breakdown else "''"}, arrayFilter((x) -> x != 0, [{steps}]))))
+                    arraySort(t -> t.1, groupArray(tuple(toFloat(timestamp), {prop_selector}, arrayFilter((x) -> x != 0, [{steps}]))))
                 ) as af_tuple,
                 af_tuple.1 as af,
                 af_tuple.2 as breakdown,
