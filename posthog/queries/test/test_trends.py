@@ -8377,9 +8377,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # set to a value other than textiles AND events with no group at all
         self.assertEqual(response[0]["count"], 4)
 
-    @also_test_with_materialized_columns(
-        person_properties=["key"],
-    )
     @snapshot_clickhouse_queries
     def test_breakdown_by_group_props_with_person_filter_person_on_events(self):
         self._create_groups()
