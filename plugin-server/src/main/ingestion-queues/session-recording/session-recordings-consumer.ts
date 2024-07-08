@@ -509,7 +509,7 @@ export class SessionRecordingIngester {
             },
             callEachBatchWhenEmpty: true, // Useful as we will still want to account for flushing sessions
             debug: this.config.SESSION_RECORDING_KAFKA_DEBUG,
-            statsIntervalMs: this.config.KAFKA_CONSUMPTION_STATS_INTERVAL_MS,
+            statsIntervalMs: this.config.SESSION_RECORDING_KAFKA_CONSUMPTION_STATS_INTERVAL_MS,
         })
 
         this.batchConsumer.consumer.on('event.stats', (stats) => {
