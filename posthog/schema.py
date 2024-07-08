@@ -215,13 +215,6 @@ class CountPerActorMathType(StrEnum):
     P99_COUNT_PER_ACTOR = "p99_count_per_actor"
 
 
-class Response3(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    results: list[dict[str, Any]]
-
-
 class DataWarehouseEventsModifier(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -346,9 +339,9 @@ class EntityType(StrEnum):
 class ErrorTrackingOrder(StrEnum):
     LAST_SEEN = "last_seen"
     FIRST_SEEN = "first_seen"
-    UNIQUE_OCCURRENCES = "unique_occurrences"
-    UNIQUE_USERS = "unique_users"
-    UNIQUE_SESSIONS = "unique_sessions"
+    OCCURRENCES = "occurrences"
+    USERS = "users"
+    SESSIONS = "sessions"
 
 
 class EventDefinition(BaseModel):
@@ -651,18 +644,6 @@ class InsightNodeKind(StrEnum):
     LIFECYCLE_QUERY = "LifecycleQuery"
 
 
-class InsightType(StrEnum):
-    TRENDS = "TRENDS"
-    STICKINESS = "STICKINESS"
-    LIFECYCLE = "LIFECYCLE"
-    FUNNELS = "FUNNELS"
-    RETENTION = "RETENTION"
-    PATHS = "PATHS"
-    JSON = "JSON"
-    SQL = "SQL"
-    HOG = "HOG"
-
-
 class IntervalType(StrEnum):
     MINUTE = "minute"
     HOUR = "hour"
@@ -708,10 +689,6 @@ class NodeKind(StrEnum):
     WEB_OVERVIEW_QUERY = "WebOverviewQuery"
     WEB_TOP_CLICKS_QUERY = "WebTopClicksQuery"
     WEB_STATS_TABLE_QUERY = "WebStatsTableQuery"
-    TIME_TO_SEE_DATA_SESSIONS_QUERY = "TimeToSeeDataSessionsQuery"
-    TIME_TO_SEE_DATA_QUERY = "TimeToSeeDataQuery"
-    TIME_TO_SEE_DATA_SESSIONS_JSON_NODE = "TimeToSeeDataSessionsJSONNode"
-    TIME_TO_SEE_DATA_SESSIONS_WATERFALL_NODE = "TimeToSeeDataSessionsWaterfallNode"
     DATABASE_SCHEMA_QUERY = "DatabaseSchemaQuery"
 
 
@@ -820,14 +797,7 @@ class PropertyOperator(StrEnum):
     MAX = "max"
 
 
-class QueryResponseAlternative1(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    results: list[dict[str, Any]]
-
-
-class QueryResponseAlternative4(BaseModel):
+class QueryResponseAlternative3(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -839,7 +809,7 @@ class QueryResponseAlternative4(BaseModel):
     status: Optional[list[StatusItem]] = None
 
 
-class QueryResponseAlternative6(BaseModel):
+class QueryResponseAlternative5(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -849,7 +819,7 @@ class QueryResponseAlternative6(BaseModel):
     stdout: Optional[str] = None
 
 
-class QueryResponseAlternative8(BaseModel):
+class QueryResponseAlternative7(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -859,13 +829,6 @@ class QueryResponseAlternative8(BaseModel):
     notices: list[HogQLNotice]
     query: Optional[str] = None
     warnings: list[HogQLNotice]
-
-
-class QueryResponseAlternative16(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    results: list[dict[str, Any]]
 
 
 class QueryStatus(BaseModel):
@@ -1020,6 +983,38 @@ class StickinessQueryResponse(BaseModel):
     )
 
 
+class TaxonomicFilterGroupType(StrEnum):
+    METADATA = "metadata"
+    ACTIONS = "actions"
+    COHORTS = "cohorts"
+    COHORTS_WITH_ALL = "cohorts_with_all"
+    DATA_WAREHOUSE = "data_warehouse"
+    DATA_WAREHOUSE_PROPERTIES = "data_warehouse_properties"
+    DATA_WAREHOUSE_PERSON_PROPERTIES = "data_warehouse_person_properties"
+    ELEMENTS = "elements"
+    EVENTS = "events"
+    EVENT_PROPERTIES = "event_properties"
+    EVENT_FEATURE_FLAGS = "event_feature_flags"
+    NUMERICAL_EVENT_PROPERTIES = "numerical_event_properties"
+    PERSON_PROPERTIES = "person_properties"
+    PAGEVIEW_URLS = "pageview_urls"
+    SCREENS = "screens"
+    CUSTOM_EVENTS = "custom_events"
+    WILDCARD = "wildcard"
+    GROUPS = "groups"
+    PERSONS = "persons"
+    FEATURE_FLAGS = "feature_flags"
+    INSIGHTS = "insights"
+    EXPERIMENTS = "experiments"
+    PLUGINS = "plugins"
+    DASHBOARDS = "dashboards"
+    NAME_GROUPS = "name_groups"
+    SESSION_PROPERTIES = "session_properties"
+    HOGQL_EXPRESSION = "hogql_expression"
+    NOTEBOOKS = "notebooks"
+    REPLAY = "replay"
+
+
 class TestBasicQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1043,6 +1038,10 @@ class TestCachedBasicQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
+    cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -1062,38 +1061,6 @@ class TestCachedBasicQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-
-
-class TimeToSeeDataQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    kind: Literal["TimeToSeeDataQuery"] = "TimeToSeeDataQuery"
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    response: Optional[dict[str, Any]] = None
-    sessionEnd: Optional[str] = None
-    sessionId: Optional[str] = Field(default=None, description="Project to filter on. Defaults to current session")
-    sessionStart: Optional[str] = Field(
-        default=None, description="Session start time. Defaults to current time - 2 hours"
-    )
-    teamId: Optional[int] = Field(default=None, description="Project to filter on. Defaults to current project")
-
-
-class TimeToSeeDataSessionsQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    results: list[dict[str, Any]]
-
-
-class TimeToSeeDataWaterfallNode(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    kind: Literal["TimeToSeeDataSessionsWaterfallNode"] = "TimeToSeeDataSessionsWaterfallNode"
-    source: TimeToSeeDataQuery
 
 
 class TimelineEntry(BaseModel):
@@ -1367,6 +1334,10 @@ class CachedActorsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
+    cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
     columns: list
     error: Optional[str] = Field(
         default=None,
@@ -1399,6 +1370,10 @@ class CachedEventsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
+    cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
     columns: list
     error: Optional[str] = Field(
         default=None,
@@ -1430,6 +1405,10 @@ class CachedFunnelCorrelationResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
+    cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
     columns: Optional[list] = None
     error: Optional[str] = Field(
         default=None,
@@ -1461,6 +1440,10 @@ class CachedFunnelsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
+    cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -1488,6 +1471,10 @@ class CachedInsightActorsQueryOptionsResponse(BaseModel):
     )
     breakdown: Optional[list[BreakdownItem]] = None
     cache_key: str
+    cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
     compare: Optional[list[CompareItem]] = None
     day: Optional[list[DayItem]] = None
     interval: Optional[list[IntervalItem]] = None
@@ -1507,6 +1494,10 @@ class CachedLifecycleQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
+    cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -1533,6 +1524,10 @@ class CachedPathsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
+    cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -1559,6 +1554,10 @@ class CachedSessionsTimelineQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
+    cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -1586,6 +1585,10 @@ class CachedStickinessQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
+    cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -1612,6 +1615,10 @@ class CachedTrendsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
+    cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -1638,6 +1645,10 @@ class CachedWebOverviewQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
+    cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
     dateFrom: Optional[str] = None
     dateTo: Optional[str] = None
     error: Optional[str] = Field(
@@ -1667,6 +1678,10 @@ class CachedWebStatsTableQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
+    cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
     columns: Optional[list] = None
     error: Optional[str] = Field(
         default=None,
@@ -1699,6 +1714,10 @@ class CachedWebTopClicksQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
+    cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
     columns: Optional[list] = None
     error: Optional[str] = Field(
         default=None,
@@ -1770,7 +1789,7 @@ class Response1(BaseModel):
     types: list[str]
 
 
-class Response4(BaseModel):
+class Response3(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1791,7 +1810,7 @@ class Response4(BaseModel):
     )
 
 
-class Response5(BaseModel):
+class Response4(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1815,7 +1834,7 @@ class Response5(BaseModel):
     types: Optional[list] = None
 
 
-class Response6(BaseModel):
+class Response5(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2019,6 +2038,10 @@ class FunnelsQueryResponse(BaseModel):
 
 class GenericCachedQueryResponse(BaseModel):
     cache_key: str
+    cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
     is_cached: bool
     last_refresh: AwareDatetime
     next_allowed_client_refresh: AwareDatetime
@@ -2189,7 +2212,7 @@ class PersonPropertyFilter(BaseModel):
     value: Optional[Union[str, float, list[Union[str, float]]]] = None
 
 
-class QueryResponseAlternative2(BaseModel):
+class QueryResponseAlternative1(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2212,7 +2235,7 @@ class QueryResponseAlternative2(BaseModel):
     types: list[str]
 
 
-class QueryResponseAlternative3(BaseModel):
+class QueryResponseAlternative2(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2236,7 +2259,7 @@ class QueryResponseAlternative3(BaseModel):
     types: list[str]
 
 
-class QueryResponseAlternative5(BaseModel):
+class QueryResponseAlternative4(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2255,7 +2278,7 @@ class QueryResponseAlternative5(BaseModel):
     )
 
 
-class QueryResponseAlternative7(BaseModel):
+class QueryResponseAlternative6(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2282,7 +2305,7 @@ class QueryResponseAlternative7(BaseModel):
     types: Optional[list] = Field(default=None, description="Types of returned columns")
 
 
-class QueryResponseAlternative9(BaseModel):
+class QueryResponseAlternative8(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2293,7 +2316,7 @@ class QueryResponseAlternative9(BaseModel):
     )
 
 
-class QueryResponseAlternative10(BaseModel):
+class QueryResponseAlternative9(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2314,7 +2337,7 @@ class QueryResponseAlternative10(BaseModel):
     )
 
 
-class QueryResponseAlternative11(BaseModel):
+class QueryResponseAlternative10(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2338,7 +2361,7 @@ class QueryResponseAlternative11(BaseModel):
     types: Optional[list] = None
 
 
-class QueryResponseAlternative12(BaseModel):
+class QueryResponseAlternative11(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2359,7 +2382,7 @@ class QueryResponseAlternative12(BaseModel):
     types: Optional[list] = None
 
 
-class QueryResponseAlternative13(BaseModel):
+class QueryResponseAlternative12(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2382,7 +2405,7 @@ class QueryResponseAlternative13(BaseModel):
     types: list[str]
 
 
-class QueryResponseAlternative14(BaseModel):
+class QueryResponseAlternative13(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2406,7 +2429,7 @@ class QueryResponseAlternative14(BaseModel):
     types: list[str]
 
 
-class QueryResponseAlternative15(BaseModel):
+class QueryResponseAlternative14(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2433,7 +2456,7 @@ class QueryResponseAlternative15(BaseModel):
     types: Optional[list] = Field(default=None, description="Types of returned columns")
 
 
-class QueryResponseAlternative17(BaseModel):
+class QueryResponseAlternative15(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2454,7 +2477,7 @@ class QueryResponseAlternative17(BaseModel):
     )
 
 
-class QueryResponseAlternative18(BaseModel):
+class QueryResponseAlternative16(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2478,7 +2501,7 @@ class QueryResponseAlternative18(BaseModel):
     types: Optional[list] = None
 
 
-class QueryResponseAlternative19(BaseModel):
+class QueryResponseAlternative17(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2499,7 +2522,7 @@ class QueryResponseAlternative19(BaseModel):
     types: Optional[list] = None
 
 
-class QueryResponseAlternative20(BaseModel):
+class QueryResponseAlternative18(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2517,7 +2540,7 @@ class QueryResponseAlternative20(BaseModel):
     )
 
 
-class QueryResponseAlternative21(BaseModel):
+class QueryResponseAlternative19(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2535,7 +2558,7 @@ class QueryResponseAlternative21(BaseModel):
     )
 
 
-class QueryResponseAlternative23(BaseModel):
+class QueryResponseAlternative21(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2553,7 +2576,7 @@ class QueryResponseAlternative23(BaseModel):
     )
 
 
-class QueryResponseAlternative26(BaseModel):
+class QueryResponseAlternative24(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2651,7 +2674,9 @@ class SavedInsightNode(BaseModel):
     showPersistentColumnConfigurator: Optional[bool] = Field(
         default=None, description="Show a button to configure and persist the table's default columns if possible"
     )
-    showPropertyFilter: Optional[bool] = Field(default=None, description="Include a property filter above the table")
+    showPropertyFilter: Optional[Union[bool, list[TaxonomicFilterGroupType]]] = Field(
+        default=None, description="Include a property filter above the table"
+    )
     showReload: Optional[bool] = Field(default=None, description="Show a reload button")
     showResults: Optional[bool] = None
     showResultsTable: Optional[bool] = Field(default=None, description="Show a results table")
@@ -2681,31 +2706,6 @@ class SessionsTimelineQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-
-
-class TimeToSeeDataJSONNode(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    kind: Literal["TimeToSeeDataSessionsJSONNode"] = "TimeToSeeDataSessionsJSONNode"
-    source: TimeToSeeDataQuery
-
-
-class TimeToSeeDataNode(RootModel[Union[TimeToSeeDataJSONNode, TimeToSeeDataWaterfallNode]]):
-    root: Union[TimeToSeeDataJSONNode, TimeToSeeDataWaterfallNode]
-
-
-class TimeToSeeDataSessionsQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
-    kind: Literal["TimeToSeeDataSessionsQuery"] = "TimeToSeeDataSessionsQuery"
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    response: Optional[TimeToSeeDataSessionsQueryResponse] = None
-    teamId: Optional[int] = Field(default=None, description="Project to filter on. Defaults to current project")
 
 
 class WebOverviewQuery(BaseModel):
@@ -2788,6 +2788,10 @@ class CachedHogQLQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
+    cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
     clickhouse: Optional[str] = Field(default=None, description="Executed ClickHouse query")
     columns: Optional[list] = Field(default=None, description="Returned columns")
     error: Optional[str] = Field(
@@ -2823,6 +2827,10 @@ class CachedRetentionQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
+    cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -3397,7 +3405,7 @@ class PropertyGroupFilterValue(BaseModel):
     ]
 
 
-class QueryResponseAlternative22(BaseModel):
+class QueryResponseAlternative20(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3701,62 +3709,6 @@ class TrendsQuery(BaseModel):
     trendsFilter: Optional[TrendsFilter] = Field(default=None, description="Properties specific to the trends insight")
 
 
-class FilterType(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    actions: Optional[list[dict[str, Any]]] = None
-    aggregation_group_type_index: Optional[int] = None
-    breakdown: Optional[Union[str, float, list[Union[str, float]]]] = None
-    breakdown_group_type_index: Optional[int] = None
-    breakdown_hide_other_aggregation: Optional[bool] = None
-    breakdown_limit: Optional[int] = None
-    breakdown_normalize_url: Optional[bool] = None
-    breakdown_type: Optional[BreakdownType] = None
-    breakdowns: Optional[list[Breakdown]] = None
-    data_warehouse: Optional[list[dict[str, Any]]] = None
-    date_from: Optional[str] = None
-    date_to: Optional[str] = None
-    entity_id: Optional[Union[str, float]] = None
-    entity_math: Optional[str] = None
-    entity_type: Optional[EntityType] = None
-    events: Optional[list[dict[str, Any]]] = None
-    explicit_date: Optional[Union[bool, str]] = Field(
-        default=None,
-        description=(
-            "Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of"
-            ' period. Strings are cast to bools, e.g. "true" -> true.'
-        ),
-    )
-    filter_test_accounts: Optional[bool] = None
-    from_dashboard: Optional[Union[bool, float]] = None
-    insight: Optional[InsightType] = None
-    interval: Optional[IntervalType] = None
-    new_entity: Optional[list[dict[str, Any]]] = None
-    properties: Optional[
-        Union[
-            list[
-                Union[
-                    EventPropertyFilter,
-                    PersonPropertyFilter,
-                    ElementPropertyFilter,
-                    SessionPropertyFilter,
-                    CohortPropertyFilter,
-                    RecordingPropertyFilter,
-                    GroupPropertyFilter,
-                    FeaturePropertyFilter,
-                    HogQLPropertyFilter,
-                    EmptyPropertyFilter,
-                    DataWarehousePropertyFilter,
-                    DataWarehousePersonPropertyFilter,
-                ]
-            ],
-            PropertyGroupFilter,
-        ]
-    ] = None
-    sampling_factor: Optional[float] = None
-
-
 class FunnelsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4043,14 +3995,7 @@ class LifecycleQuery(BaseModel):
     )
 
 
-class NamedParametersTypeofDateRangeForFilter(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    source: Optional[FilterType] = None
-
-
-class QueryResponseAlternative27(BaseModel):
+class QueryResponseAlternative25(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4080,8 +4025,8 @@ class QueryResponseAlternative(
             QueryResponseAlternative9,
             QueryResponseAlternative10,
             QueryResponseAlternative11,
-            QueryResponseAlternative12,
             Any,
+            QueryResponseAlternative12,
             QueryResponseAlternative13,
             QueryResponseAlternative14,
             QueryResponseAlternative15,
@@ -4091,10 +4036,8 @@ class QueryResponseAlternative(
             QueryResponseAlternative19,
             QueryResponseAlternative20,
             QueryResponseAlternative21,
-            QueryResponseAlternative22,
-            QueryResponseAlternative23,
-            QueryResponseAlternative26,
-            QueryResponseAlternative27,
+            QueryResponseAlternative24,
+            QueryResponseAlternative25,
         ]
     ]
 ):
@@ -4111,8 +4054,8 @@ class QueryResponseAlternative(
         QueryResponseAlternative9,
         QueryResponseAlternative10,
         QueryResponseAlternative11,
-        QueryResponseAlternative12,
         Any,
+        QueryResponseAlternative12,
         QueryResponseAlternative13,
         QueryResponseAlternative14,
         QueryResponseAlternative15,
@@ -4122,10 +4065,8 @@ class QueryResponseAlternative(
         QueryResponseAlternative19,
         QueryResponseAlternative20,
         QueryResponseAlternative21,
-        QueryResponseAlternative22,
-        QueryResponseAlternative23,
-        QueryResponseAlternative26,
-        QueryResponseAlternative27,
+        QueryResponseAlternative24,
+        QueryResponseAlternative25,
     ]
 
 
@@ -4403,9 +4344,7 @@ class DataTableNode(BaseModel):
     )
     kind: Literal["DataTableNode"] = "DataTableNode"
     propertiesViaUrl: Optional[bool] = Field(default=None, description="Link properties via the URL (default: false)")
-    response: Optional[
-        Union[dict[str, Any], Response, Response1, Response2, Response3, Response4, Response5, Response6]
-    ] = None
+    response: Optional[Union[dict[str, Any], Response, Response1, Response2, Response3, Response4, Response5]] = None
     showActions: Optional[bool] = Field(default=None, description="Show the kebab menu at the end of the row")
     showColumnConfigurator: Optional[bool] = Field(
         default=None, description="Show a button to configure the table's columns if possible"
@@ -4423,7 +4362,9 @@ class DataTableNode(BaseModel):
     showPersistentColumnConfigurator: Optional[bool] = Field(
         default=None, description="Show a button to configure and persist the table's default columns if possible"
     )
-    showPropertyFilter: Optional[bool] = Field(default=None, description="Include a property filter above the table")
+    showPropertyFilter: Optional[Union[bool, list[TaxonomicFilterGroupType]]] = Field(
+        default=None, description="Include a property filter above the table"
+    )
     showReload: Optional[bool] = Field(default=None, description="Show a reload button")
     showResultsTable: Optional[bool] = Field(default=None, description="Show a results table")
     showSavedQueries: Optional[bool] = Field(default=None, description="Shows a list of saved queries")
@@ -4436,7 +4377,6 @@ class DataTableNode(BaseModel):
         PersonsNode,
         ActorsQuery,
         HogQLQuery,
-        TimeToSeeDataSessionsQuery,
         WebOverviewQuery,
         WebStatsTableQuery,
         WebTopClicksQuery,
@@ -4462,7 +4402,6 @@ class HogQLAutocomplete(BaseModel):
             EventsNode,
             ActionsNode,
             PersonsNode,
-            TimeToSeeDataSessionsQuery,
             EventsQuery,
             ActorsQuery,
             InsightActorsQuery,
@@ -4501,7 +4440,6 @@ class HogQLMetadata(BaseModel):
             EventsNode,
             ActionsNode,
             PersonsNode,
-            TimeToSeeDataSessionsQuery,
             EventsQuery,
             ActorsQuery,
             InsightActorsQuery,
@@ -4542,7 +4480,6 @@ class QueryRequest(BaseModel):
         ActionsNode,
         PersonsNode,
         DataWarehouseNode,
-        TimeToSeeDataSessionsQuery,
         EventsQuery,
         ActorsQuery,
         InsightActorsQuery,
@@ -4587,7 +4524,6 @@ class QuerySchemaRoot(
             ActionsNode,
             PersonsNode,
             DataWarehouseNode,
-            TimeToSeeDataSessionsQuery,
             EventsQuery,
             ActorsQuery,
             InsightActorsQuery,
@@ -4620,7 +4556,6 @@ class QuerySchemaRoot(
         ActionsNode,
         PersonsNode,
         DataWarehouseNode,
-        TimeToSeeDataSessionsQuery,
         EventsQuery,
         ActorsQuery,
         InsightActorsQuery,

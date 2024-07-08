@@ -205,7 +205,6 @@ export const FEATURE_FLAGS = {
     PERSONLESS_EVENTS_NOT_SUPPORTED: 'personless-events-not-supported', // owner: @raquelmsmith
     SESSION_REPLAY_UNIVERSAL_FILTERS: 'session-replay-universal-filters', // owner: #team-replay
     ALERTS: 'alerts', // owner: github.com/nikitaevg
-    SUBSCRIBE_TO_ALL_PRODUCTS: 'subscribe-to-all-products', // owner: #team-growth
     ERROR_TRACKING: 'error-tracking', // owner: #team-replay
     SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE: 'settings-bounce-rate-page-view-mode', // owner: @robbie-c
     SURVEYS_BRANCHING_LOGIC: 'surveys-branching-logic', // owner: @jurajmajerik #team-feature-success
@@ -252,9 +251,6 @@ export const CLOUD_HOSTNAMES = {
 }
 
 export const SESSION_RECORDINGS_PLAYLIST_FREE_COUNT = 5
-
-// If _any_ item on a dashboard is older than this, dashboard is automatically reloaded
-export const AUTO_REFRESH_DASHBOARD_THRESHOLD_HOURS = 20
 
 export const GENERATED_DASHBOARD_PREFIX = 'Generated Dashboard'
 

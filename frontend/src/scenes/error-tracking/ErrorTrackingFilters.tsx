@@ -56,15 +56,15 @@ export const ErrorTrackingFilters = ({ showOrder = true }: { showOrder?: boolean
                                         label: 'First seen',
                                     },
                                     {
-                                        value: 'unique_occurrences',
+                                        value: 'occurrences',
                                         label: 'Occurrences',
                                     },
                                     {
-                                        value: 'unique_users',
+                                        value: 'users',
                                         label: 'Users',
                                     },
                                     {
-                                        value: 'unique_sessions',
+                                        value: 'sessions',
                                         label: 'Sessions',
                                     },
                                 ]}

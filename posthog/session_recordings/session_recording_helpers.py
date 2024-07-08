@@ -17,7 +17,7 @@ from posthog.session_recordings.models.metadata import (
 from posthog.utils import flatten
 
 FULL_SNAPSHOT = 2
-
+ARBITRARY_LOOP_LIMIT = 10
 
 # NOTE: For reference here are some helpful enum mappings from rrweb
 # https://github.com/rrweb-io/rrweb/blob/master/packages/rrweb/src/types.ts
@@ -150,6 +150,10 @@ def preprocess_replay_events(
             },
         }
 
+    def split_list(xs: list) -> list[list]:
+        mid = len(xs) // 2
+        return [xs[:mid], xs[mid:]]
+
     # 1. Group by $snapshot_bytes if any of the events have it
     if events[0]["properties"].get("$snapshot_bytes"):
         current_event: dict | None = None
@@ -202,10 +206,35 @@ def preprocess_replay_events(
                 event = new_event(other_snapshots)
                 yield event
             else:
-                # If not, send them individually
-                for snapshot_data in other_snapshots:
-                    event = new_event([snapshot_data])
-                    yield event
+                # If not, keep splitting the list until all parts fit within headroom
+                # we want to avoid sending them all individually if we can - there could be tens of thousands
+                # in data from these older clients that batched poorly
+                parts = [other_snapshots]
+                loop_count = 0
+                while parts and loop_count < ARBITRARY_LOOP_LIMIT:
+                    loop_count += 1
+                    new_parts = []
+                    for part in parts:
+                        if byte_size_dict(part) < size_with_headroom:
+                            event = new_event(part)
+                            yield event
+                        elif len(part) > 1:  # Only split if the part has more than one item
+                            new_parts.extend(split_list(part))
+                        else:
+                            # If part has only one item and still doesn't fit, yield it as is
+                            event = new_event(part)
+                            yield event
+                    parts = new_parts
+
+                # finally, in the case where the list was split ten times
+                # and there are still items probably over the headroom
+                # we have to try to emit each remaining part individually
+                # there's a strong chance these fail, but it should be
+                # the vast minority of cases, if it even does happen
+                if parts:
+                    for part in parts:
+                        event = new_event(part)
+                        yield event
 
 
 def _process_windowed_events(
@@ -276,4 +305,8 @@ def convert_to_timestamp(source: str) -> int:
 
 
 def byte_size_dict(x: dict | list) -> int:
-    return len(json.dumps(x))
+    json_str = json.dumps(x)
+    # this is what kafka is going to do before sending the data
+    # and deciding whether it will reject on size
+    json_bytes = json_str.encode("utf-8")
+    return len(json_bytes)

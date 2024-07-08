@@ -245,4 +245,5 @@ export const urls = {
         `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
     alert: (id: InsightShortId, alertId: string): string => `/insights/${id}/alerts/${alertId}`,
     alerts: (id: InsightShortId): string => `/insights/${id}/alerts`,
+    sessionAttributionExplorer: (): string => '/web/session-attribution-explorer',
 }
