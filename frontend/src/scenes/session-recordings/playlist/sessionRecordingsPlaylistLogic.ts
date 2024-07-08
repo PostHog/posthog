@@ -813,6 +813,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
         return {
             setSelectedRecordingId: () => buildURL(false),
+            setUniversalFilters: () => buildURL(true),
             setAdvancedFilters: () => buildURL(true),
             setSimpleFilters: () => buildURL(true),
             resetFilters: () => buildURL(true),
@@ -843,6 +844,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         convertLegacyFiltersToUniversalFilters(params.simpleFilters, params.advancedFilters)
                     )
                 }
+            } else if (params.filters && !equal(params.filters, values.filters)) {
+                actions.setUniversalFilters(params.filters)
+                actions.setAdvancedFilters(convertUniversalFiltersToLegacyFilters(params.filters))
             }
         }
         return {
