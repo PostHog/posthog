@@ -40,4 +40,4 @@ REPLAY_MESSAGE_TOO_LARGE_SAMPLE_BUCKET = get_from_env(
 #
 # gzip is the current default in production
 # TODO we can clean this up once we've tested the new gzip-in-capture compression and don't need a setting
-SESSION_RECORDING_KAFKA_COMPRESSION = get_from_env("SESSION_RECORDING_KAFKA_COMPRESSION", "gzip")
+SESSION_RECORDING_KAFKA_COMPRESSION = get_from_env("SESSION_RECORDING_KAFKA_COMPRESSION", "gzip-in-capture")

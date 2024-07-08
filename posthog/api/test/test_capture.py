@@ -1947,7 +1947,7 @@ class TestCapture(BaseTest):
             self._send_august_2023_version_session_recording_event(event_data=None)
 
             session_recording_producer_singleton_mock.assert_called_with(
-                compression_type="gzip",
+                compression_type=None,
                 kafka_hosts=[
                     "another-server:9092",
                     "a-fourth.server:9092",
