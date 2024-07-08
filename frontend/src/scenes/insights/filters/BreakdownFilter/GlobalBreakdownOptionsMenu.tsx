@@ -30,7 +30,7 @@ export const GlobalBreakdownOptionsMenu = (): JSX.Element => {
                             <Tooltip
                                 title={
                                     <>
-                                        If you have over {breakdownLimit ?? 25} breakdown options, the smallest ones are
+                                        If you have over {breakdownLimit} breakdown options, the smallest ones are
                                         aggregated under the label "Other". Use this toggle to show/hide the "Other"
                                         option.
                                     </>
@@ -50,9 +50,7 @@ export const GlobalBreakdownOptionsMenu = (): JSX.Element => {
                     id="breakdown-limit"
                     min={1}
                     value={breakdownLimit}
-                    onChange={(newValue) => {
-                        setBreakdownLimit(newValue ?? 25)
-                    }}
+                    onChange={setBreakdownLimit}
                     fullWidth={false}
                     className="w-20 ml-2"
                     type="number"
