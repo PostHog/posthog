@@ -18,12 +18,14 @@ import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
+import { useEffect } from 'react'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import { groupsModel } from '~/models/groupsModel'
 import { EntityTypes } from '~/types'
 
+import { pipelineNodeLogic } from '../pipelineNodeLogic'
 import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
 import { HogFunctionIconEditable } from './HogFunctionIcon'
 import { HogFunctionInputs } from './HogFunctionInputs'
@@ -52,9 +54,14 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
         duplicateFromTemplate,
         setConfigurationValue,
     } = useActions(logic)
+    const { setBreadcrumbTitle } = useActions(pipelineNodeLogic)
 
     const hogFunctionsEnabled = !!useFeatureFlag('HOG_FUNCTIONS')
     const { groupsTaxonomicTypes } = useValues(groupsModel)
+
+    useEffect(() => {
+        setBreadcrumbTitle(configuration.name ?? 'Untitled')
+    }, [configuration.name])
 
     if (loading && !loaded) {
         return <SpinnerOverlay />
