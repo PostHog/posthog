@@ -358,7 +358,10 @@ export default function SurveyEdit(): JSX.Element {
                                                                                   textPlaceholder="ex: We really appreciate it."
                                                                               />
                                                                           </LemonField.Pure>
-                                                                          <LemonField.Pure className="mt-2" label="Button text">
+                                                                          <LemonField.Pure
+                                                                              className="mt-2"
+                                                                              label="Button text"
+                                                                          >
                                                                               <LemonInput
                                                                                   value={
                                                                                       survey.appearance
