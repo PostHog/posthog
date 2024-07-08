@@ -844,7 +844,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         convertLegacyFiltersToUniversalFilters(params.simpleFilters, params.advancedFilters)
                     )
                 }
-            } else if (params.filters && !equal(params.filters, values.filters)) {
+            }
+            if (values.useUniversalFiltering && params.filters && !equal(params.filters, values.filters)) {
                 actions.setUniversalFilters(params.filters)
                 actions.setAdvancedFilters(convertUniversalFiltersToLegacyFilters(params.filters))
             }
