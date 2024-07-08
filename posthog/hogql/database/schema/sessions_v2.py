@@ -307,8 +307,7 @@ class SessionsTableV2(LazyTable):
 
     def avoid_asterisk_fields(self) -> list[str]:
         return [
-            # alias of $session_duration, deprecated but included for backwards compatibility
-            "duration",
+            "duration",  # alias of $session_duration, deprecated but included for backwards compatibility
         ]
 
 
