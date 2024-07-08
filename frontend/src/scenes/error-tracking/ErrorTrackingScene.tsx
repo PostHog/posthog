@@ -1,4 +1,5 @@
-import { LemonSegmentedButton } from '@posthog/lemon-ui'
+import { TZLabel } from '@posthog/apps-common'
+import { LemonSegmentedButton, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { useMemo } from 'react'
@@ -75,13 +76,37 @@ const CustomVolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName
 }
 
 const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
-    const { value } = props
+    const { value, record } = props
     const properties = JSON.parse(value as string)
+
+    const FirstAndLast = ({ record }: { record: string[] }): JSX.Element => {
+        const [last_seen, first_seen] = record.slice(-2)
+
+        return (
+            <div className="space-x-1">
+                <Tooltip title="First seen" delayMs={250}>
+                    <TZLabel time={first_seen} showPopover={false} className="border-dotted border-b" />
+                </Tooltip>
+                <span>|</span>
+                <Tooltip title="Last seen" delayMs={250}>
+                    <TZLabel time={last_seen} showPopover={false} className="border-dotted border-b" />
+                </Tooltip>
+            </div>
+        )
+    }
 
     return (
         <LemonTableLink
-            title={properties.$exception_type}
-            description={<div className="line-clamp-1">{properties.$exception_message}</div>}
+            title={properties.$exception_type || 'Title'}
+            description={
+                <div className="space-y-1">
+                    <div className="line-clamp-1">
+                        {properties.$exception_message ||
+                            'This is a super long message that should be truncated should be truncated should be truncated should be truncated should be truncated should be truncated'}
+                    </div>
+                    <FirstAndLast record={record as string[]} />
+                </div>
+            }
             to={urls.errorTrackingGroup(properties.$exception_type)}
         />
     )
