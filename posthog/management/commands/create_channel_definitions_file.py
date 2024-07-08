@@ -8,7 +8,6 @@ from typing import Optional
 
 from django.core.management.base import BaseCommand
 
-
 OUTPUT_FILE = "posthog/models/channel_type/channel_definitions.json"
 
 
@@ -102,8 +101,51 @@ class Command(BaseCommand):
         for bing_domain in ("bing.com", "bing.com.cn", "bing.net", "bingworld.com"):
             entries[(bing_domain, EntryKind.source)] = SourceEntry("Search", "Paid Search", "Organic Search")
 
-        # misc other domains that GA4 misses
-        entries["duckduckgo.com", EntryKind.source] = SourceEntry("Search", "Paid Search", "Organic Search")
+        # The Google-provided list is missing some other search engines, or miss some subdomains, so add them here
+        for search_domain in (
+            # from https://en.wikipedia.org/wiki/List_of_search_engines
+            "ask.com",
+            "www.ask.com",
+            "search.brave.com",
+            # Baidu is included already
+            "www.dogpile.com",
+            "duckduckgo.com",
+            "www.ecosia.org",
+            "www.excite.com",
+            "www.gigablast.com",
+            # Google domains included above
+            "www.hotbot.com",
+            "kagi.com",
+            "www.lycos.com",
+            "www.metacrawler.com",
+            # Microsoft Bing domains included above
+            "www.mojeek.com",
+            "www.qwant.com",
+            "www.sogou.com",
+            "www.startpage.com",
+            "swisscows.com",
+            "www.webcrawler.com",
+            # Yahoo already included
+            # Yandex already included
+            "you.com",
+            # some other popular search engines
+            "www.kiddle.co",
+            "www.egerin.com",
+            "presearch.io",
+            "perplexity.ai",
+            "m.search.naver.com",
+            "yep.com",
+            "andisearch.com",
+            "phind.com",
+            "komo.ai",
+            "sevasearch.org",
+            "coccoc.com",
+            "so.com",
+            "seznam.cz",
+        ):
+            entries[(search_domain, EntryKind.source)] = SourceEntry("Search", "Paid Search", "Organic Search")
+            if search_domain[0:4] == "www.":
+                entries[(search_domain[4:], EntryKind.source)] = SourceEntry("Search", "Paid Search", "Organic Search")
 
         # add other sources
         for email_spelling in ("email", "e-mail", "e_mail", "e mail"):
