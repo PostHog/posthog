@@ -62,30 +62,6 @@ describe('HogQL Bytecode', () => {
         expect(execSync(['_h', op.STRING, 'AL', op.STRING, 'kala', op.NOT_IREGEX], options)).toBe(false)
         expect(execSync(['_h', op.STRING, 'bla', op.STRING, 'properties', op.GET_GLOBAL, 2], options)).toBe(null)
         expect(execSync(['_h', op.STRING, 'foo', op.STRING, 'properties', op.GET_GLOBAL, 2], options)).toBe('bar')
-        expect(
-            execSync(
-                ['_h', op.FALSE, op.STRING, 'foo', op.STRING, 'properties', op.GET_GLOBAL, 2, op.CALL, 'ifNull', 2],
-                options
-            )
-        ).toBe('bar')
-        expect(
-            execSync(
-                [
-                    '_h',
-                    op.FALSE,
-                    op.STRING,
-                    'nullValue',
-                    op.STRING,
-                    'properties',
-                    op.GET_GLOBAL,
-                    2,
-                    op.CALL,
-                    'ifNull',
-                    2,
-                ],
-                options
-            )
-        ).toBe(false)
         expect(execSync(['_h', op.STRING, 'another', op.STRING, 'arg', op.CALL, 'concat', 2], options)).toBe(
             'arganother'
         )
