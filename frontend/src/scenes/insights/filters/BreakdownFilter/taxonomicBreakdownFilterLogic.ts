@@ -41,7 +41,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
     connect((props: TaxonomicBreakdownFilterLogicProps) => ({
         values: [
             insightVizDataLogic(props.insightProps),
-            ['currentDataWarehouseSchemaColumns'],
+            ['currentDataWarehouseSchemaColumns', 'isDataWarehouseSeries'],
             propertyDefinitionsModel,
             ['getPropertyDefinition'],
             featureFlagLogic,
@@ -140,9 +140,9 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
         breakdownFilter: [(_, p) => [p.breakdownFilter], (breakdownFilter) => breakdownFilter],
         includeSessions: [(_, p) => [p.isTrends], (isTrends) => isTrends],
         maxBreakdownsSelected: [
-            (s) => [s.breakdownFilter, s.isMultipleBreakdownsEnabled],
-            ({ breakdown, breakdowns }, isMultipleBreakdownsEnabled) => {
-                if (isMultipleBreakdownsEnabled) {
+            (s) => [s.breakdownFilter, s.isMultipleBreakdownsEnabled, s.isDataWarehouseSeries],
+            ({ breakdown, breakdowns }, isMultipleBreakdownsEnabled, isDataWarehouseSeries) => {
+                if (isMultipleBreakdownsEnabled && !isDataWarehouseSeries) {
                     return Array.isArray(breakdowns) && breakdowns.length >= 3
                 }
 
