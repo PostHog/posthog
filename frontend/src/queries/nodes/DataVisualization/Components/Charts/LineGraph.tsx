@@ -5,7 +5,7 @@ import '../../../../../scenes/insights/InsightTooltip/InsightTooltip.scss'
 
 import { LemonTable } from '@posthog/lemon-ui'
 import { ChartData, ChartType, Color, GridLineOptions, TickOptions, TooltipModel } from 'chart.js'
-import annotationPlugin, { AnnotationPluginOptions, LineAnnotationOptions } from 'chartjs-plugin-annotation'
+import { AnnotationPluginOptions, LineAnnotationOptions } from 'chartjs-plugin-annotation'
 import dataLabelsPlugin from 'chartjs-plugin-datalabels'
 import clsx from 'clsx'
 import { useValues } from 'kea'
@@ -20,8 +20,6 @@ import { ChartDisplayType, GraphType } from '~/types'
 
 import { dataVisualizationLogic } from '../../dataVisualizationLogic'
 import { displayLogic } from '../../displayLogic'
-
-Chart.register(annotationPlugin)
 
 export const LineGraph = (): JSX.Element => {
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -264,7 +262,7 @@ export const LineGraph = (): JSX.Element => {
             type: isBarChart ? GraphType.Bar : GraphType.Line,
             data,
             options,
-            plugins: [dataLabelsPlugin, annotationPlugin],
+            plugins: [dataLabelsPlugin],
         })
         return () => newChart.destroy()
     }, [xData, yData, visualizationType, goalLines])
