@@ -337,22 +337,8 @@ input::-ms-clear {
     }
 }
 
-// Tags
-
-.simple-tag {
-    padding: 2px 6px;
-    border-radius: var(--radius);
-
-    &.tag-light-blue {
-        background-color: var(--primary-highlight);
-    }
-}
-
 // AntD overrrides, placed inside `body` to increase specifity (nicely avoiding the need for !important)
 body {
-    // Until we have 3000 rolled out we fallback to standard colors
-    --primary-highlight: var(--primary-highlight);
-
     // Remove below once we're using Tailwind's base
     --tw-ring-offset-width: 0px;
     --tw-ring-offset-color: var(--bg-light);

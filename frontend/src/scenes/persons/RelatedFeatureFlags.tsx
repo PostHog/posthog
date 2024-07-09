@@ -98,11 +98,7 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
                     <div>
                         {featureFlag.active ? <>{featureFlagMatchMapping[featureFlag.evaluation.reason]}</> : '--'}
 
-                        {matchesSet && (
-                            <span className="simple-tag ml-2 bg-primary-highlight">
-                                Set {(featureFlag.evaluation.condition_index ?? 0) + 1}
-                            </span>
-                        )}
+                        {matchesSet && <LemonTag>Set {(featureFlag.evaluation.condition_index ?? 0) + 1}</LemonTag>}
                     </div>
                 )
             },
