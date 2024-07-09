@@ -293,7 +293,7 @@ module.exports = {
     },
     overrides: [
         {
-            files: ['**/test/**/*', '**/*.test.*', '**/*.cy.ts'],
+            files: ['**/test/**/*', '**/*.test.*'],
             env: {
                 ...env,
                 node: true,
@@ -317,7 +317,25 @@ module.exports = {
                 // but it's helpful sometimes
                 'jest/no-export': 'off',
                 // also helpful sometimes, but not always
-                'jest/no-conditional-expect': 'warn'
+                'jest/no-conditional-expect': 'warn',
+            },
+        },
+        {
+            files: ['**/*.cy.ts'],
+            env: {
+                ...env,
+                node: true,
+                'jest/globals': true,
+            },
+            "plugins": ["jest"],
+            "extends": ["plugin:jest/recommended"],
+            globals: {
+                ...globals,
+                given: 'readonly',
+            },
+            rules: {
+                // don't complain about unknown expect statements
+                'jest/valid-expect': 'off'
             },
         },
         {
