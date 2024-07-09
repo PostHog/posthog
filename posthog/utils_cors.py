@@ -9,6 +9,7 @@ CORS_ALLOWED_TRACING_HEADERS = (
     "Sentry-Trace",
     "Baggage",
     "x-highlight-request",
+    "x-datadome-clientid",
 )
 
 
