@@ -3,25 +3,28 @@
 import sys
 from dataclasses import dataclass, replace
 from itertools import groupby, permutations
-from typing import Any, List
+from typing import Any
 
 N_ARGS = 5
+
 
 def parse_args(line):
     t1 = line.find("\t")
     num_steps = int(line[:t1])
     t2 = line.find("\t", t1 + 1)
-    conversion_window_limit = int(line[t1 + 1:t2])
+    conversion_window_limit = int(line[t1 + 1 : t2])
     t3 = line.find("\t", t2 + 1)
-    breakdown_attribution_type = line[t2 + 1:t3]
+    breakdown_attribution_type = line[t2 + 1 : t3]
     t4 = line.find("\t", t3 + 1)
-    prop_vals = eval(line[t3 + 1:t4])
-    return num_steps, conversion_window_limit, breakdown_attribution_type, prop_vals, eval(line[t4 + 1:])
+    prop_vals = eval(line[t3 + 1 : t4])
+    return num_steps, conversion_window_limit, breakdown_attribution_type, prop_vals, eval(line[t4 + 1 :])
+
 
 @dataclass(frozen=True)
 class EnteredTimestamp:
     timestamp: Any
     timings: Any
+
 
 def breakdown_to_single_quoted_string(breakdown):
     if isinstance(breakdown, str):
@@ -37,18 +40,24 @@ def breakdown_to_single_quoted_string(breakdown):
             return str(breakdown)
     raise Exception()
 
+
 # each one can be multiple steps here
 # it only matters when they entered the funnel - you can propagate the time from the previous step when you update
-# This function is defined for Clickhouse in test_function.xml along with types
+# This function is defined for Clickhouse in aggregate_funnel.xml along with types
 # num_steps is the total number of steps in the funnel
 # conversion_window_limit is in seconds
 # events is a array of tuples of (timestamp, breakdown, [steps])
 # steps is an array of integers which represent the steps that this event qualifies for. it looks like [1,3,5,6].
 # negative integers represent an exclusion on that step. each event is either all exclusions or all steps.
-def parse_user_aggregation_with_conversion_window_and_breakdown(num_steps: int, conversion_window_limit_seconds: int, breakdown_attribution_type: str, prop_vals: List[any], events: List[any]):
-
+def parse_user_aggregation_with_conversion_window_and_breakdown(
+    num_steps: int,
+    conversion_window_limit_seconds: int,
+    breakdown_attribution_type: str,
+    prop_vals: list[any],
+    events: list[any],
+):
     # If the attribution mode is a breakdown step, set this to the integer that represents that step
-    breakdown_step = int(breakdown_attribution_type[5:]) if breakdown_attribution_type.startswith('step_') else None
+    breakdown_step = int(breakdown_attribution_type[5:]) if breakdown_attribution_type.startswith("step_") else None
 
     # This function returns an Array. We build up an array of strings to return here.
     results = []
@@ -63,33 +72,47 @@ def parse_user_aggregation_with_conversion_window_and_breakdown(num_steps: int, 
                 step = -step
 
             in_match_window = timestamp - entered_timestamp[step - 1].timestamp <= conversion_window_limit_seconds
-            already_reached_this_step_with_same_entered_timestamp = entered_timestamp[step].timestamp == entered_timestamp[step - 1].timestamp
+            already_reached_this_step_with_same_entered_timestamp = (
+                entered_timestamp[step].timestamp == entered_timestamp[step - 1].timestamp
+            )
 
             if in_match_window and not already_reached_this_step_with_same_entered_timestamp:
                 if exclusion:
                     results.append(f"(-1, {breakdown_to_single_quoted_string(prop_val)}, [])")
                     return False
-                is_unmatched_step_attribution = breakdown_step is not None and step == breakdown_step - 1 and prop_val != breakdown
+                is_unmatched_step_attribution = (
+                    breakdown_step is not None and step == breakdown_step - 1 and prop_val != breakdown
+                )
                 if not is_unmatched_step_attribution:
-                    entered_timestamp[step] = replace(entered_timestamp[step - 1], timings=entered_timestamp[step - 1].timings + [timestamp])
+                    entered_timestamp[step] = replace(
+                        entered_timestamp[step - 1], timings=[*entered_timestamp[step - 1].timings, timestamp]
+                    )
         return True
 
     # We call this for each possible breakdown value.
     def loop_prop_val(prop_val):
         # an array of when the user entered the funnel
         # entered_timestamp = [(0, "", [])] * (num_steps + 1)
-        entered_timestamp: List[EnteredTimestamp] = [EnteredTimestamp(0, [])] * (num_steps + 1)
+        entered_timestamp: list[EnteredTimestamp] = [EnteredTimestamp(0, [])] * (num_steps + 1)
 
         def add_result(i):
             final = entered_timestamp[i]
-            results.append(f"({i - 1}, {breakdown_to_single_quoted_string(prop_val)}, {str([final.timings[i] - final.timings[i - 1] for i in range(1, i)])})")
+            results.append(
+                f"({i - 1}, {breakdown_to_single_quoted_string(prop_val)}, {str([final.timings[i] - final.timings[i - 1] for i in range(1, i)])})"
+            )
 
-        filtered_events = ((timestamp, breakdown, steps) for (timestamp, breakdown, steps) in events if breakdown == prop_val) if breakdown_attribution_type == 'all_events' else events
+        filtered_events = (
+            ((timestamp, breakdown, steps) for (timestamp, breakdown, steps) in events if breakdown == prop_val)
+            if breakdown_attribution_type == "all_events"
+            else events
+        )
         for timestamp, events_with_same_timestamp_iterator in groupby(filtered_events, key=lambda x: x[0]):
             events_with_same_timestamp = tuple(events_with_same_timestamp_iterator)
             entered_timestamp[0] = EnteredTimestamp(timestamp, [])
             if len(events_with_same_timestamp) == 1:
-                if not process_event(*events_with_same_timestamp[0], entered_timestamp=entered_timestamp, prop_val=prop_val):
+                if not process_event(
+                    *events_with_same_timestamp[0], entered_timestamp=entered_timestamp, prop_val=prop_val
+                ):
                     return
             else:
                 # This is a special case for events with the same timestamp
@@ -98,7 +121,7 @@ def parse_user_aggregation_with_conversion_window_and_breakdown(num_steps: int, 
                 # but shouldn't be hit too often
                 entered_timestamps = []
                 for events_group_perm in permutations(events_with_same_timestamp):
-                    entered_timestamps.append([x for x in entered_timestamp])
+                    entered_timestamps.append(list(entered_timestamp))
                     for event in events_group_perm:
                         if not process_event(*event, entered_timestamp=entered_timestamps[-1], prop_val=prop_val):
                             # If any of the permutations hits an exclusion, we exclude this user.
@@ -123,20 +146,24 @@ def parse_user_aggregation_with_conversion_window_and_breakdown(num_steps: int, 
         return
 
     [loop_prop_val(prop_val) for prop_val in prop_vals]
-    print(f"[{','.join(results)}]")
+    print(f"[{','.join(results)}]")  # noqa: T201
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     for line in sys.stdin:
         parse_user_aggregation_with_conversion_window_and_breakdown(*parse_args(line))
         sys.stdout.flush()
 
+
 def test():
-    y = [[(1577973600, '', [1]), (1577980800, '', [2]), (1577984400, '', [3])],
-     [(1577880000, '', [1]), (1577883600, '', [2]), (1577890800, '', [3])],
-     [(1577973600, '', [1]), (1577980800, '', [2])]]
+    y = [
+        [(1577973600, "", [1]), (1577980800, "", [2]), (1577984400, "", [3])],
+        [(1577880000, "", [1]), (1577883600, "", [2]), (1577890800, "", [3])],
+        [(1577973600, "", [1]), (1577980800, "", [2])],
+    ]
 
     for x in y:
-        parse_user_aggregation_with_conversion_window_and_breakdown(3, 1209600, 'first_touch', [''], x)
+        parse_user_aggregation_with_conversion_window_and_breakdown(3, 1209600, "first_touch", [""], x)
 
     """
     a = [(1719624249.503675,[1,2,4,5,6,7,8,9]),(1719624251.581988,[1,2,4,5,6,7,8,9]),(1719635907.573687,[1,2,4,5,6,7,8,9]),(1719635909.66015,[1,2,4,5,6,7,8,9]),(1719759818.990228,[1,2,4,5,6,7,8,9]),(1719759876.794997,[1,2,4,5,6,7,8,9]),(1719759878.856164,[1,2,4,5,6,7,8,9]),(1719803624.816091,[1,2,4,5,6,7,8,9]),(1719803809.529472,[1,2,4,5,6,7,8,9]),(1719803811.608051,[1,2,4,5,6,7,8,9]),(1719881651.587875,[3]),(1719886796.095619,[1,2,4,5,6,7,8,9]),(1719886798.206008,[1,2,4,5,6,7,8,9]),(1719968757.728293,[1,2,4,5,6,7,8,9]),(1719968784.265244,[1,2,4,5,6,7,8,9]),(1720048981.884196,[1,2,4,5,6,7,8,9]),(1720049173.969063,[1,2,4,5,6,7,8,9]),(1720067592.576889,[1,2,4,5,6,7,8,9]),(1720067656.454668,[1,2,4,5,6,7,8,9]),(1720067658.547188,[1,2,4,5,6,7,8,9]),(1720140655.805049,[1,2,4,5,6,7,8,9]),(1720140692.408485,[1,2,4,5,6,7,8,9])]

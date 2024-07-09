@@ -14,12 +14,11 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
-from posthog.hogql_queries.insights.funnels import Funnel
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.insights.funnels.funnel_time_to_convert import FunnelTimeToConvert
 from posthog.hogql_queries.insights.funnels.funnel_trends import FunnelTrends
-from posthog.hogql_queries.insights.funnels.funnel_udf import FunnelUDF
 from posthog.hogql_queries.insights.funnels.utils import get_funnel_actor_class, get_funnel_order_class
+from posthog.hogql_queries.legacy_compatibility.feature_flag import insight_funnels_use_udf
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
@@ -29,7 +28,7 @@ from posthog.schema import (
     FunnelVizType,
     FunnelsQuery,
     FunnelsQueryResponse,
-    HogQLQueryModifiers, StepOrderValue,
+    HogQLQueryModifiers,
 )
 
 
@@ -108,7 +107,9 @@ class FunnelsQueryRunner(QueryRunner):
 
     @cached_property
     def funnel_order_class(self):
-        return get_funnel_order_class(self.context.funnelsFilter)(context=self.context)
+        return get_funnel_order_class(self.context.funnelsFilter, use_udf=insight_funnels_use_udf(self.team))(
+            context=self.context
+        )
 
     @cached_property
     def funnel_class(self):
@@ -119,9 +120,6 @@ class FunnelsQueryRunner(QueryRunner):
         elif funnelVizType == FunnelVizType.TIME_TO_CONVERT:
             return FunnelTimeToConvert(context=self.context)
         else:
-            # For testing
-            # if self.query.funnelsFilter.funnelOrderType == StepOrderValue.STRICT:
-            #    return Funnel(context=self.context)
             return self.funnel_order_class
 
     @cached_property

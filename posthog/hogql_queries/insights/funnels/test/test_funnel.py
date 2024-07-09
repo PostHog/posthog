@@ -1,6 +1,8 @@
 from datetime import datetime
 from typing import cast
 import uuid
+from unittest.mock import patch, Mock
+
 from django.test import override_settings
 from freezegun import freeze_time
 from rest_framework.exceptions import ValidationError
@@ -59,6 +61,7 @@ def _create_action(**kwargs):
     return action
 
 
+@patch("posthoganalytics.feature_enabled", new=Mock(return_value=False))
 class TestFunnelBreakdown(
     ClickhouseTestMixin,
     funnel_breakdown_test_factory(  # type: ignore
@@ -72,6 +75,7 @@ class TestFunnelBreakdown(
     pass
 
 
+@patch("posthoganalytics.feature_enabled", new=Mock(return_value=False))
 class TestFunnelGroupBreakdown(
     ClickhouseTestMixin,
     funnel_breakdown_group_test_factory(  # type: ignore
@@ -3769,6 +3773,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
     return TestGetFunnel
 
 
+@patch("posthoganalytics.feature_enabled", new=Mock(return_value=False))
 class TestFOSSFunnel(funnel_test_factory(Funnel, _create_event, _create_person)):  # type: ignore
     maxDiff = None
 
