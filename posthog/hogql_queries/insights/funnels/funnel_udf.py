@@ -49,9 +49,13 @@ class FunnelUDF(FunnelBase):
         # stores the steps as an array of integers from 1 to max_steps
         # so if the event could be step_0, step_1 or step_4, it looks like [1,2,0,0,5]
 
-        # Exclusions should be stored as a range (start, end) and if they occur, we need to clear
-        # progress at those
+        # Each event is going to be a set of steps or it's going to be a set of exclusions. It can't be both.
         steps = ",".join([f"{i + 1} * step_{i}" for i in range(self.context.max_steps)])
+
+        # this will error if they put in a bad exclusion
+        exclusions = ""
+        if getattr(self.context.funnelsFilter, 'exclusions', None):
+            exclusions = "".join([f",-{i + 1} * exclusion_{i}" for i in range(1, self.context.max_steps)])
 
         fn = 'aggregate_funnel_array' if self._query_has_array_breakdown() else 'aggregate_funnel'
 
@@ -65,7 +69,7 @@ class FunnelUDF(FunnelBase):
                     {self.context.max_steps}, 
                     {self.conversion_window_limit()},
                     '{breakdown_attribution_string}',
-                    arraySort(t -> t.1, groupArray(tuple(toFloat(timestamp), {prop_selector}, arrayFilter((x) -> x != 0, [{steps}]))))
+                    arraySort(t -> t.1, groupArray(tuple(toFloat(timestamp), {prop_selector}, arrayFilter((x) -> x != 0, [{steps}{exclusions}]))))
                 ) as af_tuple,
                 af_tuple.1 as af,
                 af_tuple.2 as breakdown,
@@ -279,23 +283,6 @@ class FunnelUDF(FunnelBase):
 
         return funnel_events_query
     """
-
-
-
-    def _get_exclusions_col(
-        self,
-        exclusions: list[ExclusionEntityNode],
-        index: int,
-        entity_name: str,
-    ) -> list[ast.Expr]:
-        # step prefix is used to distinguish actual steps, and exclusion steps
-        # without the prefix, we get the same parameter binding for both, which borks things up
-        step_cols: list[ast.Expr] = []
-        conditions = [self._build_step_query(exclusion, index, entity_name, "") for exclusion in exclusions]
-        step_cols.append(
-            parse_expr(f"if({{condition}}, 1, 0) as exclusion_{index}", placeholders={"condition": ast.Or(exprs=conditions)})
-        )
-        return step_cols
 
 
 
