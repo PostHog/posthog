@@ -335,7 +335,9 @@ module.exports = {
             },
             rules: {
                 // don't complain about unknown expect statements
-                'jest/valid-expect': 'off'
+                'jest/valid-expect': 'off',
+                // don't warn about missing expect
+                'jest/expect-expect': 'off'
             },
         },
         {

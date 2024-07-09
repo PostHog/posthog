@@ -227,7 +227,7 @@ describe('Surveys', () => {
             .should('exist')
     })
 
-    it.only('can set responses limit', () => {
+    it('can set responses limit', () => {
         cy.get('h1').should('contain', 'Surveys')
         cy.get('[data-attr=new-survey]').click()
         cy.get('[data-attr=new-blank-survey]').click()
