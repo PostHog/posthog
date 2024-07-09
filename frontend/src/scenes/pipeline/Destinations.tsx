@@ -19,7 +19,7 @@ import { Destination } from './types'
 import { pipelineNodeMenuCommonItems, RenderApp, RenderBatchExportIcon } from './utils'
 
 export function Destinations(): JSX.Element {
-    const { destinations } = useValues(pipelineDestinationsLogic)
+    const { destinations, loading } = useValues(pipelineDestinationsLogic)
 
     return (
         <>
@@ -31,7 +31,7 @@ export function Destinations(): JSX.Element {
                     description="Pipeline destinations allow you to export data outside of PostHog, such as webhooks to Slack."
                     docsURL="https://posthog.com/docs/cdp"
                     actionElementOverride={<NewButton stage={PipelineStage.Destination} />}
-                    isEmpty={destinations.length === 0}
+                    isEmpty={destinations.length === 0 && !loading}
                 />
             </PayGateMini>
             <DestinationsTable />
