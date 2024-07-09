@@ -2,7 +2,7 @@ import type { LemonSegmentedButtonOption } from '@posthog/lemon-ui'
 import { actions, kea, listeners, path, reducers } from 'kea'
 import { UniversalFiltersGroup } from 'lib/components/UniversalFilters/UniversalFilters'
 
-import { DateRange } from '~/queries/schema'
+import { DateRange, ErrorTrackingOrder } from '~/queries/schema'
 import { FilterLogicalOperator } from '~/types'
 
 import type { errorTrackingLogicType } from './errorTrackingLogicType'
@@ -31,6 +31,7 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
 
     actions({
         setDateRange: (dateRange: DateRange) => ({ dateRange }),
+        setOrder: (order: ErrorTrackingOrder) => ({ order }),
         setFilterGroup: (filterGroup: UniversalFiltersGroup) => ({ filterGroup }),
         setFilterTestAccounts: (filterTestAccounts: boolean) => ({ filterTestAccounts }),
         setSparklineSelectedPeriod: (period: string | null) => ({ period }),
@@ -42,6 +43,13 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
             { persist: true },
             {
                 setDateRange: (_, { dateRange }) => dateRange,
+            },
+        ],
+        order: [
+            'last_seen' as ErrorTrackingOrder,
+            { persist: true },
+            {
+                setOrder: (_, { order }) => order,
             },
         ],
         filterGroup: [

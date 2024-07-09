@@ -105,6 +105,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
         cachedResults: cachedResults,
         dataNodeCollectionId: context?.insightProps?.dataNodeCollectionId || dataKey,
         alwaysRefresh: context?.alwaysRefresh,
+        onData: context?.insightProps?.onData,
     }
     const builtDataNodeLogic = dataNodeLogic(dataNodeLogicProps)
 
