@@ -294,7 +294,7 @@ export const fetchGroups = async (teamId: number) => {
     const queryResult = (await clickHouseClient.querying(
         `SELECT * FROM groups WHERE team_id = ${teamId} ORDER BY created_at ASC`
     )) as unknown as ClickHouse.ObjectQueryResult<any>
-    return queryResult.data.map((group) => ({ ...group, properties: JSON.parse(group.properties) }))
+    return queryResult.data.map((group) => ({ ...group, group_properties: JSON.parse(group.group_properties) }))
 }
 
 export const fetchPostgresPersons = async (teamId: number) => {

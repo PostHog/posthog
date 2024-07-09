@@ -28,14 +28,16 @@ test.concurrent(`event ingestion: can set and update group properties`, async ()
         },
     })
 
-    const group = await fetchGroups(teamId)
-    expect(group).toContainEqual(
-        expect.objectContaining({
-            group_type_index: 0,
-            group_key: 'posthog',
-            group_properties: expect.objectContaining({ prop: 'value' }),
-        })
-    )
+    await waitForExpect(async () => {
+        const group = await fetchGroups(teamId)
+        expect(group).toEqual([
+            expect.objectContaining({
+                group_type_index: 0,
+                group_key: 'posthog',
+                group_properties: { prop: 'value' },
+            }),
+        ])
+    })
 
     const firstEventUuid = new UUIDT().toString()
     await capture({
@@ -74,14 +76,16 @@ test.concurrent(`event ingestion: can set and update group properties`, async ()
         },
     })
 
-    const group2 = await fetchGroups(teamId)
-    expect(group2).toContainEqual(
-        expect.objectContaining({
-            group_type_index: 0,
-            group_key: 'posthog',
-            group_properties: expect.objectContaining({ prop: 'updated value' }),
-        })
-    )
+    await waitForExpect(async () => {
+        const group = await fetchGroups(teamId)
+        expect(group).toContainEqual(
+            expect.objectContaining({
+                group_type_index: 0,
+                group_key: 'posthog',
+                group_properties: { prop: 'updated value' },
+            })
+        )
+    })
 
     const secondEventUuid = new UUIDT().toString()
     await capture({
