@@ -434,8 +434,8 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                 ):
                     logger.debug(
                         "Loading %s records of size %s bytes",
-                        local_results_file.records_since_last_reset,
-                        local_results_file.bytes_since_last_reset,
+                        records_since_last_flush,
+                        bytes_since_last_flush,
                     )
                     table = bigquery_stage_table if requires_merge else bigquery_table
 

@@ -156,12 +156,14 @@ def execute_process_query(
 
     query_status.error = True  # Assume error in case nothing below ends up working
 
+    trigger = "chained" if "chained" in (query_status.labels or []) else ""
+    if trigger == "chained":
+        tag_queries(trigger="chaining")
+
     pickup_time = datetime.datetime.now(datetime.UTC)
     if query_status.start_time:
         wait_duration = (pickup_time - query_status.start_time) / datetime.timedelta(seconds=1)
-        QUERY_WAIT_TIME.labels(
-            team=team_id, mode=("chained" if "chained" in (query_status.labels or []) else None)
-        ).observe(wait_duration)
+        QUERY_WAIT_TIME.labels(team=team_id, mode=trigger).observe(wait_duration)
 
     try:
         tag_queries(client_query_id=query_id, team_id=team_id, user_id=user_id)

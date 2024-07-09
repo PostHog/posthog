@@ -97,7 +97,6 @@ export const DEFAULT_RECORDING_FILTERS: RecordingFilters = {
 }
 
 export const DEFAULT_RECORDING_UNIVERSAL_FILTERS: RecordingUniversalFilters = {
-    live_mode: false,
     filter_test_accounts: false,
     date_from: '-3d',
     date_to: null,
@@ -211,8 +210,6 @@ export function convertLegacyFiltersToUniversalFilters(
     return {
         date_from: filters.date_from || DEFAULT_RECORDING_UNIVERSAL_FILTERS['date_from'],
         date_to: filters.date_to || DEFAULT_RECORDING_UNIVERSAL_FILTERS['date_to'],
-        live_mode:
-            filters.live_mode == undefined ? DEFAULT_RECORDING_UNIVERSAL_FILTERS['live_mode'] : filters.live_mode,
         filter_test_accounts:
             filters.filter_test_accounts == undefined
                 ? DEFAULT_RECORDING_UNIVERSAL_FILTERS['filter_test_accounts']
@@ -816,6 +813,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
         return {
             setSelectedRecordingId: () => buildURL(false),
+            setUniversalFilters: () => buildURL(true),
             setAdvancedFilters: () => buildURL(true),
             setSimpleFilters: () => buildURL(true),
             resetFilters: () => buildURL(true),
@@ -846,6 +844,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         convertLegacyFiltersToUniversalFilters(params.simpleFilters, params.advancedFilters)
                     )
                 }
+            }
+            if (values.useUniversalFiltering && params.filters && !equal(params.filters, values.filters)) {
+                actions.setUniversalFilters(params.filters)
+                actions.setAdvancedFilters(convertUniversalFiltersToLegacyFilters(params.filters))
             }
         }
         return {

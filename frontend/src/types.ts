@@ -486,6 +486,7 @@ export interface TeamType extends TeamBasicType {
         | null
     session_replay_config: { record_canvas?: boolean; ai_config?: SessionRecordingAIConfig } | undefined | null
     autocapture_exceptions_opt_in: boolean
+    autocapture_web_vitals_opt_in?: boolean
     surveys_opt_in?: boolean
     heatmaps_opt_in?: boolean
     autocapture_exceptions_errors_to_ignore: string[]
@@ -967,10 +968,6 @@ export type DurationType = 'duration' | 'active_seconds' | 'inactive_seconds'
 export type FilterableLogLevel = 'info' | 'warn' | 'error'
 
 export interface RecordingFilters {
-    /**
-     * live mode is front end only, sets date_from and date_to to the last hour
-     */
-    live_mode?: boolean
     date_from?: string | null
     date_to?: string | null
     events?: FilterType['events']
@@ -986,10 +983,6 @@ export interface RecordingFilters {
 }
 
 export interface RecordingUniversalFilters {
-    /**
-     * live mode is front end only, sets date_from and date_to to the last hour
-     */
-    live_mode?: boolean
     date_from?: string | null
     date_to?: string | null
     duration: RecordingDurationFilter[]
@@ -1653,6 +1646,7 @@ export enum InsightColor {
 export interface Cacheable {
     last_refresh: string | null
     next_allowed_client_refresh?: string | null
+    cache_target_age?: string | null
 }
 
 export interface TileLayout extends Omit<Layout, 'i'> {
@@ -2397,7 +2391,7 @@ export interface TrendResult {
     dates?: string[]
     label: string
     labels: string[]
-    breakdown_value?: string | number
+    breakdown_value?: string | number | string[]
     aggregated_value: number
     status?: string
     compare_label?: CompareLabelType
@@ -2657,6 +2651,7 @@ export interface SurveyAppearance {
     thankYouMessageHeader?: string
     thankYouMessageDescription?: string
     thankYouMessageDescriptionContentType?: SurveyQuestionDescriptionContentType
+    thankYouMessageCloseButtonText?: string
     autoDisappear?: boolean
     position?: string
     shuffleQuestions?: boolean
@@ -3356,7 +3351,7 @@ export type GraphDataset = ChartDataset<ChartType> &
         /** Toggled on to draw incompleteness lines in LineGraph.tsx */
         dotted?: boolean
         /** Array of breakdown values used only in ActionsHorizontalBar/ActionsPie.tsx data */
-        breakdownValues?: (string | number | undefined)[]
+        breakdownValues?: (string | number | string[] | undefined)[]
         /** Array of breakdown labels used only in ActionsHorizontalBar/ActionsPie.tsx data */
         breakdownLabels?: (string | number | undefined)[]
         /** Array of compare labels used only in ActionsHorizontalBar/ActionsPie.tsx data */

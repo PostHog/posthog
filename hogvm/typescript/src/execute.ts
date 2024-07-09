@@ -320,6 +320,12 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                     ip += temp
                 }
                 break
+            case Operation.JUMP_IF_STACK_NOT_NULL:
+                temp = next()
+                if (stack.length > 0 && stack[stack.length - 1] !== null) {
+                    ip += temp
+                }
+                break
             case Operation.DECLARE_FN: {
                 const name = next()
                 const argCount = next()
