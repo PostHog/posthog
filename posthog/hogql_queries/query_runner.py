@@ -412,7 +412,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     ) -> QueryStatus:
         return enqueue_process_query_task(
             team=self.team,
-            user_id=user.id,
+            user_id=user.id if user else None,
             insight_id=cache_manager.insight_id,
             dashboard_id=cache_manager.dashboard_id,
             query_json=self.query.model_dump(),
