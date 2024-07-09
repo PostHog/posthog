@@ -122,15 +122,23 @@ export function Experiments(): JSX.Element {
                                         <LemonButton
                                             onClick={() => {
                                                 LemonDialog.open({
-                                                    title: 'Archive Experiment',
-                                                    description:
-                                                        'Are you sure you want to archive this experiment? This action can be undone at any time.',
+                                                    title: 'Archive this experiment?',
+                                                    content: (
+                                                        <div className="text-sm text-muted">
+                                                            This action will move the experiment to the archived tab. It
+                                                            can be restored at any time.
+                                                        </div>
+                                                    ),
                                                     primaryButton: {
-                                                        children: 'Confirm',
+                                                        children: 'Archive',
+                                                        type: 'primary',
                                                         onClick: () => archiveExperiment(experiment.id as number),
+                                                        size: 'small',
                                                     },
                                                     secondaryButton: {
                                                         children: 'Cancel',
+                                                        type: 'tertiary',
+                                                        size: 'small',
                                                     },
                                                 })
                                             }}
@@ -145,15 +153,23 @@ export function Experiments(): JSX.Element {
                                     status="danger"
                                     onClick={() => {
                                         LemonDialog.open({
-                                            title: 'Delete Experiment',
-                                            description:
-                                                'Are you sure you want to delete this experiment? This action cannot be undone.',
+                                            title: 'Delete this experiment?',
+                                            content: (
+                                                <div className="text-sm text-muted">
+                                                    This action cannot be undone. All experiment data will be
+                                                    permanently removed.
+                                                </div>
+                                            ),
                                             primaryButton: {
-                                                children: 'Confirm',
+                                                children: 'Delete',
+                                                type: 'primary',
                                                 onClick: () => deleteExperiment(experiment.id as number),
+                                                size: 'small',
                                             },
                                             secondaryButton: {
                                                 children: 'Cancel',
+                                                type: 'tertiary',
+                                                size: 'small',
                                             },
                                         })
                                     }}
