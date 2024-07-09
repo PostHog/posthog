@@ -266,6 +266,9 @@ export interface PluginsServerConfig extends CdpConfig {
 
     POSTHOG_SESSION_RECORDING_REDIS_HOST: string | undefined
     POSTHOG_SESSION_RECORDING_REDIS_PORT: number | undefined
+
+    // kafka debug stats interval
+    SESSION_RECORDING_KAFKA_CONSUMPTION_STATISTICS_EVENT_INTERVAL_MS: number
 }
 
 export interface Hub extends PluginsServerConfig {

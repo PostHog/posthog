@@ -513,6 +513,7 @@ export class SessionRecordingIngester {
             },
             callEachBatchWhenEmpty: true, // Useful as we will still want to account for flushing sessions
             debug: this.config.SESSION_RECORDING_KAFKA_DEBUG,
+            kafkaStatisticIntervalMs: this.config.SESSION_RECORDING_KAFKA_CONSUMPTION_STATISTICS_EVENT_INTERVAL_MS,
         })
 
         this.totalNumPartitions = (await getPartitionsForTopic(this.connectedBatchConsumer, this.topic)).length
@@ -548,6 +549,11 @@ export class SessionRecordingIngester {
             // we need to listen to disconnect and make sure we're stopped
             status.info('🔁', 'blob_ingester_consumer batch consumer disconnected, cleaning up', { err })
             await this.stop()
+        })
+
+        // nothing happens here unless we configure SESSION_RECORDING_KAFKA_CONSUMPTION_STATISTICS_EVENT_INTERVAL_MS
+        this.batchConsumer.consumer.on('event.stats', (stats) => {
+            status.info('🪵', 'blob_ingester_consumer - kafka stats', { stats })
         })
     }
 
