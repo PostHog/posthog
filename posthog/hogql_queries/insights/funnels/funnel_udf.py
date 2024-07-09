@@ -122,13 +122,13 @@ class FunnelUDF(FunnelBase):
 
         mean_conversion_times = ",".join(
             [
-                f"avgArray(step_{i}_conversion_times) AS step_{i}_average_conversion_time"
+                f"arrayMap(x -> if(isNaN(x), NULL, x), [avgArray(step_{i}_conversion_times)])[1] AS step_{i}_average_conversion_time"
                 for i in range(1, self.context.max_steps)
             ]
         )
         median_conversion_times = ",".join(
             [
-                f"medianArray(step_{i}_conversion_times) AS step_{i}_median_conversion_time"
+                f"arrayMap(x -> if(isNaN(x), NULL, x), [medianArray(step_{i}_conversion_times)])[1] AS step_{i}_median_conversion_time"
                 for i in range(1, self.context.max_steps)
             ]
         )
@@ -145,34 +145,6 @@ class FunnelUDF(FunnelBase):
             FROM
                 {{s}}
             GROUP BY final_prop
-        """,
-            {"s": s},
-        )
-
-        step_results3 = ",".join([f"step_{i+1}" for i in range(self.context.max_steps)])
-        mean_conversion_times3 = ",".join(
-            [
-                f"if(isNaN(step_{i}_average_conversion_time), NULL, step_{i}_average_conversion_time) as step_{i}_average_conversion_time"
-                for i in range(1, self.context.max_steps)
-            ]
-        )
-        median_conversion_times3 = ",".join(
-            [
-                f"if(isNaN(step_{i}_median_conversion_time), NULL, step_{i}_median_conversion_time) as step_{i}_median_conversion_time"
-                for i in range(1, self.context.max_steps)
-            ]
-        )
-
-        s = parse_select(
-            f"""
-            SELECT
-                {step_results3},
-                {mean_conversion_times3},
-                {median_conversion_times3},
-                row_number,
-                final_prop
-            FROM
-                {{s}}
         """,
             {"s": s},
         )
