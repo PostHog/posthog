@@ -34,7 +34,7 @@
         <argument>
             <type>UInt64</type>
             <name>conversion_window_limit</name>
-        </argument>
+        </argumen
         <argument>
             <type>String</type>
             <name>breakdown_attribution_type</name>
