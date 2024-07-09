@@ -22,8 +22,8 @@ CREATE OR REPLACE VIEW persons_batch_export ON CLUSTER {settings.CLICKHOUSE_CLUS
             distinct_id,
             max(version) AS version,
             argMax(person_id, person_distinct_id2.version) AS person_id,
-            max(_timestamp) AS _timestamp,
-            _timestamp >= {{interval_start:DateTime64}} AND _timestamp < {{interval_end:DateTime64}} AS is_updated
+            argMax(_timestamp, person_distinct_id2.version) AS _timestamp,
+            argMax(person_distinct_id2._timestamp >= {{interval_start:DateTime64}} AND person_distinct_id2._timestamp < {{interval_end:DateTime64}}, person_distinct_id2.version) AS is_updated
         FROM
             person_distinct_id2
         WHERE
@@ -38,8 +38,8 @@ CREATE OR REPLACE VIEW persons_batch_export ON CLUSTER {settings.CLICKHOUSE_CLUS
             id,
             max(version) AS version,
             argMax(properties, person.version) AS properties,
-            max(_timestamp) AS _timestamp,
-            _timestamp >= {{interval_start:DateTime64}} AND _timestamp < {{interval_end:DateTime64}} AS is_updated
+            argMax(_timestamp, person.version) AS _timestamp,
+            argMax(person._timestamp >= {{interval_start:DateTime64}} AND person._timestamp < {{interval_end:DateTime64}}, person.version) AS is_updated
         FROM
             person
         WHERE
