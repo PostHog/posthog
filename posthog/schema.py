@@ -113,18 +113,6 @@ class BreakdownType(StrEnum):
     DATA_WAREHOUSE_PERSON_PROPERTY = "data_warehouse_person_property"
 
 
-class BreakdownValueInt(RootModel[int]):
-    root: int
-
-
-class BreakdownItem(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    label: str
-    value: Union[str, int]
-
-
 class CompareItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -599,18 +587,6 @@ class DayItem(BaseModel):
     value: Union[str, AwareDatetime, int]
 
 
-class InsightActorsQueryOptionsResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    breakdown: Optional[list[BreakdownItem]] = None
-    compare: Optional[list[CompareItem]] = None
-    day: Optional[list[DayItem]] = None
-    interval: Optional[list[IntervalItem]] = None
-    series: Optional[list[Series]] = None
-    status: Optional[list[StatusItem]] = None
-
-
 class InsightDateRange(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -657,6 +633,14 @@ class LifecycleToggle(StrEnum):
     RESURRECTING = "resurrecting"
     RETURNING = "returning"
     DORMANT = "dormant"
+
+
+class MultipleBreakdownType(StrEnum):
+    PERSON = "person"
+    EVENT = "event"
+    GROUP = "group"
+    SESSION = "session"
+    HOGQL = "hogql"
 
 
 class NodeKind(StrEnum):
@@ -795,18 +779,6 @@ class PropertyOperator(StrEnum):
     NOT_BETWEEN = "not_between"
     MIN = "min"
     MAX = "max"
-
-
-class QueryResponseAlternative3(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    breakdown: Optional[list[BreakdownItem]] = None
-    compare: Optional[list[CompareItem]] = None
-    day: Optional[list[DayItem]] = None
-    interval: Optional[list[IntervalItem]] = None
-    series: Optional[list[Series]] = None
-    status: Optional[list[StatusItem]] = None
 
 
 class QueryResponseAlternative5(BaseModel):
@@ -1302,23 +1274,33 @@ class Breakdown(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    group_type_index: Optional[int] = None
+    histogram_bin_count: Optional[int] = None
     normalize_url: Optional[bool] = None
-    property: Union[str, float]
-    type: BreakdownType
+    type: Optional[MultipleBreakdownType] = None
+    value: str
 
 
 class BreakdownFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    breakdown: Optional[Union[str, float, list[Union[str, float]]]] = None
+    breakdown: Optional[Union[str, int, list[Union[str, int]]]] = None
     breakdown_group_type_index: Optional[int] = None
     breakdown_hide_other_aggregation: Optional[bool] = None
     breakdown_histogram_bin_count: Optional[int] = None
     breakdown_limit: Optional[int] = None
     breakdown_normalize_url: Optional[bool] = None
     breakdown_type: Optional[BreakdownType] = BreakdownType.EVENT
-    breakdowns: Optional[list[Breakdown]] = None
+    breakdowns: Optional[list[Breakdown]] = Field(default=None, max_length=3)
+
+
+class BreakdownItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: str
+    value: Union[str, int]
 
 
 class CacheMissResponse(BaseModel):
@@ -1463,30 +1445,6 @@ class CachedFunnelsQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-
-
-class CachedInsightActorsQueryOptionsResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    breakdown: Optional[list[BreakdownItem]] = None
-    cache_key: str
-    cache_target_age: Optional[AwareDatetime] = None
-    calculation_trigger: Optional[str] = Field(
-        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
-    )
-    compare: Optional[list[CompareItem]] = None
-    day: Optional[list[DayItem]] = None
-    interval: Optional[list[IntervalItem]] = None
-    is_cached: bool
-    last_refresh: AwareDatetime
-    next_allowed_client_refresh: AwareDatetime
-    query_status: Optional[QueryStatus] = Field(
-        default=None, description="Query status indicates whether next to the provided data, a query is still running."
-    )
-    series: Optional[list[Series]] = None
-    status: Optional[list[StatusItem]] = None
-    timezone: str
 
 
 class CachedLifecycleQueryResponse(BaseModel):
@@ -2183,6 +2141,13 @@ class LifecycleQueryResponse(BaseModel):
     )
 
 
+class MultipleBreakdownOptions(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    values: list[BreakdownItem]
+
+
 class PathsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2257,6 +2222,19 @@ class QueryResponseAlternative2(BaseModel):
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: list[str]
+
+
+class QueryResponseAlternative3(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown: Optional[list[BreakdownItem]] = None
+    breakdowns: Optional[list[MultipleBreakdownOptions]] = None
+    compare: Optional[list[CompareItem]] = None
+    day: Optional[list[DayItem]] = None
+    interval: Optional[list[IntervalItem]] = None
+    series: Optional[list[Series]] = None
+    status: Optional[list[StatusItem]] = None
 
 
 class QueryResponseAlternative4(BaseModel):
@@ -2822,6 +2800,31 @@ class CachedHogQLQueryResponse(BaseModel):
     types: Optional[list] = Field(default=None, description="Types of returned columns")
 
 
+class CachedInsightActorsQueryOptionsResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown: Optional[list[BreakdownItem]] = None
+    breakdowns: Optional[list[MultipleBreakdownOptions]] = None
+    cache_key: str
+    cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    compare: Optional[list[CompareItem]] = None
+    day: Optional[list[DayItem]] = None
+    interval: Optional[list[IntervalItem]] = None
+    is_cached: bool
+    last_refresh: AwareDatetime
+    next_allowed_client_refresh: AwareDatetime
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    series: Optional[list[Series]] = None
+    status: Optional[list[StatusItem]] = None
+    timezone: str
+
+
 class CachedRetentionQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3322,6 +3325,19 @@ class HogQLQuery(BaseModel):
     values: Optional[dict[str, Any]] = Field(
         default=None, description="Constant values that can be referenced with the {placeholder} syntax in the query"
     )
+
+
+class InsightActorsQueryOptionsResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown: Optional[list[BreakdownItem]] = None
+    breakdowns: Optional[list[MultipleBreakdownOptions]] = None
+    compare: Optional[list[CompareItem]] = None
+    day: Optional[list[DayItem]] = None
+    interval: Optional[list[IntervalItem]] = None
+    series: Optional[list[Series]] = None
+    status: Optional[list[StatusItem]] = None
 
 
 class PersonsNode(BaseModel):
@@ -4261,7 +4277,7 @@ class InsightActorsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    breakdown: Optional[Union[str, int]] = None
+    breakdown: Optional[Union[str, list[str], int]] = None
     compare: Optional[Compare] = None
     day: Optional[Union[str, int]] = None
     includeRecordings: Optional[bool] = None

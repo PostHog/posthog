@@ -10,7 +10,11 @@ import { OrganizationDisplayName } from './organization/OrgDisplayName'
 import { OrganizationEmailPreferences } from './organization/OrgEmailPreferences'
 import { PermissionsGrid } from './organization/Permissions/PermissionsGrid'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
-import { AutocaptureSettings, ExceptionAutocaptureSettings } from './project/AutocaptureSettings'
+import {
+    AutocaptureSettings,
+    ExceptionAutocaptureSettings,
+    WebVitalsAutocaptureSettings,
+} from './project/AutocaptureSettings'
 import { CorrelationConfig } from './project/CorrelationConfig'
 import { DataAttributes } from './project/DataAttributes'
 import { GroupAnalyticsConfig } from './project/GroupAnalyticsConfig'
@@ -101,6 +105,12 @@ export const SettingsMap: SettingSection[] = [
                 title: 'Exception autocapture',
                 component: <ExceptionAutocaptureSettings />,
                 flag: 'EXCEPTION_AUTOCAPTURE',
+            },
+            {
+                id: 'web-vitals-autocapture',
+                title: 'Web vitals autocapture',
+                component: <WebVitalsAutocaptureSettings />,
+                flag: 'WEB_VITALS_AUTOCAPTURE',
             },
             {
                 id: 'autocapture-data-attributes',

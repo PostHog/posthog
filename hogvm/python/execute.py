@@ -161,6 +161,9 @@ def execute_bytecode(
             case Operation.GET_PROPERTY:
                 property = pop_stack()
                 stack.append(get_nested_value(pop_stack(), [property]))
+            case Operation.GET_PROPERTY_NULLISH:
+                property = pop_stack()
+                stack.append(get_nested_value(pop_stack(), [property], nullish=True))
             case Operation.SET_PROPERTY:
                 value = pop_stack()
                 field = pop_stack()

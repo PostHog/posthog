@@ -27,10 +27,10 @@ export const OverviewTab = (): JSX.Element => {
                             render: ListItemException,
                         },
                     ]}
-                    listEmptyState={<div>Empty</div>}
+                    listEmptyState={<div className="flex justify-center p-4">No exceptions found</div>}
                     content={({ activeItem: event }) =>
                         event ? (
-                            <div className="pl-2">
+                            <div className="h-full overflow-auto pl-2">
                                 <ErrorDisplay eventProperties={event.properties} />
                             </div>
                         ) : (
@@ -40,6 +40,7 @@ export const OverviewTab = (): JSX.Element => {
                             />
                         )
                     }
+                    selectInitialItem
                 />
             </div>
         </div>
@@ -61,8 +62,10 @@ const ListItemException = ({ item: event, isActive }: { item: ExceptionEventType
 
     return (
         <div className={clsx('cursor-pointer p-2 space-y-1', isActive && 'border-l-4 border-primary-3000')}>
-            <div className="flex justify-between items-center">
-                <PersonDisplay person={event.person} withIcon />
+            <div className="flex justify-between items-center space-x-3">
+                <div className="line-clamp-1">
+                    <PersonDisplay person={event.person} withIcon noPopover noLink />
+                </div>
                 <PropertyIcons recordingProperties={properties} iconClassNames="text-muted" />
             </div>
             {event.properties.$current_url && (
