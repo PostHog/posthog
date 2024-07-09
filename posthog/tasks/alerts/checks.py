@@ -23,15 +23,8 @@ def check_all_alerts() -> None:
 
     alert_id_groups = [alert_ids[i : i + group_count] for i in range(0, len(alert_ids), group_count)]
     task_groups = group(
-        chain(
-            *(
-                check_alert_task.chunks(
-                    [(alert_id,) for alert_id in g],
-                    chunk_size,
-                )
-                for g in alert_id_groups
-            )
-        )
+        chain(check_alert_task.chunks([(alert_id,) for alert_id in alert_id_group], chunk_size))
+        for alert_id_group in alert_id_groups
     )
 
     task_groups.apply_async()
