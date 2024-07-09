@@ -2,7 +2,7 @@
     <function>
         <type>executable</type>
         <name>aggregate_funnel</name>
-        <return_type>Tuple(UInt8, Nullable(String), Array(Float64))</return_type>
+        <return_type>Tuple(Int8, Nullable(String), Array(Float64))</return_type>
         <argument>
             <type>UInt8</type>
             <name>num_steps</name>
@@ -26,7 +26,7 @@
     <function>
         <type>executable</type>
         <name>aggregate_funnel_array</name>
-        <return_type>Tuple(UInt8, Array(String), Array(Float64))</return_type>
+        <return_type>Tuple(Int8, Array(String), Array(Float64))</return_type>
         <argument>
             <type>UInt8</type>
             <name>num_steps</name>
