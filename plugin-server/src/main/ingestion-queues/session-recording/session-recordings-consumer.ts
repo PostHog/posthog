@@ -387,11 +387,10 @@ export class SessionRecordingIngester {
                     statsKey: `recordingingester.handleEachBatch.consumeBatch`,
                     func: async () => {
                         if (this.config.SESSION_RECORDING_PARALLEL_CONSUMPTION) {
-                            await Promise.all(recordingMessages.map((x) => this.consume(x).then(heartbeat)))
+                            await Promise.all(recordingMessages.map((x) => this.consume(x)))
                         } else {
                             for (const message of recordingMessages) {
                                 await this.consume(message)
-                                heartbeat()
                             }
                         }
                     },
