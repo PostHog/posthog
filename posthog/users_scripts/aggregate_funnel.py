@@ -79,6 +79,11 @@ def parse_user_aggregation_with_conversion_window_and_breakdown(num_steps, conve
     # all matching breakdown types??? easiest to just do this separately for all breakdown types? what if multiple match?
     # step breakdown mode
 
+    def breakdown_to_single_quoted_string(breakdown):
+        if isinstance(breakdown, str):
+            return "'" + breakdown.replace("'", r"\'") + "'"
+        return "['" + "','".join([x.replace("'", r"\'") for x in breakdown]) + "']"
+
     # This is the timestamp, breakdown value, and list of steps that it matches for each event
     for timestamp, breakdown, steps in timestamp_and_steps:
         # (entered_timestamp, breakdown_value, [list of timestamps for event transitions])
@@ -98,7 +103,7 @@ def parse_user_aggregation_with_conversion_window_and_breakdown(num_steps, conve
             if exclusion:
                 if in_match_window:
                     # Exclude this user!
-                    print((-1, breakdown, []))
+                    print(f"(-1, {breakdown_to_single_quoted_string(breakdown)}, [])")
                     return
             else:
                 already_have_matching_event_with_same_entered_timestamp_at_this_step = entered_timestamp[step][0] == entered_timestamp[step - 1][0]
@@ -125,7 +130,7 @@ def parse_user_aggregation_with_conversion_window_and_breakdown(num_steps, conve
 
     def printit(i):
         final = entered_timestamp[i]
-        print((i - 1, final[1], [final[2][i] - final[2][i - 1] for i in range(1, i)]))
+        print(f"({i - 1}, {breakdown_to_single_quoted_string(final[1])}, {str([final[2][i] - final[2][i - 1] for i in range(1, i)])})")
 
     for i in range(1, num_steps + 1):
         if entered_timestamp[i][0] == 0:
