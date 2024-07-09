@@ -7,6 +7,7 @@ from django.utils import timezone
 class Annotation(models.Model):
     class Scope(models.TextChoices):
         INSIGHT = "dashboard_item", "insight"
+        DASHBOARD = "dashboard", "dashboard"
         PROJECT = "project", "project"
         ORGANIZATION = "organization", "organization"
 
@@ -19,6 +20,9 @@ class Annotation(models.Model):
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     dashboard_item: models.ForeignKey = models.ForeignKey(
         "posthog.Insight", on_delete=models.SET_NULL, null=True, blank=True
+    )
+    dashboard: models.ForeignKey = models.ForeignKey(
+        "posthog.Dashboard", on_delete=models.SET_NULL, null=True, blank=True
     )
     team: models.ForeignKey = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     organization: models.ForeignKey = models.ForeignKey("posthog.Organization", on_delete=models.CASCADE, null=True)
