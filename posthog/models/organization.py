@@ -9,6 +9,7 @@ from django.db.models.query import QuerySet
 from django.db.models.query_utils import Q
 from django.dispatch import receiver
 from django.utils import timezone
+from jsonschema import ValidationError
 from rest_framework import exceptions
 
 from posthog.cloud_utils import is_cloud
@@ -20,7 +21,9 @@ from posthog.models.utils import (
     create_with_slug,
     sane_repr,
 )
-from posthog.plugins.plugin_server_api import reset_available_product_features_cache_on_workers
+from posthog.plugins.plugin_server_api import (
+    reset_available_product_features_cache_on_workers,
+)
 from posthog.utils import absolute_uri
 
 if TYPE_CHECKING:
@@ -316,6 +319,22 @@ class OrganizationMembership(UUIDModel):
     __repr__ = sane_repr("organization", "user", "level")
 
 
+def validate_private_project_access(value):
+    from ee.models.explicit_team_membership import ExplicitTeamMembership
+
+    if not isinstance(value, list):
+        raise ValidationError("The field must be a list of dictionaries.")
+    for item in value:
+        if not isinstance(item, dict):
+            raise ValidationError("Each item in the list must be a dictionary.")
+        if "id" not in item or "level" not in item:
+            raise ValidationError('Each dictionary must contain "id" and "level" keys.')
+        if not isinstance(item["id"], int):
+            raise ValidationError('The "id" field must be an integer.')
+        if item["level"] not in ExplicitTeamMembership.Level.values:
+            raise ValidationError('The "level" field must be either "member" or "admin".')
+
+
 class OrganizationInvite(UUIDModel):
     organization: models.ForeignKey = models.ForeignKey(
         "posthog.Organization",
@@ -338,6 +357,12 @@ class OrganizationInvite(UUIDModel):
     message: models.TextField = models.TextField(blank=True, null=True)
     level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
         default=OrganizationMembership.Level.MEMBER, choices=OrganizationMembership.Level.choices
+    )
+    private_project_access: models.JSONField = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="List of team IDs and corresponding access levels to private projects.",
+        validators=[validate_private_project_access],
     )
 
     def validate(
