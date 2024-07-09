@@ -121,10 +121,10 @@ export function AnnotationModal({
                                     label: annotationScopeToName[AnnotationScope.Dashboard],
                                     // if existing annotation data in db doesn't have dashboard id set on it
                                     // we can't let them change scope to dashboard as we don't know which dashboard to map to
-                                    disabledReason:
-                                        !!existingModalAnnotation &&
-                                        !hasDashboardIdSetOnAnnotation &&
-                                        "Annotation wasn't originally scoped to a dashboard so we can't reduce scope to dashboard level",
+                                    disabledReason: existingModalAnnotation
+                                        ? !hasDashboardIdSetOnAnnotation &&
+                                          "Annotation wasn't originally scoped to a dashboard so we can't reduce scope to dashboard level"
+                                        : !onSavedInsight && 'You need to save the insight first.',
                                 },
                                 {
                                     value: AnnotationScope.Project,
