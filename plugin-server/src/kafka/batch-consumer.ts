@@ -97,6 +97,7 @@ export const startBatchConsumer = async ({
      * granularity of 1000ms
      * configures kafka to emit a statistics event on this interval
      * consumer has to register a callback to listen to the event
+     * see https://github.com/confluentinc/librdkafka/blob/master/STATISTICS.md
      */
     kafkaStatisticIntervalMs?: number
 }): Promise<BatchConsumer> => {
