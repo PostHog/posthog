@@ -226,9 +226,9 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
 
 
 class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
-    result = serializers.ReadOnlyField()
-    columns = serializers.ReadOnlyField()
-    last_refresh = serializers.ReadOnlyField(
+    result = serializers.SerializerMethodField()
+    columns = serializers.SerializerMethodField()
+    last_refresh = serializers.SerializerMethodField(
         read_only=True,
         help_text="""
     The datetime this insight's results were generated.
@@ -237,18 +237,18 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
     (see from_dashboard query parameter).
     """,
     )
-    cache_target_age = serializers.ReadOnlyField(
+    cache_target_age = serializers.SerializerMethodField(
         read_only=True,
         help_text="The target age of the cached results for this insight.",
     )
-    next_allowed_client_refresh = serializers.ReadOnlyField(
+    next_allowed_client_refresh = serializers.SerializerMethodField(
         read_only=True,
         help_text="""
     The earliest possible datetime at which we'll allow the cached results for this insight to be refreshed
     by querying the database.
     """,
     )
-    is_cached = serializers.ReadOnlyField(read_only=True)
+    is_cached = serializers.SerializerMethodField(read_only=True)
     created_by = UserBasicSerializer(read_only=True)
     last_modified_by = UserBasicSerializer(read_only=True)
     effective_restriction_level = serializers.SerializerMethodField()
@@ -271,7 +271,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
     """,
     )
     query = serializers.JSONField(required=False, allow_null=True, help_text="Query node JSON string")
-    query_status = serializers.ReadOnlyField()
+    query_status = serializers.SerializerMethodField()
 
     class Meta:
         model = Insight
@@ -475,19 +475,11 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
         self.context["after_dashboard_changes"] = [describe_change(d) for d in dashboards if not d.deleted]
 
-    def enhance_insight(self, insight: Insight) -> None:
-        insight_result = self.insight_result(insight)
-        for field in (
-            "result",
-            "columns",
-            "last_refresh",
-            "cache_target_age",
-            "next_allowed_client_refresh",
-            "is_cached",
-            "timezone",
-            "query_status",
-        ):
-            setattr(insight, field, getattr(insight_result, field))
+    def get_result(self, insight: Insight):
+        return self.insight_result(insight).result
+
+    def get_columns(self, insight: Insight):
+        return self.insight_result(insight).columns
 
     def get_timezone(self, insight: Insight):
         # :TODO: This doesn't work properly as background cache updates don't set timezone in the response.
@@ -496,6 +488,21 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             return insight.team.timezone
 
         return self.insight_result(insight).timezone
+
+    def get_last_refresh(self, insight: Insight):
+        return self.insight_result(insight).last_refresh
+
+    def get_cache_target_age(self, insight: Insight):
+        return self.insight_result(insight).cache_target_age
+
+    def get_next_allowed_client_refresh(self, insight: Insight):
+        return self.insight_result(insight).next_allowed_client_refresh
+
+    def get_is_cached(self, insight: Insight):
+        return self.insight_result(insight).is_cached
+
+    def get_query_status(self, insight: Insight):
+        return self.insight_result(insight).query_status
 
     def get_effective_restriction_level(self, insight: Insight) -> Dashboard.RestrictionLevel:
         if self.context.get("is_shared"):
@@ -509,7 +516,6 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
     def to_representation(self, instance: Insight):
         representation = super().to_representation(instance)
-        self.enhance_insight(instance)
 
         # the ORM doesn't know about deleted dashboard tiles
         # when they have just been updated

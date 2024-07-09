@@ -1052,6 +1052,8 @@ export type QueryStatus = {
      */
     query_async: true
     team_id: integer
+    insight_id?: integer
+    dashboard_id?: integer
     /**  @default false */
     error: boolean
     /**  @default false */

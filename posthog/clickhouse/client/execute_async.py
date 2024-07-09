@@ -23,7 +23,6 @@ from posthog.tasks.tasks import process_query_task
 
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
-    from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
 
@@ -172,6 +171,8 @@ def execute_process_query(
             query_json=query_json,
             limit_context=limit_context,
             execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            insight_id=query_status.insight_id,
+            dashboard_id=query_status.dashboard_id,
         )
         if isinstance(results, BaseModel):
             results = results.model_dump(by_alias=True)
@@ -199,8 +200,11 @@ def execute_process_query(
 
 def enqueue_process_query_task(
     team: "Team",
-    user: Optional["User"],
+    user_id: Optional[int],
     query_json: dict,
+    *,
+    insight_id: Optional[int] = None,
+    dashboard_id: Optional[int] = None,
     query_id: Optional[str] = None,
     # Attention: This is to pierce through the _manager_ cache, query runner will always refresh
     refresh_requested: bool = False,
@@ -220,12 +224,16 @@ def enqueue_process_query_task(
         return manager.get_query_status()
 
     # Immediately set status, so we don't have race with celery
-    query_status = QueryStatus(id=query_id, team_id=team.id, start_time=datetime.datetime.now(datetime.UTC))
+    query_status = QueryStatus(
+        id=query_id,
+        team_id=team.id,
+        start_time=datetime.datetime.now(datetime.UTC),
+        insight_id=insight_id,
+        dashboard_id=dashboard_id,
+    )
     manager.store_query_status(query_status)
 
-    task_signature = process_query_task.si(
-        team.id, user.id if user else None, query_id, query_json, LimitContext.QUERY_ASYNC
-    )
+    task_signature = process_query_task.si(team.id, user_id, query_id, query_json, LimitContext.QUERY_ASYNC)
 
     if _test_only_bypass_celery:
         task_signature()

@@ -18,7 +18,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
 from posthog.hogql.timings import HogQLTimings
-from posthog.hogql_queries.execution import QueryCacheManager
+from posthog.hogql_queries.query_cache import QueryCacheManager
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team, User
 from posthog.schema import (
@@ -405,13 +405,19 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         raise NotImplementedError()
 
     def enqueue_async_calculation(
-        self, *, cache_key: str, refresh_requested: bool = False, user: Optional[User] = None
+        self,
+        *,
+        cache_manager: QueryCacheManager,
+        refresh_requested: bool = False,
+        user: Optional[User] = None,
     ) -> QueryStatus:
         return enqueue_process_query_task(
             team=self.team,
-            user=user,
+            user_id=user.id,
+            insight_id=cache_manager.insight_id,
+            dashboard_id=cache_manager.dashboard_id,
             query_json=self.query.model_dump(),
-            query_id=self.query_id or cache_key,  # Use cache key as query ID to avoid duplicates
+            query_id=self.query_id or cache_manager.cache_key,  # Use cache key as query ID to avoid duplicates
             refresh_requested=refresh_requested,
         )
 
@@ -471,7 +477,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             elif execution_mode == ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE:
                 # We're allowed to calculate, but we'll do it asynchronously and attach the query status
                 cached_response.query_status = self.enqueue_async_calculation(
-                    cache_key=cache_manager.cache_key, user=user, refresh_requested=True
+                    cache_manager=cache_manager, user=user, refresh_requested=True
                 )
                 return cached_response
             elif execution_mode == ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE:
@@ -479,7 +485,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 assert isinstance(cached_response, CachedResponse)
                 if self._is_stale(cached_response, lazy=True):
                     cached_response.query_status = self.enqueue_async_calculation(
-                        cache_key=cache_manager.cache_key, user=user
+                        cache_manager=cache_manager, user=user
                     )
                 cached_response.query_status = self.get_async_query_status(cache_key=cache_manager.cache_key)
                 return cached_response
@@ -495,9 +501,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
             ):
                 # We're allowed to calculate, but we'll do it asynchronously
-                cached_response.query_status = self.enqueue_async_calculation(
-                    cache_key=cache_manager.cache_key, user=user
-                )
+                cached_response.query_status = self.enqueue_async_calculation(cache_manager=cache_manager, user=user)
                 return cached_response
 
         # Nothing useful out of cache, nor async query status
@@ -508,17 +512,27 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
         user: Optional[User] = None,
         query_id: Optional[str] = None,
+        insight_id: Optional[int] = None,
+        dashboard_id: Optional[int] = None,
     ) -> CR | CacheMissResponse | QueryStatusResponse:
         cache_key = self.get_cache_key()
         tag_queries(cache_key=cache_key)
         self.query_id = query_id or self.query_id
         CachedResponse: type[CR] = self.cached_response_type
-        cache_manager = QueryCacheManager(team_id=self.team.pk, cache_key=cache_key, cache_ttl=self.cache_ttl())
+        cache_manager = QueryCacheManager(
+            team_id=self.team.pk,
+            cache_key=cache_key,
+            cache_ttl=self.cache_ttl(),
+            insight_id=insight_id,
+            dashboard_id=dashboard_id,
+        )
 
         if execution_mode == ExecutionMode.CALCULATE_ASYNC_ALWAYS:
             # We should always kick off async calculation and disregard the cache
             return QueryStatusResponse(
-                query_status=self.enqueue_async_calculation(refresh_requested=True, cache_key=cache_key, user=user)
+                query_status=self.enqueue_async_calculation(
+                    refresh_requested=True, cache_manager=cache_manager, user=user
+                )
             )
         elif execution_mode != ExecutionMode.CALCULATE_BLOCKING_ALWAYS:
             # Let's look in the cache first

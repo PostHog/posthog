@@ -808,11 +808,13 @@ class QueryStatus(BaseModel):
         extra="forbid",
     )
     complete: Optional[bool] = False
+    dashboard_id: Optional[int] = None
     end_time: Optional[AwareDatetime] = None
     error: Optional[bool] = False
     error_message: Optional[str] = None
     expiration_time: Optional[AwareDatetime] = None
     id: str
+    insight_id: Optional[int] = None
     labels: Optional[list[str]] = None
     query_async: Literal[True] = Field(default=True, description="ONLY async queries use QueryStatus.")
     query_progress: Optional[ClickhouseQueryProgress] = None

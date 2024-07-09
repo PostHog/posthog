@@ -138,6 +138,8 @@ def calculate_for_query_based_insight(
         dashboard_filters_json=dashboard.filters if dashboard is not None else None,
         execution_mode=execution_mode,
         user=user,
+        insight_id=insight.pk,
+        dashboard_id=dashboard.pk if dashboard else None,
     )
 
     if isinstance(process_response, BaseModel):
