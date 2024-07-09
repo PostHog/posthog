@@ -14,7 +14,6 @@ import {
     PluginConfigTypeNew,
     PluginConfigWithPluginInfoNew,
     PluginType,
-    ProductKey,
 } from '~/types'
 
 import type { pipelineDestinationsLogicType } from './destinationsLogicType'
@@ -239,12 +238,6 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                 )
                 const enabledFirst = convertedDestinations.sort((a, b) => Number(b.enabled) - Number(a.enabled))
                 return enabledFirst
-            },
-        ],
-        shouldShowProductIntroduction: [
-            (s) => [s.user],
-            (user): boolean => {
-                return !user?.has_seen_product_intro_for?.[ProductKey.PIPELINE_DESTINATIONS]
             },
         ],
     }),

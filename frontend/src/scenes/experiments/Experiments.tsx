@@ -29,16 +29,8 @@ export const scene: SceneExport = {
 }
 
 export function Experiments(): JSX.Element {
-    const {
-        filteredExperiments,
-        experimentsLoading,
-        tab,
-        searchTerm,
-        shouldShowEmptyState,
-        shouldShowProductIntroduction,
-        searchStatus,
-        userFilter,
-    } = useValues(experimentsLogic)
+    const { filteredExperiments, experimentsLoading, tab, searchTerm, shouldShowEmptyState, searchStatus, userFilter } =
+        useValues(experimentsLogic)
     const { setExperimentsTab, deleteExperiment, archiveExperiment, setSearchStatus, setSearchTerm, setUserFilter } =
         useActions(experimentsLogic)
 
@@ -176,28 +168,27 @@ export function Experiments(): JSX.Element {
                     { key: ExperimentsTabs.Archived, label: 'Archived experiments' },
                 ]}
             />
-            {(shouldShowEmptyState || shouldShowProductIntroduction) &&
-                (tab === ExperimentsTabs.Archived ? (
-                    <ProductIntroduction
-                        productName="A/B testing"
-                        productKey={ProductKey.EXPERIMENTS}
-                        thingName="archived experiment"
-                        description={EXPERIMENTS_PRODUCT_DESCRIPTION}
-                        docsURL="https://posthog.com/docs/experiments"
-                        isEmpty={shouldShowEmptyState}
-                    />
-                ) : (
-                    <ProductIntroduction
-                        productName="A/B testing"
-                        productKey={ProductKey.EXPERIMENTS}
-                        thingName="experiment"
-                        description={EXPERIMENTS_PRODUCT_DESCRIPTION}
-                        docsURL="https://posthog.com/docs/experiments"
-                        action={() => router.actions.push(urls.experiment('new'))}
-                        isEmpty={shouldShowEmptyState}
-                        customHog={ExperimentsHog}
-                    />
-                ))}
+            {tab === ExperimentsTabs.Archived ? (
+                <ProductIntroduction
+                    productName="A/B testing"
+                    productKey={ProductKey.EXPERIMENTS}
+                    thingName="archived experiment"
+                    description={EXPERIMENTS_PRODUCT_DESCRIPTION}
+                    docsURL="https://posthog.com/docs/experiments"
+                    isEmpty={shouldShowEmptyState}
+                />
+            ) : (
+                <ProductIntroduction
+                    productName="A/B testing"
+                    productKey={ProductKey.EXPERIMENTS}
+                    thingName="experiment"
+                    description={EXPERIMENTS_PRODUCT_DESCRIPTION}
+                    docsURL="https://posthog.com/docs/experiments"
+                    action={() => router.actions.push(urls.experiment('new'))}
+                    isEmpty={shouldShowEmptyState}
+                    customHog={ExperimentsHog}
+                />
+            )}
             {!shouldShowEmptyState && (
                 <>
                     <div className="flex justify-between mb-4 gap-2 flex-wrap">
