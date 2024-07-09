@@ -1,3 +1,5 @@
+import RE2 from 're2'
+
 import { Operation } from './operation'
 import { ASYNC_STL, STL } from './stl/stl'
 import { convertHogToJS, convertJSToHog, getNestedValue, like, setNestedValue } from './utils'
@@ -233,19 +235,19 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 break
             case Operation.REGEX:
                 temp = popStack()
-                stack.push(new RegExp(popStack()).test(temp))
+                stack.push(new RE2(popStack()).test(temp))
                 break
             case Operation.NOT_REGEX:
                 temp = popStack()
-                stack.push(!new RegExp(popStack()).test(temp))
+                stack.push(!new RE2(popStack()).test(temp))
                 break
             case Operation.IREGEX:
                 temp = popStack()
-                stack.push(new RegExp(popStack(), 'i').test(temp))
+                stack.push(new RE2(popStack(), 'i').test(temp))
                 break
             case Operation.NOT_IREGEX:
                 temp = popStack()
-                stack.push(!new RegExp(popStack(), 'i').test(temp))
+                stack.push(!new RE2(popStack(), 'i').test(temp))
                 break
             case Operation.GET_GLOBAL: {
                 const count = next()
@@ -284,6 +286,10 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
             case Operation.GET_PROPERTY:
                 temp = popStack() // property
                 stack.push(getNestedValue(popStack(), [temp]))
+                break
+            case Operation.GET_PROPERTY_NULLISH:
+                temp = popStack() // property
+                stack.push(getNestedValue(popStack(), [temp], true))
                 break
             case Operation.SET_PROPERTY:
                 temp = popStack() // value
