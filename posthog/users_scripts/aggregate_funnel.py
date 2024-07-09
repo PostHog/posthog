@@ -76,9 +76,6 @@ def parse_user_aggregation_with_conversion_window_and_breakdown(num_steps, conve
     # an array of when the user entered the funnel
     entered_timestamp = [(0, "", [])] * (num_steps + 1)
 
-    # todo:
-    # timings. monitor jumps from one step to another.
-
     # all matching breakdown types??? easiest to just do this separately for all breakdown types? what if multiple match?
     # step breakdown mode
 
