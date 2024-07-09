@@ -401,17 +401,37 @@
         "Breakdown": {
             "additionalProperties": false,
             "properties": {
+                "group_type_index": {
+                    "anyOf": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "histogram_bin_count": {
+                    "type": "integer"
+                },
                 "normalize_url": {
                     "type": "boolean"
                 },
-                "property": {
-                    "type": ["string", "number"]
-                },
                 "type": {
-                    "$ref": "#/definitions/BreakdownType"
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/MultipleBreakdownType"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "value": {
+                    "type": "string"
                 }
             },
-            "required": ["property", "type"],
+            "required": ["value"],
             "type": "object"
         },
         "BreakdownAttributionType": {
@@ -422,7 +442,30 @@
             "additionalProperties": false,
             "properties": {
                 "breakdown": {
-                    "$ref": "#/definitions/BreakdownKeyType"
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "items": {
+                                "anyOf": [
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "integer"
+                                    }
+                                ]
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 },
                 "breakdown_group_type_index": {
                     "anyOf": [
@@ -461,9 +504,30 @@
                     "items": {
                         "$ref": "#/definitions/Breakdown"
                     },
+                    "maxLength": 3,
                     "type": "array"
                 }
             },
+            "type": "object"
+        },
+        "BreakdownItem": {
+            "additionalProperties": false,
+            "properties": {
+                "label": {
+                    "type": "string"
+                },
+                "value": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "$ref": "#/definitions/BreakdownValueInt"
+                        }
+                    ]
+                }
+            },
+            "required": ["label", "value"],
             "type": "object"
         },
         "BreakdownKeyType": {
@@ -970,24 +1034,13 @@
             "properties": {
                 "breakdown": {
                     "items": {
-                        "additionalProperties": false,
-                        "properties": {
-                            "label": {
-                                "type": "string"
-                            },
-                            "value": {
-                                "anyOf": [
-                                    {
-                                        "type": "string"
-                                    },
-                                    {
-                                        "$ref": "#/definitions/BreakdownValueInt"
-                                    }
-                                ]
-                            }
-                        },
-                        "required": ["label", "value"],
-                        "type": "object"
+                        "$ref": "#/definitions/BreakdownItem"
+                    },
+                    "type": "array"
+                },
+                "breakdowns": {
+                    "items": {
+                        "$ref": "#/definitions/MultipleBreakdownOptions"
                     },
                     "type": "array"
                 },
@@ -4524,6 +4577,12 @@
                         },
                         {
                             "$ref": "#/definitions/BreakdownValueInt"
+                        },
+                        {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
                         }
                     ]
                 },
@@ -4624,24 +4683,13 @@
             "properties": {
                 "breakdown": {
                     "items": {
-                        "additionalProperties": false,
-                        "properties": {
-                            "label": {
-                                "type": "string"
-                            },
-                            "value": {
-                                "anyOf": [
-                                    {
-                                        "type": "string"
-                                    },
-                                    {
-                                        "$ref": "#/definitions/BreakdownValueInt"
-                                    }
-                                ]
-                            }
-                        },
-                        "required": ["label", "value"],
-                        "type": "object"
+                        "$ref": "#/definitions/BreakdownItem"
+                    },
+                    "type": "array"
+                },
+                "breakdowns": {
+                    "items": {
+                        "$ref": "#/definitions/MultipleBreakdownOptions"
                     },
                     "type": "array"
                 },
@@ -5299,6 +5347,23 @@
                 }
             ]
         },
+        "MultipleBreakdownOptions": {
+            "additionalProperties": false,
+            "properties": {
+                "values": {
+                    "items": {
+                        "$ref": "#/definitions/BreakdownItem"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["values"],
+            "type": "object"
+        },
+        "MultipleBreakdownType": {
+            "enum": ["person", "event", "group", "session", "hogql"],
+            "type": "string"
+        },
         "NodeKind": {
             "description": "PostHog Query Schema definition.\n\nThis file acts as the source of truth for:\n\n- frontend/src/queries/schema.json   - generated from typescript via \"pnpm run schema:build:json\"\n\n- posthog/schema.py   - generated from json the above json via \"pnpm run schema:build:python\"",
             "enum": [
@@ -5890,24 +5955,13 @@
                     "properties": {
                         "breakdown": {
                             "items": {
-                                "additionalProperties": false,
-                                "properties": {
-                                    "label": {
-                                        "type": "string"
-                                    },
-                                    "value": {
-                                        "anyOf": [
-                                            {
-                                                "type": "string"
-                                            },
-                                            {
-                                                "$ref": "#/definitions/BreakdownValueInt"
-                                            }
-                                        ]
-                                    }
-                                },
-                                "required": ["label", "value"],
-                                "type": "object"
+                                "$ref": "#/definitions/BreakdownItem"
+                            },
+                            "type": "array"
+                        },
+                        "breakdowns": {
+                            "items": {
+                                "$ref": "#/definitions/MultipleBreakdownOptions"
                             },
                             "type": "array"
                         },

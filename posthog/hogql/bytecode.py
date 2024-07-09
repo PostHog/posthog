@@ -165,10 +165,19 @@ class BytecodeBuilder(Visitor):
         return [*chain, Operation.GET_GLOBAL, len(node.chain)]
 
     def visit_tuple_access(self, node: ast.TupleAccess):
-        return [*self.visit(node.tuple), Operation.INTEGER, node.index, Operation.GET_PROPERTY]
+        return [
+            *self.visit(node.tuple),
+            Operation.INTEGER,
+            node.index,
+            Operation.GET_PROPERTY_NULLISH if node.nullish else Operation.GET_PROPERTY,
+        ]
 
     def visit_array_access(self, node: ast.ArrayAccess):
-        return [*self.visit(node.array), *self.visit(node.property), Operation.GET_PROPERTY]
+        return [
+            *self.visit(node.array),
+            *self.visit(node.property),
+            Operation.GET_PROPERTY_NULLISH if node.nullish else Operation.GET_PROPERTY,
+        ]
 
     def visit_constant(self, node: ast.Constant):
         if node.value is True:

@@ -1,11 +1,10 @@
 from natsort import natsorted, ns
-from typing import Union
 from copy import deepcopy
 from datetime import timedelta
 from math import ceil
 from operator import itemgetter
 import threading
-from typing import Optional, Any
+from typing import Optional, Any, Union
 from django.conf import settings
 
 from django.utils.timezone import datetime
@@ -25,6 +24,7 @@ from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.breakdown import (
     BREAKDOWN_NULL_DISPLAY,
     BREAKDOWN_NULL_STRING_LABEL,
+    BREAKDOWN_NUMERIC_ALL_VALUES_PLACEHOLDER,
     BREAKDOWN_OTHER_DISPLAY,
     BREAKDOWN_OTHER_STRING_LABEL,
 )
@@ -58,6 +58,8 @@ from posthog.schema import (
     HogQLQueryResponse,
     InCohortVia,
     InsightActorsQueryOptionsResponse,
+    MultipleBreakdownOptions,
+    MultipleBreakdownType,
     QueryTiming,
     Series,
     TrendsQuery,
@@ -149,7 +151,7 @@ class TrendsQueryRunner(QueryRunner):
         self,
         time_frame: Optional[str],
         series_index: int,
-        breakdown_value: Optional[str | int] = None,
+        breakdown_value: Optional[str | int | list[str]] = None,
         compare_value: Optional[Compare] = None,
         include_recordings: Optional[bool] = None,
     ) -> ast.SelectQuery | ast.SelectUnionQuery:
@@ -181,6 +183,8 @@ class TrendsQueryRunner(QueryRunner):
 
     def to_actors_query_options(self) -> InsightActorsQueryOptionsResponse:
         res_breakdown: list[BreakdownItem] | None = None
+        res_breakdowns: list[MultipleBreakdownOptions] | None = None
+
         res_series: list[Series] = []
         res_compare: list[CompareItem] | None = None
 
@@ -210,10 +214,14 @@ class TrendsQueryRunner(QueryRunner):
             ]
 
         # Breakdowns
-        if self.query.breakdownFilter is not None and self.query.breakdownFilter.breakdown is not None:
-            res_breakdown = []
+        if self.query.breakdownFilter is not None and (
+            self.query.breakdownFilter.breakdown is not None
+            or (self.query.breakdownFilter.breakdowns is not None and len(self.query.breakdownFilter.breakdowns) > 0)
+        ):
             if self.query.breakdownFilter.breakdown_type == "cohort":
                 assert isinstance(self.query.breakdownFilter.breakdown, list)
+
+                res_breakdown = []
                 for value in self.query.breakdownFilter.breakdown:
                     if value != "all" and str(value) != "0":
                         res_breakdown.append(
@@ -237,8 +245,7 @@ class TrendsQueryRunner(QueryRunner):
                 )
 
                 query = query_builder.build_query()
-
-                breakdown = query_builder._breakdown(is_actors_query=False)
+                breakdown = query_builder.breakdown
 
                 results = execute_hogql_query(
                     query_type="TrendsActorsQueryOptions",
@@ -247,31 +254,53 @@ class TrendsQueryRunner(QueryRunner):
                     # timings=timings,
                     # modifiers=modifiers,
                 )
+
                 breakdown_values = [
                     row[results.columns.index("breakdown_value") if results.columns else 2] for row in results.results
                 ]
 
-                if breakdown.is_histogram_breakdown:
-                    breakdown_values.append('["",""]')
-                is_boolean_breakdown = self._is_breakdown_field_boolean()
+                if breakdown.is_multiple_breakdown:
+                    assert self.query.breakdownFilter.breakdowns is not None  # type checking
 
-                for value in breakdown_values:
-                    if value == BREAKDOWN_OTHER_STRING_LABEL:
-                        label = BREAKDOWN_OTHER_DISPLAY
-                    elif value == BREAKDOWN_NULL_STRING_LABEL:
-                        label = BREAKDOWN_NULL_DISPLAY
-                    elif is_boolean_breakdown:
-                        label = self._convert_boolean(value)
-                    else:
-                        label = str(value)
+                    res_breakdowns = []
 
-                    item = BreakdownItem(label=label, value=value)
-
-                    if item not in res_breakdown:
-                        res_breakdown.append(item)
+                    for breakdown_filter, zipped_values in zip(
+                        self.query.breakdownFilter.breakdowns, zip(*breakdown_values)
+                    ):
+                        values: list[str] = list(zipped_values)
+                        res_breakdowns.append(
+                            MultipleBreakdownOptions(
+                                values=self._get_breakdown_items(
+                                    values,
+                                    breakdown_filter.value,
+                                    breakdown_filter.type,
+                                    histogram_breakdown=(
+                                        not breakdown.ignore_histogram_bin_count
+                                        and isinstance(breakdown_filter.histogram_bin_count, int)
+                                    ),
+                                    group_type_index=breakdown_filter.group_type_index,
+                                )
+                            )
+                        )
+                elif self.query.breakdownFilter.breakdown is not None:
+                    res_breakdown = self._get_breakdown_items(
+                        breakdown_values,
+                        self.query.breakdownFilter.breakdown,
+                        self.query.breakdownFilter.breakdown_type,
+                        histogram_breakdown=(
+                            not breakdown.ignore_histogram_bin_count
+                            and isinstance(self.query.breakdownFilter.breakdown_histogram_bin_count, int)
+                        ),
+                        group_type_index=self.query.breakdownFilter.breakdown_group_type_index,
+                        is_boolean_field=self._is_breakdown_filter_field_boolean(),
+                    )
 
         return InsightActorsQueryOptionsResponse(
-            series=res_series, breakdown=res_breakdown, day=res_days, compare=res_compare
+            series=res_series,
+            breakdown=res_breakdown,
+            breakdowns=res_breakdowns,
+            day=res_days,
+            compare=res_compare,
         )
 
     def calculate(self):
@@ -515,10 +544,12 @@ class TrendsQueryRunner(QueryRunner):
                 series_object["labels"] = labels
 
             # Modifications for when breakdowns are active
-            if self.query.breakdownFilter is not None and self.query.breakdownFilter.breakdown is not None:
+            if self.breakdown_enabled:
+                assert self.query.breakdownFilter is not None  # type checking
+
                 remapped_label = None
 
-                if self._is_breakdown_field_boolean():
+                if self._is_breakdown_filter_field_boolean():
                     remapped_label = self._convert_boolean(get_value("breakdown_value", val))
 
                     if remapped_label == "" or remapped_label is None:
@@ -550,11 +581,13 @@ class TrendsQueryRunner(QueryRunner):
                             continue
                         remapped_label = "none"
 
+                    formatted_breakdown_value = self._format_breakdown_label(remapped_label)
+
                     # If there's multiple series, include the object label in the series label
                     if real_series_count > 1:
-                        series_object["label"] = "{} - {}".format(series_object["label"], remapped_label)
+                        series_object["label"] = "{} - {}".format(series_object["label"], formatted_breakdown_value)
                     else:
-                        series_object["label"] = remapped_label
+                        series_object["label"] = formatted_breakdown_value
 
                     series_object["breakdown_value"] = remapped_label
 
@@ -713,7 +746,7 @@ class TrendsQueryRunner(QueryRunner):
         self, formula: str, results: list[list[dict[str, Any]]], in_breakdown_clause=False
     ) -> list[dict[str, Any]]:
         has_compare = bool(self.query.compareFilter and self.query.compareFilter.compare)
-        has_breakdown = bool(self.query.breakdownFilter and self.query.breakdownFilter.breakdown)
+        has_breakdown = self.breakdown_enabled
         is_total_value = self._trends_display.is_total_value()
 
         if len(results) == 0:
@@ -825,14 +858,11 @@ class TrendsQueryRunner(QueryRunner):
 
         return base_result
 
-    def _is_breakdown_field_boolean(self):
-        if not self.query.breakdownFilter or not self.query.breakdownFilter.breakdown_type:
-            return False
-
+    def _is_breakdown_filter_field_boolean(self):
         if (
-            self.query.breakdownFilter.breakdown_type == "hogql"
-            or self.query.breakdownFilter.breakdown_type == "cohort"
-            or self.query.breakdownFilter.breakdown_type == "session"
+            not self.query.breakdownFilter
+            or not self.query.breakdownFilter.breakdown_type
+            or not self.query.breakdownFilter.breakdown
         ):
             return False
 
@@ -856,19 +886,34 @@ class TrendsQueryRunner(QueryRunner):
             if field_type == "Bool":
                 return True
 
-        else:
-            if self.query.breakdownFilter.breakdown_type == "person":
-                property_type = PropertyDefinition.Type.PERSON
-            elif self.query.breakdownFilter.breakdown_type == "group":
-                property_type = PropertyDefinition.Type.GROUP
-            else:
-                property_type = PropertyDefinition.Type.EVENT
+        return self._is_breakdown_field_boolean(
+            self.query.breakdownFilter.breakdown,
+            self.query.breakdownFilter.breakdown_type,
+            self.query.breakdownFilter.breakdown_group_type_index,
+        )
 
-            field_type = self._event_property(
-                self.query.breakdownFilter.breakdown,
-                property_type,
-                self.query.breakdownFilter.breakdown_group_type_index,
-            )
+    def _is_breakdown_field_boolean(
+        self,
+        breakdown_value: str | int | list[str | int],
+        breakdown_type: BreakdownType | MultipleBreakdownType | None,
+        breakdown_group_type_index: int | None = None,
+    ):
+        if breakdown_type == "hogql" or breakdown_type == "cohort" or breakdown_type == "session":
+            return False
+
+        if breakdown_type == "person":
+            property_type = PropertyDefinition.Type.PERSON
+        elif breakdown_type == "group":
+            property_type = PropertyDefinition.Type.GROUP
+        else:
+            property_type = PropertyDefinition.Type.EVENT
+
+        field_type = self._event_property(
+            str(breakdown_value),
+            property_type,
+            breakdown_group_type_index,
+        )
+
         return field_type == "Boolean"
 
     def _convert_boolean(self, value: Any):
@@ -943,3 +988,67 @@ class TrendsQueryRunner(QueryRunner):
             # TODO: Move this "All time" range handling out of `apply_dashboard_filters` – if the date range is "all",
             # we should disable `compare` _no matter how_ we arrived at the final executed query
             self.query.compareFilter.compare = False
+
+    def _format_breakdown_label(self, breakdown_value: Any):
+        if self.query.breakdownFilter is not None and self.query.breakdownFilter.breakdowns is not None:
+            labels = []
+            for breakdown, label in zip(self.query.breakdownFilter.breakdowns, breakdown_value):
+                if self._is_breakdown_field_boolean(breakdown.value, breakdown.type, breakdown.group_type_index):
+                    labels.append(self._convert_boolean(label))
+                else:
+                    labels.append(label)
+
+            # Mirrors the frontend formatting
+            return "::".join(labels)
+        return breakdown_value
+
+    @cached_property
+    def breakdown_enabled(self):
+        return self.query.breakdownFilter is not None and (
+            self.query.breakdownFilter.breakdown is not None
+            or (self.query.breakdownFilter.breakdowns is not None and len(self.query.breakdownFilter.breakdowns) > 0)
+        )
+
+    def _get_breakdown_items(
+        self,
+        breakdown_values: list[str],
+        breakdown_value: str | int | list[int | str],
+        breakdown_type: MultipleBreakdownType | BreakdownType | None,
+        histogram_breakdown: bool | None = None,
+        group_type_index: int | None = None,
+        # Overwrite for data warehouse queries
+        is_boolean_field: bool | None = None,
+    ):
+        if histogram_breakdown:
+            breakdown_values.append(BREAKDOWN_NUMERIC_ALL_VALUES_PLACEHOLDER)
+
+            if BREAKDOWN_OTHER_STRING_LABEL in breakdown_values:
+                breakdown_values.remove(BREAKDOWN_OTHER_STRING_LABEL)
+                breakdown_values.append(BREAKDOWN_OTHER_STRING_LABEL)
+
+            if BREAKDOWN_NULL_STRING_LABEL in breakdown_values:
+                breakdown_values.remove(BREAKDOWN_NULL_STRING_LABEL)
+                breakdown_values.append(BREAKDOWN_NULL_STRING_LABEL)
+
+        res_breakdown: list[BreakdownItem] = []
+        for value in breakdown_values:
+            if value == BREAKDOWN_OTHER_STRING_LABEL:
+                label = BREAKDOWN_OTHER_DISPLAY
+            elif value == BREAKDOWN_NULL_STRING_LABEL:
+                label = BREAKDOWN_NULL_DISPLAY
+            elif (
+                self._is_breakdown_field_boolean(
+                    breakdown_value, breakdown_type, breakdown_group_type_index=group_type_index
+                )
+                or is_boolean_field
+            ):
+                label = self._convert_boolean(value)
+            else:
+                label = str(value)
+
+            item = BreakdownItem(label=label, value=value)
+
+            if item not in res_breakdown:
+                res_breakdown.append(item)
+
+        return res_breakdown

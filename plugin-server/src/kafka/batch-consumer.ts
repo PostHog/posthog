@@ -71,6 +71,7 @@ export const startBatchConsumer = async ({
     queuedMinMessages = 100000,
     callEachBatchWhenEmpty = false,
     debug,
+    queuedMaxMessagesKBytes = 102400,
 }: {
     connectionConfig: GlobalConfig
     groupId: string
@@ -89,6 +90,7 @@ export const startBatchConsumer = async ({
     queuedMinMessages?: number
     callEachBatchWhenEmpty?: boolean
     debug?: string
+    queuedMaxMessagesKBytes?: number
 }): Promise<BatchConsumer> => {
     // Starts consuming from `topic` in batches of `fetchBatchSize` messages,
     // with consumer group id `groupId`. We use `connectionConfig` to connect
@@ -138,7 +140,7 @@ export const startBatchConsumer = async ({
         // https://github.com/confluentinc/librdkafka/blob/e75de5be191b6b8e9602efc969f4af64071550de/CONFIGURATION.md?plain=1#L118
         // Minimum number of messages per topic+partition librdkafka tries to maintain in the local consumer queue
         'queued.min.messages': queuedMinMessages, // 100000 is the default
-        'queued.max.messages.kbytes': 102400, // 1048576 is the default, we go smaller to reduce mem usage.
+        'queued.max.messages.kbytes': queuedMaxMessagesKBytes, // 1048576 is the default, we go smaller to reduce mem usage.
         // Use cooperative-sticky rebalancing strategy, which is the
         // [default](https://kafka.apache.org/documentation/#consumerconfigs_partition.assignment.strategy)
         // in the Java Kafka Client. There its actually
