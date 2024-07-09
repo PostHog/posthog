@@ -10,9 +10,11 @@ CREATE OR REPLACE VIEW persons_batch_export ON CLUSTER {settings.CLICKHOUSE_CLUS
         pd.version AS person_distinct_id_version,
         p.version AS person_version,
         multiIf(
-            pd.is_updated AND NOT p.is_updated,
+            (pd._timestamp  >= {{interval_start:DateTime64}} AND pd._timestamp < {{interval_end:DateTime64}})
+                AND NOT (p._timestamp >= {{interval_start:DateTime64}} AND p._timestamp < {{interval_end:DateTime64}}),
             pd._timestamp,
-            p.is_updated AND NOT pd.is_updated,
+            (p._timestamp  >= {{interval_start:DateTime64}} AND p._timestamp < {{interval_end:DateTime64}})
+                AND NOT (pd._timestamp >= {{interval_start:DateTime64}} AND pd._timestamp < {{interval_end:DateTime64}}),
             p._timestamp,
             least(p._timestamp, pd._timestamp)
         ) AS _inserted_at
@@ -22,8 +24,7 @@ CREATE OR REPLACE VIEW persons_batch_export ON CLUSTER {settings.CLICKHOUSE_CLUS
             distinct_id,
             max(version) AS version,
             argMax(person_id, person_distinct_id2.version) AS person_id,
-            argMax(_timestamp, person_distinct_id2.version) AS _timestamp,
-            argMax(person_distinct_id2._timestamp >= {{interval_start:DateTime64}} AND person_distinct_id2._timestamp < {{interval_end:DateTime64}}, person_distinct_id2.version) AS is_updated
+            argMax(_timestamp, person_distinct_id2.version) AS _timestamp
         FROM
             person_distinct_id2
         WHERE
@@ -38,8 +39,7 @@ CREATE OR REPLACE VIEW persons_batch_export ON CLUSTER {settings.CLICKHOUSE_CLUS
             id,
             max(version) AS version,
             argMax(properties, person.version) AS properties,
-            argMax(_timestamp, person.version) AS _timestamp,
-            argMax(person._timestamp >= {{interval_start:DateTime64}} AND person._timestamp < {{interval_end:DateTime64}}, person.version) AS is_updated
+            argMax(_timestamp, person.version) AS _timestamp
         FROM
             person
         WHERE
@@ -51,7 +51,8 @@ CREATE OR REPLACE VIEW persons_batch_export ON CLUSTER {settings.CLICKHOUSE_CLUS
     WHERE
         pd.team_id = {{team_id:Int64}}
         AND p.team_id = {{team_id:Int64}}
-        AND (pd.is_updated OR p.is_updated)
+        AND (pd._timestamp  >= {{interval_start:DateTime64}} AND pd._timestamp < {{interval_end:DateTime64}})
+            OR (p._timestamp  >= {{interval_start:DateTime64}} AND p._timestamp < {{interval_end:DateTime64}})
     ORDER BY
         _inserted_at
 )
