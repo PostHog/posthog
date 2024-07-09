@@ -2,6 +2,7 @@
 
 import sys
 from dataclasses import dataclass, replace
+from itertools import groupby, permutations
 from typing import Any, List
 
 N_ARGS = 5
@@ -42,7 +43,7 @@ def breakdown_to_single_quoted_string(breakdown):
 # num_steps is the total number of steps in the funnel
 # conversion_window_limit is in seconds
 # events is a array of tuples of (timestamp, breakdown, [
-def parse_user_aggregation_with_conversion_window_and_breakdown(num_steps: int, conversion_window_limit_seconds: int, breakdown_attribution_type: str, prop_vals: List[any], events: List[(float, any, List[any])]):
+def parse_user_aggregation_with_conversion_window_and_breakdown(num_steps: int, conversion_window_limit_seconds: int, breakdown_attribution_type: str, prop_vals: List[any], events: List[any]):
 
     # all matching breakdown types??? easiest to just do this separately for all breakdown types? what if multiple match?
     # step breakdown mode
@@ -61,29 +62,37 @@ def parse_user_aggregation_with_conversion_window_and_breakdown(num_steps: int, 
             results.append(f"({i - 1}, {breakdown_to_single_quoted_string(prop_val)}, {str([final.timings[i] - final.timings[i - 1] for i in range(1, i)])})")
 
         filtered_events = ((timestamp, breakdown, steps) for (timestamp, breakdown, steps) in events if breakdown == prop_val) if breakdown_attribution_type == 'all_events' else events
-        for timestamp, breakdown, steps in filtered_events:
+        for timestamp, events_group in groupby(filtered_events, key=lambda x: x[0]):
             entered_timestamp[0] = EnteredTimestamp(timestamp, [])
+            entered_timestamps = []
+            for events_group_perm in permutations(events_group):
+                entered_timestamp = [x for x in entered_timestamp]
+                entered_timestamps.append(entered_timestamp)
+                for (timestamp, breakdown, steps) in events_group_perm:
+                    # iterate the steps in reverse so we don't count this event multiple times
+                    for step in reversed(steps):
+                        # if we are in a window and if we don't already have a matching event with the same entered timestamp:
+                        # if we already have a matching event here with the same entered timestamp, don't do
 
-            # iterate the steps in reverse so we don't count this event multiple times
-            for step in reversed(steps):
-                # if we are in a window and if we don't already have a matching event with the same entered timestamp:
-                # if we already have a matching event here with the same entered timestamp, don't do
+                        exclusion = False
+                        if step < 0:
+                            exclusion = True
+                            step = -step
 
-                exclusion = False
-                if step < 0:
-                    exclusion = True
-                    step = -step
+                        in_match_window = timestamp - entered_timestamp[step - 1].timestamp <= conversion_window_limit_seconds
+                        already_reached_this_step_with_same_entered_timestamp = entered_timestamp[step].timestamp == entered_timestamp[step - 1].timestamp
 
-                in_match_window = timestamp - entered_timestamp[step - 1].timestamp <= conversion_window_limit_seconds
-                already_reached_this_step_with_same_entered_timestamp = entered_timestamp[step].timestamp == entered_timestamp[step - 1].timestamp
-
-                if in_match_window and not already_reached_this_step_with_same_entered_timestamp:
-                    if exclusion:
-                        results.append(f"(-1, {breakdown_to_single_quoted_string(prop_val)}, [])")
-                        return
-                    is_unmatched_step_attribution = breakdown_step is not None and step == breakdown_step - 1 and prop_val != breakdown
-                    if not is_unmatched_step_attribution:
-                        entered_timestamp[step] = replace(entered_timestamp[step - 1], timings=entered_timestamp[step - 1].timings + [timestamp])
+                        if in_match_window and not already_reached_this_step_with_same_entered_timestamp:
+                            if exclusion:
+                                results.append(f"(-1, {breakdown_to_single_quoted_string(prop_val)}, [])")
+                                return
+                            is_unmatched_step_attribution = breakdown_step is not None and step == breakdown_step - 1 and prop_val != breakdown
+                            if not is_unmatched_step_attribution:
+                                entered_timestamp[step] = replace(entered_timestamp[step - 1], timings=entered_timestamp[step - 1].timings + [timestamp])
+            new_entered_timestamp = [None] * (num_steps + 1)
+            for i in range(len(new_entered_timestamp)):
+                new_entered_timestamp[i] = max((entered_timestamp[i] for entered_timestamp in entered_timestamps), key=lambda x: x.timestamp)
+            entered_timestamp = new_entered_timestamp
 
             if entered_timestamp[num_steps].timestamp > 0:
                 add_result(num_steps)
