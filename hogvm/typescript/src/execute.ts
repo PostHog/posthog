@@ -285,6 +285,10 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 temp = popStack() // property
                 stack.push(getNestedValue(popStack(), [temp]))
                 break
+            case Operation.GET_PROPERTY_NULLISH:
+                temp = popStack() // property
+                stack.push(getNestedValue(popStack(), [temp], true))
+                break
             case Operation.SET_PROPERTY:
                 temp = popStack() // value
                 temp2 = popStack() // field

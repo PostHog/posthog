@@ -109,9 +109,16 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(self._expr("events.event[1 + 2]"), "events.event[plus(1, 2)]")
 
+        self.assertEqual(self._expr("[1,2,3]?.[1]", dialect="hogql"), "[1, 2, 3]?.[1]")
+        self.assertEqual(self._expr("[1,2,3]?.[1]", dialect="clickhouse"), "[1, 2, 3][1]")  # no nullish
+
     def test_tuples(self):
         self.assertEqual(self._expr("(1,2)"), "tuple(1, 2)")
         self.assertEqual(self._expr("(1,2,[])"), "tuple(1, 2, [])")
+
+    def test_tuple_access(self):
+        self.assertEqual(self._expr("(1,2)?.2", dialect="hogql"), "tuple(1, 2)?.2")
+        self.assertEqual(self._expr("(1,2)?.2", dialect="clickhouse"), "tuple(1, 2).2")  # no nullish
 
     def test_lambdas(self):
         self.assertEqual(
