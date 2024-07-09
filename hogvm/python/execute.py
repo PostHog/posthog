@@ -15,7 +15,7 @@ from hogvm.python.utils import HogVMException, get_nested_value, like, set_neste
 if TYPE_CHECKING:
     from posthog.models import Team
 
-MAX_MEMORY = 128 * 1024 * 1024  # 128 MB
+MAX_MEMORY = 64 * 1024 * 1024  # 64 MB
 
 
 @dataclass

@@ -176,7 +176,7 @@ class TestBytecodeExecute:
         try:
             execute_bytecode(bytecode, {})
         except Exception as e:
-            assert str(e) == "Memory limit of 134217728 bytes exceeded. Tried to allocate 150994976 bytes."
+            assert str(e) == "Memory limit of 67108864 bytes exceeded. Tried to allocate 75497504 bytes."
         else:
             raise AssertionError("Expected Exception not raised")
 

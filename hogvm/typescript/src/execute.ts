@@ -6,7 +6,7 @@ import { calculateCost, convertHogToJS, convertJSToHog, getNestedValue, like, se
 
 const DEFAULT_MAX_ASYNC_STEPS = 100
 const DEFAULT_TIMEOUT_MS = 5000 // ms
-const MAX_MEMORY = 128 * 1024 * 1024 // 128 MB
+const MAX_MEMORY = 64 * 1024 * 1024 // 64 MB
 const MAX_FUNCTION_ARGS_LENGTH = 300
 
 export interface VMState {
@@ -193,7 +193,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 temp = next()
                 temp2 = true
                 for (let i = 0; i < temp; i++) {
-                    temp2 = temp2 && !!popStack()
+                    temp2 = !!popStack() && temp2
                 }
                 pushStack(temp2)
                 break
@@ -201,7 +201,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 temp = next()
                 temp2 = false
                 for (let i = 0; i < temp; i++) {
-                    temp2 = temp2 || !!popStack()
+                    temp2 = !!popStack() || temp2
                 }
                 pushStack(temp2)
                 break

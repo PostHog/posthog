@@ -174,7 +174,7 @@ describe('HogQL Bytecode', () => {
         ]
 
         await expect(execAsync(bytecode)).rejects.toThrow(
-            'Memory limit of 134217728 bytes exceeded. Tried to allocate 150994976 bytes.'
+            'Memory limit of 67108864 bytes exceeded. Tried to allocate 75497504 bytes.'
         )
     })
 
