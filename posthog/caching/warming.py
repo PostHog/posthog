@@ -22,8 +22,7 @@ def schedule_warming_for_largest_teams_task():
 
     teams = Team.objects.filter(pk__in=team_ids)
 
-    if len(teams) == 0:
-        # Local
+    if len(teams) == 0:  # For local development
         teams = Team.objects.all()[:10]
 
     for team in teams:

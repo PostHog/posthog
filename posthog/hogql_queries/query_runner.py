@@ -540,6 +540,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 return results
 
         last_refresh = datetime.now(UTC)
+        target_age = self.cache_target_age(last_refresh=last_refresh)
         fresh_response_dict = {
             **self.calculate().model_dump(),
             "is_cached": False,
@@ -547,7 +548,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             "next_allowed_client_refresh": last_refresh + self._refresh_frequency(),
             "cache_key": cache_key,
             "timezone": self.team.timezone,
-            "cache_target_age": self.cache_target_age(last_refresh=last_refresh),
+            "cache_target_age": target_age,
         }
         if get_query_tag_value("trigger"):
             fresh_response_dict["calculation_trigger"] = get_query_tag_value("trigger")
@@ -556,7 +557,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # Don't cache debug queries with errors and export queries
         has_error: Optional[list] = fresh_response_dict.get("error", None)
         if (has_error is None or len(has_error) == 0) and self.limit_context != LimitContext.EXPORT:
-            cache_manager.set_cache_data(response=fresh_response_dict)
+            cache_manager.set_cache_data(
+                response=fresh_response_dict,
+                target_age=self.cache_target_age(last_refresh=last_refresh, lazy=True),
+            )
             QUERY_CACHE_WRITE_COUNTER.labels(team_id=self.team.pk).inc()
 
         return fresh_response
@@ -596,12 +600,13 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def get_cache_key(self) -> str:
         return generate_cache_key(f"query_{bytes.decode(to_json(self.get_cache_payload()))}")
 
-    def cache_target_age(self, last_refresh: Optional[datetime]) -> Optional[datetime]:
+    def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
         if last_refresh is None:
             return None
         query_date_range = getattr(self, "query_date_range", None)
         interval = query_date_range.interval_name if query_date_range else "minute"
-        return cache_target_age(interval, last_refresh=last_refresh, mode=ThresholdMode.DEFAULT)
+        mode = ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT
+        return cache_target_age(interval, last_refresh=last_refresh, mode=mode)
 
     def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
         query_date_range = getattr(self, "query_date_range", None)

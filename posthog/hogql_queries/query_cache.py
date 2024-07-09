@@ -48,12 +48,27 @@ class QueryCacheManager:
         identifier = f"{self.insight_id}:{self.dashboard_id or ''}"
         self.redis_client.zadd(f"cache_timestamps:{self.team_id}", {identifier: target_age.timestamp()})
 
-    def set_cache_data(self, *, response: dict) -> None:
+    def remove_last_refresh(self) -> None:
+        if not self.insight_id:
+            return
+
+        identifier = f"{self.insight_id}:{self.dashboard_id or ''}"
+        self.redis_client.zrem(f"cache_timestamps:{self.team_id}", identifier)
+
+    def set_cache_data(self, *, response: dict, target_age: Optional[datetime]) -> None:
         fresh_response_serialized = OrjsonJsonSerializer({}).dumps(response)
         cache.set(self.cache_key, fresh_response_serialized, settings.CACHED_RESULTS_TTL)
 
-        if response.get("cache_target_age"):
-            self.update_last_refresh(response["cache_target_age"])
+        if target_age:
+            # TODO: Add more conditions
+            # This is the place to decide if this insight should be kept warm.
+            # The reasoning is that this will be a yes or no decision. If we need to keep it warm, we try our best
+            # to not let the cache go stale. There isn't any middle ground, like trying to refresh it once a day, since
+            # that would be like clock that's only right twice a day.
+            self.update_last_refresh(target_age)
+        else:
+            # In case conditions have changed, remove the insight from the redis set.
+            self.remove_last_refresh()
 
     def get_cache_data(self) -> Optional[dict]:
         cached_response_bytes: Optional[bytes] = get_safe_cache(self.cache_key)
