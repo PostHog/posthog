@@ -95,7 +95,7 @@ export const startBatchConsumer = async ({
     /**
      * default to 0 which disables logging
      * granularity of 1000ms
-     * configures kafka to emit a statics event on this interval
+     * configures kafka to emit a statistics event on this interval
      * consumer has to register a callback to listen to the event
      */
     kafkaStatisticIntervalMs: number
