@@ -270,8 +270,11 @@ export class SessionRecordingIngester {
         const { team_id, session_id } = event
         const key = `${team_id}-${session_id}`
 
-        const { partition, highOffset } = event.metadata
-        const isDebug = this.debugPartition === partition
+        const {
+            // partition,
+            highOffset,
+        } = event.metadata
+        const isDebug = true // this.debugPartition === partition
         if (isDebug) {
             status.info('🔁', '[blob_ingester_consumer] - [PARTITION DEBUG] - consuming event', {
                 ...event.metadata,
@@ -771,6 +774,12 @@ export class SessionRecordingIngester {
                     partition,
                 }
 
+                status.info('🔁', `blob_ingester_consumer - committing offset for partition`, {
+                    topic,
+                    partition,
+                    blockingSessions,
+                })
+
                 let potentiallyBlockingSession: SessionManager | undefined
 
                 let activeSessionsOnThisPartition = 0
@@ -795,7 +804,7 @@ export class SessionRecordingIngester {
                     : metrics.lastMessageOffset // Or the last message we have seen as it is no longer blocked
 
                 if (!highestOffsetToCommit) {
-                    const partitionDebug = this.debugPartition === partition
+                    const partitionDebug = true //this.debugPartition === partition
                     const logMethod = partitionDebug ? status.info : status.debug
                     logMethod(
                         '🤔',
