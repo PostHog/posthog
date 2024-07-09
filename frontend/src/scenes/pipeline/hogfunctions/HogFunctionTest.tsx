@@ -60,17 +60,20 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
 
     return (
         <Form logic={hogFunctionTestLogic} props={props} formKey="testInvocation" enableFormOnSubmit>
-            <div className={clsx('border bg-bg-light rounded p-3 space-y-2', expanded && 'min-h-120')}>
+            <div
+                className={clsx('border rounded p-3 space-y-2', expanded ? 'bg-bg-light min-h-120' : 'bg-accent-3000')}
+            >
                 <div className="flex items-center gap-2 justify-end">
+                    <div className="flex-1 space-y-2">
+                        <h2 className="mb-0">Testing</h2>
+                        {!expanded && <p>Click here to test your function with an example event</p>}
+                    </div>
+
                     {!expanded ? (
-                        <LemonButton className="flex-1" onClick={() => toggleExpanded()}>
-                            <h2 className="m-0">Testing</h2>
+                        <LemonButton type="secondary" onClick={() => toggleExpanded()}>
+                            Start testing
                         </LemonButton>
                     ) : (
-                        <h2 className="flex-1 m-0">Testing</h2>
-                    )}
-
-                    {expanded && (
                         <>
                             {testResult ? (
                                 <LemonButton
