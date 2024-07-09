@@ -83,21 +83,34 @@ export function convertHogToJS(x: any): any {
     return x
 }
 
-export function calculateCost(object: any): any {
+export function calculateCost(object: any, marked: Set<any> | undefined = undefined): any {
+    if (!marked) {
+        marked = new Set()
+    }
+    if (typeof object === 'object' && object !== null && marked.has(object)) {
+        return COST_PER_UNIT
+    }
+    marked.add(object)
     if (object instanceof Map) {
         return (
             COST_PER_UNIT +
-            Array.from(object.keys()).reduce((acc, key) => acc + calculateCost(key) + calculateCost(object.get(key)), 0)
+            Array.from(object.keys()).reduce(
+                (acc, key) => acc + calculateCost(key, marked) + calculateCost(object.get(key), marked),
+                0
+            )
         )
     } else if (typeof object === 'object') {
         if (Array.isArray(object)) {
-            return COST_PER_UNIT + object.reduce((acc, val) => acc + calculateCost(val), 0)
+            return COST_PER_UNIT + object.reduce((acc, val) => acc + calculateCost(val, marked), 0)
         } else if (object === null) {
             return COST_PER_UNIT
         } else {
             return (
                 COST_PER_UNIT +
-                Object.keys(object).reduce((acc, key) => acc + calculateCost(key) + calculateCost(object[key]), 0)
+                Object.keys(object).reduce(
+                    (acc, key) => acc + calculateCost(key, marked) + calculateCost(object[key], marked),
+                    0
+                )
             )
         }
     } else if (typeof object === 'string') {

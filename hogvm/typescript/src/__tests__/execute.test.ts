@@ -13,7 +13,7 @@ const tuple = (array: any[]): any[] => {
     return array
 }
 
-describe('HogQL Bytecode', () => {
+describe('hogvm execute', () => {
     test('execution results', async () => {
         const globals = { properties: { foo: 'bar', nullValue: null } }
         const options = { globals }
