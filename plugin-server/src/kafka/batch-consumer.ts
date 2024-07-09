@@ -329,9 +329,11 @@ export const startBatchConsumer = async ({
     const mainLoop = startConsuming()
 
     const isHealthy = () => {
-        // We define health as the last consumer loop having run in the last
-        // minute. This might not be bullet-proof, let's see.
-        return Date.now() - lastHeartbeatTime < maxHealthHeartbeatIntervalMs
+        // this is called as a readiness and a liveness probe
+        const hasRun = lastHeartbeatTime > 0
+        const isWithinInterval = Date.now() - lastHeartbeatTime < maxHealthHeartbeatIntervalMs
+        const isConnected = consumer.isConnected()
+        return hasRun ? isConnected && isWithinInterval : isConnected
     }
 
     const stop = async () => {
