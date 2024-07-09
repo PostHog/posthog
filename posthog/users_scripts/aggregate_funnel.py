@@ -43,7 +43,6 @@ def parse_user_aggregation_with_conversion_window_and_breakdown(num_steps, conve
 
     # all matching breakdown types??? easiest to just do this separately for all breakdown types? what if multiple match?
     # step breakdown mode
-
     breakdown_step = int(breakdown_attribution_type[5:]) if breakdown_attribution_type.startswith('step_') else None
 
     # This is the timestamp, breakdown value, and list of steps that it matches for each
@@ -58,7 +57,8 @@ def parse_user_aggregation_with_conversion_window_and_breakdown(num_steps, conve
             final = entered_timestamp[i]
             results.append(f"({i - 1}, {breakdown_to_single_quoted_string(prop_val)}, {str([final.timings[i] - final.timings[i - 1] for i in range(1, i)])})")
 
-        for timestamp, breakdown, steps in timestamp_and_steps:
+        events = ((timestamp, breakdown, steps) for (timestamp, breakdown, steps) in timestamp_and_steps if breakdown == prop_val) if breakdown_attribution_type == 'all_events' else timestamp_and_steps
+        for timestamp, breakdown, steps in events:
             entered_timestamp[0] = EnteredTimestamp(timestamp, [])
 
             # iterate the steps in reverse so we don't count this event multiple times
@@ -78,7 +78,8 @@ def parse_user_aggregation_with_conversion_window_and_breakdown(num_steps, conve
                     if exclusion:
                         results.append(f"(-1, {breakdown_to_single_quoted_string(prop_val)}, [])")
                         return
-                    else:
+                    is_unmatched_step_attribution = breakdown_step is not None and step == breakdown_step - 1 and prop_val != breakdown
+                    if not is_unmatched_step_attribution:
                         entered_timestamp[step] = replace(entered_timestamp[step - 1], timings=entered_timestamp[step - 1].timings + [timestamp])
 
             if entered_timestamp[num_steps].timestamp > 0:
