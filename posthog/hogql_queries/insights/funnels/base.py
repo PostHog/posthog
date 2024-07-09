@@ -404,6 +404,80 @@ class FunnelBase(ABC):
 
         return funnel_events_query
 
+    def _get_new_inner_event_query(
+        self,
+        entities: list[EntityNode] | None = None,
+        entity_name="events",
+        skip_entity_filter=False,
+        skip_step_filter=False,
+    ) -> ast.SelectQuery:
+        query, funnelsFilter, breakdown, breakdownType, breakdownAttributionType = (
+            self.context.query,
+            self.context.funnelsFilter,
+            self.context.breakdown,
+            self.context.breakdownType,
+            self.context.breakdownAttributionType,
+        )
+        entities_to_use = entities or query.series
+
+        extra_fields: list[str] = []
+
+        for prop in self.context.includeProperties:
+            extra_fields.append(prop)
+
+        funnel_events_query = FunnelEventQuery(
+            context=self.context,
+            extra_fields=[*self._extra_event_fields, *extra_fields],
+            extra_event_properties=self._extra_event_properties,
+        ).to_query(
+            skip_entity_filter=skip_entity_filter,
+        )
+        # funnel_events_query, params = FunnelEventQuery(
+        #     extra_fields=[*self._extra_event_fields, *extra_fields],
+        #     extra_event_properties=self._extra_event_properties,
+        # ).get_query(entities_to_use, entity_name, skip_entity_filter=skip_entity_filter)
+
+        all_step_cols: list[ast.Expr] = []
+        all_exclusions = []
+        for index, entity in enumerate(entities_to_use):
+            step_cols = self._get_step_col(entity, index, entity_name)
+            all_step_cols.extend(step_cols)
+            all_exclusions.append([])
+
+        for exclusion_id, excluded_entity in enumerate(funnelsFilter.exclusions or []):
+            for i in range(excluded_entity.funnelFromStep + 1, excluded_entity.funnelToStep + 1):
+                all_exclusions[i].append(excluded_entity)
+
+        for index, exclusions in enumerate(all_exclusions):
+            if exclusions:
+                exclusion_cols = self._get_exclusions_col(exclusions, index, entity_name)
+                # every exclusion entity has the form: exclusion_<id>_step_i & timestamp exclusion_<id>_latest_i
+                # where i is the starting step for exclusion on that entity
+                all_step_cols.extend(exclusion_cols)
+
+        breakdown_select_prop = self._get_breakdown_select_prop()
+
+        if breakdown_select_prop:
+            all_step_cols.extend(breakdown_select_prop)
+
+        funnel_events_query.select = [*funnel_events_query.select, *all_step_cols]
+
+        if breakdown and breakdownType == BreakdownType.COHORT:
+            if funnel_events_query.select_from is None:
+                raise ValidationError("Apologies, there was an error adding cohort breakdowns to the query.")
+            funnel_events_query.select_from.next_join = self._get_cohort_breakdown_join()
+
+        if not skip_step_filter:
+            assert isinstance(funnel_events_query.where, ast.Expr)
+            steps_conditions = self._new_get_steps_conditions(all_exclusions, length=len(entities_to_use))
+            funnel_events_query.where = ast.And(exprs=[funnel_events_query.where, steps_conditions])
+
+        if breakdown and breakdownAttributionType != BreakdownAttributionType.ALL_EVENTS:
+            # ALL_EVENTS attribution is the old default, which doesn't need the subquery
+            return self._add_breakdown_attribution_subquery(funnel_events_query)
+
+        return funnel_events_query
+
     def _get_cohort_breakdown_join(self) -> ast.JoinExpr:
         breakdown = self.context.breakdown
 
@@ -538,6 +612,16 @@ class FunnelBase(ABC):
 
         for exclusion_id, entity in enumerate(self.context.funnelsFilter.exclusions or []):
             step_conditions.append(parse_expr(f"exclusion_{exclusion_id}_step_{entity.funnelFromStep} = 1"))
+
+        return ast.Or(exprs=step_conditions)
+
+    def _new_get_steps_conditions(self, exclusions, length: int) -> ast.Expr:
+        step_conditions: list[ast.Expr] = []
+
+        for index in range(length):
+            step_conditions.append(parse_expr(f"step_{index} = 1"))
+            if exclusions[index]:
+                step_conditions.append(parse_expr(f"exclusion_{index} = 1"))
 
         return ast.Or(exprs=step_conditions)
 
