@@ -1,9 +1,11 @@
 import { Operation } from './operation'
 import { ASYNC_STL, STL } from './stl/stl'
-import { convertHogToJS, convertJSToHog, getNestedValue, like, setNestedValue } from './utils'
+import { calculateCost, convertHogToJS, convertJSToHog, getNestedValue, like, setNestedValue } from './utils'
 
 const DEFAULT_MAX_ASYNC_STEPS = 100
 const DEFAULT_TIMEOUT_MS = 5000 // ms
+const MAX_MEMORY = 128 * 1024 * 1024 // 128 MB
+const MAX_FUNCTION_ARGS_LENGTH = 300
 
 export interface VMState {
     /** Bytecode running in the VM */
@@ -22,6 +24,8 @@ export interface VMState {
     asyncSteps: number
     /** Combined duration of sync steps */
     syncDuration: number
+    /** Max memory used */
+    maxMemUsed: number
 }
 
 export interface ExecOptions {
@@ -42,9 +46,6 @@ export interface ExecResult {
     asyncFunctionArgs?: any[]
     state?: VMState
 }
-
-/** Maximum function arguments allowed */
-const MAX_ARGS_LENGTH = 300
 
 export function execSync(bytecode: any[], options?: ExecOptions): any {
     const response = exec(bytecode, options)
@@ -107,8 +108,11 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
     const asyncSteps = vmState ? vmState.asyncSteps : 0
     const syncDuration = vmState ? vmState.syncDuration : 0
     const stack: any[] = vmState ? vmState.stack : []
+    const memStack: number[] = stack.map(calculateCost)
     const callStack: [number, number, number][] = vmState ? vmState.callStack : []
     const declaredFunctions: Record<string, [number, number]> = vmState ? vmState.declaredFunctions : {}
+    let memUsed = memStack.reduce((acc, val) => acc + val, 0)
+    let maxMemUsed = Math.max(vmState ? vmState.maxMemUsed : 0, memUsed)
     let ip = vmState ? vmState.ip : 1
     let ops = vmState ? vmState.ops : 0
     const timeout = options?.timeout ?? DEFAULT_TIMEOUT_MS
@@ -118,7 +122,27 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
         if (stack.length === 0) {
             throw new Error('Invalid HogQL bytecode, stack is empty')
         }
+        memUsed -= memStack.pop() ?? 0
         return stack.pop()
+    }
+
+    function pushStack(value: any): any {
+        memStack.push(calculateCost(value))
+        memUsed += memStack[memStack.length - 1]
+        maxMemUsed = Math.max(maxMemUsed, memUsed)
+        if (memUsed > MAX_MEMORY) {
+            throw new Error(`Memory limit of ${MAX_MEMORY} bytes exceeded. Tried to allocate ${memUsed} bytes.`)
+        }
+        return stack.push(value)
+    }
+
+    function spliceStack2(start: number, deleteCount?: number): any[] {
+        memUsed -= memStack.splice(start, deleteCount).reduce((acc, val) => acc + val, 0)
+        return stack.splice(start, deleteCount)
+    }
+    function spliceStack1(start: number): any[] {
+        memUsed -= memStack.splice(start).reduce((acc, val) => acc + val, 0)
+        return stack.splice(start)
     }
 
     function next(): any {
@@ -127,6 +151,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
         }
         return bytecode![++ip]
     }
+
     function checkTimeout(): void {
         if (syncDuration + Date.now() - startTime > timeout) {
             throw new Error(`Execution timed out after ${timeout / 1000} seconds. Performed ${ops} ops.`)
@@ -134,6 +159,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
     }
 
     for (; ip < bytecode.length; ip++) {
+        // console.log('Mem used: ', memUsed)
         ops += 1
         if ((ops & 127) === 0) {
             checkTimeout()
@@ -142,110 +168,110 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
             case null:
                 break
             case Operation.STRING:
-                stack.push(next())
+                pushStack(next())
                 break
             case Operation.FLOAT:
-                stack.push(next())
+                pushStack(next())
                 break
             case Operation.INTEGER:
-                stack.push(next())
+                pushStack(next())
                 break
             case Operation.TRUE:
-                stack.push(true)
+                pushStack(true)
                 break
             case Operation.FALSE:
-                stack.push(false)
+                pushStack(false)
                 break
             case Operation.NULL:
-                stack.push(null)
+                pushStack(null)
                 break
             case Operation.NOT:
-                stack.push(!popStack())
+                pushStack(!popStack())
                 break
             case Operation.AND:
-                stack.push(
-                    Array(next())
-                        .fill(null)
-                        .map(() => popStack())
-                        .every(Boolean)
-                )
+                temp = next()
+                temp2 = true
+                for (let i = 0; i < temp; i++) {
+                    temp2 = temp2 && popStack()
+                }
+                pushStack(temp2)
                 break
             case Operation.OR:
-                stack.push(
-                    Array(next())
-                        .fill(null)
-                        .map(() => popStack())
-                        .some(Boolean)
-                )
+                temp = next()
+                temp2 = false
+                for (let i = 0; i < temp; i++) {
+                    temp2 = temp2 || popStack()
+                }
+                pushStack(temp2)
                 break
             case Operation.PLUS:
-                stack.push(Number(popStack()) + Number(popStack()))
+                pushStack(Number(popStack()) + Number(popStack()))
                 break
             case Operation.MINUS:
-                stack.push(Number(popStack()) - Number(popStack()))
+                pushStack(Number(popStack()) - Number(popStack()))
                 break
             case Operation.DIVIDE:
-                stack.push(Number(popStack()) / Number(popStack()))
+                pushStack(Number(popStack()) / Number(popStack()))
                 break
             case Operation.MULTIPLY:
-                stack.push(Number(popStack()) * Number(popStack()))
+                pushStack(Number(popStack()) * Number(popStack()))
                 break
             case Operation.MOD:
-                stack.push(Number(popStack()) % Number(popStack()))
+                pushStack(Number(popStack()) % Number(popStack()))
                 break
             case Operation.EQ:
-                stack.push(popStack() === popStack())
+                pushStack(popStack() === popStack())
                 break
             case Operation.NOT_EQ:
-                stack.push(popStack() !== popStack())
+                pushStack(popStack() !== popStack())
                 break
             case Operation.GT:
-                stack.push(popStack() > popStack())
+                pushStack(popStack() > popStack())
                 break
             case Operation.GT_EQ:
-                stack.push(popStack() >= popStack())
+                pushStack(popStack() >= popStack())
                 break
             case Operation.LT:
-                stack.push(popStack() < popStack())
+                pushStack(popStack() < popStack())
                 break
             case Operation.LT_EQ:
-                stack.push(popStack() <= popStack())
+                pushStack(popStack() <= popStack())
                 break
             case Operation.LIKE:
-                stack.push(like(popStack(), popStack()))
+                pushStack(like(popStack(), popStack()))
                 break
             case Operation.ILIKE:
-                stack.push(like(popStack(), popStack(), true))
+                pushStack(like(popStack(), popStack(), true))
                 break
             case Operation.NOT_LIKE:
-                stack.push(!like(popStack(), popStack()))
+                pushStack(!like(popStack(), popStack()))
                 break
             case Operation.NOT_ILIKE:
-                stack.push(!like(popStack(), popStack(), true))
+                pushStack(!like(popStack(), popStack(), true))
                 break
             case Operation.IN:
                 temp = popStack()
-                stack.push(popStack().includes(temp))
+                pushStack(popStack().includes(temp))
                 break
             case Operation.NOT_IN:
                 temp = popStack()
-                stack.push(!popStack().includes(temp))
+                pushStack(!popStack().includes(temp))
                 break
             case Operation.REGEX:
                 temp = popStack()
-                stack.push(new RegExp(popStack()).test(temp))
+                pushStack(new RegExp(popStack()).test(temp))
                 break
             case Operation.NOT_REGEX:
                 temp = popStack()
-                stack.push(!new RegExp(popStack()).test(temp))
+                pushStack(!new RegExp(popStack()).test(temp))
                 break
             case Operation.IREGEX:
                 temp = popStack()
-                stack.push(new RegExp(popStack(), 'i').test(temp))
+                pushStack(new RegExp(popStack(), 'i').test(temp))
                 break
             case Operation.NOT_IREGEX:
                 temp = popStack()
-                stack.push(!new RegExp(popStack(), 'i').test(temp))
+                pushStack(!new RegExp(popStack(), 'i').test(temp))
                 break
             case Operation.GET_GLOBAL: {
                 const count = next()
@@ -253,7 +279,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 for (let i = 0; i < count; i++) {
                     chain.push(popStack())
                 }
-                stack.push(options?.globals ? convertJSToHog(getNestedValue(options.globals, chain)) : null)
+                pushStack(options?.globals ? convertJSToHog(getNestedValue(options.globals, chain)) : null)
                 break
             }
             case Operation.POP:
@@ -263,8 +289,8 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 if (callStack.length > 0) {
                     const [newIp, stackStart, _] = callStack.pop()!
                     const response = popStack()
-                    stack.splice(stackStart)
-                    stack.push(response)
+                    spliceStack1(stackStart)
+                    pushStack(response)
                     ip = newIp
                     break
                 } else {
@@ -275,19 +301,23 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 }
             case Operation.GET_LOCAL:
                 temp = callStack.length > 0 ? callStack[callStack.length - 1][1] : 0
-                stack.push(stack[next() + temp])
+                pushStack(stack[next() + temp])
                 break
             case Operation.SET_LOCAL:
-                temp = callStack.length > 0 ? callStack[callStack.length - 1][1] : 0
-                stack[next() + temp] = popStack()
+                temp = (callStack.length > 0 ? callStack[callStack.length - 1][1] : 0) + next()
+                stack[temp] = popStack()
+                temp2 = memStack[temp]
+                memStack[temp] = calculateCost(stack[temp])
+                memUsed += memStack[temp] - temp2
+                maxMemUsed = Math.max(maxMemUsed, memUsed)
                 break
             case Operation.GET_PROPERTY:
                 temp = popStack() // property
-                stack.push(getNestedValue(popStack(), [temp]))
+                pushStack(getNestedValue(popStack(), [temp]))
                 break
             case Operation.GET_PROPERTY_NULLISH:
                 temp = popStack() // property
-                stack.push(getNestedValue(popStack(), [temp], true))
+                pushStack(getNestedValue(popStack(), [temp], true))
                 break
             case Operation.SET_PROPERTY:
                 temp = popStack() // value
@@ -296,23 +326,23 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 break
             case Operation.DICT:
                 temp = next() * 2 // number of elements to remove from the stack
-                tempArray = stack.splice(stack.length - temp, temp)
+                tempArray = spliceStack2(stack.length - temp, temp)
                 tempMap = new Map()
                 for (let i = 0; i < tempArray.length; i += 2) {
                     tempMap.set(tempArray[i], tempArray[i + 1])
                 }
-                stack.push(tempMap)
+                pushStack(tempMap)
                 break
             case Operation.ARRAY:
                 temp = next()
-                tempArray = stack.splice(stack.length - temp, temp)
-                stack.push(tempArray)
+                tempArray = spliceStack2(stack.length - temp, temp)
+                pushStack(tempArray)
                 break
             case Operation.TUPLE:
                 temp = next()
-                tempArray = stack.splice(stack.length - temp, temp)
+                tempArray = spliceStack2(stack.length - temp, temp)
                 ;(tempArray as any).__isHogTuple = true
-                stack.push(tempArray)
+                pushStack(tempArray)
                 break
             case Operation.JUMP:
                 temp = next()
@@ -351,14 +381,14 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                     if (temp > stack.length) {
                         throw new Error('Not enough arguments on the stack')
                     }
-                    if (temp > MAX_ARGS_LENGTH) {
+                    if (temp > MAX_FUNCTION_ARGS_LENGTH) {
                         throw new Error('Too many arguments')
                     }
                     const args = Array(temp)
                         .fill(null)
                         .map(() => popStack())
                     if (options?.functions && options.functions.hasOwnProperty(name) && options.functions[name]) {
-                        stack.push(convertJSToHog(options.functions[name](...args.map(convertHogToJS))))
+                        pushStack(convertJSToHog(options.functions[name](...args.map(convertHogToJS))))
                     } else if (
                         name !== 'toString' &&
                         ((options?.asyncFunctions &&
@@ -384,10 +414,11 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                                 ops,
                                 asyncSteps: asyncSteps + 1,
                                 syncDuration: syncDuration + (Date.now() - startTime),
+                                maxMemUsed,
                             },
                         } satisfies ExecResult
                     } else if (name in STL) {
-                        stack.push(STL[name](args, name, timeout))
+                        pushStack(STL[name](args, name, timeout))
                     } else {
                         throw new Error(`Unsupported function call: ${name}`)
                     }

@@ -133,6 +133,51 @@ describe('HogQL Bytecode', () => {
         expect(() => execSync(bytecode2)).toThrow('Too many arguments')
     })
 
+    test('memory limits', async () => {
+        // let string := 'banana'
+        // for (let i := 0; i < 100; i := i + 1) {
+        //   string := string || string
+        // }
+        const bytecode: any[] = [
+            '_h',
+            32,
+            'banana',
+            33,
+            0,
+            33,
+            100,
+            36,
+            1,
+            15,
+            40,
+            18,
+            36,
+            0,
+            36,
+            0,
+            2,
+            'concat',
+            2,
+            37,
+            0,
+            33,
+            1,
+            36,
+            1,
+            6,
+            37,
+            1,
+            39,
+            -25,
+            35,
+            35,
+        ]
+
+        await expect(execAsync(bytecode)).rejects.toThrow(
+            'Memory limit of 134217728 bytes exceeded. Tried to allocate 150994976 bytes.'
+        )
+    })
+
     test('should execute user-defined stringify function correctly', async () => {
         const functions = {
             stringify: (arg: any) => {

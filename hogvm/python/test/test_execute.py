@@ -134,6 +134,52 @@ class TestBytecodeExecute:
         else:
             raise AssertionError("Expected Exception not raised")
 
+    def test_memory_limits(self):
+        # let string := 'banana'
+        # for (let i := 0; i < 100; i := i + 1) {
+        #   string := string || string
+        # }
+        bytecode: any = [
+            "_h",
+            32,
+            "banana",
+            33,
+            0,
+            33,
+            100,
+            36,
+            1,
+            15,
+            40,
+            18,
+            36,
+            0,
+            36,
+            0,
+            2,
+            "concat",
+            2,
+            37,
+            0,
+            33,
+            1,
+            36,
+            1,
+            6,
+            37,
+            1,
+            39,
+            -25,
+            35,
+            35,
+        ]
+        try:
+            execute_bytecode(bytecode, {})
+        except Exception as e:
+            assert str(e) == "Memory limit of 134217728 bytes exceeded. Tried to allocate 150994976 bytes."
+        else:
+            raise AssertionError("Expected Exception not raised")
+
     def test_functions(self):
         def stringify(*args):
             if args[0] == 1:
