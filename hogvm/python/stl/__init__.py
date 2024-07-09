@@ -45,6 +45,7 @@ def toInt(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[l
         return None
 
 
+# ifNull is complied into JUMP instructions. Keeping the function here for backwards compatibility
 def ifNull(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int):
     if args[0] is not None:
         return args[0]

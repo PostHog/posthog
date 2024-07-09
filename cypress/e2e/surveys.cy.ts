@@ -21,7 +21,7 @@ describe('Surveys', () => {
 
         // save
         //get 2nd element matching the selector
-        cy.get('[data-attr="save-survey"]').eq(1).click()
+        cy.get('[data-attr="save-survey"]').eq(0).click()
         cy.get('[data-attr=success-toast]').contains('created').should('exist')
 
         // back to surveys
@@ -104,7 +104,7 @@ describe('Surveys', () => {
         cy.get('[data-attr=success-toast]').contains('created').should('exist')
 
         // check preview release conditions
-        cy.contains('Release conditions summary').should('exist')
+        cy.contains('Display conditions summary').should('exist')
         cy.get('.FeatureConditionCard').should('exist').should('contain.text', 'is_demo equals true')
         cy.get('.FeatureConditionCard').should('contain.text', 'Rolled out to 100% of users in this set.')
 
@@ -135,11 +135,11 @@ describe('Surveys', () => {
         cy.contains('Remove all user properties').click()
 
         // save
-        cy.get('[data-attr="save-survey"]').eq(1).click()
+        cy.get('[data-attr="save-survey"]').eq(0).click()
 
         // check preview release conditions
         cy.get('.LemonTabs').contains('Overview').click()
-        cy.contains('Release conditions summary').should('exist')
+        cy.contains('Display conditions summary').should('exist')
         cy.get('.FeatureConditionCard').should('not.exist')
 
         // delete survey
@@ -201,7 +201,7 @@ describe('Surveys', () => {
         cy.get('button[data-attr="launch-survey"]').should('have.text', 'Launch')
 
         // check if targetting criteria is copied
-        cy.contains('Release conditions summary').should('exist')
+        cy.contains('Display conditions summary').should('exist')
         cy.get('.FeatureConditionCard').should('exist').should('contain.text', 'is_demo equals true')
         cy.get('.FeatureConditionCard').should('contain.text', 'Rolled out to 100% of users in this set.')
 
@@ -227,7 +227,7 @@ describe('Surveys', () => {
             .should('exist')
     })
 
-    it.only('can set responses limit', () => {
+    it('can set responses limit', () => {
         cy.get('h1').should('contain', 'Surveys')
         cy.get('[data-attr=new-survey]').click()
         cy.get('[data-attr=new-blank-survey]').click()

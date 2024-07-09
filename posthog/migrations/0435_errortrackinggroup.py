@@ -9,7 +9,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0433_dashboard_idx_dashboard_deleted_team_id"),
+        ("posthog", "0434_add_web_vitals_opt_in"),
     ]
 
     operations = [

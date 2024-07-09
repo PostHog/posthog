@@ -1,3 +1,4 @@
+import { TZLabel } from '@posthog/apps-common'
 import { LemonSegmentedButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -75,13 +76,31 @@ const CustomVolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName
 }
 
 const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
-    const { value } = props
+    const { value, record } = props
+
     const properties = JSON.parse(value as string)
+
+    const FirstAndLastSeen = ({ record }: { record: any[] }): JSX.Element => {
+        const [last_seen, first_seen] = record.slice(-2) as [string, string]
+
+        return (
+            <div className="space-x-1">
+                <TZLabel time={first_seen} className="border-dotted border-b" />
+                <span>|</span>
+                <TZLabel time={last_seen} className="border-dotted border-b" />
+            </div>
+        )
+    }
 
     return (
         <LemonTableLink
             title={properties.$exception_type}
-            description={<div className="line-clamp-1">{properties.$exception_message}</div>}
+            description={
+                <div className="space-y-1">
+                    <div className="line-clamp-1">{properties.$exception_message}</div>
+                    <FirstAndLastSeen record={record as any[]} />
+                </div>
+            }
             to={urls.errorTrackingGroup(properties.$exception_type)}
         />
     )

@@ -112,11 +112,18 @@ export const sidePanelStatusLogic = kea<sidePanelStatusLogicType>([
                         return 'operational'
                     }
 
-                    return (
-                        statusPage.components.find(
-                            ({ group_id, status }) => relevantGroups.includes(group_id) && status !== 'operational'
-                        )?.status || 'operational'
-                    )
+                    const componentStatus = statusPage.components.find(
+                        ({ group_id, status }) =>
+                            group_id && relevantGroups.includes(group_id) && status !== 'operational'
+                    )?.status
+                    // if we have any open incident we _can't_ be operational no matter what the components say
+                    const incidents = statusPage.incidents
+                        .filter(({ components }) =>
+                            components.some(({ group_id }) => group_id && relevantGroups.includes(group_id))
+                        )
+                        .map((i) => (i.status !== 'operational' ? i.status : 'degraded_performance'))
+
+                    return (incidents[0] as SPComponentStatus) || componentStatus || 'operational'
                 },
                 loadStatusPageFailure: () => 'operational',
             },
