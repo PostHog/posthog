@@ -4,12 +4,11 @@ from enum import IntEnum
 from typing import Any, Generic, Optional, TypeVar, Union, cast, TypeGuard
 
 import structlog
-from django.conf import settings
 from prometheus_client import Counter
 from pydantic import BaseModel, ConfigDict
 from sentry_sdk import capture_exception, push_scope
 
-from posthog.caching.utils import is_stale, last_refresh_from_cached_result, ThresholdMode, cache_target_age
+from posthog.caching.utils import is_stale, ThresholdMode, cache_target_age, last_refresh_from_cached_result
 from posthog.clickhouse.client.execute_async import enqueue_process_query_task, get_query_status, QueryNotFoundError
 from posthog.clickhouse.query_tagging import tag_queries, get_query_tag_value
 from posthog.hogql import ast
@@ -454,9 +453,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         if self.is_cached_response(cached_response_candidate):
             assert isinstance(cached_response, CachedResponse)
-            cached_response.cache_target_age = self.cache_target_age(cached_response)
 
-            if not self._is_stale(cached_response):
+            if not self._is_stale(last_refresh=last_refresh_from_cached_result(cached_response)):
                 QUERY_CACHE_HIT_COUNTER.labels(
                     team_id=self.team.pk,
                     cache_hit="hit",
@@ -483,7 +481,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             elif execution_mode == ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE:
                 # We're allowed to calculate if the lazy check fails, but we'll do it asynchronously
                 assert isinstance(cached_response, CachedResponse)
-                if self._is_stale(cached_response, lazy=True):
+                if self._is_stale(last_refresh=last_refresh_from_cached_result(cached_response), lazy=True):
                     cached_response.query_status = self.enqueue_async_calculation(
                         cache_manager=cache_manager, user=user
                     )
@@ -522,7 +520,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         cache_manager = QueryCacheManager(
             team_id=self.team.pk,
             cache_key=cache_key,
-            cache_ttl=self.cache_ttl(),
             insight_id=insight_id,
             dashboard_id=dashboard_id,
         )
@@ -542,13 +539,15 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             if results is not None:
                 return results
 
+        last_refresh = datetime.now(UTC)
         fresh_response_dict = {
             **self.calculate().model_dump(),
             "is_cached": False,
-            "last_refresh": datetime.now(UTC),
-            "next_allowed_client_refresh": datetime.now(UTC) + self._refresh_frequency(),
+            "last_refresh": last_refresh,
+            "next_allowed_client_refresh": last_refresh + self._refresh_frequency(),
             "cache_key": cache_key,
             "timezone": self.team.timezone,
+            "cache_target_age": self.cache_target_age(last_refresh=last_refresh),
         }
         if get_query_tag_value("trigger"):
             fresh_response_dict["calculation_trigger"] = get_query_tag_value("trigger")
@@ -556,11 +555,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         # Don't cache debug queries with errors and export queries
         has_error: Optional[list] = fresh_response_dict.get("error", None)
-        cache_ttl = self.cache_ttl()
-        if (has_error is None or len(has_error) == 0) and self.limit_context != LimitContext.EXPORT and cache_ttl > 0:
-            cache_manager.set_cache_data(
-                response=fresh_response_dict, cache_target_age=self.cache_target_age(fresh_response_dict)
-            )
+        if (has_error is None or len(has_error) == 0) and self.limit_context != LimitContext.EXPORT:
+            cache_manager.set_cache_data(response=fresh_response_dict)
             QUERY_CACHE_WRITE_COUNTER.labels(team_id=self.team.pk).inc()
 
         return fresh_response
@@ -600,16 +596,14 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def get_cache_key(self) -> str:
         return generate_cache_key(f"query_{bytes.decode(to_json(self.get_cache_payload()))}")
 
-    def cache_target_age(self, cached_result_package) -> Optional[datetime]:
-        last_refresh = last_refresh_from_cached_result(cached_result_package)
+    def cache_target_age(self, last_refresh: Optional[datetime]) -> Optional[datetime]:
         if last_refresh is None:
             return None
         query_date_range = getattr(self, "query_date_range", None)
         interval = query_date_range.interval_name if query_date_range else "minute"
         return cache_target_age(interval, last_refresh=last_refresh, mode=ThresholdMode.DEFAULT)
 
-    def _is_stale(self, cached_result_package, lazy: bool = False) -> bool:
-        last_refresh = last_refresh_from_cached_result(cached_result_package)
+    def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
         query_date_range = getattr(self, "query_date_range", None)
         date_to = query_date_range.date_to() if query_date_range else None
         interval = query_date_range.interval_name if query_date_range else "minute"
@@ -618,9 +612,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
     def _refresh_frequency(self) -> timedelta:
         return timedelta(minutes=1)
-
-    def cache_ttl(self) -> float:
-        return settings.CACHED_RESULTS_TTL
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
         """Irreversably update self.query with provided dashboard filters."""
