@@ -775,8 +775,7 @@ export class SessionRecordingIngester {
                 }
 
                 status.info('🔁', `blob_ingester_consumer - committing offset for partition`, {
-                    topic,
-                    partition,
+                    ...tp,
                     blockingSessions,
                 })
 
