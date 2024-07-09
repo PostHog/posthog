@@ -1,5 +1,6 @@
 import { IconInfo, IconPlus } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonDivider,
     LemonDropdown,
@@ -135,6 +136,11 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                         </>
                     }
                 />
+
+                <LemonBanner type="info">
+                    Hog Functions are in <b>alpha</b> and are the next generation of our data pipeline destinations. You
+                    can use pre-existing templates or modify the source Hog code to create your own custom functions.
+                </LemonBanner>
 
                 <Form
                     logic={hogFunctionConfigurationLogic}
