@@ -1,9 +1,10 @@
 #!/usr/bin/python3
-
+import ast
 import sys
 from dataclasses import dataclass, replace
 from itertools import groupby, permutations
 from typing import Any
+from collections.abc import Sequence
 
 N_ARGS = 5
 
@@ -16,8 +17,8 @@ def parse_args(line):
     t3 = line.find("\t", t2 + 1)
     breakdown_attribution_type = line[t2 + 1 : t3]
     t4 = line.find("\t", t3 + 1)
-    prop_vals = eval(line[t3 + 1 : t4])
-    return num_steps, conversion_window_limit, breakdown_attribution_type, prop_vals, eval(line[t4 + 1 :])
+    prop_vals = ast.literal_eval(line[t3 + 1 : t4])
+    return num_steps, conversion_window_limit, breakdown_attribution_type, prop_vals, ast.literal_eval(line[t4 + 1 :])
 
 
 @dataclass(frozen=True)
@@ -53,8 +54,8 @@ def parse_user_aggregation_with_conversion_window_and_breakdown(
     num_steps: int,
     conversion_window_limit_seconds: int,
     breakdown_attribution_type: str,
-    prop_vals: list[any],
-    events: list[any],
+    prop_vals: list[Any],
+    events: Sequence[tuple[float, list[str] | int | str, list[int]]],
 ):
     # If the attribution mode is a breakdown step, set this to the integer that represents that step
     breakdown_step = int(breakdown_attribution_type[5:]) if breakdown_attribution_type.startswith("step_") else None
@@ -63,7 +64,7 @@ def parse_user_aggregation_with_conversion_window_and_breakdown(
     results = []
 
     # Process an event. If this hits an exclusion, return False, else return True.
-    def process_event(timestamp, breakdown, steps, entered_timestamp, prop_val) -> bool:
+    def process_event(timestamp, breakdown, steps, *, entered_timestamp, prop_val) -> bool:
         # iterate the steps in reverse so we don't count this event multiple times
         for step in reversed(steps):
             exclusion = False
@@ -157,9 +158,9 @@ if __name__ == "__main__":
 
 def test():
     y = [
-        [(1577973600, "", [1]), (1577980800, "", [2]), (1577984400, "", [3])],
-        [(1577880000, "", [1]), (1577883600, "", [2]), (1577890800, "", [3])],
-        [(1577973600, "", [1]), (1577980800, "", [2])],
+        [(1577973600.0, "", [1]), (1577980800.0, "", [2]), (1577984400.0, "", [3])],
+        [(1577880000.0, "", [1]), (1577883600.0, "", [2]), (1577890800.0, "", [3])],
+        [(1577973600.0, "", [1]), (1577980800.0, "", [2])],
     ]
 
     for x in y:

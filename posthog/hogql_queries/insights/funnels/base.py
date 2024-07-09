@@ -28,6 +28,7 @@ from posthog.schema import (
     FunnelExclusionActionsNode,
     FunnelTimeToConvertResults,
     FunnelVizType,
+    FunnelExclusionEventsNode,
 )
 from posthog.types import EntityNode, ExclusionEntityNode
 from rest_framework.exceptions import ValidationError
@@ -438,13 +439,13 @@ class FunnelBase(ABC):
         # ).get_query(entities_to_use, entity_name, skip_entity_filter=skip_entity_filter)
 
         all_step_cols: list[ast.Expr] = []
-        all_exclusions = []
+        all_exclusions: list[list[FunnelExclusionEventsNode | FunnelExclusionActionsNode]] = []
         for index, entity in enumerate(entities_to_use):
             step_cols = self._get_step_col(entity, index, entity_name)
             all_step_cols.extend(step_cols)
             all_exclusions.append([])
 
-        for exclusion_id, excluded_entity in enumerate(funnelsFilter.exclusions or []):
+        for excluded_entity in funnelsFilter.exclusions or []:
             for i in range(excluded_entity.funnelFromStep + 1, excluded_entity.funnelToStep + 1):
                 all_exclusions[i].append(excluded_entity)
 
@@ -481,12 +482,13 @@ class FunnelBase(ABC):
         index: int,
         entity_name: str,
     ) -> ast.Expr:
-
         if not exclusions:
             return parse_expr(f"0 as exclusion_{index}")
 
         conditions = [self._build_step_query(exclusion, index, entity_name, "") for exclusion in exclusions]
-        return parse_expr(f"if({{condition}}, 1, 0) as exclusion_{index}", placeholders={"condition": ast.Or(exprs=conditions)})
+        return parse_expr(
+            f"if({{condition}}, 1, 0) as exclusion_{index}", placeholders={"condition": ast.Or(exprs=conditions)}
+        )
 
     def _get_cohort_breakdown_join(self) -> ast.JoinExpr:
         breakdown = self.context.breakdown

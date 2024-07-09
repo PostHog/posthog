@@ -449,9 +449,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     ValueError(f"Cached response is of unexpected type {type(cached_response)}, ignoring it")
                 )
 
-        if False and self.is_cached_response(cached_response_candidate):
+        if self.is_cached_response(cached_response_candidate):
             assert isinstance(cached_response, CachedResponse)
-            
+
             cached_response.cache_target_age = self.cache_target_age(cached_response)
 
             if not self._is_stale(cached_response):
