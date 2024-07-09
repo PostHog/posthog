@@ -34,5 +34,11 @@
         "tsconfig.build.json",
         "tsconfig.json",
         ".prettierrc"
-    ]
+    ],
+    "peerDependencies": {
+        "re2": "^1.21.3"
+    },
+    "dependencies": {
+        "re2": "^1.21.3"
+    }
 }
