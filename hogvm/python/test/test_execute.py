@@ -801,3 +801,11 @@ class TestBytecodeExecute:
             == "yes"
         )
         assert values == ["yes"]
+
+    def test_bytecode_nullish(self):
+        assert self._run_program("let a := {'b': {'d': 2}}; return (((a??{}).b)??{}).c") is None
+        assert self._run_program("let a := {'b': {'d': 2}}; return (((a??{}).b)??{}).d") == 2
+        assert self._run_program("let a := {'b': {'d': 2}}; return a?.b?.c") is None
+        assert self._run_program("let a := {'b': {'d': 2}}; return a?.b?.d") == 2
+        assert self._run_program("let a := {'b': {'d': 2}}; return a?.b?.['c']") is None
+        assert self._run_program("let a := {'b': {'d': 2}}; return a?.b?.['d']") == 2

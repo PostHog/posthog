@@ -71,6 +71,9 @@ const PERSONLESS_DISTINCT_ID_INSERTED_CACHE = new LRU<string, boolean>({
 
 const BARE_CASE_SENSITIVE_ILLEGAL_IDS = ['[object Object]', 'NaN', 'None', 'none', 'null', '0', 'undefined']
 const PERSON_EVENTS = new Set(['$identify', '$create_alias', '$merge_dangerously', '$set'])
+// These events are processed in a separate pipeline, so we don't allow person property updates
+// because there is no ordering guaranteed across them with other person updates
+const NO_PERSON_UPDATE_EVENTS = new Set(['$exception', '$$heatmap'])
 
 // we have seen illegal ids received but wrapped in double quotes
 // to protect ourselves from this we'll add the single- and double-quoted versions of the illegal ids
@@ -348,6 +351,13 @@ export class PersonState {
      * @returns true if the properties were changed, false if they were not
      */
     private applyEventPropertyUpdates(personProperties: Properties): boolean {
+        // this relies on making changes to the object instance, so...
+        // if we should not update the person,
+        // we return early before changing any values
+        if (NO_PERSON_UPDATE_EVENTS.has(this.event.event)) {
+            return false
+        }
+
         const properties: Properties = this.eventProperties['$set'] || {}
         const propertiesOnce: Properties = this.eventProperties['$set_once'] || {}
         const unsetProps = this.eventProperties['$unset']

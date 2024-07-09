@@ -412,6 +412,7 @@ class CloningVisitor(Visitor[Any]):
             type=None if self.clear_types else node.type,
             tuple=self.visit(node.tuple),
             index=node.index,
+            nullish=node.nullish,
         )
 
     def visit_tuple(self, node: ast.Tuple):
@@ -438,6 +439,7 @@ class CloningVisitor(Visitor[Any]):
             type=None if self.clear_types else node.type,
             array=self.visit(node.array),
             property=self.visit(node.property),
+            nullish=node.nullish,
         )
 
     def visit_array(self, node: ast.Array):

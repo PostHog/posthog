@@ -34,13 +34,13 @@ public:
     DASH = 114, DOLLAR = 115, DOT = 116, EQ_DOUBLE = 117, EQ_SINGLE = 118, 
     GT_EQ = 119, GT = 120, HASH = 121, IREGEX_SINGLE = 122, IREGEX_DOUBLE = 123, 
     LBRACE = 124, LBRACKET = 125, LPAREN = 126, LT_EQ = 127, LT = 128, NOT_EQ = 129, 
-    NOT_IREGEX = 130, NOT_REGEX = 131, NULLISH = 132, PERCENT = 133, PLUS = 134, 
-    QUERY = 135, QUOTE_DOUBLE = 136, QUOTE_SINGLE_TEMPLATE = 137, QUOTE_SINGLE_TEMPLATE_FULL = 138, 
-    QUOTE_SINGLE = 139, REGEX_SINGLE = 140, REGEX_DOUBLE = 141, RBRACE = 142, 
-    RBRACKET = 143, RPAREN = 144, SEMICOLON = 145, SLASH = 146, UNDERSCORE = 147, 
-    MULTI_LINE_COMMENT = 148, SINGLE_LINE_COMMENT = 149, WHITESPACE = 150, 
-    STRING_TEXT = 151, STRING_ESCAPE_TRIGGER = 152, FULL_STRING_TEXT = 153, 
-    FULL_STRING_ESCAPE_TRIGGER = 154
+    NOT_IREGEX = 130, NOT_REGEX = 131, NULL_PROPERTY = 132, NULLISH = 133, 
+    PERCENT = 134, PLUS = 135, QUERY = 136, QUOTE_DOUBLE = 137, QUOTE_SINGLE_TEMPLATE = 138, 
+    QUOTE_SINGLE_TEMPLATE_FULL = 139, QUOTE_SINGLE = 140, REGEX_SINGLE = 141, 
+    REGEX_DOUBLE = 142, RBRACE = 143, RBRACKET = 144, RPAREN = 145, SEMICOLON = 146, 
+    SLASH = 147, UNDERSCORE = 148, MULTI_LINE_COMMENT = 149, SINGLE_LINE_COMMENT = 150, 
+    WHITESPACE = 151, STRING_TEXT = 152, STRING_ESCAPE_TRIGGER = 153, FULL_STRING_TEXT = 154, 
+    FULL_STRING_ESCAPE_TRIGGER = 155
   };
 
   enum {
@@ -1377,6 +1377,17 @@ public:
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };
 
+  class  ColumnExprNullTupleAccessContext : public ColumnExprContext {
+  public:
+    ColumnExprNullTupleAccessContext(ColumnExprContext *ctx);
+
+    ColumnExprContext *columnExpr();
+    antlr4::tree::TerminalNode *NULL_PROPERTY();
+    antlr4::tree::TerminalNode *DECIMAL_LITERAL();
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+  };
+
   class  ColumnExprPrecedence1Context : public ColumnExprContext {
   public:
     ColumnExprPrecedence1Context(ColumnExprContext *ctx);
@@ -1481,6 +1492,17 @@ public:
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };
 
+  class  ColumnExprNullPropertyAccessContext : public ColumnExprContext {
+  public:
+    ColumnExprNullPropertyAccessContext(ColumnExprContext *ctx);
+
+    ColumnExprContext *columnExpr();
+    antlr4::tree::TerminalNode *NULL_PROPERTY();
+    IdentifierContext *identifier();
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+  };
+
   class  ColumnExprTrimContext : public ColumnExprContext {
   public:
     ColumnExprTrimContext(ColumnExprContext *ctx);
@@ -1570,6 +1592,19 @@ public:
     antlr4::tree::TerminalNode *LPAREN();
     ColumnExprContext *columnExpr();
     antlr4::tree::TerminalNode *RPAREN();
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+  };
+
+  class  ColumnExprNullArrayAccessContext : public ColumnExprContext {
+  public:
+    ColumnExprNullArrayAccessContext(ColumnExprContext *ctx);
+
+    std::vector<ColumnExprContext *> columnExpr();
+    ColumnExprContext* columnExpr(size_t i);
+    antlr4::tree::TerminalNode *NULL_PROPERTY();
+    antlr4::tree::TerminalNode *LBRACKET();
+    antlr4::tree::TerminalNode *RBRACKET();
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };

@@ -550,7 +550,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         raise NotImplementedError()
 
-    def to_actors_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def to_actors_query(self, *args, **kwargs) -> ast.SelectQuery | ast.SelectUnionQuery:
         # TODO: add support for selecting and filtering by breakdowns
         raise NotImplementedError()
 
