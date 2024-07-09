@@ -74,7 +74,7 @@ class UsageReportCounters:
     event_count_in_period: int
     enhanced_persons_event_count_in_period: int
     event_count_with_groups_in_period: int
-    _personful_event_: int
+    anonymous_personful_event_count_in_period: int
     # Recordings
     recording_count_in_period: int
     mobile_recording_count_in_period: int
@@ -419,7 +419,7 @@ def get_teams_with_billable_enhanced_persons_event_count_in_period(
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def get_teams_with_billable__personful_event_(
+def get_teams_with_anonymous_personful_event_count_in_period(
     begin: datetime, end: datetime, count_distinct: bool = False
 ) -> list[tuple[int, int]]:
     # anonymous events that are still personfull.
@@ -685,7 +685,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_enhanced_persons_event_count_in_period": get_teams_with_billable_enhanced_persons_event_count_in_period(
             period_start, period_end, count_distinct=True
         ),
-        "teams_with__personful_event_": get_teams_with_billable__personful_event_(
+        "teams_with_anonymous_personful_event_count_in_period": get_teams_with_anonymous_personful_event_count_in_period(
             period_start, period_end, count_distinct=True
         ),
         "teams_with_event_count_with_groups_in_period": get_teams_with_event_count_with_groups_in_period(
@@ -854,7 +854,9 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         enhanced_persons_event_count_in_period=all_data["teams_with_enhanced_persons_event_count_in_period"].get(
             team.id, 0
         ),
-        _personful_event_=all_data["teams_with__personful_event_"].get(team.id, 0),
+        anonymous_personful_event_count_in_period=all_data["teams_with_anonymous_personful_event_count_in_period"].get(
+            team.id, 0
+        ),
         event_count_with_groups_in_period=all_data["teams_with_event_count_with_groups_in_period"].get(team.id, 0),
         recording_count_in_period=all_data["teams_with_recording_count_in_period"].get(team.id, 0),
         mobile_recording_count_in_period=all_data["teams_with_mobile_recording_count_in_period"].get(team.id, 0),

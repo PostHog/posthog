@@ -653,7 +653,14 @@ class Resolver(CloningVisitor):
             if self.dialect == "clickhouse":
                 new_expr = clone_expr(node.type.expr)
                 new_node: ast.Expr = ast.Alias(alias=node.type.name, expr=new_expr, hidden=True)
+
+                if node.type.isolate_scope:
+                    self.scopes.append(ast.SelectQueryType(tables={node.type.name: node.type.table_type}))
+
                 new_node = self.visit(new_node)
+
+                if node.type.isolate_scope:
+                    self.scopes.pop()
                 return new_node
 
         if isinstance(node.type, ast.FieldType) and node.start is not None and node.end is not None:

@@ -191,7 +191,17 @@ def get_decide(request: HttpRequest):
             else:
                 response["featureFlags"] = {}
 
-            response["capturePerformance"] = True if team.capture_performance_opt_in else False
+            capture_network_timing = True if team.capture_performance_opt_in else False
+            capture_web_vitals = True if team.autocapture_web_vitals_opt_in else False
+            response["capturePerformance"] = (
+                {
+                    "network_timing": capture_network_timing,
+                    "web_vitals": capture_web_vitals,
+                }
+                if capture_network_timing or capture_web_vitals
+                else False
+            )
+
             response["autocapture_opt_out"] = True if team.autocapture_opt_out else False
             response["autocaptureExceptions"] = (
                 {

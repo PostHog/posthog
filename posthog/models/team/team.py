@@ -201,6 +201,7 @@ class Team(UUIDClassicModel):
     has_completed_onboarding_for: models.JSONField = models.JSONField(null=True, blank=True)
     ingested_event: models.BooleanField = models.BooleanField(default=False)
     autocapture_opt_out: models.BooleanField = models.BooleanField(null=True, blank=True)
+    autocapture_web_vitals_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
     autocapture_exceptions_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
     autocapture_exceptions_errors_to_ignore: models.JSONField = models.JSONField(null=True, blank=True)
     session_recording_opt_in: models.BooleanField = models.BooleanField(default=False)

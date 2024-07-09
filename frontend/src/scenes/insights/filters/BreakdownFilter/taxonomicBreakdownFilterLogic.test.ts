@@ -132,4 +132,216 @@ describe('taxonomicBreakdownFilterLogic', () => {
             })
         })
     })
+
+    describe('multiple breakdowns', () => {
+        function mockFeatureFlag(logic: any): void {
+            logic.selectors.isMultipleBreakdownsEnabled = jest.fn().mockReturnValue(true)
+        }
+
+        it('adds a breakdown for events', async () => {
+            logic = taxonomicBreakdownFilterLogic({
+                insightProps,
+                breakdownFilter: {},
+                isTrends: true,
+                updateBreakdownFilter,
+                updateDisplay,
+            })
+            mockFeatureFlag(logic)
+            logic.mount()
+
+            const changedBreakdown = 'c'
+            const group: TaxonomicFilterGroup = taxonomicGroupFor(TaxonomicFilterGroupType.EventProperties, undefined)
+
+            await expectLogic(logic, () => {
+                logic.actions.addBreakdown(changedBreakdown, group)
+            }).toFinishListeners()
+
+            expect(updateBreakdownFilter).toHaveBeenCalledWith({
+                breakdown_type: undefined,
+                breakdowns: [
+                    {
+                        value: 'c',
+                        type: 'event',
+                    },
+                ],
+                breakdown_group_type_index: undefined,
+                breakdown_histogram_bin_count: undefined,
+            })
+        })
+
+        it('does not add a duplicate breakdown', async () => {
+            logic = taxonomicBreakdownFilterLogic({
+                insightProps,
+                breakdownFilter: {
+                    breakdowns: [
+                        {
+                            value: 'c',
+                            type: 'event',
+                        },
+                    ],
+                },
+                isTrends: true,
+                updateBreakdownFilter,
+                updateDisplay,
+            })
+            mockFeatureFlag(logic)
+            logic.mount()
+
+            const changedBreakdown = 'c'
+            const group: TaxonomicFilterGroup = taxonomicGroupFor(TaxonomicFilterGroupType.EventProperties, undefined)
+
+            await expectLogic(logic, () => {
+                logic.actions.addBreakdown(changedBreakdown, group)
+            }).toFinishListeners()
+
+            expect(updateBreakdownFilter).not.toHaveBeenCalled()
+        })
+
+        it('adds a breakdown for persons', async () => {
+            logic = taxonomicBreakdownFilterLogic({
+                insightProps,
+                breakdownFilter: {},
+                isTrends: true,
+                updateBreakdownFilter,
+                updateDisplay,
+            })
+            mockFeatureFlag(logic)
+            logic.mount()
+            const changedBreakdown = 'height'
+            const group: TaxonomicFilterGroup = taxonomicGroupFor(TaxonomicFilterGroupType.PersonProperties, undefined)
+
+            await expectLogic(logic, () => {
+                logic.actions.addBreakdown(changedBreakdown, group)
+            }).toFinishListeners()
+
+            expect(updateBreakdownFilter).toHaveBeenCalledWith({
+                breakdown_type: undefined,
+                breakdowns: [
+                    {
+                        value: 'height',
+                        type: 'person',
+                    },
+                ],
+                breakdown_group_type_index: undefined,
+                breakdown_histogram_bin_count: undefined,
+            })
+        })
+
+        it('adds a breakdown for group properties', async () => {
+            logic = taxonomicBreakdownFilterLogic({
+                insightProps,
+                breakdownFilter: {},
+                isTrends: true,
+                updateBreakdownFilter,
+                updateDisplay,
+            })
+            mockFeatureFlag(logic)
+            logic.mount()
+            const changedBreakdown = '$lib_version'
+            const group: TaxonomicFilterGroup = taxonomicGroupFor(TaxonomicFilterGroupType.GroupsPrefix, 0)
+
+            await expectLogic(logic, () => {
+                logic.actions.addBreakdown(changedBreakdown, group)
+            }).toFinishListeners()
+
+            expect(updateBreakdownFilter).toHaveBeenCalledWith({
+                breakdown_type: undefined,
+                breakdowns: [
+                    {
+                        type: 'group',
+                        value: '$lib_version',
+                        group_type_index: 0,
+                    },
+                ],
+                breakdown_group_type_index: undefined,
+                breakdown_histogram_bin_count: undefined,
+            })
+        })
+
+        it('replaces a breakdown correctly', async () => {
+            logic = taxonomicBreakdownFilterLogic({
+                insightProps,
+                breakdownFilter: {
+                    breakdowns: [
+                        {
+                            value: 'c',
+                            type: 'event',
+                        },
+                    ],
+                },
+                isTrends: true,
+                updateBreakdownFilter,
+                updateDisplay,
+            })
+            mockFeatureFlag(logic)
+            logic.mount()
+            const changedBreakdown = 'c'
+            const group: TaxonomicFilterGroup = taxonomicGroupFor(TaxonomicFilterGroupType.EventProperties, undefined)
+
+            await expectLogic(logic, () => {
+                logic.actions.replaceBreakdown(
+                    {
+                        type: 'event',
+                        value: changedBreakdown,
+                    },
+                    {
+                        group: group,
+                        value: 'a',
+                    }
+                )
+            }).toFinishListeners()
+
+            expect(updateBreakdownFilter).toHaveBeenCalledWith({
+                breakdown_type: undefined,
+                breakdowns: [
+                    {
+                        type: 'event',
+                        value: 'a',
+                    },
+                ],
+                breakdown_group_type_index: undefined,
+                breakdown_histogram_bin_count: undefined,
+            })
+        })
+
+        it('replaceBreakdown does not create a duplicate', async () => {
+            logic = taxonomicBreakdownFilterLogic({
+                insightProps,
+                breakdownFilter: {
+                    breakdowns: [
+                        {
+                            value: 'c',
+                            type: 'event',
+                        },
+                        {
+                            value: 'duplicate',
+                            type: 'event',
+                        },
+                    ],
+                },
+                isTrends: true,
+                updateBreakdownFilter,
+                updateDisplay,
+            })
+            mockFeatureFlag(logic)
+            logic.mount()
+            const changedBreakdown = 'c'
+            const group: TaxonomicFilterGroup = taxonomicGroupFor(TaxonomicFilterGroupType.EventProperties, undefined)
+
+            await expectLogic(logic, () => {
+                logic.actions.replaceBreakdown(
+                    {
+                        type: 'event',
+                        value: changedBreakdown,
+                    },
+                    {
+                        group: group,
+                        value: 'duplicate',
+                    }
+                )
+            }).toFinishListeners()
+
+            expect(updateBreakdownFilter).not.toHaveBeenCalled()
+        })
+    })
 })

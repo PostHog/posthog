@@ -192,7 +192,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self._update_team({"capture_performance_opt_in": True})
 
         response = self._post_decide().json()
-        self.assertEqual(response["capturePerformance"], True)
+        self.assertEqual(response["capturePerformance"], {"network_timing": True, "web_vitals": False})
 
     def test_session_recording_sample_rate(self, *args):
         # :TRICKY: Test for regression around caching
@@ -370,6 +370,18 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.assertEqual(
             response["autocaptureExceptions"],
             {"endpoint": "/e/"},
+        )
+
+    def test_web_vitals_autocapture_opt_in(self, *args):
+        response = self._post_decide().json()
+        self.assertEqual(response["capturePerformance"], False)
+
+        self._update_team({"autocapture_web_vitals_opt_in": True})
+
+        response = self._post_decide().json()
+        self.assertEqual(
+            response["capturePerformance"],
+            {"web_vitals": True, "network_timing": False},
         )
 
     def test_user_session_recording_opt_in_wildcard_domain(self, *args):
@@ -2834,7 +2846,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
         self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
         self.assertEqual(response["siteApps"], [])
-        self.assertEqual(response["capturePerformance"], True)
+        self.assertEqual(response["capturePerformance"], {"network_timing": True, "web_vitals": False})
         self.assertEqual(response["featureFlags"], {})
         self.assertEqual(
             response["autocaptureExceptions"],
@@ -2859,7 +2871,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             )
             self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
             self.assertEqual(response["siteApps"], [])
-            self.assertEqual(response["capturePerformance"], True)
+            self.assertEqual(response["capturePerformance"], {"network_timing": True, "web_vitals": False})
             self.assertEqual(
                 response["autocaptureExceptions"],
                 {"endpoint": "/e/"},
@@ -3609,7 +3621,7 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
             )
             self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
             self.assertEqual(response["siteApps"], [])
-            self.assertEqual(response["capturePerformance"], True)
+            self.assertEqual(response["capturePerformance"], {"network_timing": True, "web_vitals": False})
             self.assertEqual(response["featureFlags"], {"no-props": True})
             self.assertEqual(response["errorsWhileComputingFlags"], True)
 
