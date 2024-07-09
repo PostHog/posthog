@@ -253,13 +253,13 @@ def property_to_expr(
         # The property was saved as an incomplete object. Instead of crashing the entire query, pretend it's not there.
         # TODO: revert this when removing legacy insights?
         except ValueError:
-            return ast.Constant(value=True)
+            return ast.Constant(value=1)
         except TypeError:
-            return ast.Constant(value=True)
+            return ast.Constant(value=1)
     elif isinstance(property, list):
         properties = [property_to_expr(p, team, scope) for p in property]
         if len(properties) == 0:
-            return ast.Constant(value=True)
+            return ast.Constant(value=1)
         if len(properties) == 1:
             return properties[0]
         return ast.And(exprs=properties)
@@ -286,7 +286,7 @@ def property_to_expr(
             raise QueryError(f'PropertyGroupFilter of unknown type "{property.type}"')
 
         if len(property.values) == 0:
-            return ast.Constant(value=True)
+            return ast.Constant(value=1)
         if len(property.values) == 1:
             return property_to_expr(property.values[0], team, scope)
 
@@ -295,13 +295,13 @@ def property_to_expr(
         else:
             return ast.Or(exprs=[property_to_expr(p, team, scope) for p in property.values])
     elif isinstance(property, EmptyPropertyFilter):
-        return ast.Constant(value=True)
+        return ast.Constant(value=1)
     elif isinstance(property, BaseModel):
         try:
             property = Property(**property.dict())
         except ValueError:
             # The property was saved as an incomplete object. Instead of crashing the entire query, pretend it's not there.
-            return ast.Constant(value=True)
+            return ast.Constant(value=1)
     else:
         raise QueryError(f"property_to_expr with property of type {type(property).__name__} not implemented")
 

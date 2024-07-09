@@ -12,11 +12,15 @@ def like(string, pattern, flags=0):
     return re_pattern.search(string) is not None
 
 
-def get_nested_value(obj, chain) -> Any:
+def get_nested_value(obj, chain, nullish=False) -> Any:
     if obj is None:
         return None
     for key in chain:
+        if nullish and obj is None:
+            return None
         if isinstance(key, int):
+            if nullish and len(obj) <= key:
+                return None
             obj = obj[key]
         else:
             obj = obj.get(key, None)

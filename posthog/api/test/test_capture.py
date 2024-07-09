@@ -1,20 +1,27 @@
-from collections import Counter
-from unittest import mock
-
 import base64
 import gzip
 import json
-from django.test import override_settings
-import lzstring
 import pathlib
-import pytest
 import random
 import string
+from collections import Counter
+from datetime import UTC
+from datetime import datetime, timedelta
+from typing import Any, Union, cast
+from unittest import mock
+from unittest.mock import ANY, MagicMock, call
+from unittest.mock import patch
+from urllib.parse import quote
+
+import lzstring
+import pytest
 import structlog
 import zlib
-from datetime import datetime, timedelta
-from datetime import UTC
+from boto3 import resource
+from botocore.client import Config
+from botocore.exceptions import ClientError
 from django.http import HttpResponse
+from django.test import override_settings
 from django.test.client import MULTIPART_CONTENT, Client
 from django.utils import timezone
 from freezegun import freeze_time
@@ -25,9 +32,6 @@ from parameterized import parameterized
 from prance import ResolvingParser
 from rest_framework import status
 from token_bucket import Limiter, MemoryStorage
-from typing import Any, Union, cast
-from unittest.mock import ANY, MagicMock, call, patch
-from urllib.parse import quote
 
 from ee.billing.quota_limiting import QuotaLimitingCaches
 from posthog.api import capture
@@ -35,10 +39,11 @@ from posthog.api.capture import (
     LIKELY_ANONYMOUS_IDS,
     get_distinct_id,
     is_randomly_partitioned,
+    sample_replay_data_to_object_storage,
 )
 from posthog.api.test.mock_sentry import mock_sentry_context_for_tagging
 from posthog.api.test.openapi_validation import validate_response
-from posthog.kafka_client.client import KafkaProducer, sessionRecordingKafkaProducer
+from posthog.kafka_client.client import KafkaProducer, session_recording_kafka_producer
 from posthog.kafka_client.topics import (
     KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
@@ -49,6 +54,13 @@ from posthog.settings import (
     DATA_UPLOAD_MAX_MEMORY_SIZE,
     KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC,
 )
+from posthog.settings import (
+    OBJECT_STORAGE_ACCESS_KEY_ID,
+    OBJECT_STORAGE_ENDPOINT,
+    OBJECT_STORAGE_SECRET_ACCESS_KEY,
+)
+from posthog.storage import object_storage
+from posthog.storage.object_storage import ObjectStorageError
 from posthog.test.base import BaseTest
 
 
@@ -148,6 +160,51 @@ android_json = {
     "uuid": "deaa7e00-e1a4-480d-9145-fb8461678dae",
 }
 
+TEST_SAMPLES_BUCKET = "posthog-test-replay-samples"
+
+s3 = resource(
+    "s3",
+    endpoint_url=OBJECT_STORAGE_ENDPOINT,
+    aws_access_key_id=OBJECT_STORAGE_ACCESS_KEY_ID,
+    aws_secret_access_key=OBJECT_STORAGE_SECRET_ACCESS_KEY,
+    config=Config(signature_version="s3v4"),
+    region_name="us-east-1",
+)
+
+
+# snapshot events are processed and altered during capture processing
+def make_processed_recording_event(
+    event_data: dict | list[dict] | None = None,
+    session_id="abc123",
+    window_id="def456",
+    distinct_id="ghi789",
+    timestamp=1658516991883,
+    snapshot_bytes=60,
+) -> dict[str, Any]:
+    if event_data is None:
+        # event_data is an array of RRWeb events
+        event_data = [{"type": 3, "data": {"source": 1}}, {"type": 3, "data": {"source": 2}}]
+
+    if isinstance(event_data, dict):
+        event_data = [event_data]
+
+    return {
+        "event": "$snapshot_items",
+        "properties": {
+            # estimate of the size of the event data
+            "$snapshot_bytes": snapshot_bytes,
+            "$snapshot_items": event_data,
+            "$session_id": session_id,
+            "$window_id": window_id,
+            # snapshot events have the distinct id in the properties
+            # as well as at the top-level
+            "distinct_id": distinct_id,
+            "$snapshot_source": "web",
+        },
+        "timestamp": timestamp,
+        "distinct_id": distinct_id,
+    }
+
 
 class TestCapture(BaseTest):
     """
@@ -161,6 +218,16 @@ class TestCapture(BaseTest):
         super().setUp()
         # it is really important to know that /capture is CSRF exempt. Enforce checking in the client
         self.client = Client(enforce_csrf_checks=True)
+
+        try:
+            s3.meta.client.head_bucket(Bucket=TEST_SAMPLES_BUCKET)
+        except ClientError:
+            # probably the bucket doesn't exist
+            s3.create_bucket(Bucket=TEST_SAMPLES_BUCKET)
+
+    def teardown_method(self, method) -> None:
+        bucket = s3.Bucket(TEST_SAMPLES_BUCKET)
+        bucket.objects.delete()
 
     def _to_json(self, data: Union[dict, list]) -> str:
         return json.dumps(data)
@@ -225,40 +292,6 @@ class TestCapture(BaseTest):
         )
 
         return event
-
-    # snapshot events are processed and altered during capture processing
-    def _make_processed_recording_event(
-        self,
-        event_data: dict | list[dict] | None = None,
-        session_id="abc123",
-        window_id="def456",
-        distinct_id="ghi789",
-        timestamp=1658516991883,
-        snapshot_bytes=60,
-    ) -> dict[str, Any]:
-        if event_data is None:
-            # event_data is an array of RRWeb events
-            event_data = [{"type": 3, "data": {"source": 1}}, {"type": 3, "data": {"source": 2}}]
-
-        if isinstance(event_data, dict):
-            event_data = [event_data]
-
-        return {
-            "event": "$snapshot_items",
-            "properties": {
-                # estimate of the size of the event data
-                "$snapshot_bytes": snapshot_bytes,
-                "$snapshot_items": event_data,
-                "$session_id": session_id,
-                "$window_id": window_id,
-                # snapshot events have the distinct id in the properties
-                # as well as at the top-level
-                "distinct_id": distinct_id,
-                "$snapshot_source": "web",
-            },
-            "timestamp": timestamp,
-            "distinct_id": distinct_id,
-        }
 
     def _send_august_2023_version_session_recording_event(
         self,
@@ -338,6 +371,7 @@ class TestCapture(BaseTest):
                 data=ANY,
                 key=None if expect_random_partitioning else ANY,
                 headers=None,
+                value_serializer=None,
             )
 
             if not expect_random_partitioning:
@@ -463,11 +497,13 @@ class TestCapture(BaseTest):
                     "timestamp": 1234567890,
                 },
                 {"type": 2, "data": {"lots": "of data"}, "$window_id": "the window id", "timestamp": 1234567890},
-            ]
+            ],
+            query_params="ver=1.2.3",
         )
+
         assert response.status_code == 200
 
-        expected_data = self._make_processed_recording_event(
+        expected_data = make_processed_recording_event(
             snapshot_bytes=0,
             event_data=[
                 {
@@ -478,7 +514,17 @@ class TestCapture(BaseTest):
                 },
                 {
                     "type": 5,
-                    "data": {"tag": "Message too large"},
+                    "data": {
+                        "tag": "Message too large",
+                        "payload": {
+                            "error": "[Error 10] MessageSizeTooLargeError: Message size too large",
+                            "error_message": "MESSAGE_SIZE_TOO_LARGE",
+                            "kafka_size": None,  # none here because we're not really throwing MessageSizeTooLargeError
+                            "lib_version": "1.2.3",
+                            "posthog_calculation": 425,
+                            "size_difference": "unknown",
+                        },
+                    },
                     "timestamp": 1234567890,
                     "$window_id": "the window id",
                 },
@@ -1901,7 +1947,7 @@ class TestCapture(BaseTest):
             self._send_august_2023_version_session_recording_event(event_data=None)
 
             session_recording_producer_singleton_mock.assert_called_with(
-                compression_type=None,
+                compression_type="gzip",
                 kafka_hosts=[
                     "another-server:9092",
                     "a-fourth.server:9092",
@@ -1910,7 +1956,7 @@ class TestCapture(BaseTest):
                 max_request_size=1234,
             )
 
-    @patch("posthog.api.capture.sessionRecordingKafkaProducer")
+    @patch("posthog.api.capture.session_recording_kafka_producer")
     @patch("posthog.api.capture.KafkaProducer")
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_can_redirect_session_recordings_to_alternative_kafka(
@@ -1927,7 +1973,7 @@ class TestCapture(BaseTest):
             ],
         ):
             default_kafka_producer_mock.return_value = KafkaProducer()
-            session_recording_producer_factory_mock.return_value = sessionRecordingKafkaProducer()
+            session_recording_producer_factory_mock.return_value = session_recording_kafka_producer()
 
             session_id = "test_can_redirect_session_recordings_to_alternative_kafka"
             # just a single thing to send (it should be an rrweb event but capture doesn't validate that)
@@ -1943,6 +1989,37 @@ class TestCapture(BaseTest):
             data_sent_to_recording_kafka = json.loads(call_one["data"]["data"])
             assert data_sent_to_recording_kafka["event"] == "$snapshot_items"
             assert len(data_sent_to_recording_kafka["properties"]["$snapshot_items"]) == 1
+
+    @patch("posthog.api.capture.session_recording_kafka_producer")
+    @patch("posthog.api.capture.KafkaProducer")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_can_compress_messages_before_kafka(
+        self,
+        kafka_produce: MagicMock,
+        _default_kafka_producer_mock: MagicMock,
+        session_recording_producer_factory_mock: MagicMock,
+    ) -> None:
+        with self.settings(
+            KAFKA_HOSTS=["first.server:9092", "second.server:9092"],
+            SESSION_RECORDING_KAFKA_HOSTS=[
+                "another-server:9092",
+                "a-fourth.server:9092",
+            ],
+            SESSION_RECORDING_KAFKA_COMPRESSION="gzip-in-capture",
+        ):
+            session_recording_producer_factory_mock.return_value = session_recording_kafka_producer()
+
+            session_id = "test_can_redirect_session_recordings_to_alternative_kafka"
+            self._send_august_2023_version_session_recording_event(event_data={}, session_id=session_id)
+
+            assert len(kafka_produce.call_args_list) == 1
+
+            call_one = kafka_produce.call_args_list[0][1]
+            assert call_one["key"] == session_id
+            assert call_one["value_serializer"] is not None
+
+            serialized = call_one["value_serializer"]({"i am": "a string"})
+            assert serialized.startswith(b"\x1f\x8b\x08\x00")
 
     def test_get_distinct_id_non_json_properties(self) -> None:
         with self.assertRaises(ValueError):
@@ -2171,3 +2248,65 @@ class TestCapture(BaseTest):
             kafka_produce.call_args_list[0][1]["topic"],
             KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
         )
+
+    def test_capture_replay_to_bucket_when_random_number_is_less_than_sample_rate(self):
+        sample_rate = 0.001
+        random_number = sample_rate / 2
+
+        with self.settings(
+            REPLAY_MESSAGE_TOO_LARGE_SAMPLE_RATE=sample_rate, REPLAY_MESSAGE_TOO_LARGE_SAMPLE_BUCKET=TEST_SAMPLES_BUCKET
+        ):
+            event = make_processed_recording_event(
+                session_id="abcdefgh",
+                snapshot_bytes=0,
+                event_data=[
+                    {
+                        "type": 4,
+                        "data": {"href": "https://keepme.io"},
+                        "$window_id": "the window id",
+                        "timestamp": 1234567890,
+                    },
+                    {
+                        "type": 5,
+                        "data": {"tag": "Message too large"},
+                        "timestamp": 1234567890,
+                        "$window_id": "the window id",
+                    },
+                ],
+            )
+            sample_replay_data_to_object_storage(event, random_number, "the-team-token", "1.2.3")
+            contents = object_storage.read("token-the-team-token-session_id-abcdefgh.json", bucket=TEST_SAMPLES_BUCKET)
+            assert contents == json.dumps(event)
+
+    @parameterized.expand(
+        [
+            ["does not write when random number is more than sample rate", 0.0001, 0.0002],
+            ["does not write when random number is less than sample rate but over max limit", 0.011, 0.001],
+        ]
+    )
+    def test_capture_replay_does_not_write_to_bucket(self, _name: str, sample_rate: float, random_number: float):
+        with self.settings(
+            REPLAY_MESSAGE_TOO_LARGE_SAMPLE_RATE=sample_rate, REPLAY_MESSAGE_TOO_LARGE_SAMPLE_BUCKET=TEST_SAMPLES_BUCKET
+        ):
+            event = make_processed_recording_event(
+                session_id="abcdefgh",
+                snapshot_bytes=0,
+                event_data=[
+                    {
+                        "type": 4,
+                        "data": {"href": "https://keepme.io"},
+                        "$window_id": "the window id",
+                        "timestamp": 1234567890,
+                    },
+                    {
+                        "type": 5,
+                        "data": {"tag": "Message too large"},
+                        "timestamp": 1234567890,
+                        "$window_id": "the window id",
+                    },
+                ],
+            )
+            sample_replay_data_to_object_storage(event, random_number, "another-team-token", "1.2.3")
+
+            with pytest.raises(ObjectStorageError):
+                object_storage.read("token-another-team-token-session_id-abcdefgh.json", bucket=TEST_SAMPLES_BUCKET)

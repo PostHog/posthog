@@ -278,19 +278,9 @@ describe('PersonState.update()', () => {
                 ])
             )
 
-            // old2 does have an override, because we are temporarily writing out unnecessary
-            // overrides while we backfill `posthog_personlessdistinctid`
+            // old2 has no override, because it wasn't in posthog_personlessdistinctid
             const chOverridesOld = await fetchOverridesForDistinctId('old2')
-            expect(chOverridesOld.length).toEqual(1)
-            expect(chOverridesOld).toEqual(
-                expect.arrayContaining([
-                    expect.objectContaining({
-                        distinct_id: 'old2',
-                        person_id: oldUserUuid,
-                        version: 1,
-                    }),
-                ])
-            )
+            expect(chOverridesOld.length).toEqual(0)
         })
 
         it('force_upgrade works', async () => {
@@ -585,6 +575,43 @@ describe('PersonState.update()', () => {
                     properties: { b: 4, c: 4, e: 4, toString: 1, null_byte: '\uFFFD' },
                     created_at: timestamp,
                     version: 1,
+                    is_identified: false,
+                })
+            )
+
+            expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
+
+            // verify Postgres persons
+            const persons = await fetchPostgresPersonsH()
+            expect(persons.length).toEqual(1)
+            expect(persons[0]).toEqual(person)
+        })
+
+        it.each(['$$heatmap', '$exception'])('does not update person properties for %s', async (event: string) => {
+            const originalPersonProperties = { b: 3, c: 4, toString: {} }
+
+            await hub.db.createPerson(timestamp, originalPersonProperties, {}, {}, teamId, null, false, newUserUuid, [
+                { distinctId: newUserDistinctId },
+            ])
+
+            const [person, kafkaAcks] = await personState({
+                event: event,
+                distinct_id: newUserDistinctId,
+                properties: {
+                    $set_once: { c: 3, e: 4 },
+                    $set: { b: 4, toString: 1, null_byte: '\u0000' },
+                },
+            }).updateProperties()
+            await hub.db.kafkaProducer.flush()
+            await kafkaAcks
+
+            expect(person).toEqual(
+                expect.objectContaining({
+                    id: expect.any(Number),
+                    uuid: newUserUuid,
+                    properties: originalPersonProperties,
+                    created_at: timestamp,
+                    version: 0,
                     is_identified: false,
                 })
             )

@@ -67,7 +67,7 @@ describe('Experiments', () => {
         cy.get('[data-attr="save-experiment"]').first().click()
     })
 
-    const createExperimentInNewUi = () => {
+    const createExperimentInNewUi = (): void => {
         cy.intercept('**/decide/*', (req) =>
             req.reply(
                 decideResponse({

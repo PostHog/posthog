@@ -8,21 +8,18 @@ import { Field, Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { SurprisedHog } from 'lib/components/hedgehogs'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { BillingCTAHero } from './BillingCTAHero'
-import { BillingHero } from './BillingHero'
 import { billingLogic } from './billingLogic'
 import { BillingProduct } from './BillingProduct'
 import { UnsubscribeCard } from './UnsubscribeCard'
@@ -46,7 +43,6 @@ export function Billing(): JSX.Element {
     const { reportBillingShown } = useActions(billingLogic)
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     if (preflight && !isCloudOrDev) {
         router.actions.push(urls.default())
@@ -124,15 +120,9 @@ export function Billing(): JSX.Element {
                     You are currently on a free trial until <b>{billing.free_trial_until.format('LL')}</b>
                 </LemonBanner>
             ) : null}
-            {!billing?.has_active_subscription && (
+            {!billing?.has_active_subscription && platformAndSupportProduct && (
                 <div className="mb-6">
-                    {featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' ? (
-                        platformAndSupportProduct ? (
-                            <BillingCTAHero product={platformAndSupportProduct} />
-                        ) : null
-                    ) : (
-                        <BillingHero />
-                    )}
+                    <BillingCTAHero product={platformAndSupportProduct} />
                 </div>
             )}
 
@@ -220,7 +210,9 @@ export function Billing(): JSX.Element {
                                 htmlType="submit"
                                 to={billing.stripe_portal_url}
                                 disableClientSideRouting
+                                targetBlank
                                 center
+                                data-attr="manage-billing"
                             >
                                 Manage card details and view past invoices
                             </LemonButton>
@@ -228,7 +220,7 @@ export function Billing(): JSX.Element {
                     )}
                 </div>
                 {!isOnboarding && !isAnnualPlan && over20kAnnual && (
-                    <div className="bg-glass-bg-3000 flex flex-row gap-2 relative pl-6 p-4 border rounded min-w-120 w-fit">
+                    <div className="bg-[var(--glass-bg-3000)] flex flex-row gap-2 relative pl-6 p-4 border rounded min-w-120 w-fit">
                         <div className="flex flex-col pl-2 ">
                             <h3>You've unlocked enterprise-grade perks:</h3>
                             <ul className="pl-4">
@@ -290,9 +282,7 @@ export function Billing(): JSX.Element {
                     </div>
                 ))}
             <div>
-                {featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' &&
-                billing?.subscription_level == 'paid' &&
-                !!platformAndSupportProduct ? (
+                {billing?.subscription_level == 'paid' && !!platformAndSupportProduct ? (
                     <>
                         <LemonDivider />
                         <UnsubscribeCard product={platformAndSupportProduct} />

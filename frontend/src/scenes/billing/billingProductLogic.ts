@@ -1,7 +1,6 @@
 import { LemonDialog } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'posthog-js'
 import React from 'react'
@@ -288,52 +287,19 @@ export const billingProductLogic = kea<billingProductLogicType>([
         },
         setScrollToProductKey: ({ scrollToProductKey }) => {
             if (scrollToProductKey && scrollToProductKey === props.product.type) {
-                const { currentPlan } = values.currentAndUpgradePlans
-
-                if (currentPlan?.initial_billing_limit) {
-                    actions.setProductSpecificAlert({
-                        status: 'warning',
-                        title: 'Billing Limit Automatically Applied',
-                        pathName: '/organization/billing',
-                        dismissKey: `auto-apply-billing-limit-${props.product.type}`,
-                        message: `To protect your costs and ours, we've automatically applied a $${currentPlan?.initial_billing_limit} billing limit for ${props.product.name}.`,
-                        action: {
-                            onClick: () => {
-                                actions.setIsEditingBillingLimit(true)
-                                setTimeout(() => {
-                                    if (props.billingLimitInputRef?.current) {
-                                        props.billingLimitInputRef?.current.focus()
-                                        props.billingLimitInputRef?.current.scrollIntoView({
-                                            behavior: 'smooth',
-                                            block: 'nearest',
-                                        })
-                                    }
-                                }, 0)
-                            },
-                            children: 'Update billing limit',
-                        },
-                    })
-                } else {
-                    setTimeout(() => {
-                        if (props.productRef?.current) {
-                            props.productRef?.current.scrollIntoView({
-                                behavior: 'smooth',
-                                block: 'center',
-                            })
-                        }
-                    }, 0)
-                }
+                setTimeout(() => {
+                    if (props.productRef?.current) {
+                        props.productRef?.current.scrollIntoView({
+                            behavior: 'smooth',
+                            block: 'center',
+                        })
+                    }
+                }, 0)
             }
         },
         initiateProductUpgrade: ({ plan, product, redirectPath }) => {
             actions.setBillingProductLoading(product.type)
-            let products = `${product.type}:${plan?.plan_key}`
-            if (
-                values.featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' &&
-                values.billing?.subscription_level == 'free'
-            ) {
-                products += ',all_products:'
-            }
+            const products = `${product.type}:${plan?.plan_key}`
             actions.handleProductUpgrade(products, redirectPath)
         },
         handleProductUpgrade: ({ products, redirectPath }) => {
