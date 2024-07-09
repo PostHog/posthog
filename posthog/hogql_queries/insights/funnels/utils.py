@@ -16,7 +16,7 @@ def get_funnel_order_class(funnelsFilter: FunnelsFilter):
     if funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED:
         return FunnelUnordered
     elif funnelsFilter.funnelOrderType == StepOrderValue.STRICT:
-        return FunnelStrict
+        return Funnel #FunnelStrict
     #return Funnel
     return FunnelUDF
 

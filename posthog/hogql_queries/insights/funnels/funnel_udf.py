@@ -1,6 +1,9 @@
 from datetime import datetime
 from itertools import groupby
 from typing import Any, Optional
+
+from rest_framework.exceptions import ValidationError
+
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr, parse_select
@@ -14,6 +17,7 @@ from posthog.models.cohort.cohort import Cohort
 from posthog.queries.funnels.funnel_event_query import FunnelEventQuery
 from posthog.queries.util import correct_result_for_sampling, get_earliest_timestamp, get_interval_func_ch
 from posthog.schema import BreakdownType, BreakdownAttributionType
+from posthog.types import EntityNode, ExclusionEntityNode
 from posthog.utils import DATERANGE_MAP
 
 TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -38,13 +42,15 @@ class FunnelUDF(FunnelBase):
 
 
     def get_query(self) -> ast.SelectQuery:
-        inner_event_query = self._get_inner_event_query(entity_name='events')
+        inner_event_query = self._get_new_inner_event_query(entity_name='events')
 
         default_breakdown_selector = "[]" if self._query_has_array_breakdown() else "''"
-        #breakdown_selector = "prop[1]" if self._query_has_array_breakdown() else "prop"
 
         # stores the steps as an array of integers from 1 to max_steps
         # so if the event could be step_0, step_1 or step_4, it looks like [1,2,0,0,5]
+
+        # Exclusions should be stored as a range (start, end) and if they occur, we need to clear
+        # progress at those
         steps = ",".join([f"{i + 1} * step_{i}" for i in range(self.context.max_steps)])
 
         fn = 'aggregate_funnel_array' if self._query_has_array_breakdown() else 'aggregate_funnel'
@@ -198,6 +204,98 @@ class FunnelUDF(FunnelBase):
         LIMIT 100 SETTINGS readonly=2, max_execution_time=600, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=2000000, max_expanded_ast_elements=2000000, max_query_size=1048576, max_bytes_before_external_group_by=23622320128, allow_experimental_analyzer=1
         """
 
+    """
+    def _get_inner_event_query(
+        self,
+        entities: list[EntityNode] | None = None,
+        entity_name="events",
+        skip_entity_filter=False,
+        skip_step_filter=False,
+    ) -> ast.SelectQuery:
+        query, funnelsFilter, breakdown, breakdownType, breakdownAttributionType = (
+            self.context.query,
+            self.context.funnelsFilter,
+            self.context.breakdown,
+            self.context.breakdownType,
+            self.context.breakdownAttributionType,
+        )
+        entities_to_use = entities or query.series
+
+        extra_fields: list[str] = []
+
+        for prop in self.context.includeProperties:
+            extra_fields.append(prop)
+
+        funnel_events_query = FunnelEventQuery(
+            context=self.context,
+            extra_fields=[*self._extra_event_fields, *extra_fields],
+            extra_event_properties=self._extra_event_properties,
+        ).to_query(
+            skip_entity_filter=skip_entity_filter,
+        )
+        # funnel_events_query, params = FunnelEventQuery(
+        #     extra_fields=[*self._extra_event_fields, *extra_fields],
+        #     extra_event_properties=self._extra_event_properties,
+        # ).get_query(entities_to_use, entity_name, skip_entity_filter=skip_entity_filter)
+
+        all_step_cols: list[ast.Expr] = []
+        all_exclusions = []
+        for index, entity in enumerate(entities_to_use):
+            step_cols = self._get_step_col(entity, index, entity_name)
+            all_step_cols.extend(step_cols)
+            all_exclusions.append([])
+
+        for exclusion_id, excluded_entity in enumerate(funnelsFilter.exclusions or []):
+            for i in range(excluded_entity.funnelFromStep + 1, excluded_entity.funnelToStep + 1):
+                all_exclusions[i].append(excluded_entity)
+
+        for index, exclusions in enumerate(all_exclusions):
+            if exclusions:
+                exclusion_cols = self._get_exclusions_col(exclusions, index, entity_name)
+                # every exclusion entity has the form: exclusion_<id>_step_i & timestamp exclusion_<id>_latest_i
+                # where i is the starting step for exclusion on that entity
+                all_step_cols.extend(exclusion_cols)
+
+        breakdown_select_prop = self._get_breakdown_select_prop()
+
+        if breakdown_select_prop:
+            all_step_cols.extend(breakdown_select_prop)
+
+        funnel_events_query.select = [*funnel_events_query.select, *all_step_cols]
+
+        if breakdown and breakdownType == BreakdownType.COHORT:
+            if funnel_events_query.select_from is None:
+                raise ValidationError("Apologies, there was an error adding cohort breakdowns to the query.")
+            funnel_events_query.select_from.next_join = self._get_cohort_breakdown_join()
+
+        if not skip_step_filter:
+            assert isinstance(funnel_events_query.where, ast.Expr)
+            steps_conditions = self._get_steps_conditions(length=len(entities_to_use))
+            funnel_events_query.where = ast.And(exprs=[funnel_events_query.where, steps_conditions])
+
+        if breakdown and breakdownAttributionType != BreakdownAttributionType.ALL_EVENTS:
+            # ALL_EVENTS attribution is the old default, which doesn't need the subquery
+            return self._add_breakdown_attribution_subquery(funnel_events_query)
+
+        return funnel_events_query
+    """
+
+
+
+    def _get_exclusions_col(
+        self,
+        exclusions: list[ExclusionEntityNode],
+        index: int,
+        entity_name: str,
+    ) -> list[ast.Expr]:
+        # step prefix is used to distinguish actual steps, and exclusion steps
+        # without the prefix, we get the same parameter binding for both, which borks things up
+        step_cols: list[ast.Expr] = []
+        conditions = [self._build_step_query(exclusion, index, entity_name, "") for exclusion in exclusions]
+        step_cols.append(
+            parse_expr(f"if({{condition}}, 1, 0) as exclusion_{index}", placeholders={"condition": ast.Or(exprs=conditions)})
+        )
+        return step_cols
 
 
 
