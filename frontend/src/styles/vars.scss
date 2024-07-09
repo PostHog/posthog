@@ -139,8 +139,6 @@ $_lifecycle_dormant: map.get($colors, 'danger');
 // root variables are defined as a mixin here because
 // the toolbar needs them attached to :host not :root
 @mixin root-variables {
-    // TODO: Remove the primary-bg...
-    --primary-bg-hover: var(--primary-highlight);
     --bg-bridge: #ebece8;
 
     // Non-color vars

@@ -1,7 +1,7 @@
 import './FeatureFlag.scss'
 
 import { IconCopy, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
+import { LemonInput, LemonSelect, LemonSnack, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -106,7 +106,7 @@ export function FeatureFlagReleaseConditions({
                 <div className="mb-4 border rounded p-4 bg-bg-light">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center">
-                            <LemonTag className="mr-2">Set {index + 1}</LemonTag>
+                            <LemonSnack className="mr-2">Set {index + 1}</LemonSnack>
                             <div>
                                 {group.properties?.length ? (
                                     <>
@@ -169,7 +169,7 @@ export function FeatureFlagReleaseConditions({
                                     ) : (
                                         <LemonButton icon={<span className="text-sm">&</span>} size="small" />
                                     )}
-                                    <LemonTag>{property.type === 'cohort' ? 'Cohort' : property.key} </LemonTag>
+                                    <LemonSnack>{property.type === 'cohort' ? 'Cohort' : property.key} </LemonSnack>
                                     {isPropertyFilterWithOperator(property) ? (
                                         <span>{allOperatorsToHumanName(property.operator)} </span>
                                     ) : null}
@@ -188,7 +188,7 @@ export function FeatureFlagReleaseConditions({
                                     ) : (
                                         [...(Array.isArray(property.value) ? property.value : [property.value])].map(
                                             (val, idx) => (
-                                                <LemonTag key={idx}>
+                                                <LemonSnack key={idx}>
                                                     {val}
                                                     {isPropertyFilterWithOperator(property) &&
                                                     ['is_date_before', 'is_date_after'].includes(property.operator) &&
@@ -205,7 +205,7 @@ export function FeatureFlagReleaseConditions({
                                                               true
                                                           )} )`
                                                         : ''}
-                                                </LemonTag>
+                                                </LemonSnack>
                                             )
                                         )
                                     )}
@@ -384,7 +384,7 @@ export function FeatureFlagReleaseConditions({
                                 {group.properties?.length ? (
                                     <>
                                         Match <b>{aggregationTargetName}</b> against value set on{' '}
-                                        <LemonTag>{'$feature_enrollment/' + featureFlagKey}</LemonTag>
+                                        <LemonSnack>{'$feature_enrollment/' + featureFlagKey}</LemonSnack>
                                     </>
                                 ) : (
                                     <>

@@ -1,4 +1,4 @@
-import { LemonInput, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonInput, LemonSelect, LemonSnack, LemonTable, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -98,7 +98,7 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
                     <div>
                         {featureFlag.active ? <>{featureFlagMatchMapping[featureFlag.evaluation.reason]}</> : '--'}
 
-                        {matchesSet && <LemonTag>Set {(featureFlag.evaluation.condition_index ?? 0) + 1}</LemonTag>}
+                        {matchesSet && <LemonSnack>Set {(featureFlag.evaluation.condition_index ?? 0) + 1}</LemonSnack>}
                     </div>
                 )
             },
