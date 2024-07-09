@@ -576,7 +576,20 @@ export function Experiment(): JSX.Element {
                                                 <LemonButton
                                                     type="secondary"
                                                     status="danger"
-                                                    onClick={() => endExperiment()}
+                                                    onClick={() => {
+                                                        LemonDialog.open({
+                                                            title: 'Stop Experiment',
+                                                            description:
+                                                                'Are you sure you want to stop this experiment? This action will end data collection unless the experiment is restarted.',
+                                                            primaryButton: {
+                                                                children: 'Confirm',
+                                                                onClick: () => endExperiment(),
+                                                            },
+                                                            secondaryButton: {
+                                                                children: 'Cancel',
+                                                            },
+                                                        })
+                                                    }}
                                                 >
                                                     Stop
                                                 </LemonButton>
@@ -587,7 +600,20 @@ export function Experiment(): JSX.Element {
                                                     <LemonButton
                                                         type="secondary"
                                                         status="danger"
-                                                        onClick={() => archiveExperiment()}
+                                                        onClick={() => {
+                                                            LemonDialog.open({
+                                                                title: 'Archive Experiment',
+                                                                description:
+                                                                    'Are you sure you want to archive this experiment? This action will move the experiment to the archived tab, where it can be restored at any time.',
+                                                                primaryButton: {
+                                                                    children: 'Confirm',
+                                                                    onClick: () => archiveExperiment(),
+                                                                },
+                                                                secondaryButton: {
+                                                                    children: 'Cancel',
+                                                                },
+                                                            })
+                                                        }}
                                                     >
                                                         <b>Archive</b>
                                                     </LemonButton>

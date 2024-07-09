@@ -1,4 +1,4 @@
-import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonDialog, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ExperimentsHog } from 'lib/components/hedgehogs'
@@ -120,7 +120,20 @@ export function Experiments(): JSX.Element {
                                     experiment?.end_date &&
                                     dayjs().isSameOrAfter(dayjs(experiment.end_date), 'day') && (
                                         <LemonButton
-                                            onClick={() => archiveExperiment(experiment.id as number)}
+                                            onClick={() => {
+                                                LemonDialog.open({
+                                                    title: 'Archive Experiment',
+                                                    description:
+                                                        'Are you sure you want to archive this experiment? This action can be undone at any time.',
+                                                    primaryButton: {
+                                                        children: 'Confirm',
+                                                        onClick: () => archiveExperiment(experiment.id as number),
+                                                    },
+                                                    secondaryButton: {
+                                                        children: 'Cancel',
+                                                    },
+                                                })
+                                            }}
                                             data-attr={`experiment-${experiment.id}-dropdown-archive`}
                                             fullWidth
                                         >
@@ -130,7 +143,20 @@ export function Experiments(): JSX.Element {
                                 <LemonDivider />
                                 <LemonButton
                                     status="danger"
-                                    onClick={() => deleteExperiment(experiment.id as number)}
+                                    onClick={() => {
+                                        LemonDialog.open({
+                                            title: 'Delete Experiment',
+                                            description:
+                                                'Are you sure you want to delete this experiment? This action cannot be undone.',
+                                            primaryButton: {
+                                                children: 'Confirm',
+                                                onClick: () => deleteExperiment(experiment.id as number),
+                                            },
+                                            secondaryButton: {
+                                                children: 'Cancel',
+                                            },
+                                        })
+                                    }}
                                     data-attr={`experiment-${experiment.id}-dropdown-remove`}
                                     fullWidth
                                 >
