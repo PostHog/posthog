@@ -82,7 +82,16 @@ def parse_user_aggregation_with_conversion_window_and_breakdown(num_steps, conve
     def breakdown_to_single_quoted_string(breakdown):
         if isinstance(breakdown, str):
             return "'" + breakdown.replace("'", r"\'") + "'"
-        return "['" + "','".join([x.replace("'", r"\'") for x in breakdown]) + "']"
+        if isinstance(breakdown, int):
+            return breakdown
+        if isinstance(breakdown, list):
+            if not breakdown:
+                return "[]"
+            if isinstance(breakdown[0], str):
+                return "['" + "','".join([x.replace("'", r"\'") for x in breakdown]) + "']"
+            if isinstance(breakdown[0], int):
+                return str(breakdown)
+        raise Exception()
 
     # This is the timestamp, breakdown value, and list of steps that it matches for each event
     for timestamp, breakdown, steps in timestamp_and_steps:

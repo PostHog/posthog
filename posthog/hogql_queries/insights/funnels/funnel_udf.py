@@ -57,7 +57,15 @@ class FunnelUDF(FunnelBase):
         if getattr(self.context.funnelsFilter, 'exclusions', None):
             exclusions = "".join([f",-{i + 1} * exclusion_{i}" for i in range(1, self.context.max_steps)])
 
-        fn = 'aggregate_funnel_array' if self._query_has_array_breakdown() else 'aggregate_funnel'
+        if self.context.breakdownType == BreakdownType.COHORT:
+            fn = 'aggregate_funnel_cohort'
+            breakdown_prop = ", prop"
+        elif self._query_has_array_breakdown():
+            fn = 'aggregate_funnel_array'
+            breakdown_prop = ""
+        else:
+            fn = 'aggregate_funnel'
+            breakdown_prop = ""
 
         prop_selector = 'prop' if self.context.breakdown else default_breakdown_selector
 
@@ -75,7 +83,7 @@ class FunnelUDF(FunnelBase):
                 af_tuple.2 as breakdown,
                 af_tuple.3 as timings
             FROM {{inner_event_query}}
-            GROUP BY aggregation_target
+            GROUP BY aggregation_target{breakdown_prop}
         """, {'inner_event_query': inner_event_query})
 
         step_results = ",".join([f"countIf(ifNull(equals(af, {i}), 0)) AS step_{i+1}" for i in range(self.context.max_steps)])
@@ -87,12 +95,22 @@ class FunnelUDF(FunnelBase):
 
         other_aggregation = "['Other']" if self._query_has_array_breakdown() else "'Other'"
 
+
+        use_breakdown_limit = self.context.breakdown and self.context.breakdownType in [
+            BreakdownType.PERSON,
+            BreakdownType.EVENT,
+            BreakdownType.GROUP,
+        ]
+
+        final_prop = f"if(row_number < {self.get_breakdown_limit()}, breakdown, {other_aggregation})" if use_breakdown_limit else 'breakdown'
+
+
         s = parse_select(f"""
             SELECT
                 {step_results},
                 {conversion_time_arrays},
                 rowNumberInBlock() as row_number,
-                if(row_number < {self.get_breakdown_limit()}, breakdown, {other_aggregation}) as final_prop
+                {final_prop} as final_prop
             FROM 
                 {{inner_select}}
             GROUP BY breakdown
