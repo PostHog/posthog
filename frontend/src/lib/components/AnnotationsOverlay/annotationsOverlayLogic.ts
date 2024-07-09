@@ -40,7 +40,7 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
     connect(() => ({
         values: [
             insightLogic,
-            ['insightId'],
+            ['insightId', 'dashboardId'],
             insightVizDataLogic,
             ['interval'],
             annotationsModel,
@@ -129,11 +129,11 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
             },
         ],
         relevantAnnotations: [
-            (s, p) => [s.annotations, s.dateRange, p.insightNumericId],
-            (annotations, dateRange, insightNumericId) => {
+            (s, p) => [s.annotations, s.dateRange, p.insightNumericId, s.dashboardId],
+            (annotations, dateRange, insightNumericId, dashboardNumericId) => {
                 // This assumes that there are no more annotations in the project than AnnotationsViewSet
                 // pagination class's default_limit of 100. As of June 2023, this is not true on Cloud US,
-                // where 3 projects exceed this limit. To accomodate those, we should always make a request for the
+                // where 3 projects exceed this limit. To accommodate those, we should always make a request for the
                 // date range of the graph, and not rely on the annotations in the store.
                 return (
                     dateRange
@@ -141,6 +141,8 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                               (annotation) =>
                                   (annotation.scope !== AnnotationScope.Insight ||
                                       annotation.dashboard_item === insightNumericId) &&
+                                  (annotation.scope !== AnnotationScope.Dashboard ||
+                                      annotation.dashboard === dashboardNumericId) &&
                                   annotation.date_marker &&
                                   annotation.date_marker >= dateRange[0] &&
                                   annotation.date_marker < dateRange[1]

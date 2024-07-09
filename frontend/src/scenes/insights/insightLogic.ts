@@ -326,6 +326,7 @@ export const insightLogic = kea<insightLogicType>([
             () => [router.selectors.location],
             ({ pathname }) => /^.*\/experiments\/\d+$/.test(pathname),
         ],
+        dashboardId: [() => [(_, props) => props], (insight) => insight?.dashboardId || null],
         derivedName: [
             (s) => [s.queryBasedInsight, s.aggregationLabel, s.cohortsById, s.mathDefinitions],
             (insight, aggregationLabel, cohortsById, mathDefinitions) =>

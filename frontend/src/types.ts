@@ -1981,6 +1981,7 @@ export interface BatchExportLogEntry {
 
 export enum AnnotationScope {
     Insight = 'dashboard_item',
+    Dashboard = 'dashboard',
     Project = 'project',
     Organization = 'organization',
 }
@@ -1996,6 +1997,7 @@ export interface RawAnnotationType {
     dashboard_item?: number | null
     insight_short_id?: InsightModel['short_id'] | null
     insight_name?: InsightModel['name'] | null
+    dashboard?: DashboardBasicType['id'] | null
     deleted?: boolean
     creation_type?: 'USR' | 'GIT'
 }

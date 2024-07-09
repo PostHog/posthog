@@ -113,6 +113,14 @@ export function AnnotationModal({
                                         !isInsightScoped && !onSavedInsight && 'You need to save the insight first.',
                                 },
                                 {
+                                    value: AnnotationScope.Dashboard,
+                                    label: annotationScopeToName[AnnotationScope.Dashboard],
+                                    sideIcon: isInsightScoped ? <IconWarning /> : undefined,
+                                    tooltip: isInsightScoped
+                                        ? "After saving, it won't be possible to make the annotation insight-scoped again."
+                                        : undefined,
+                                },
+                                {
                                     value: AnnotationScope.Project,
                                     label: annotationScopeToName[AnnotationScope.Project],
                                     sideIcon: isInsightScoped ? <IconWarning /> : undefined,
