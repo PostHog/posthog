@@ -24,7 +24,7 @@ export function FrontendApps(): JSX.Element {
                 productName="Site apps"
                 thingName="site app"
                 productKey={ProductKey.SITE_APPS}
-                description="Site apps allow you to ..."
+                description="Site apps allow you to add custom functionality to your website using PostHog."
                 docsURL="https://posthog.com/docs/apps/pineapple-mode"
                 actionElementOverride={<NewButton stage={PipelineStage.SiteApp} />}
                 isEmpty={shouldShowEmptyState}
