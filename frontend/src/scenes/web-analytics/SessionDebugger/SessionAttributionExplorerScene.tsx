@@ -103,7 +103,7 @@ const queryContext: QueryContext = {
             title: 'UTM campaign',
             render: ExpandableDataCell,
         },
-        has_ad_id: {
+        ad_ids: {
             title: 'Ad IDs',
             render: ExpandableDataCell,
         },
@@ -112,6 +112,8 @@ const queryContext: QueryContext = {
             render: ExpandableDataCell,
         },
     },
+    emptyStateHeading: 'There are no matching sessions for this query',
+    emptyStateDetail: 'Try changing the date range, or changing the property filters.',
 }
 
 export function SessionAttributionExplorer(): JSX.Element {
@@ -164,12 +166,12 @@ export function SessionAttributionExplorer(): JSX.Element {
                 query={query}
                 setQuery={(query) => {
                     const source = query.source as HogQLQuery
-                    if (source.filters?.properties && isSessionPropertyFilters(source.filters.properties)) {
+                    if (source.filters && isSessionPropertyFilters(source.filters.properties)) {
                         setProperties(source.filters.properties)
+                    } else {
+                        setProperties([])
                     }
-                    if (source.filters?.dateRange) {
-                        setDateRange(source.filters.dateRange)
-                    }
+                    setDateRange(source.filters?.dateRange ?? null)
                 }}
             />
         </div>
