@@ -515,6 +515,7 @@ export class SessionRecordingIngester {
             callEachBatchWhenEmpty: true, // Useful as we will still want to account for flushing sessions
             debug: this.config.SESSION_RECORDING_KAFKA_DEBUG,
             kafkaStatisticIntervalMs: this.config.SESSION_RECORDING_KAFKA_CONSUMPTION_STATISTICS_EVENT_INTERVAL_MS,
+            maxHealthHeartbeatIntervalMs: KAFKA_CONSUMER_SESSION_TIMEOUT_MS * 2, // we don't want to proactively declare healthy - we'll let the broker do it
         })
 
         this.totalNumPartitions = (await getPartitionsForTopic(this.connectedBatchConsumer, this.topic)).length

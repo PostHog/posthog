@@ -74,6 +74,7 @@ export const startBatchConsumer = async ({
     queuedMaxMessagesKBytes = 102400,
     kafkaStatisticIntervalMs = 0,
     fetchMinBytes,
+    maxHealthHeartbeatIntervalMs = 60_000,
 }: {
     connectionConfig: GlobalConfig
     groupId: string
@@ -102,6 +103,7 @@ export const startBatchConsumer = async ({
      * see https://github.com/confluentinc/librdkafka/blob/master/STATISTICS.md
      */
     kafkaStatisticIntervalMs?: number
+    maxHealthHeartbeatIntervalMs?: number
 }): Promise<BatchConsumer> => {
     // Starts consuming from `topic` in batches of `fetchBatchSize` messages,
     // with consumer group id `groupId`. We use `connectionConfig` to connect
@@ -329,7 +331,7 @@ export const startBatchConsumer = async ({
     const isHealthy = () => {
         // We define health as the last consumer loop having run in the last
         // minute. This might not be bullet-proof, let's see.
-        return Date.now() - lastHeartbeatTime < 60000
+        return Date.now() - lastHeartbeatTime < maxHealthHeartbeatIntervalMs
     }
 
     const stop = async () => {
