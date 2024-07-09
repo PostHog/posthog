@@ -428,6 +428,7 @@ describe('HogQL Bytecode', () => {
                 callStack: [],
                 declaredFunctions: {},
                 ip: 8,
+                maxMemUsed: 16,
                 ops: 3,
                 stack: [4.2],
                 syncDuration: 0,

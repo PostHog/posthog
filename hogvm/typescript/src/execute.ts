@@ -161,7 +161,6 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
     }
 
     for (; ip < bytecode.length; ip++) {
-        // console.log('Mem used: ', memUsed)
         ops += 1
         if ((ops & 127) === 0) {
             checkTimeout()
@@ -194,7 +193,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 temp = next()
                 temp2 = true
                 for (let i = 0; i < temp; i++) {
-                    temp2 = temp2 && popStack()
+                    temp2 = temp2 && !!popStack()
                 }
                 pushStack(temp2)
                 break
@@ -202,7 +201,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 temp = next()
                 temp2 = false
                 for (let i = 0; i < temp; i++) {
-                    temp2 = temp2 || popStack()
+                    temp2 = temp2 || !!popStack()
                 }
                 pushStack(temp2)
                 break
