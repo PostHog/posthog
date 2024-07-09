@@ -3,7 +3,7 @@ import logging
 
 import structlog
 from django.core.management.base import BaseCommand
-from django.db import transaction
+from django.db.models import F
 from dateutil.parser import isoparse
 
 from posthog.kafka_client.client import KafkaProducer
@@ -50,10 +50,7 @@ def run(options):
     for person in persons:
         logger.info(f'Updating person {person.uuid} created_at to {new_date.strftime("%Y-%m-%d %H:%M:%S.%f")}')
         if live_run:
-            with transaction.atomic():
-                person.created_at = new_date
-                person.version += 1
-                person.save()
+            Person.objects.filter(pk=person.id).update(version=F("version") + 1, created_at=new_date)
             create_person(
                 uuid=str(person.uuid),
                 team_id=team_id,
