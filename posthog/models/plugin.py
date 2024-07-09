@@ -154,11 +154,13 @@ class Plugin(models.Model):
             "inline",
         )  # Code checked into plugin_server, url starts with "inline:"
 
+    # DEPRECATED: plugin-server will own all plugin code, org relations don't make sense
     organization: models.ForeignKey = models.ForeignKey(
         "posthog.Organization",
         on_delete=models.CASCADE,
         related_name="plugins",
         related_query_name="plugin",
+        null=True,
     )
     plugin_type: models.CharField = models.CharField(
         max_length=200, null=True, blank=True, choices=PluginType.choices, default=None
@@ -171,7 +173,7 @@ class Plugin(models.Model):
 
     name: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     description: models.TextField = models.TextField(null=True, blank=True)
-    url: models.CharField = models.CharField(max_length=800, null=True, blank=True)
+    url: models.CharField = models.CharField(max_length=800, null=True, blank=True, unique=True)
     icon: models.CharField = models.CharField(max_length=800, null=True, blank=True)
     # Describe the fields to ask in the interface; store answers in PluginConfig->config
     # - config_schema = { [fieldKey]: { name: 'api key', type: 'string', default: '', required: true }  }

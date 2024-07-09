@@ -8,6 +8,7 @@ import SnappyCodec from 'kafkajs-snappy'
 import * as schedule from 'node-schedule'
 import { Counter } from 'prom-client'
 import v8Profiler from 'v8-profiler-next'
+import { syncInlinePlugins } from 'worker/vm/inline/inline'
 
 import { getPluginServerCapabilities } from '../capabilities'
 import { CdpApi } from '../cdp/cdp-api'
@@ -437,6 +438,13 @@ export async function startPluginsServer(
             stopWebhooksHandlerConsumer = webhooksStopConsumer
 
             healthChecks['webhooks-ingestion'] = isWebhooksIngestionHealthy
+        }
+
+        if (capabilities.syncInlinePlugins) {
+            ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, capabilities)
+            serverInstance = serverInstance ? serverInstance : { hub }
+
+            await syncInlinePlugins(hub)
         }
 
         if (hub && serverInstance) {
