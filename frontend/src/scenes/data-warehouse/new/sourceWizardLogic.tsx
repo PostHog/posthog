@@ -498,7 +498,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
         ],
     }),
-    selectors(({ props }) => ({
+    selectors({
         isManualLinkingSelected: [(s) => [s.selectedConnector], (selectedConnector): boolean => !selectedConnector],
         canGoBack: [
             (s) => [s.currentStep],
@@ -531,8 +531,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
         ],
         nextButtonText: [
-            (s) => [s.currentStep, s.isManualLinkingSelected],
-            (currentStep, isManualLinkingSelected): string => {
+            (s, p) => [s.currentStep, s.isManualLinkingSelected, p.onComplete],
+            (currentStep, isManualLinkingSelected, onComplete): string => {
                 if (currentStep === 3 && isManualLinkingSelected) {
                     return 'Link'
                 }
@@ -542,7 +542,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 }
 
                 if (currentStep === 4) {
-                    if (props.onComplete) {
+                    if (onComplete) {
                         return 'Next'
                     }
                     return 'Return to settings'
@@ -650,8 +650,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
         ],
         // determines if the wizard is wrapped in another component
-        isWrapped: [() => [], () => !!props.onComplete],
-    })),
+        isWrapped: [(_, p) => [p.onComplete], (onComplete) => !!onComplete],
+    }),
     listeners(({ actions, values, props }) => ({
         onBack: () => {
             if (values.currentStep <= 1) {
