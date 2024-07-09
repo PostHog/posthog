@@ -449,11 +449,8 @@ class FunnelBase(ABC):
                 all_exclusions[i].append(excluded_entity)
 
         for index, exclusions in enumerate(all_exclusions):
-            if exclusions:
-                exclusion_cols = self._get_exclusions_col(exclusions, index, entity_name)
-                # every exclusion entity has the form: exclusion_<id>_step_i & timestamp exclusion_<id>_latest_i
-                # where i is the starting step for exclusion on that entity
-                all_step_cols.extend(exclusion_cols)
+            exclusion_col_expr = self._get_exclusions_col(exclusions, index, entity_name)
+            all_step_cols.append(exclusion_col_expr)
 
         breakdown_select_prop = self._get_breakdown_select_prop()
 
@@ -477,6 +474,19 @@ class FunnelBase(ABC):
             return self._add_breakdown_attribution_subquery(funnel_events_query)
 
         return funnel_events_query
+
+    def _get_exclusions_col(
+        self,
+        exclusions: list[ExclusionEntityNode],
+        index: int,
+        entity_name: str,
+    ) -> ast.Expr:
+
+        if not exclusions:
+            return parse_expr(f"0 as exclusion_{index}")
+
+        conditions = [self._build_step_query(exclusion, index, entity_name, "") for exclusion in exclusions]
+        return parse_expr(f"if({{condition}}, 1, 0) as exclusion_{index}", placeholders={"condition": ast.Or(exprs=conditions)})
 
     def _get_cohort_breakdown_join(self) -> ast.JoinExpr:
         breakdown = self.context.breakdown

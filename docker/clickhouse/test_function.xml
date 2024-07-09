@@ -16,7 +16,7 @@
             <name>breakdown_attribution_type</name>
         </argument>
         <argument>
-            <type>Array(Tuple(Nullable(Float64), Nullable(String), Array(UInt8)))</type>
+            <type>Array(Tuple(Nullable(Float64), Nullable(String), Array(Int8)))</type>
             <name>value</name>
         </argument>
         <format>TabSeparated</format>
@@ -40,7 +40,7 @@
             <name>breakdown_attribution_type</name>
         </argument>
         <argument>
-            <type>Array(Tuple(Nullable(Float64), Array(String), Array(UInt8)))</type>
+            <type>Array(Tuple(Nullable(Float64), Array(String), Array(Int8)))</type>
             <name>value</name>
         </argument>
         <format>TabSeparated</format>
