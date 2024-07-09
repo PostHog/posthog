@@ -801,7 +801,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         property: ast.Expr = self.visit(ctx.columnExpr(1))
         if isinstance(property, ast.Constant) and property.value == 0:
             raise SyntaxError("SQL indexes start from one, not from zero. E.g: array[1]")
-        return ast.ArrayAccess(array=ast.Call(name="ifNull", args=[object, ast.Dict(items=[])]), property=property)
+        return ast.ArrayAccess(array=object, property=property, nullish=True)
 
     def visitColumnExprPropertyAccess(self, ctx: HogQLParser.ColumnExprPropertyAccessContext):
         object = self.visit(ctx.columnExpr())
@@ -811,7 +811,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitColumnExprNullPropertyAccess(self, ctx: HogQLParser.ColumnExprNullPropertyAccessContext):
         object = self.visit(ctx.columnExpr())
         property = ast.Constant(value=self.visit(ctx.identifier()))
-        return ast.ArrayAccess(array=ast.Call(name="ifNull", args=[object, ast.Dict(items=[])]), property=property)
+        return ast.ArrayAccess(array=object, property=property, nullish=True)
 
     def visitColumnExprBetween(self, ctx: HogQLParser.ColumnExprBetweenContext):
         raise NotImplementedError(f"Unsupported node: ColumnExprBetween")
@@ -864,7 +864,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         index = int(ctx.DECIMAL_LITERAL().getText())
         if index == 0:
             raise SyntaxError("SQL indexes start from one, not from zero. E.g: array[1]")
-        return ast.TupleAccess(tuple=ast.Call(name="ifNull", args=[tuple, ast.Dict(items=[])]), index=index)
+        return ast.TupleAccess(tuple=tuple, index=index, nullish=True)
 
     def visitColumnExprCase(self, ctx: HogQLParser.ColumnExprCaseContext):
         columns = [self.visit(column) for column in ctx.columnExpr()]

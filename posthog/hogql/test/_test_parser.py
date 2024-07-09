@@ -99,14 +99,9 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             self.assertEqual(
                 self._expr("a?.b"),
                 ast.ArrayAccess(
-                    array=ast.Call(
-                        name="ifNull",
-                        args=[
-                            ast.Field(chain=["a"]),
-                            ast.Dict(items=[]),
-                        ],
-                    ),
+                    array=ast.Field(chain=["a"]),
                     property=ast.Constant(value="b"),
+                    nullish=True,
                 ),
             )
 
@@ -114,14 +109,9 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             self.assertEqual(
                 self._expr("a?.1"),
                 ast.TupleAccess(
-                    tuple=ast.Call(
-                        name="ifNull",
-                        args=[
-                            ast.Field(chain=["a"]),
-                            ast.Dict(items=[]),
-                        ],
-                    ),
+                    tuple=ast.Field(chain=["a"]),
                     index=1,
+                    nullish=True,
                 ),
             )
 
@@ -129,23 +119,9 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             self.assertEqual(
                 self._expr("a?.b?.['c']"),
                 ast.ArrayAccess(
-                    array=ast.Call(
-                        name="ifNull",
-                        args=[
-                            ast.ArrayAccess(
-                                array=ast.Call(
-                                    name="ifNull",
-                                    args=[
-                                        ast.Field(chain=["a"]),
-                                        ast.Dict(items=[]),
-                                    ],
-                                ),
-                                property=ast.Constant(value="b"),
-                            ),
-                            ast.Dict(items=[]),
-                        ],
-                    ),
+                    array=ast.ArrayAccess(array=ast.Field(chain=["a"]), property=ast.Constant(value="b"), nullish=True),
                     property=ast.Constant(value="c"),
+                    nullish=True,
                 ),
             )
 

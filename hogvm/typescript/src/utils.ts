@@ -4,14 +4,17 @@ export function like(string: string, pattern: string, caseInsensitive = false): 
         .replaceAll('%', '.*')
     return new RegExp(pattern, caseInsensitive ? 'i' : undefined).test(string)
 }
-export function getNestedValue(obj: any, chain: any[]): any {
+export function getNestedValue(obj: any, chain: any[], nullish = false): any {
     if (typeof obj === 'object' && obj !== null) {
         for (const key of chain) {
+            if (nullish && obj === null) {
+                return null
+            }
             // if obj is a map
             if (obj instanceof Map) {
                 obj = obj.get(key) ?? null
             } else if (typeof key === 'number') {
-                obj = obj[key]
+                obj = obj[key] ?? null
             } else {
                 obj = obj[key] ?? null
             }

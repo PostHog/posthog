@@ -1857,9 +1857,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       Py_DECREF(property);
       throw;
     }
-    PyObject* dict = build_ast_node("Dict", "{s:[]}", "items");
-    PyObject* objectOrDict = build_ast_node("Call", "{s:s,s:[N,N]}", "name", "ifNull", "args", object, dict);
-    RETURN_NEW_AST_NODE("ArrayAccess", "{s:N,s:N}", "array", objectOrDict, "property", property);
+    RETURN_NEW_AST_NODE("ArrayAccess", "{s:N,s:N,s:O}", "array", object, "property", property, "nullish", Py_True);
   }
 
   VISIT(ColumnExprPropertyAccess) {
@@ -1891,9 +1889,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       Py_DECREF(property);
       throw;
     }
-    PyObject* dict = build_ast_node("Dict", "{s:[]}", "items");
-    PyObject* objectOrDict = build_ast_node("Call", "{s:s,s:[N,N]}", "name", "ifNull", "args", object, dict);
-    RETURN_NEW_AST_NODE("ArrayAccess", "{s:N,s:N}", "array", objectOrDict, "property", property);
+    RETURN_NEW_AST_NODE("ArrayAccess", "{s:N,s:N,s:O}", "array", object, "property", property, "nullish", Py_True);
   }
 
   VISIT_UNSUPPORTED(ColumnExprBetween)
@@ -2041,9 +2037,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       Py_DECREF(index);
       throw;
     }
-    PyObject* dict = build_ast_node("Dict", "{s:[]}", "items");
-    PyObject* objectOrDict = build_ast_node("Call", "{s:s,s:[N,N]}", "name", "ifNull", "args", tuple, dict);
-    RETURN_NEW_AST_NODE("TupleAccess", "{s:N,s:N}", "tuple", objectOrDict, "index", index);
+    RETURN_NEW_AST_NODE("TupleAccess", "{s:N,s:N,s:O}", "tuple", tuple, "index", index, "nullish", Py_True);
   }
 
   VISIT(ColumnExprCase) {
