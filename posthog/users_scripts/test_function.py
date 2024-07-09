@@ -1,8 +1,10 @@
 #!/usr/bin/python3
 
 import sys
+from dataclasses import dataclass, replace
+from typing import Any, List
 
-N_ARGS = 4
+N_ARGS = 5
 
 def parse_args(line):
     t1 = line.find("\t")
@@ -11,127 +13,88 @@ def parse_args(line):
     conversion_window_limit = int(line[t1 + 1:t2])
     t3 = line.find("\t", t2 + 1)
     breakdown_attribution_type = line[t2 + 1:t3]
-    return num_steps, conversion_window_limit, breakdown_attribution_type, eval(line[t3 + 1:])
+    t4 = line.find("\t", t3 + 1)
+    prop_vals = eval(line[t3 + 1:t4])
+    return num_steps, conversion_window_limit, breakdown_attribution_type, prop_vals, eval(line[t4 + 1:])
 
+@dataclass(frozen=True)
+class EnteredTimestamp:
+    timestamp: Any
+    timings: Any
 
-# 60\t[(1719535134.119179,(1,0)),(1719988603.504339,(1,0)),(1720155830.04705,(1,0))]
-# Funnel is ordered, assume no time limit for now
-# Optimizations - tuple into a bitmask
-def parse_user_aggregation(num_steps, conversion_window_limit, breakdown_attribution_type, timestamp_and_steps):
-    next_index = 1
-    for timestamp, steps in timestamp_and_steps:
-        if next_index in steps:
-            next_index += 1
-            if next_index > num_steps:
-                break
-    if next_index > 1:
-        print(next_index - 2)
-
-
-# each one can be multiple steps here
-# it only matters when they entered the funnel - you can propagate the time from the previous step when you update
-def parse_user_aggregation_with_conversion_window(num_steps, conversion_window_limit, breakdown_attribution_type, timestamp_and_steps):
-    # an array of when the user entered the funnel
-    entered_timestamp = [0] * (num_steps + 1)
-
-    for timestamp, steps in timestamp_and_steps:
-        # iterate the steps in reverse so we don't count this event multiple times
-        entered_timestamp[0] = timestamp
-        for step in reversed(steps):
-            if timestamp - entered_timestamp[step - 1] < conversion_window_limit:
-                entered_timestamp[step] = entered_timestamp[step - 1]
-
-        if entered_timestamp[num_steps] > 0:
-            break
-
-    for i in range(1, num_steps + 1):
-        if entered_timestamp[i] == 0:
-            print(i - 2)
-            return
-    print(num_steps - 1)
-
-def parse_user_aggregation_with_conversion_window_and_breakdown_backup(num_steps, conversion_window_limit, breakdown_attribution_type, timestamp_and_steps):
-    # an array of when the user entered the funnel
-    entered_timestamp = [0] * (num_steps + 1)
-
-    for timestamp, breakdown, steps in timestamp_and_steps:
-        # iterate the steps in reverse so we don't count this event multiple times
-        entered_timestamp[0] = timestamp
-        for step in reversed(steps):
-            if timestamp - entered_timestamp[step - 1] < conversion_window_limit:
-                entered_timestamp[step] = entered_timestamp[step - 1]
-
-        if entered_timestamp[num_steps] > 0:
-            break
-
-    for i in range(1, num_steps + 1):
-        if entered_timestamp[i] == 0:
-            print((i - 2, ""))
-            return
-    print((num_steps - 1, ""))
+def breakdown_to_single_quoted_string(breakdown):
+    if isinstance(breakdown, str):
+        return "'" + breakdown.replace("'", r"\'") + "'"
+    if isinstance(breakdown, int):
+        return breakdown
+    if isinstance(breakdown, list):
+        if not breakdown:
+            return "[]"
+        if isinstance(breakdown[0], str):
+            return "['" + "','".join([x.replace("'", r"\'") for x in breakdown]) + "']"
+        if isinstance(breakdown[0], int):
+            return str(breakdown)
+    raise Exception()
 
 # each one can be multiple steps here
 # it only matters when they entered the funnel - you can propagate the time from the previous step when you update
-def parse_user_aggregation_with_conversion_window_and_breakdown(num_steps, conversion_window_limit, breakdown_attribution_type, timestamp_and_steps):
-    # an array of when the user entered the funnel
-    entered_timestamp = [(0, "", [])] * (num_steps + 1)
+def parse_user_aggregation_with_conversion_window_and_breakdown(num_steps, conversion_window_limit, breakdown_attribution_type, prop_vals, timestamp_and_steps):
+
 
     # all matching breakdown types??? easiest to just do this separately for all breakdown types? what if multiple match?
     # step breakdown mode
 
-    # This is the timestamp, breakdown value, and list of steps that it matches for each event
-    for timestamp, breakdown, steps in timestamp_and_steps:
-        # (entered_timestamp, breakdown_value, [list of timestamps for event transitions])
-        entered_timestamp[0] = (timestamp, breakdown, [])
-        # iterate the steps in reverse so we don't count this event multiple times
-        for step in reversed(steps):
-            # if we are in a window and if we don't already have a matching event with the same entered timestamp:
-            # if we already have a matching event here with the same entered timestamp, don't do anything
+    breakdown_step = int(breakdown_attribution_type[5:]) if breakdown_attribution_type.startswith('step_') else None
 
-            exclusion = False
-            if step < 0:
-                exclusion = True
-                step = -step
+    # This is the timestamp, breakdown value, and list of steps that it matches for each
+    results = []
 
-            in_match_window = timestamp - entered_timestamp[step - 1][0] <= conversion_window_limit
+    def loop_prop_val(prop_val):
+        # an array of when the user entered the funnel
+        # entered_timestamp = [(0, "", [])] * (num_steps + 1)
+        entered_timestamp: List[EnteredTimestamp] = [EnteredTimestamp(0, [])] * (num_steps + 1)
 
-            if exclusion:
-                if in_match_window:
-                    # Exclude this user!
-                    print(f"(-1, {breakdown}, [])")
-                    return
-            else:
-                already_have_matching_event_with_same_entered_timestamp_at_this_step = entered_timestamp[step][0] == entered_timestamp[step - 1][0]
-                if in_match_window and not already_have_matching_event_with_same_entered_timestamp_at_this_step:
-                    if breakdown_attribution_type.startswith('step_'):
-                        # step is last_touchpoint attribution but it becomes first_touch at the step
-                        breakdown_step = int(breakdown_attribution_type[5:])
-                        breakdown_attribution_type = 'last_touch' if step < breakdown_step else 'first_touch'
+        def printit(i, breakdown):
+            final = entered_timestamp[i]
+            results.append(f"({i - 1}, {breakdown_to_single_quoted_string(breakdown)}, {str([final.timings[i] - final.timings[i - 1] for i in range(1, i)])})")
 
-                    if breakdown_attribution_type == 'first_touch':
-                        # If first touch, propagate the starting breakdown value
-                        # add the timestamp of the current event to the end of the timing tracker
-                        # there is an issue with initial event attribution, otherwise take the first of the later events to happen
-                        entered_timestamp[step] = (entered_timestamp[step - 1][0], entered_timestamp[step - 1][1], entered_timestamp[step - 1][2] + [timestamp])
-                    # TODO: See if all_events is prefiltered (it should be), so shouldn't matter what we use
-                    elif breakdown_attribution_type == 'last_touch' or breakdown_attribution_type == 'all_events':
-                        # if last touch, always take the current value
-                        entered_timestamp[step] = (entered_timestamp[step - 1][0], breakdown, entered_timestamp[step - 1][2] + [timestamp])
+        for timestamp, breakdown, steps in timestamp_and_steps:
+            entered_timestamp[0] = EnteredTimestamp(timestamp, [])
+
+            # iterate the steps in reverse so we don't count this event multiple times
+            for step in reversed(steps):
+                # if we are in a window and if we don't already have a matching event with the same entered timestamp:
+                # if we already have a matching event here with the same entered timestamp, don't do
+
+                exclusion = False
+                if step < 0:
+                    exclusion = True
+                    step = -step
+
+                in_match_window = timestamp - entered_timestamp[step - 1].timestamp <= conversion_window_limit
+                already_reached_this_step_with_same_entered_timestamp = entered_timestamp[step].timestamp == entered_timestamp[step - 1].timestamp
+
+                if in_match_window and not already_reached_this_step_with_same_entered_timestamp:
+                    if exclusion:
+                        print(f"(-1, {breakdown_to_single_quoted_string(prop_val)}, [])")
+                        return
                     else:
-                        raise Exception("Invalid Attribution String")
+                        entered_timestamp[step] = replace(entered_timestamp[step - 1], timings=entered_timestamp[step - 1].timings + [timestamp])
 
-        if entered_timestamp[num_steps][0] > 0:
-            break
+            if entered_timestamp[num_steps].timestamp > 0:
+                printit(num_steps, prop_val)
+                return
 
-    def printit(i):
-        final = entered_timestamp[i]
-        print(f"({i - 1}, {final[1]}, {str([final[2][i] - final[2][i - 1] for i in range(1, i)])})")
+        for i in range(1, num_steps + 1):
+            if entered_timestamp[i].timestamp == 0:
+                printit(i - 1, prop_val)
 
-    for i in range(1, num_steps + 1):
-        if entered_timestamp[i][0] == 0:
-            printit(i - 1)
-            return
-    printit(num_steps)
+
+        printit(num_steps, prop_val)
+        return
+
+    [loop_prop_val(prop_val) for prop_val in prop_vals]
+    print(f"[{','.join(results)}]")
 
 if __name__ == '__main__':
     for line in sys.stdin:

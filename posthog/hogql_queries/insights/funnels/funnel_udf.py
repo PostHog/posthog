@@ -74,13 +74,13 @@ class FunnelUDF(FunnelBase):
 
         inner_select = parse_select(f"""
             SELECT 
-                {fn}(
+                arrayJoin({fn}(
                     {self.context.max_steps}, 
                     {self.conversion_window_limit()},
                     '{breakdown_attribution_string}',
                     {prop_vals},
                     arraySort(t -> t.1, groupArray(tuple(toFloat(timestamp), {prop_selector}, arrayFilter((x) -> x != 0, [{steps}{exclusions}]))))
-                ) as af_tuple,
+                )) as af_tuple,
                 af_tuple.1 as af,
                 af_tuple.2 as breakdown,
                 af_tuple.3 as timings

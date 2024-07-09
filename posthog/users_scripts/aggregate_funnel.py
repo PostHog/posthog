@@ -14,7 +14,7 @@ def parse_args(line):
     t3 = line.find("\t", t2 + 1)
     breakdown_attribution_type = line[t2 + 1:t3]
     t4 = line.find("\t", t3 + 1)
-    prop_vals = line[t3 + 1:t4]
+    prop_vals = eval(line[t3 + 1:t4])
     return num_steps, conversion_window_limit, breakdown_attribution_type, prop_vals, eval(line[t4 + 1:])
 
 @dataclass(frozen=True)
@@ -39,53 +39,62 @@ def breakdown_to_single_quoted_string(breakdown):
 # each one can be multiple steps here
 # it only matters when they entered the funnel - you can propagate the time from the previous step when you update
 def parse_user_aggregation_with_conversion_window_and_breakdown(num_steps, conversion_window_limit, breakdown_attribution_type, prop_vals, timestamp_and_steps):
-    # an array of when the user entered the funnel
-    # entered_timestamp = [(0, "", [])] * (num_steps + 1)
-    entered_timestamp: List[EnteredTimestamp] = [EnteredTimestamp(0, [])] * (num_steps + 1)
+
 
     # all matching breakdown types??? easiest to just do this separately for all breakdown types? what if multiple match?
     # step breakdown mode
 
     breakdown_step = int(breakdown_attribution_type[5:]) if breakdown_attribution_type.startswith('step_') else None
 
-    # This is the timestamp, breakdown value, and list of steps that it matches for each event
+    # This is the timestamp, breakdown value, and list of steps that it matches for each
+    results = []
 
-    def printit(i, breakdown):
-        final = entered_timestamp[i]
-        print(f"({i - 1}, {breakdown_to_single_quoted_string(breakdown)}, {str([final.timings[i] - final.timings[i - 1] for i in range(1, i)])})")
+    def loop_prop_val(prop_val):
+        # an array of when the user entered the funnel
+        # entered_timestamp = [(0, "", [])] * (num_steps + 1)
+        entered_timestamp: List[EnteredTimestamp] = [EnteredTimestamp(0, [])] * (num_steps + 1)
 
-    for timestamp, breakdown, steps in timestamp_and_steps:
-        entered_timestamp[0] = EnteredTimestamp(timestamp, [])
+        def printit(i):
+            final = entered_timestamp[i]
+            results.append(f"({i - 1}, {breakdown_to_single_quoted_string(prop_val)}, {str([final.timings[i] - final.timings[i - 1] for i in range(1, i)])})")
 
-        # iterate the steps in reverse so we don't count this event multiple times
-        for step in reversed(steps):
-            # if we are in a window and if we don't already have a matching event with the same entered timestamp:
-            # if we already have a matching event here with the same entered timestamp, don't do
+        for timestamp, breakdown, steps in timestamp_and_steps:
+            entered_timestamp[0] = EnteredTimestamp(timestamp, [])
 
-            exclusion = False
-            if step < 0:
-                exclusion = True
-                step = -step
+            # iterate the steps in reverse so we don't count this event multiple times
+            for step in reversed(steps):
+                # if we are in a window and if we don't already have a matching event with the same entered timestamp:
+                # if we already have a matching event here with the same entered timestamp, don't do
 
-            in_match_window = timestamp - entered_timestamp[step - 1].timestamp <= conversion_window_limit
-            already_reached_this_step_with_same_entered_timestamp = entered_timestamp[step].timestamp == entered_timestamp[step - 1].timestamp
+                exclusion = False
+                if step < 0:
+                    exclusion = True
+                    step = -step
 
-            if in_match_window and not already_reached_this_step_with_same_entered_timestamp:
-                if exclusion:
-                    print(f"(-1, {breakdown_to_single_quoted_string(breakdown)}, [])")
-                    return
-                else:
-                    entered_timestamp[step] = replace(entered_timestamp[step - 1], timings=entered_timestamp[step - 1].timings + [timestamp])
+                in_match_window = timestamp - entered_timestamp[step - 1].timestamp <= conversion_window_limit
+                already_reached_this_step_with_same_entered_timestamp = entered_timestamp[step].timestamp == entered_timestamp[step - 1].timestamp
 
-        if entered_timestamp[num_steps].timestamp > 0:
-            printit(num_steps, breakdown)
-            return
+                if in_match_window and not already_reached_this_step_with_same_entered_timestamp:
+                    if exclusion:
+                        results.append(f"(-1, {breakdown_to_single_quoted_string(prop_val)}, [])")
+                        return
+                    else:
+                        entered_timestamp[step] = replace(entered_timestamp[step - 1], timings=entered_timestamp[step - 1].timings + [timestamp])
 
-    for i in range(1, num_steps + 1):
-        if entered_timestamp[i].timestamp == 0:
-            printit(i - 1, breakdown)
-            return
-    printit(num_steps, breakdown)
+            if entered_timestamp[num_steps].timestamp > 0:
+                printit(num_steps)
+                return
+
+        for i in range(1, num_steps + 1):
+            if entered_timestamp[i].timestamp == 0:
+                printit(i - 1)
+                return
+
+        printit(num_steps)
+        return
+
+    [loop_prop_val(prop_val) for prop_val in prop_vals]
+    print(f"[{','.join(results)}]")
 
 if __name__ == '__main__':
     for line in sys.stdin:
@@ -98,7 +107,7 @@ def test():
      [(1577973600, '', [1]), (1577980800, '', [2])]]
 
     for x in y:
-        parse_user_aggregation_with_conversion_window_and_breakdown(3, 1209600, 'first_touch', x)
+        parse_user_aggregation_with_conversion_window_and_breakdown(3, 1209600, 'first_touch', [''], x)
 
     """
     a = [(1719624249.503675,[1,2,4,5,6,7,8,9]),(1719624251.581988,[1,2,4,5,6,7,8,9]),(1719635907.573687,[1,2,4,5,6,7,8,9]),(1719635909.66015,[1,2,4,5,6,7,8,9]),(1719759818.990228,[1,2,4,5,6,7,8,9]),(1719759876.794997,[1,2,4,5,6,7,8,9]),(1719759878.856164,[1,2,4,5,6,7,8,9]),(1719803624.816091,[1,2,4,5,6,7,8,9]),(1719803809.529472,[1,2,4,5,6,7,8,9]),(1719803811.608051,[1,2,4,5,6,7,8,9]),(1719881651.587875,[3]),(1719886796.095619,[1,2,4,5,6,7,8,9]),(1719886798.206008,[1,2,4,5,6,7,8,9]),(1719968757.728293,[1,2,4,5,6,7,8,9]),(1719968784.265244,[1,2,4,5,6,7,8,9]),(1720048981.884196,[1,2,4,5,6,7,8,9]),(1720049173.969063,[1,2,4,5,6,7,8,9]),(1720067592.576889,[1,2,4,5,6,7,8,9]),(1720067656.454668,[1,2,4,5,6,7,8,9]),(1720067658.547188,[1,2,4,5,6,7,8,9]),(1720140655.805049,[1,2,4,5,6,7,8,9]),(1720140692.408485,[1,2,4,5,6,7,8,9])]
