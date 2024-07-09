@@ -531,6 +531,8 @@ def get_ip_address(request: HttpRequest) -> str:
 
 
 def dict_from_cursor_fetchall(cursor):
+    if not cursor.cursor.description:
+        return []
     columns = [col[0] for col in cursor.description]
     return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
