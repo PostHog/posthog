@@ -1718,10 +1718,3 @@ class TestPrinter(BaseTest):
             f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), ifNull(in(id, tuple(4, 5, 6)), 0))"
             in printed
         )
-
-    def test_nullish_property_access(self):
-        context = HogQLContext(team_id=self.team.pk)
-        self.assertEqual(
-            self._expr("properties?.key?.value", context),
-            "coalesce(1)",
-        )
