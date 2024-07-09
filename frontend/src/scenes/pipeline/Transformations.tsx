@@ -35,7 +35,7 @@ export function Transformations(): JSX.Element {
                     description="Pipeline transformations allow you to enrich your data with additional information, such as geolocation."
                     docsURL="https://posthog.com/docs/cdp"
                     actionElementOverride={<NewButton stage={PipelineStage.Transformation} />}
-                    isEmpty={true}
+                    isEmpty={shouldShowEmptyState}
                 />
             )}
             {sortedEnabledTransformations.length > 1 && ( // Only show rearranging if there's more then 1 sortable app

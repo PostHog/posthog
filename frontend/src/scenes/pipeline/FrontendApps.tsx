@@ -28,7 +28,7 @@ export function FrontendApps(): JSX.Element {
                     description="Site apps allow you to ..."
                     docsURL="https://posthog.com/docs/apps/pineapple-mode"
                     actionElementOverride={<NewButton stage={PipelineStage.SiteApp} />}
-                    isEmpty={true}
+                    isEmpty={frontendApps.length === 0}
                 />
             )}
             {!shouldShowEmptyState && (
