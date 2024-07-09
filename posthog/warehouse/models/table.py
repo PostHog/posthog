@@ -117,14 +117,13 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             result = sync_execute(
                 """DESCRIBE TABLE (
                 SELECT * FROM
-                    s3(%(url_pattern)s, %(access_key)s, %(access_secret)s, %(format)s)
+                    deltaLake(%(url_pattern)s, %(access_key)s, %(access_secret)s)
                 LIMIT 1
             )""",
                 {
                     "url_pattern": self.url_pattern,
                     "access_key": self.credential.access_key,
                     "access_secret": self.credential.access_secret,
-                    "format": self.format,
                 },
             )
         except Exception as err:

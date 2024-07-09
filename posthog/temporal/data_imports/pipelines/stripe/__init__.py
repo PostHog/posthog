@@ -91,6 +91,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     # "test_clock": "OPTIONAL_CONFIG",
                 },
             },
+            "table_format": "delta",
         },
         "Invoice": {
             "name": "Invoice",

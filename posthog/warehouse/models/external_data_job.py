@@ -43,7 +43,7 @@ class ExternalDataJob(CreatedMetaFields, UUIDModel):
                 f"http://{settings.AIRBYTE_BUCKET_DOMAIN}/test-pipeline/{self.folder_path()}/{schema.lower()}/*.parquet"
             )
 
-        return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/{self.folder_path()}/{schema.lower()}/*.parquet"
+        return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt_2/{self.folder_path()}/{schema.lower()}/"
 
     def delete_deprecated_data_in_bucket(self) -> None:
         s3 = get_s3_client()
