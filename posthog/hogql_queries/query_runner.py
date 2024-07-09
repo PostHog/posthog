@@ -5,12 +5,10 @@ from typing import Any, Generic, Optional, TypeVar, Union, cast, TypeGuard
 
 import structlog
 from django.conf import settings
-from django.core.cache import cache
 from prometheus_client import Counter
 from pydantic import BaseModel, ConfigDict
 from sentry_sdk import capture_exception, push_scope
 
-from posthog.cache_utils import OrjsonJsonSerializer
 from posthog.caching.utils import is_stale, last_refresh_from_cached_result, ThresholdMode, cache_target_age
 from posthog.clickhouse.client.execute_async import enqueue_process_query_task, get_query_status, QueryNotFoundError
 from posthog.clickhouse.query_tagging import tag_queries, get_query_tag_value
@@ -20,6 +18,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
 from posthog.hogql.timings import HogQLTimings
+from posthog.hogql_queries.execution import QueryCacheManager
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team, User
 from posthog.schema import (
@@ -55,7 +54,7 @@ from posthog.schema import (
     QueryStatus,
 )
 from posthog.schema_helpers import to_dict, to_json
-from posthog.utils import generate_cache_key, get_from_dict_or_attr, get_safe_cache
+from posthog.utils import generate_cache_key, get_from_dict_or_attr
 
 logger = structlog.get_logger(__name__)
 
@@ -427,24 +426,22 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             return None
 
     def handle_cache_and_async_logic(
-        self, execution_mode: ExecutionMode, cache_key: str, user: Optional[User] = None
+        self, execution_mode: ExecutionMode, cache_manager: QueryCacheManager, user: Optional[User] = None
     ) -> Optional[CR | CacheMissResponse]:
         CachedResponse: type[CR] = self.cached_response_type
         cached_response: CR | CacheMissResponse
-        cached_response_candidate_bytes: Optional[bytes] = get_safe_cache(cache_key)
-        cached_response_candidate: Optional[dict] = (
-            OrjsonJsonSerializer({}).loads(cached_response_candidate_bytes) if cached_response_candidate_bytes else None
-        )
+        cached_response_candidate = cache_manager.get_cache_data()
+
         if self.is_cached_response(cached_response_candidate):
             cached_response_candidate["is_cached"] = True
             cached_response = CachedResponse(**cached_response_candidate)
         elif cached_response_candidate is None:
-            cached_response = CacheMissResponse(cache_key=cache_key)
+            cached_response = CacheMissResponse(cache_key=cache_manager.cache_key)
         else:
             # Whatever's in cache is malformed, so let's treat is as non-existent
-            cached_response = CacheMissResponse(cache_key=cache_key)
+            cached_response = CacheMissResponse(cache_key=cache_manager.cache_key)
             with push_scope() as scope:
-                scope.set_tag("cache_key", cache_key)
+                scope.set_tag("cache_key", cache_manager.cache_key)
                 capture_exception(
                     ValueError(f"Cached response is of unexpected type {type(cached_response)}, ignoring it")
                 )
@@ -460,7 +457,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     trigger=cached_response.calculation_trigger or "",
                 ).inc()
                 # We have a valid result that's fresh enough, let's return it
-                cached_response.query_status = self.get_async_query_status(cache_key=cache_key)
+                cached_response.query_status = self.get_async_query_status(cache_key=cache_manager.cache_key)
                 return cached_response
 
             QUERY_CACHE_HIT_COUNTER.labels(
@@ -469,34 +466,38 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             # We have a stale result. If we aren't allowed to calculate, let's still return it
             # – otherwise let's proceed to calculation
             if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
-                cached_response.query_status = self.get_async_query_status(cache_key=cache_key)
+                cached_response.query_status = self.get_async_query_status(cache_key=cache_manager.cache_key)
                 return cached_response
             elif execution_mode == ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE:
                 # We're allowed to calculate, but we'll do it asynchronously and attach the query status
                 cached_response.query_status = self.enqueue_async_calculation(
-                    cache_key=cache_key, user=user, refresh_requested=True
+                    cache_key=cache_manager.cache_key, user=user, refresh_requested=True
                 )
                 return cached_response
             elif execution_mode == ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE:
                 # We're allowed to calculate if the lazy check fails, but we'll do it asynchronously
                 assert isinstance(cached_response, CachedResponse)
                 if self._is_stale(cached_response, lazy=True):
-                    cached_response.query_status = self.enqueue_async_calculation(cache_key=cache_key, user=user)
-                cached_response.query_status = self.get_async_query_status(cache_key=cache_key)
+                    cached_response.query_status = self.enqueue_async_calculation(
+                        cache_key=cache_manager.cache_key, user=user
+                    )
+                cached_response.query_status = self.get_async_query_status(cache_key=cache_manager.cache_key)
                 return cached_response
         else:
             QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="miss", trigger="").inc()
             # We have no cached result. If we aren't allowed to calculate, let's return the cache miss
             # – otherwise let's proceed to calculation
             if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
-                cached_response.query_status = self.get_async_query_status(cache_key=cache_key)
+                cached_response.query_status = self.get_async_query_status(cache_key=cache_manager.cache_key)
                 return cached_response
             elif execution_mode in (
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
                 ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
             ):
                 # We're allowed to calculate, but we'll do it asynchronously
-                cached_response.query_status = self.enqueue_async_calculation(cache_key=cache_key, user=user)
+                cached_response.query_status = self.enqueue_async_calculation(
+                    cache_key=cache_manager.cache_key, user=user
+                )
                 return cached_response
 
         # Nothing useful out of cache, nor async query status
@@ -512,6 +513,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         tag_queries(cache_key=cache_key)
         self.query_id = query_id or self.query_id
         CachedResponse: type[CR] = self.cached_response_type
+        cache_manager = QueryCacheManager(team_id=self.team.pk, cache_key=cache_key, cache_ttl=self.cache_ttl())
 
         if execution_mode == ExecutionMode.CALCULATE_ASYNC_ALWAYS:
             # We should always kick off async calculation and disregard the cache
@@ -520,7 +522,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             )
         elif execution_mode != ExecutionMode.CALCULATE_BLOCKING_ALWAYS:
             # Let's look in the cache first
-            results = self.handle_cache_and_async_logic(execution_mode=execution_mode, cache_key=cache_key, user=user)
+            results = self.handle_cache_and_async_logic(
+                execution_mode=execution_mode, cache_manager=cache_manager, user=user
+            )
             if results is not None:
                 return results
 
@@ -540,8 +544,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         has_error: Optional[list] = fresh_response_dict.get("error", None)
         cache_ttl = self.cache_ttl()
         if (has_error is None or len(has_error) == 0) and self.limit_context != LimitContext.EXPORT and cache_ttl > 0:
-            fresh_response_serialized = OrjsonJsonSerializer({}).dumps(fresh_response.model_dump())
-            cache.set(cache_key, fresh_response_serialized, cache_ttl)
+            cache_manager.set_cache_data(
+                response=fresh_response_dict, cache_target_age=self.cache_target_age(fresh_response_dict)
+            )
             QUERY_CACHE_WRITE_COUNTER.labels(team_id=self.team.pk).inc()
 
         return fresh_response

@@ -1,3 +1,5 @@
+from django.utils.timezone import now
+
 from datetime import datetime, timedelta, UTC
 from enum import Enum
 from typing import Any, Optional, Union
@@ -6,8 +8,10 @@ from dateutil.parser import parser, isoparse
 
 import posthoganalytics
 
+from posthog.caching.insight_caching_state import GENERALLY_VIEWED_THRESHOLD
 from posthog.client import sync_execute
 from posthog.cloud_utils import is_cloud
+from posthog.models import InsightViewed
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
@@ -26,6 +30,27 @@ def ensure_is_date(candidate: Optional[Union[str, datetime]]) -> Optional[dateti
     if isinstance(candidate, datetime):
         return candidate
     return parser().parse(candidate)
+
+
+def largest_teams() -> set[int]:
+    teams_by_event_count = sync_execute(
+        """
+        SELECT team_id, COUNT(*) AS event_count
+        FROM events
+        WHERE timestamp > subtractDays(now(), 7)
+        GROUP BY team_id
+        ORDER BY event_count DESC
+        LIMIT 100;
+    """
+    )
+    return {int(team_id) for team_id, _ in teams_by_event_count}
+
+
+def recently_viewed_in_team(team: Team) -> set[int]:
+    recently_viewed_insights = InsightViewed.objects.filter(
+        last_viewed_at__gte=now() - GENERALLY_VIEWED_THRESHOLD, team=team
+    ).distinct("insight_id")
+    return set(recently_viewed_insights.values_list("insight_id", flat=True))
 
 
 def active_teams() -> set[int]:
