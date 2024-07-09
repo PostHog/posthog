@@ -145,7 +145,7 @@ export const startBatchConsumer = async ({
         // https://github.com/confluentinc/librdkafka/blob/e75de5be191b6b8e9602efc969f4af64071550de/CONFIGURATION.md?plain=1#L122
         // Initial maximum number of bytes per topic+partition to request when fetching messages from the broker. If the client encounters a message larger than this value it will gradually try to increase it until the entire message can be fetched.
         'fetch.message.max.bytes': consumerMaxBytes,
-        'fetch.min.bytes': fetchMinBytes,
+        'fetch.min.bytes': fetchMinBytes || 1, // consumer default is 1 if not provided
         'fetch.wait.max.ms': consumerMaxWaitMs,
         'fetch.error.backoff.ms': consumerErrorBackoffMs,
         'enable.partition.eof': true,

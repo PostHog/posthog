@@ -499,7 +499,7 @@ export class SessionRecordingIngester {
             fetchMinBytes: this.config.SESSION_RECORDING_KAFKA_FETCH_MIN_BYTES,
             // our messages are very big, so we don't want to queue too many
             queuedMinMessages: this.config.SESSION_RECORDING_KAFKA_QUEUE_SIZE,
-            // we'll anyway never queue more than the value set hereSESSION_RECORDING_KAFKA_FETCH_MIN_BYTES
+            // we'll anyway never queue more than the value set here
             // since we have large messages we'll need this to be a reasonable multiple
             // of the likely message size times the fetchBatchSize
             // or we'll always hit the batch timeout
