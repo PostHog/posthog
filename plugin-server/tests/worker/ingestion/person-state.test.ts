@@ -587,6 +587,43 @@ describe('PersonState.update()', () => {
             expect(persons[0]).toEqual(person)
         })
 
+        it.each(['$$heatmap', '$exception'])('does not update person properties for %s', async (event: string) => {
+            const originalPersonProperties = { b: 3, c: 4, toString: {} }
+
+            await hub.db.createPerson(timestamp, originalPersonProperties, {}, {}, teamId, null, false, newUserUuid, [
+                { distinctId: newUserDistinctId },
+            ])
+
+            const [person, kafkaAcks] = await personState({
+                event: event,
+                distinct_id: newUserDistinctId,
+                properties: {
+                    $set_once: { c: 3, e: 4 },
+                    $set: { b: 4, toString: 1, null_byte: '\u0000' },
+                },
+            }).updateProperties()
+            await hub.db.kafkaProducer.flush()
+            await kafkaAcks
+
+            expect(person).toEqual(
+                expect.objectContaining({
+                    id: expect.any(Number),
+                    uuid: newUserUuid,
+                    properties: originalPersonProperties,
+                    created_at: timestamp,
+                    version: 0,
+                    is_identified: false,
+                })
+            )
+
+            expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
+
+            // verify Postgres persons
+            const persons = await fetchPostgresPersonsH()
+            expect(persons.length).toEqual(1)
+            expect(persons[0]).toEqual(person)
+        })
+
         it('updates person properties - no update if not needed', async () => {
             await hub.db.createPerson(timestamp, { $current_url: 123 }, {}, {}, teamId, null, false, newUserUuid, [
                 { distinctId: newUserDistinctId },

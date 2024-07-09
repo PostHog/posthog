@@ -417,6 +417,10 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         projectBased: true,
         name: 'Heatmaps',
     },
+    [Scene.SessionAttributionExplorer]: {
+        projectBased: true,
+        name: 'Session attribution explorer (beta)',
+    },
 }
 
 const preserveParams = (url: string) => (_params: Params, searchParams: Params, hashParams: Params) => {
@@ -608,4 +612,5 @@ export const routes: Record<string, Scene> = {
     [urls.settings(':section' as any)]: Scene.Settings,
     [urls.moveToPostHogCloud()]: Scene.MoveToPostHogCloud,
     [urls.heatmaps()]: Scene.Heatmaps,
+    [urls.sessionAttributionExplorer()]: Scene.SessionAttributionExplorer,
 }

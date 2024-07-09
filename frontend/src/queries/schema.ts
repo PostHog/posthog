@@ -1,8 +1,9 @@
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+
 import {
     AnyPersonScopeFilter,
     AnyPropertyFilter,
     BaseMathType,
-    Breakdown,
     BreakdownKeyType,
     BreakdownType,
     ChartDisplayCategory,
@@ -84,12 +85,6 @@ export enum NodeKind {
     WebTopClicksQuery = 'WebTopClicksQuery',
     WebStatsTableQuery = 'WebStatsTableQuery',
 
-    // Time to see data
-    TimeToSeeDataSessionsQuery = 'TimeToSeeDataSessionsQuery',
-    TimeToSeeDataQuery = 'TimeToSeeDataQuery',
-    TimeToSeeDataSessionsJSONNode = 'TimeToSeeDataSessionsJSONNode',
-    TimeToSeeDataSessionsWaterfallNode = 'TimeToSeeDataSessionsWaterfallNode',
-
     // Database metadata
     DatabaseSchemaQuery = 'DatabaseSchemaQuery',
 }
@@ -98,7 +93,6 @@ export type AnyDataNode =
     | EventsNode // never queried directly
     | ActionsNode // old actions API endpoint
     | PersonsNode // old persons API endpoint
-    | TimeToSeeDataSessionsQuery // old API
     | EventsQuery
     | ActorsQuery
     | InsightActorsQuery
@@ -121,7 +115,6 @@ export type QuerySchema =
     | ActionsNode // old actions API endpoint
     | PersonsNode // old persons API endpoint
     | DataWarehouseNode
-    | TimeToSeeDataSessionsQuery // old API
     | EventsQuery
     | ActorsQuery
     | InsightActorsQuery
@@ -516,7 +509,6 @@ export interface DataTableNode
                     | PersonsNode
                     | ActorsQuery
                     | HogQLQuery
-                    | TimeToSeeDataSessionsQuery
                     | WebOverviewQuery
                     | WebStatsTableQuery
                     | WebTopClicksQuery
@@ -532,7 +524,6 @@ export interface DataTableNode
         | PersonsNode
         | ActorsQuery
         | HogQLQuery
-        | TimeToSeeDataSessionsQuery
         | WebOverviewQuery
         | WebStatsTableQuery
         | WebTopClicksQuery
@@ -572,7 +563,7 @@ interface DataTableNodeViewProps {
     /** Include a free text search field (PersonsNode only) */
     showSearch?: boolean
     /** Include a property filter above the table */
-    showPropertyFilter?: boolean
+    showPropertyFilter?: boolean | TaxonomicFilterGroupType[]
     /** Show filter to exclude test accounts */
     showTestAccountFilters?: boolean
     /** Include a HogQL query editor above HogQL tables */
@@ -1017,10 +1008,14 @@ interface CachedQueryResponseMixin {
     last_refresh: string
     /**  @format date-time */
     next_allowed_client_refresh: string
+    /**  @format date-time */
+    cache_target_age?: string
     cache_key: string
     timezone: string
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatus
+    /** What triggered the calculation of the query, leave empty if user/immediate */
+    calculation_trigger?: string
 }
 
 type CachedQueryResponse<T> = T & CachedQueryResponseMixin
@@ -1193,7 +1188,7 @@ export interface WebTopClicksQueryResponse extends AnalyticsQueryResponseBase<un
 
 export type CachedWebTopClicksQueryResponse = CachedQueryResponse<WebTopClicksQueryResponse>
 
-export type ErrorTrackingOrder = 'last_seen' | 'first_seen' | 'unique_occurrences' | 'unique_users' | 'unique_sessions'
+export type ErrorTrackingOrder = 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
 
 export enum WebStatsBreakdown {
     Page = 'Page',
@@ -1278,7 +1273,7 @@ export interface InsightActorsQuery<S extends InsightsQueryBase<AnalyticsQueryRe
     /** An interval selected out of available intervals in source query. */
     interval?: integer
     series?: integer
-    breakdown?: string | BreakdownValueInt
+    breakdown?: string | BreakdownValueInt | string[]
     compare?: 'current' | 'previous'
 }
 
@@ -1361,6 +1356,14 @@ export interface FunnelCorrelationQuery extends Node<FunnelCorrelationResponse> 
 export type DatetimeDay = string
 
 export type BreakdownValueInt = integer
+export interface BreakdownItem {
+    label: string
+    value: string | BreakdownValueInt
+}
+export interface MultipleBreakdownOptions {
+    values: BreakdownItem[]
+}
+
 export interface InsightActorsQueryOptionsResponse {
     // eslint-disable-next-line @typescript-eslint/no-duplicate-type-constituents
     day?: { label: string; value: string | DatetimeDay | Day }[]
@@ -1373,10 +1376,8 @@ export interface InsightActorsQueryOptionsResponse {
          */
         value: integer
     }[]
-    breakdown?: {
-        label: string
-        value: string | BreakdownValueInt
-    }[]
+    breakdown?: BreakdownItem[]
+    breakdowns?: MultipleBreakdownOptions[]
     series?: {
         label: string
         value: integer
@@ -1391,6 +1392,7 @@ export const insightActorsQueryOptionsResponseKeys: string[] = [
     'status',
     'interval',
     'breakdown',
+    'breakdowns',
     'series',
     'compare',
 ]
@@ -1400,29 +1402,6 @@ export type CachedInsightActorsQueryOptionsResponse = CachedQueryResponse<Insigh
 export interface InsightActorsQueryOptions extends Node<InsightActorsQueryOptionsResponse> {
     kind: NodeKind.InsightActorsQueryOptions
     source: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery
-}
-
-export const dateRangeForFilter = (source: FilterType | undefined): DateRange | undefined => {
-    if (!source) {
-        return undefined
-    }
-    return { date_from: source.date_from, date_to: source.date_to }
-}
-
-export interface TimeToSeeDataSessionsQueryResponse {
-    results: Record<string, any>[]
-}
-
-export interface TimeToSeeDataSessionsQuery extends DataNode<TimeToSeeDataSessionsQueryResponse> {
-    kind: NodeKind.TimeToSeeDataSessionsQuery
-
-    /** Date range for the query */
-    dateRange?: DateRange
-
-    /**
-     * Project to filter on. Defaults to current project
-     */
-    teamId?: integer
 }
 
 export interface DatabaseSchemaSchema {
@@ -1509,34 +1488,6 @@ export type DatabaseSerializedFieldType =
     | 'expression'
     | 'view'
 
-export interface TimeToSeeDataQuery extends DataNode<Record<string, any> /* TODO: Type specifically */> {
-    kind: NodeKind.TimeToSeeDataQuery
-
-    /**
-     * Project to filter on. Defaults to current project
-     */
-    teamId?: integer
-
-    /** Project to filter on. Defaults to current session */
-    sessionId?: string
-
-    /** Session start time. Defaults to current time - 2 hours */
-    sessionStart?: string
-    sessionEnd?: string
-}
-
-export interface TimeToSeeDataJSONNode {
-    kind: NodeKind.TimeToSeeDataSessionsJSONNode
-    source: TimeToSeeDataQuery
-}
-
-export interface TimeToSeeDataWaterfallNode {
-    kind: NodeKind.TimeToSeeDataSessionsWaterfallNode
-    source: TimeToSeeDataQuery
-}
-
-export type TimeToSeeDataNode = TimeToSeeDataJSONNode | TimeToSeeDataWaterfallNode
-
 export type HogQLExpression = string
 
 // Various utility types below
@@ -1562,14 +1513,27 @@ export interface InsightDateRange {
     explicitDate?: boolean | null
 }
 
+export type MultipleBreakdownType = Extract<BreakdownType, 'person' | 'event' | 'group' | 'session' | 'hogql'>
+
+export interface Breakdown {
+    type?: MultipleBreakdownType | null
+    value: string
+    normalize_url?: boolean
+    group_type_index?: integer | null
+    histogram_bin_count?: integer // trends breakdown histogram bin
+}
+
 export interface BreakdownFilter {
     // TODO: unclutter
     /** @default event */
     breakdown_type?: BreakdownType | null
     breakdown_limit?: integer
-    breakdown?: BreakdownKeyType
+    breakdown?: string | integer | (string | integer)[] | null
     breakdown_normalize_url?: boolean
-    breakdowns?: Breakdown[]
+    /**
+     * @maxLength 3
+     */
+    breakdowns?: Breakdown[] // We want to limit maximum count of breakdowns avoiding overloading.
     breakdown_group_type_index?: integer | null
     breakdown_histogram_bin_count?: integer // trends breakdown histogram bin
     breakdown_hide_other_aggregation?: boolean | null // hides the "other" field for trends

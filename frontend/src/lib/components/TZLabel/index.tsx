@@ -11,6 +11,7 @@ import { IconWeb } from 'lib/lemon-ui/icons'
 import { humanFriendlyDetailedTime, shortTimeZone } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import { forwardRef } from 'react'
 import { urls } from 'scenes/urls'
 
 import { teamLogic } from '../../../scenes/teamLogic'
@@ -85,17 +86,21 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
 })
 
 /** Return a simple label component with timezone conversion UI. */
-function TZLabelRaw({
-    time,
-    showSeconds,
-    formatDate,
-    formatTime,
-    showPopover = true,
-    noStyles = false,
-    className,
-    children,
-    ...dropdownProps
-}: TZLabelProps): JSX.Element {
+
+const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
+    {
+        time,
+        showSeconds,
+        formatDate,
+        formatTime,
+        showPopover = true,
+        noStyles = false,
+        className,
+        children,
+        ...dropdownProps
+    },
+    ref
+): JSX.Element {
     const parsedTime = useMemo(() => (dayjs.isDayjs(time) ? time : dayjs(time)), [time])
 
     const format = useCallback(() => {
@@ -123,6 +128,7 @@ function TZLabelRaw({
                     ? clsx('whitespace-nowrap align-middle', showPopover && 'border-dotted border-b', className)
                     : className
             }
+            ref={ref}
         >
             {formattedContent}
         </span>
@@ -143,6 +149,6 @@ function TZLabelRaw({
     }
 
     return innerContent
-}
+})
 // Timezone calculations are quite expensive, so the component is memoized to reduce them.
 export const TZLabel = React.memo(TZLabelRaw) as typeof TZLabelRaw

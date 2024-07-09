@@ -16,13 +16,13 @@ from posthog.batch_exports.service import (
     BatchExportModel,
     BatchExportSchema,
     acount_failed_batch_export_runs,
-    acreate_batch_export_backfill,
-    acreate_batch_export_run,
     apause_batch_export,
-    aupdate_batch_export_backfill_status,
-    aupdate_batch_export_run,
     cancel_running_batch_export_backfill,
+    create_batch_export_backfill,
+    create_batch_export_run,
     running_backfills_for_batch_export,
+    update_batch_export_backfill_status,
+    update_batch_export_run,
 )
 from posthog.temporal.batch_exports.metrics import (
     get_export_finished_metric,
@@ -31,6 +31,7 @@ from posthog.temporal.batch_exports.metrics import (
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.logger import bind_temporal_worker_logger
+from posthog.warehouse.util import database_sync_to_async
 
 BytesGenerator = collections.abc.Generator[bytes, None, None]
 RecordsGenerator = collections.abc.Generator[pa.RecordBatch, None, None]
@@ -45,7 +46,7 @@ FROM
         team_id={team_id},
         interval_start={interval_start},
         interval_end={interval_end}
-    )
+    ) AS persons
 FORMAT ArrowStream
 """
 
@@ -60,7 +61,7 @@ FROM
         interval_end={interval_end},
         include_events={include_events}::Array(String),
         exclude_events={exclude_events}::Array(String)
-    )
+    ) AS events
 FORMAT ArrowStream
 """)
 
@@ -75,7 +76,7 @@ FROM
         interval_end={interval_end},
         include_events={include_events}::Array(String),
         exclude_events={exclude_events}::Array(String)
-    )
+    ) AS events
 FORMAT ArrowStream
 """)
 
@@ -89,7 +90,7 @@ FROM
         interval_end={interval_end},
         include_events={include_events}::Array(String),
         exclude_events={exclude_events}::Array(String)
-    )
+    ) AS events
 FORMAT ArrowStream
 """)
 
@@ -365,7 +366,7 @@ async def start_batch_export_run(inputs: StartBatchExportRunInputs) -> BatchExpo
         inputs.data_interval_end,
     )
 
-    run = await acreate_batch_export_run(
+    run = await database_sync_to_async(create_batch_export_run)(
         batch_export_id=uuid.UUID(inputs.batch_export_id),
         data_interval_start=inputs.data_interval_start,
         data_interval_end=inputs.data_interval_end,
@@ -423,7 +424,7 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
         for key, value in dataclasses.asdict(inputs).items()
         if key not in not_model_params and value is not None
     }
-    batch_export_run = await aupdate_batch_export_run(
+    batch_export_run = await database_sync_to_async(update_batch_export_run)(
         run_id=uuid.UUID(inputs.id),
         finished_at=dt.datetime.now(),
         **update_params,
@@ -602,7 +603,7 @@ async def create_batch_export_backfill_model(inputs: CreateBatchExportBackfillIn
         inputs.start_at,
         inputs.end_at,
     )
-    run = await acreate_batch_export_backfill(
+    run = await database_sync_to_async(create_batch_export_backfill)(
         batch_export_id=uuid.UUID(inputs.batch_export_id),
         start_at=inputs.start_at,
         end_at=inputs.end_at,
@@ -624,7 +625,9 @@ class UpdateBatchExportBackfillStatusInputs:
 @activity.defn
 async def update_batch_export_backfill_model_status(inputs: UpdateBatchExportBackfillStatusInputs) -> None:
     """Activity that updates the status of an BatchExportRun."""
-    backfill = await aupdate_batch_export_backfill_status(backfill_id=uuid.UUID(inputs.id), status=inputs.status)
+    backfill = await database_sync_to_async(update_batch_export_backfill_status)(
+        backfill_id=uuid.UUID(inputs.id), status=inputs.status
+    )
     logger = await bind_temporal_worker_logger(team_id=backfill.team_id)
 
     if backfill.status in (BatchExportBackfill.Status.FAILED, BatchExportBackfill.Status.FAILED_RETRYABLE):
