@@ -3241,9 +3241,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-
-            self.assertEqual(results[0]["name"], "user signed up")
-            self.assertEqual(results[0]["count"], 0)
+            self.assertEqual([], results)
 
         def test_funnel_with_sampling(self):
             action_play_movie = Action.objects.create(
