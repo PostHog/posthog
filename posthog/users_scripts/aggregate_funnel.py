@@ -1,6 +1,8 @@
 #!/usr/bin/python3
 
 import sys
+from dataclasses import dataclass, replace
+from typing import Any, List
 
 N_ARGS = 4
 
@@ -70,11 +72,18 @@ def parse_user_aggregation_with_conversion_window_and_breakdown_backup(num_steps
             return
     print((num_steps - 1, ""))
 
+@dataclass
+class EnteredTimestamp:
+    timestamp: Any
+    breakdown: Any
+    timings: Any
+
 # each one can be multiple steps here
 # it only matters when they entered the funnel - you can propagate the time from the previous step when you update
 def parse_user_aggregation_with_conversion_window_and_breakdown(num_steps, conversion_window_limit, breakdown_attribution_type, timestamp_and_steps):
     # an array of when the user entered the funnel
-    entered_timestamp = [(0, "", [])] * (num_steps + 1)
+    # entered_timestamp = [(0, "", [])] * (num_steps + 1)
+    entered_timestamp: List[EnteredTimestamp] = [EnteredTimestamp(0, '', [])] * (num_steps + 1)
 
     # all matching breakdown types??? easiest to just do this separately for all breakdown types? what if multiple match?
     # step breakdown mode
@@ -96,27 +105,25 @@ def parse_user_aggregation_with_conversion_window_and_breakdown(num_steps, conve
     # This is the timestamp, breakdown value, and list of steps that it matches for each event
     for timestamp, breakdown, steps in timestamp_and_steps:
         # (entered_timestamp, breakdown_value, [list of timestamps for event transitions])
-        entered_timestamp[0] = (timestamp, breakdown, [])
+        entered_timestamp[0] = EnteredTimestamp(timestamp, breakdown, [])
         # iterate the steps in reverse so we don't count this event multiple times
         for step in reversed(steps):
             # if we are in a window and if we don't already have a matching event with the same entered timestamp:
-            # if we already have a matching event here with the same entered timestamp, don't do anything
+            # if we already have a matching event here with the same entered timestamp, don't do
 
             exclusion = False
             if step < 0:
                 exclusion = True
                 step = -step
 
-            in_match_window = timestamp - entered_timestamp[step - 1][0] <= conversion_window_limit
+            in_match_window = timestamp - entered_timestamp[step - 1].timestamp <= conversion_window_limit
+            already_reached_this_step_with_same_entered_timestamp = entered_timestamp[step].timestamp == entered_timestamp[step - 1].timestamp
 
-            if exclusion:
-                if in_match_window:
-                    # Exclude this user!
+            if in_match_window and not already_reached_this_step_with_same_entered_timestamp:
+                if exclusion:
                     print(f"(-1, {breakdown_to_single_quoted_string(breakdown)}, [])")
                     return
-            else:
-                already_have_matching_event_with_same_entered_timestamp_at_this_step = entered_timestamp[step][0] == entered_timestamp[step - 1][0]
-                if in_match_window and not already_have_matching_event_with_same_entered_timestamp_at_this_step:
+                else:
                     if breakdown_attribution_type.startswith('step_'):
                         # step is last_touchpoint attribution but it becomes first_touch at the step
                         breakdown_step = int(breakdown_attribution_type[5:])
@@ -126,23 +133,23 @@ def parse_user_aggregation_with_conversion_window_and_breakdown(num_steps, conve
                         # If first touch, propagate the starting breakdown value
                         # add the timestamp of the current event to the end of the timing tracker
                         # there is an issue with initial event attribution, otherwise take the first of the later events to happen
-                        entered_timestamp[step] = (entered_timestamp[step - 1][0], entered_timestamp[step - 1][1], entered_timestamp[step - 1][2] + [timestamp])
+                        entered_timestamp[step] = replace(entered_timestamp[step-1], timings=entered_timestamp[step - 1].timings + [timestamp])
                     # TODO: See if all_events is prefiltered (it should be), so shouldn't matter what we use
                     elif breakdown_attribution_type == 'last_touch' or breakdown_attribution_type == 'all_events':
                         # if last touch, always take the current value
-                        entered_timestamp[step] = (entered_timestamp[step - 1][0], breakdown, entered_timestamp[step - 1][2] + [timestamp])
+                        entered_timestamp[step] = replace(entered_timestamp[step-1], breakdown=breakdown, timings=entered_timestamp[step - 1].timings + [timestamp])
                     else:
                         raise Exception("Invalid Attribution String")
 
-        if entered_timestamp[num_steps][0] > 0:
+        if entered_timestamp[num_steps].timestamp > 0:
             break
 
     def printit(i):
         final = entered_timestamp[i]
-        print(f"({i - 1}, {breakdown_to_single_quoted_string(final[1])}, {str([final[2][i] - final[2][i - 1] for i in range(1, i)])})")
+        print(f"({i - 1}, {breakdown_to_single_quoted_string(final.breakdown)}, {str([final.timings[i] - final.timings[i - 1] for i in range(1, i)])})")
 
     for i in range(1, num_steps + 1):
-        if entered_timestamp[i][0] == 0:
+        if entered_timestamp[i].timestamp == 0:
             printit(i - 1)
             return
     printit(num_steps)
