@@ -20,6 +20,7 @@ export const STL: Record<string, (args: any[], name: string, timeout: number) =>
     toFloat: (args) => {
         return !isNaN(parseFloat(args[0])) ? parseFloat(args[0]) : null
     },
+    // ifNull is complied into JUMP instructions. Keeping the function here for backwards compatibility
     ifNull: (args) => {
         return args[0] !== null ? args[0] : args[1]
     },

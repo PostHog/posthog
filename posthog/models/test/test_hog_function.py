@@ -57,8 +57,6 @@ class TestHogFunction(TestCase):
                 33,
                 1,
                 11,
-                33,
-                1,
                 32,
                 "^(localhost|127\\.0\\.0\\.1)($|:)",
                 32,
@@ -74,9 +72,11 @@ class TestHogFunction(TestCase):
                 "match",
                 2,
                 5,
-                2,
-                "ifNull",
-                2,
+                47,
+                3,
+                35,
+                33,
+                1,
                 3,
                 2,
                 32,
@@ -86,8 +86,6 @@ class TestHogFunction(TestCase):
                 1,
                 1,
                 11,
-                33,
-                1,
                 32,
                 "^(localhost|127\\.0\\.0\\.1)($|:)",
                 32,
@@ -103,9 +101,11 @@ class TestHogFunction(TestCase):
                 "match",
                 2,
                 5,
-                2,
-                "ifNull",
-                2,
+                47,
+                3,
+                35,
+                33,
+                1,
                 3,
                 2,
                 4,
@@ -126,7 +126,7 @@ class TestHogFunction(TestCase):
         json_filters = to_dict(item.filters)
 
         assert json.dumps(json_filters["bytecode"]) == snapshot(
-            '["_h", 33, 1, 32, "^(localhost|127\\\\.0\\\\.0\\\\.1)($|:)", 32, "$host", 32, "properties", 1, 2, 2, "toString", 1, 2, "match", 2, 5, 2, "ifNull", 2, 3, 1]'
+            '["_h", 32, "^(localhost|127\\\\.0\\\\.0\\\\.1)($|:)", 32, "$host", 32, "properties", 1, 2, 2, "toString", 1, 2, "match", 2, 5, 47, 3, 35, 33, 1, 3, 1]'
         )
 
 
@@ -277,9 +277,9 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
         hog_function_3.refresh_from_db()
 
         assert json.dumps(hog_function_1.filters["bytecode"]) == snapshot(
-            '["_h", 33, 0, 32, "test", 32, "$pageview", 32, "properties", 1, 2, 2, "toString", 1, 2, "match", 2, 2, "ifNull", 2, 33, 0, 32, "^(localhost|127\\\\.0\\\\.0\\\\.1)($|:)", 32, "$host", 32, "properties", 1, 2, 2, "toString", 1, 2, "match", 2, 2, "ifNull", 2, 3, 2]'
+            '["_h", 32, "test", 32, "$pageview", 32, "properties", 1, 2, 2, "toString", 1, 2, "match", 2, 47, 3, 35, 33, 0, 32, "^(localhost|127\\\\.0\\\\.0\\\\.1)($|:)", 32, "$host", 32, "properties", 1, 2, 2, "toString", 1, 2, "match", 2, 47, 3, 35, 33, 0, 3, 2]'
         )
         assert json.dumps(hog_function_2.filters["bytecode"]) == snapshot(
-            '["_h", 32, "$pageview", 32, "event", 1, 1, 11, 33, 0, 32, "test", 32, "$pageview", 32, "properties", 1, 2, 2, "toString", 1, 2, "match", 2, 2, "ifNull", 2, 33, 0, 32, "^(localhost|127\\\\.0\\\\.0\\\\.1)($|:)", 32, "$host", 32, "properties", 1, 2, 2, "toString", 1, 2, "match", 2, 2, "ifNull", 2, 3, 3, 4, 1]'
+            '["_h", 32, "$pageview", 32, "event", 1, 1, 11, 32, "test", 32, "$pageview", 32, "properties", 1, 2, 2, "toString", 1, 2, "match", 2, 47, 3, 35, 33, 0, 32, "^(localhost|127\\\\.0\\\\.0\\\\.1)($|:)", 32, "$host", 32, "properties", 1, 2, 2, "toString", 1, 2, "match", 2, 47, 3, 35, 33, 0, 3, 3, 4, 1]'
         )
         assert json.dumps(hog_function_3.filters["bytecode"]) == snapshot('["_h", 29]')
