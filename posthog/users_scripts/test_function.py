@@ -76,38 +76,56 @@ def parse_user_aggregation_with_conversion_window_and_breakdown(num_steps, conve
     # an array of when the user entered the funnel
     entered_timestamp = [(0, "", [])] * (num_steps + 1)
 
-    # todo:
-    # timings. monitor jumps from one step to another.
-
     # all matching breakdown types??? easiest to just do this separately for all breakdown types? what if multiple match?
     # step breakdown mode
 
     # This is the timestamp, breakdown value, and list of steps that it matches for each event
     for timestamp, breakdown, steps in timestamp_and_steps:
         # (entered_timestamp, breakdown_value, [list of timestamps for event transitions])
-        entered_timestamp[0] = (timestamp, breakdown, [timestamp])
+        entered_timestamp[0] = (timestamp, breakdown, [])
         # iterate the steps in reverse so we don't count this event multiple times
         for step in reversed(steps):
             # if we are in a window and if we don't already have a matching event with the same entered timestamp:
             # if we already have a matching event here with the same entered timestamp, don't do anything
-            in_match_window = timestamp - entered_timestamp[step - 1][0] < conversion_window_limit
-            already_have_matching_event_with_same_entered_timestamp_at_this_step = entered_timestamp[step][0] == entered_timestamp[step - 1][0]
-            if in_match_window and not already_have_matching_event_with_same_entered_timestamp_at_this_step:
-                if breakdown_attribution_type == 'first_touch':
-                    # If first touch, propagate the starting breakdown value
-                    # add the timestamp of the current event to the end of the timing tracker
-                    # there is an issue with initial event attribution, otherwise take the first of the later events to happen
-                    entered_timestamp[step] = (entered_timestamp[step - 1][0], entered_timestamp[step - 1][1], entered_timestamp[step - 1][2] + [timestamp])
-                elif breakdown_attribution_type == 'last_touch':
-                    # if last touch, always take the current value
-                    entered_timestamp[step] = (entered_timestamp[step - 1][0], breakdown, entered_timestamp[step - 1][2] + [timestamp])
+
+            exclusion = False
+            if step < 0:
+                exclusion = True
+                step = -step
+
+            in_match_window = timestamp - entered_timestamp[step - 1][0] <= conversion_window_limit
+
+            if exclusion:
+                if in_match_window:
+                    # Exclude this user!
+                    print(f"(-1, {breakdown}, [])")
+                    return
+            else:
+                already_have_matching_event_with_same_entered_timestamp_at_this_step = entered_timestamp[step][0] == entered_timestamp[step - 1][0]
+                if in_match_window and not already_have_matching_event_with_same_entered_timestamp_at_this_step:
+                    if breakdown_attribution_type.startswith('step_'):
+                        # step is last_touchpoint attribution but it becomes first_touch at the step
+                        breakdown_step = int(breakdown_attribution_type[5:])
+                        breakdown_attribution_type = 'last_touch' if step < breakdown_step else 'first_touch'
+
+                    if breakdown_attribution_type == 'first_touch':
+                        # If first touch, propagate the starting breakdown value
+                        # add the timestamp of the current event to the end of the timing tracker
+                        # there is an issue with initial event attribution, otherwise take the first of the later events to happen
+                        entered_timestamp[step] = (entered_timestamp[step - 1][0], entered_timestamp[step - 1][1], entered_timestamp[step - 1][2] + [timestamp])
+                    # TODO: See if all_events is prefiltered (it should be), so shouldn't matter what we use
+                    elif breakdown_attribution_type == 'last_touch' or breakdown_attribution_type == 'all_events':
+                        # if last touch, always take the current value
+                        entered_timestamp[step] = (entered_timestamp[step - 1][0], breakdown, entered_timestamp[step - 1][2] + [timestamp])
+                    else:
+                        raise Exception("Invalid Attribution String")
 
         if entered_timestamp[num_steps][0] > 0:
             break
 
     def printit(i):
         final = entered_timestamp[i]
-        print((i - 1, final[1], [final[2][i] - final[2][i - 1] for i in range(2, i)]))
+        print(f"({i - 1}, {final[1]}, {str([final[2][i] - final[2][i - 1] for i in range(1, i)])})")
 
     for i in range(1, num_steps + 1):
         if entered_timestamp[i][0] == 0:
@@ -121,6 +139,14 @@ if __name__ == '__main__':
         sys.stdout.flush()
 
 def test():
+    y = [[(1577973600, '', [1]), (1577980800, '', [2]), (1577984400, '', [3])],
+     [(1577880000, '', [1]), (1577883600, '', [2]), (1577890800, '', [3])],
+     [(1577973600, '', [1]), (1577980800, '', [2])]]
+
+    for x in y:
+        parse_user_aggregation_with_conversion_window_and_breakdown(3, 1209600, 'first_touch', x)
+
+    """
     a = [(1719624249.503675,[1,2,4,5,6,7,8,9]),(1719624251.581988,[1,2,4,5,6,7,8,9]),(1719635907.573687,[1,2,4,5,6,7,8,9]),(1719635909.66015,[1,2,4,5,6,7,8,9]),(1719759818.990228,[1,2,4,5,6,7,8,9]),(1719759876.794997,[1,2,4,5,6,7,8,9]),(1719759878.856164,[1,2,4,5,6,7,8,9]),(1719803624.816091,[1,2,4,5,6,7,8,9]),(1719803809.529472,[1,2,4,5,6,7,8,9]),(1719803811.608051,[1,2,4,5,6,7,8,9]),(1719881651.587875,[3]),(1719886796.095619,[1,2,4,5,6,7,8,9]),(1719886798.206008,[1,2,4,5,6,7,8,9]),(1719968757.728293,[1,2,4,5,6,7,8,9]),(1719968784.265244,[1,2,4,5,6,7,8,9]),(1720048981.884196,[1,2,4,5,6,7,8,9]),(1720049173.969063,[1,2,4,5,6,7,8,9]),(1720067592.576889,[1,2,4,5,6,7,8,9]),(1720067656.454668,[1,2,4,5,6,7,8,9]),(1720067658.547188,[1,2,4,5,6,7,8,9]),(1720140655.805049,[1,2,4,5,6,7,8,9]),(1720140692.408485,[1,2,4,5,6,7,8,9])]
     b = [(1719620572.818423,[1,2,4,5,6,7,8,9]),(1719620574.899927,[1,2,4,5,6,7,8,9]),(1719631883.411957,[1,2,4,5,6,7,8,9]),(1719631973.061015,[1,2,4,5,6,7,8,9]),(1719631975.132799,[1,2,4,5,6,7,8,9]),(1719640496.644576,[1,2,4,5,6,7,8,9]),(1719719866.343911,[1,2,4,5,6,7,8,9]),(1719719868.423301,[1,2,4,5,6,7,8,9]),(1719793284.221717,[1,2,4,5,6,7,8,9]),(1719793339.724518,[1,2,4,5,6,7,8,9]),(1719793341.809817,[1,2,4,5,6,7,8,9]),(1719812642.836549,[1,2,4,5,6,7,8,9]),(1719812644.925277,[1,2,4,5,6,7,8,9]),(1719883133.994423,[1,2,4,5,6,7,8,9]),(1719883166.099979,[1,2,4,5,6,7,8,9]),(1719903968.6994,[1,2,4,5,6,7,8,9]),(1719904040.485124,[1,2,4,5,6,7,8,9]),(1719904042.565526,[1,2,4,5,6,7,8,9]),(1719921915.765151,[1,2,4,5,6,7,8,9]),(1719921993.277794,[1,2,4,5,6,7,8,9]),(1719921995.367629,[1,2,4,5,6,7,8,9]),(1719969209.829488,[1,2,4,5,6,7,8,9]),(1719969245.269766,[1,2,4,5,6,7,8,9]),(1720048632.084256,[1,2,4,5,6,7,8,9]),(1720048770.592631,[1,2,4,5,6,7,8,9]),(1720048772.651474,[1,2,4,5,6,7,8,9]),(1720064684.711213,[3]),(1720122031.726969,[1,2,4,5,6,7,8,9]),(1720122184.822518,[1,2,4,5,6,7,8,9]),(1720150648.87242,[1,2,4,5,6,7,8,9]),(1720150650.943118,[1,2,4,5,6,7,8,9]),(1720213532.407721,[1,2,4,5,6,7,8,9]),(1720213752.785267,[1,2,4,5,6,7,8,9]),(1720213754.902257,[1,2,4,5,6,7,8,9])]
     c = [(1719635561.134626,[1,2,4,5,6,7,8,9]),(1719635652.886371,[1,2,4,5,6,7,8,9]),(1719635654.998009,[1,2,4,5,6,7,8,9]),(1719704801.504247,[1,2,4,5,6,7,8,9]),(1719704803.538912,[1,2,4,5,6,7,8,9]),(1719761659.862534,[1,2,4,5,6,7,8,9]),(1719761661.963049,[1,2,4,5,6,7,8,9]),(1719774270.418871,[1,2,4,5,6,7,8,9]),(1719774334.869366,[1,2,4,5,6,7,8,9]),(1719774336.956447,[1,2,4,5,6,7,8,9]),(1719805718.249567,[1,2,4,5,6,7,8,9]),(1719855256.659775,[3]),(1719965295.624256,[1,2,4,5,6,7,8,9]),(1719965316.524137,[1,2,4,5,6,7,8,9]),(1719965318.610919,[1,2,4,5,6,7,8,9]),(1720069720.777595,[1,2,4,5,6,7,8,9]),(1720069722.826168,[1,2,4,5,6,7,8,9]),(1720148996.928905,[1,2,4,5,6,7,8,9])]
@@ -129,3 +155,4 @@ def test():
     for z in (a,b,c,d,e):
         with_breakdown = [(x[0], '', x[1]) for x in z]
         parse_user_aggregation_with_conversion_window_and_breakdown(9, 9000000, 'first_touch', with_breakdown)
+    """
