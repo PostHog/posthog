@@ -5,7 +5,9 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { createExampleEvent } from 'scenes/pipeline/hogfunctions/utils/event-conversion'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import {
@@ -15,6 +17,7 @@ import {
     HogFunctionType,
     PipelineNodeTab,
     PipelineStage,
+    PipelineTab,
     PluginConfigFilters,
     PluginConfigTypeNew,
 } from '~/types'
@@ -112,6 +115,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         duplicate: true,
         duplicateFromTemplate: true,
         resetToTemplate: true,
+        deleteHogFunction: true,
     }),
     reducers({
         showSource: [
@@ -304,8 +308,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     ...values.configuration,
                     name: `${values.configuration.name} (copy)`,
                 }
+                const originalTemplate = values.hogFunction.template?.id ?? 'new'
                 router.actions.push(
-                    urls.pipelineNodeNew(PipelineStage.Destination, `hog-template-helloworld`),
+                    urls.pipelineNodeNew(PipelineStage.Destination, `hog-${originalTemplate}`),
                     undefined,
                     {
                         configuration: newConfig,
@@ -353,6 +358,29 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         setConfigurationValue: () => {
             // Clear the manually set errors otherwise the submission won't work
             actions.setConfigurationManualErrors({})
+        },
+
+        deleteHogFunction: async () => {
+            if (!values.hogFunction) {
+                return
+            }
+            const { id, name } = values.hogFunction
+            await deleteWithUndo({
+                endpoint: `projects/${teamLogic.values.currentTeamId}/hog_functions`,
+                object: {
+                    id,
+                    name,
+                },
+                callback(undo) {
+                    if (undo) {
+                        router.actions.replace(
+                            urls.pipelineNode(PipelineStage.Destination, `hog-${id}`, PipelineNodeTab.Configuration)
+                        )
+                    }
+                },
+            })
+
+            router.actions.replace(urls.pipeline(PipelineTab.Destinations))
         },
     })),
     afterMount(({ props, actions, cache }) => {

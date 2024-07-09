@@ -1,4 +1,4 @@
-import { actions, connect, kea, path, props, selectors } from 'kea'
+import { connect, kea, path, props, selectors } from 'kea'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -27,9 +27,7 @@ export const pipelineNodeNewLogic = kea<pipelineNodeNewLogicType>([
         values: [userLogic, ['user']],
     }),
     path((id) => ['scenes', 'pipeline', 'pipelineNodeNewLogic', id]),
-    actions({
-        createNewButtonPressed: (stage: PipelineStage, id: number | BatchExportService['type']) => ({ stage, id }),
-    }),
+
     selectors(() => ({
         breadcrumbs: [
             (_, p) => [p.stage, p.pluginId, p.batchExportDestination],
@@ -46,7 +44,7 @@ export const pipelineNodeNewLogic = kea<pipelineNodeNewLogicType>([
                 },
                 {
                     key: pluginId || batchDestination || 'Unknown',
-                    name: pluginId ? 'New' : batchDestination ? `New ${batchDestination} destination` : 'Options',
+                    name: pluginId ? 'New' : batchDestination ? `New ${batchDestination} destination` : 'New',
                 },
             ],
         ],
