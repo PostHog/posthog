@@ -4,7 +4,6 @@ import {
     AnyPersonScopeFilter,
     AnyPropertyFilter,
     BaseMathType,
-    Breakdown,
     BreakdownKeyType,
     BreakdownType,
     ChartDisplayCategory,
@@ -1274,7 +1273,7 @@ export interface InsightActorsQuery<S extends InsightsQueryBase<AnalyticsQueryRe
     /** An interval selected out of available intervals in source query. */
     interval?: integer
     series?: integer
-    breakdown?: string | BreakdownValueInt
+    breakdown?: string | BreakdownValueInt | string[]
     compare?: 'current' | 'previous'
 }
 
@@ -1357,6 +1356,14 @@ export interface FunnelCorrelationQuery extends Node<FunnelCorrelationResponse> 
 export type DatetimeDay = string
 
 export type BreakdownValueInt = integer
+export interface BreakdownItem {
+    label: string
+    value: string | BreakdownValueInt
+}
+export interface MultipleBreakdownOptions {
+    values: BreakdownItem[]
+}
+
 export interface InsightActorsQueryOptionsResponse {
     // eslint-disable-next-line @typescript-eslint/no-duplicate-type-constituents
     day?: { label: string; value: string | DatetimeDay | Day }[]
@@ -1369,10 +1376,8 @@ export interface InsightActorsQueryOptionsResponse {
          */
         value: integer
     }[]
-    breakdown?: {
-        label: string
-        value: string | BreakdownValueInt
-    }[]
+    breakdown?: BreakdownItem[]
+    breakdowns?: MultipleBreakdownOptions[]
     series?: {
         label: string
         value: integer
@@ -1387,6 +1392,7 @@ export const insightActorsQueryOptionsResponseKeys: string[] = [
     'status',
     'interval',
     'breakdown',
+    'breakdowns',
     'series',
     'compare',
 ]
@@ -1507,14 +1513,27 @@ export interface InsightDateRange {
     explicitDate?: boolean | null
 }
 
+export type MultipleBreakdownType = Extract<BreakdownType, 'person' | 'event' | 'group' | 'session' | 'hogql'>
+
+export interface Breakdown {
+    type?: MultipleBreakdownType | null
+    value: string
+    normalize_url?: boolean
+    group_type_index?: integer | null
+    histogram_bin_count?: integer // trends breakdown histogram bin
+}
+
 export interface BreakdownFilter {
     // TODO: unclutter
     /** @default event */
     breakdown_type?: BreakdownType | null
     breakdown_limit?: integer
-    breakdown?: BreakdownKeyType
+    breakdown?: string | integer | (string | integer)[] | null
     breakdown_normalize_url?: boolean
-    breakdowns?: Breakdown[]
+    /**
+     * @maxLength 3
+     */
+    breakdowns?: Breakdown[] // We want to limit maximum count of breakdowns avoiding overloading.
     breakdown_group_type_index?: integer | null
     breakdown_histogram_bin_count?: integer // trends breakdown histogram bin
     breakdown_hide_other_aggregation?: boolean | null // hides the "other" field for trends
