@@ -12,7 +12,7 @@ const globals = {
 }
 
 module.exports = {
-    ignorePatterns: ['node_modules', 'plugin-server', 'cypress'],
+    ignorePatterns: ['node_modules', 'plugin-server'],
     env,
     settings: {
         react: {
@@ -293,7 +293,7 @@ module.exports = {
     },
     overrides: [
         {
-            files: ['**/test/**/*', '**/*.test.*'],
+            files: ['**/test/**/*', '**/*.test.*', '**/*.cy.ts'],
             env: {
                 ...env,
                 node: true,
