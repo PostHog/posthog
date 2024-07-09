@@ -98,7 +98,7 @@ export const startBatchConsumer = async ({
      * configures kafka to emit a statistics event on this interval
      * consumer has to register a callback to listen to the event
      */
-    kafkaStatisticIntervalMs: number
+    kafkaStatisticIntervalMs?: number
 }): Promise<BatchConsumer> => {
     // Starts consuming from `topic` in batches of `fetchBatchSize` messages,
     // with consumer group id `groupId`. We use `connectionConfig` to connect
@@ -110,8 +110,8 @@ export const startBatchConsumer = async ({
     // Kafka.
     //
     // Note that we do not handle any pre-fetching explicitly, rather
-    // node-rdkafka will fill it's own internal queue of messages as fast as it
-    // can, and we will consume from that queue periodicatlly. Prefetching will
+    // node-rdkafka will fill its own internal queue of messages as fast as it
+    // can, and we will consume from that queue periodically. Prefetching will
     // stop if the internal queue is full, and will resume once we have
     // `consume`d some messages.
     //
