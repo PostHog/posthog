@@ -62,30 +62,6 @@ describe('HogQL Bytecode', () => {
         expect(execSync(['_h', op.STRING, 'AL', op.STRING, 'kala', op.NOT_IREGEX], options)).toBe(false)
         expect(execSync(['_h', op.STRING, 'bla', op.STRING, 'properties', op.GET_GLOBAL, 2], options)).toBe(null)
         expect(execSync(['_h', op.STRING, 'foo', op.STRING, 'properties', op.GET_GLOBAL, 2], options)).toBe('bar')
-        expect(
-            execSync(
-                ['_h', op.FALSE, op.STRING, 'foo', op.STRING, 'properties', op.GET_GLOBAL, 2, op.CALL, 'ifNull', 2],
-                options
-            )
-        ).toBe('bar')
-        expect(
-            execSync(
-                [
-                    '_h',
-                    op.FALSE,
-                    op.STRING,
-                    'nullValue',
-                    op.STRING,
-                    'properties',
-                    op.GET_GLOBAL,
-                    2,
-                    op.CALL,
-                    'ifNull',
-                    2,
-                ],
-                options
-            )
-        ).toBe(false)
         expect(execSync(['_h', op.STRING, 'another', op.STRING, 'arg', op.CALL, 'concat', 2], options)).toBe(
             'arganother'
         )
@@ -1596,5 +1572,79 @@ describe('HogQL Bytecode', () => {
             }).result
         ).toEqual(map({ event: '$autocapture', properties: map({ $browser: 'Chrome' }) }))
         expect(globals.globalEvent).toEqual({ event: '$pageview', properties: { $browser: 'Chrome' } })
+    })
+
+    test('ternary', () => {
+        const values: any[] = []
+        const functions = {
+            noisy_print: (e) => {
+                values.push(e)
+                return e
+            },
+        }
+        // return true ? true ? noisy_print('true1') : noisy_print('true') : noisy_print('false')
+        const bytecode = [
+            '_h',
+            op.TRUE,
+            op.JUMP_IF_FALSE,
+            17,
+            op.FALSE,
+            op.JUMP_IF_FALSE,
+            7,
+            op.STRING,
+            'true1',
+            op.CALL,
+            'noisy_print',
+            1,
+            op.JUMP,
+            5,
+            op.STRING,
+            'false1',
+            op.CALL,
+            'noisy_print',
+            1,
+            op.JUMP,
+            5,
+            op.STRING,
+            'false2',
+            op.CALL,
+            'noisy_print',
+            1,
+            op.RETURN,
+        ]
+        expect(execSync(bytecode, { functions })).toEqual('false1')
+        expect(values).toEqual(['false1'])
+    })
+
+    test('ifNull', () => {
+        const values: any[] = []
+        const functions = {
+            noisy_print: (e) => {
+                values.push(e)
+                return e
+            },
+        }
+        // return null ?? noisy_print('no'); noisy_print('post')
+        const bytecode = [
+            '_h',
+            op.NULL,
+            op.JUMP_IF_STACK_NOT_NULL,
+            6,
+            op.POP,
+            op.STRING,
+            'no',
+            op.CALL,
+            'noisy_print',
+            1,
+            op.RETURN,
+            op.STRING,
+            'post',
+            op.CALL,
+            'noisy_print',
+            1,
+            op.POP,
+        ]
+        expect(execSync(bytecode, { functions })).toEqual('no')
+        expect(values).toEqual(['no'])
     })
 })
