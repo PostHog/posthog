@@ -1,4 +1,3 @@
-import { IconWarning } from '@posthog/icons'
 import {
     LemonButton,
     LemonCalendarSelectInput,
@@ -35,7 +34,8 @@ export function AnnotationModal({
         useValues(annotationModalLogic)
     const { closeModal, deleteAnnotation, submitAnnotationModal } = useActions(annotationModalLogic)
 
-    const isInsightScoped = existingModalAnnotation?.scope === AnnotationScope.Insight
+    const hasInsightIdSetOnAnnotation = !!existingModalAnnotation?.dashboard_item
+    const hasDashboardIdSetOnAnnotation = !!existingModalAnnotation?.dashboard
 
     return (
         <LemonModal
@@ -109,32 +109,30 @@ export function AnnotationModal({
                                 {
                                     value: AnnotationScope.Insight,
                                     label: annotationScopeToName[AnnotationScope.Insight],
-                                    disabledReason:
-                                        !isInsightScoped && !onSavedInsight && 'You need to save the insight first.',
+                                    // if existing annotation data in db doesn't have insight id set on it
+                                    // we can't let them change scope to insight as we don't know which insight to map to
+                                    disabledReason: existingModalAnnotation
+                                        ? !hasInsightIdSetOnAnnotation &&
+                                          "Annotation wasn't originally scoped to an insight so we can't reduce scope to insight level"
+                                        : !onSavedInsight && 'You need to save the insight first.',
                                 },
                                 {
                                     value: AnnotationScope.Dashboard,
                                     label: annotationScopeToName[AnnotationScope.Dashboard],
-                                    sideIcon: isInsightScoped ? <IconWarning /> : undefined,
-                                    tooltip: isInsightScoped
-                                        ? "After saving, it won't be possible to make the annotation insight-scoped again."
-                                        : undefined,
+                                    // if existing annotation data in db doesn't have dashboard id set on it
+                                    // we can't let them change scope to dashboard as we don't know which dashboard to map to
+                                    disabledReason:
+                                        !!existingModalAnnotation &&
+                                        !hasDashboardIdSetOnAnnotation &&
+                                        "Annotation wasn't originally scoped to a dashboard so we can't reduce scope to dashboard level",
                                 },
                                 {
                                     value: AnnotationScope.Project,
                                     label: annotationScopeToName[AnnotationScope.Project],
-                                    sideIcon: isInsightScoped ? <IconWarning /> : undefined,
-                                    tooltip: isInsightScoped
-                                        ? "After saving, it won't be possible to make the annotation insight-scoped again."
-                                        : undefined,
                                 },
                                 {
                                     value: AnnotationScope.Organization,
                                     label: annotationScopeToName[AnnotationScope.Organization],
-                                    sideIcon: isInsightScoped ? <IconWarning /> : undefined,
-                                    tooltip: isInsightScoped
-                                        ? "After saving, it won't be possible to make the annotation insight-scoped again."
-                                        : undefined,
                                 },
                             ]}
                             fullWidth

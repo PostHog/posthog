@@ -71,14 +71,9 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
             insightId,
             dashboardId,
         }),
-        openModalToEditAnnotation: (
-            annotation: AnnotationType,
-            insightId?: InsightModel['id'] | null,
-            dashboardId?: DashboardBasicType['id'] | null
-        ) => ({
+        openModalToEditAnnotation: (annotation: AnnotationType, insightId?: InsightModel['id'] | null) => ({
             annotation,
             insightId,
-            dashboardId,
         }),
         closeModal: true,
     }),
@@ -166,8 +161,9 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
                         date_marker: dateMarker.toISOString(),
                         content,
                         scope,
-                        dashboard_item: dashboardItemId,
-                        dashboard: dashboardId,
+                        // preserve existing insight id and dashboard id
+                        dashboard_item: values.existingModalAnnotation.dashboard_item,
+                        dashboard: values.existingModalAnnotation.dashboard,
                     })
                     actions.replaceAnnotation(updatedAnnotation)
                 } else {
