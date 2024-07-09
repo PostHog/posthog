@@ -553,7 +553,7 @@ export class SessionRecordingIngester {
 
         // nothing happens here unless we configure SESSION_RECORDING_KAFKA_CONSUMPTION_STATISTICS_EVENT_INTERVAL_MS
         this.batchConsumer.consumer.on('event.stats', (stats) => {
-            status.info('🪵', 'blob_ingester_consumer - kafka stats', { stats: JSON.parse(stats) })
+            status.info('🪵', 'blob_ingester_consumer - kafka stats', { stats })
         })
     }
 
