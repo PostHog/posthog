@@ -1,6 +1,4 @@
-from typing import Any
-
-from rest_framework import request, serializers, viewsets
+from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -18,8 +16,6 @@ class ErrorTrackingGroupSerializer(serializers.ModelSerializer):
     class Meta:
         model = ErrorTrackingGroup
         fields = [
-            "id",
-            "created_at",
             "status",
             "fingerprint",
             "merged_fingerprints",
@@ -27,54 +23,40 @@ class ErrorTrackingGroupSerializer(serializers.ModelSerializer):
         ]
 
 
-class ErrorTrackingGroupViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    serializer_class = ErrorTrackingGroupSerializer
-
-    @action(methods=["GET"], detail=False)
-    def merge(self, request: request.Request, **kwargs):
-
-        return Response([])
-
-
 class ErrorTrackingGroupViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+    # TODO: we will probably want this accessible via the API at some point
+    scope_object = "INTERNAL"
     serializer_class = ErrorTrackingGroupSerializer
     queryset = ErrorTrackingGroup.objects.all()
 
     def safely_get_queryset(self, queryset) -> QuerySet:
-        queryset = queryset.select_related("assignee").filter(team=self.team)
+        params = self.request.GET
+        fingerprints = (
+            [params.get("fingerprint", "")] if self.action == "retrieve" else params.getlist("fingerprints", [])
+        )
 
-        if self.action == "list":
-            queryset = queryset.filter(
-                status=[ErrorTrackingGroup.Status.ACTIVE, ErrorTrackingGroup.Status.PENDING_RELEASE]
-            )
-            queryset = self._filter_list_request(self.request, queryset)
-        elif self.action == "retreive":
-            fingerprint = request.GET.get("fingerprint")
-
-            queryset = queryset.filter(
-                Q(fingerprint__in=[fingerprint]) | Q(merged_fingerprints__contains=[fingerprint])
-            )
+        queryset = (
+            queryset.select_related("assignee").filter(team=self.team).filter(self._fingerprints_filter(fingerprints))
+        )
 
         return queryset
 
-    # def list(self, request: Request):
-    #     pass
-
-    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        instance = self.get_object()
-        serializer = self.get_serializer(instance)
-
-        if str(request.headers.get("If-None-Match")) == str(instance.version):
-            return Response(None, 304)
-
-        return Response(serializer.data)
-
-    @action(methods=["POST"], url_path="merge", detail=False)
+    @action(methods=["POST"], url_path="merge", detail=True)
     def merge(self, request: Request, **kwargs):
+        group: ErrorTrackingGroup = self.get_object()
+
+        merge_groups = ErrorTrackingGroup.objects.filter(
+            team=self.team,
+        ).filter(self._fingerprints_filter)
+
+        group.merge(groups=list(merge_groups))
 
         return Response([])
-        # limit = int(request.query_params.get("limit", "10"))
-        # page = int(request.query_params.get("page", "1"))
 
-        # activity_page = load_activity(scope="Notebook", team_id=self.team_id, limit=limit, page=page)
-        # return activity_page_response(activity_page, limit, page, request)
+    def _fingerprints_filter(self, fingerprints):
+        query = Q(fingerprint__in=fingerprints)
+
+        for fp in fingerprints:
+            query |= Q(merged_fingerprints__contains=[fp])
+
+        return query

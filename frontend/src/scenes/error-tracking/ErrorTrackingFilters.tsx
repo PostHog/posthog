@@ -9,10 +9,13 @@ import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { AnyPropertyFilter } from '~/types'
 
 import { errorTrackingLogic } from './errorTrackingLogic'
+import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
 
 export const ErrorTrackingFilters = ({ showOrder = true }: { showOrder?: boolean }): JSX.Element => {
-    const { dateRange, order, filterGroup, filterTestAccounts } = useValues(errorTrackingLogic)
-    const { setDateRange, setOrder, setFilterGroup, setFilterTestAccounts } = useActions(errorTrackingLogic)
+    const { dateRange, filterGroup, filterTestAccounts } = useValues(errorTrackingLogic)
+    const { setDateRange, setFilterGroup, setFilterTestAccounts } = useActions(errorTrackingLogic)
+    const { order } = useValues(errorTrackingSceneLogic)
+    const { setOrder } = useActions(errorTrackingSceneLogic)
 
     return (
         <UniversalFilters

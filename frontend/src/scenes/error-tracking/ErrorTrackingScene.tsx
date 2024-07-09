@@ -1,16 +1,13 @@
 import { TZLabel } from '@posthog/apps-common'
 import { LemonSegmentedButton } from '@posthog/lemon-ui'
-import { useActions, useMountedLogic, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { useMemo } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { Query } from '~/queries/Query/Query'
-import { DataTableNode } from '~/queries/schema'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
-import { InsightLogicProps } from '~/types'
 
 import { ErrorTrackingFilters } from './ErrorTrackingFilters'
 import { errorTrackingLogic } from './errorTrackingLogic'
@@ -19,10 +16,12 @@ import { errorTrackingQuery } from './queries'
 
 export const scene: SceneExport = {
     component: ErrorTrackingScene,
+    logic: errorTrackingSceneLogic,
 }
 
 export function ErrorTrackingScene(): JSX.Element {
-    const { dateRange, order, filterTestAccounts, filterGroup, sparklineSelectedPeriod } = useValues(errorTrackingLogic)
+    const { order, insightProps } = useValues(errorTrackingSceneLogic)
+    const { dateRange, filterTestAccounts, filterGroup, sparklineSelectedPeriod } = useValues(errorTrackingLogic)
 
     const query = useMemo(
         () =>
@@ -36,35 +35,6 @@ export function ErrorTrackingScene(): JSX.Element {
         [order, dateRange, filterTestAccounts, filterGroup, sparklineSelectedPeriod]
     )
 
-    // const { response } = useValues(dataNodeLogic({ query, key: vizKey }))
-
-    // console.log(response)
-
-    return (
-        <div className="space-y-4">
-            <ErrorTrackingFilters />
-            <ErrorTrackingQuery query={query} />
-        </div>
-    )
-}
-
-const ErrorTrackingQuery = ({ query }: { query: DataTableNode }): JSX.Element => {
-    const insightProps: InsightLogicProps = {
-        dashboardItemId: 'new-error-tracking',
-        onData: (data) => {
-            console.log(data)
-        },
-    }
-
-    console.log(query)
-    console.log(insightProps)
-    console.log(insightVizDataNodeKey(insightProps))
-
-    const logic = errorTrackingSceneLogic({ query, key: insightVizDataNodeKey(insightProps) })
-    console.log('after')
-    console.log(logic.props)
-    useMountedLogic(logic)
-
     const context: QueryContext = {
         columns: {
             error: {
@@ -77,7 +47,12 @@ const ErrorTrackingQuery = ({ query }: { query: DataTableNode }): JSX.Element =>
         insightProps,
     }
 
-    return <Query query={query} context={context} />
+    return (
+        <div className="space-y-4">
+            <ErrorTrackingFilters />
+            <Query query={query} context={context} />
+        </div>
+    )
 }
 
 const CustomVolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName }) => {

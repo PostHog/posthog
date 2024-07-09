@@ -4282,3 +4282,11 @@ export interface AlertType {
     target_value: string
     anomaly_condition: AnomalyCondition
 }
+
+export type ErrorTrackingGroupType = {
+    id: string
+    status: string
+    fingerprint: string
+    merged_fingerprints: ErrorTrackingGroupType['fingerprint'][]
+    assignee: UserBasicType
+}

@@ -130,7 +130,7 @@ project_features_router = projects_router.register(
 project_surveys_router = projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["team_id"])
 
 project_error_tracking_router = projects_router.register(
-    r"error_tracking", error_tracking.ErrorTrackingGroupViewSet, "project_error_tracking", ["team_id"]
+    r"error_tracking_groups", error_tracking.ErrorTrackingGroupViewSet, "project_error_tracking_groups", ["team_id"]
 )
 
 projects_router.register(

@@ -28,6 +28,7 @@ import {
     DataWarehouseViewLink,
     EarlyAccessFeatureType,
     ErrorClusterResponse,
+    ErrorTrackingGroupType,
     EventDefinition,
     EventDefinitionType,
     EventsListQueryParams,
@@ -358,6 +359,14 @@ class ApiRequest {
     }
     public comment(id: CommentType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.comments(teamId).addPathComponent(id)
+    }
+
+    // # Error Tracking Groups
+    public error_tracking_groups(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('error_tracking_groups')
+    }
+    public error_tracking_group(id: CommentType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.error_tracking_groups(teamId).addPathComponent(id)
     }
 
     // # Exports
@@ -1066,6 +1075,14 @@ const api = {
 
         async getCount(params: Partial<CommentType>): Promise<number> {
             return (await new ApiRequest().comments().withAction('count').withQueryString(params).get()).count
+        },
+    },
+
+    error_tracking: {
+        async list(
+            params: { fingerprints?: ErrorTrackingGroupType['fingerprint'][] } = {}
+        ): Promise<CountedPaginatedResponse<ErrorTrackingGroupType>> {
+            return new ApiRequest().error_tracking_groups().withQueryString(toParams(params, true)).get()
         },
     },
 
