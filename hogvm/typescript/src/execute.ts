@@ -285,6 +285,10 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 temp = popStack() // property
                 stack.push(getNestedValue(popStack(), [temp]))
                 break
+            case Operation.GET_PROPERTY_NULLISH:
+                temp = popStack() // property
+                stack.push(getNestedValue(popStack(), [temp], true))
+                break
             case Operation.SET_PROPERTY:
                 temp = popStack() // value
                 temp2 = popStack() // field
@@ -317,6 +321,12 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
             case Operation.JUMP_IF_FALSE:
                 temp = next()
                 if (!popStack()) {
+                    ip += temp
+                }
+                break
+            case Operation.JUMP_IF_STACK_NOT_NULL:
+                temp = next()
+                if (stack.length > 0 && stack[stack.length - 1] !== null) {
                     ip += temp
                 }
                 break

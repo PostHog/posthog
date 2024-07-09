@@ -155,6 +155,9 @@ columnExpr
     | columnExpr LBRACKET columnExpr RBRACKET                                             # ColumnExprArrayAccess
     | columnExpr DOT DECIMAL_LITERAL                                                      # ColumnExprTupleAccess
     | columnExpr DOT identifier                                                           # ColumnExprPropertyAccess
+    | columnExpr NULL_PROPERTY LBRACKET columnExpr RBRACKET                               # ColumnExprNullArrayAccess
+    | columnExpr NULL_PROPERTY DECIMAL_LITERAL                                            # ColumnExprNullTupleAccess
+    | columnExpr NULL_PROPERTY identifier                                                 # ColumnExprNullPropertyAccess
     | DASH columnExpr                                                                     # ColumnExprNegate
     | left=columnExpr ( operator=ASTERISK                                                 // *
                  | operator=SLASH                                                         // /

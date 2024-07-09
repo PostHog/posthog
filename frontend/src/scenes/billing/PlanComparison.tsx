@@ -127,7 +127,7 @@ export const PlanComparison = ({
     const { reportSurveyShown, setSurveyResponse } = useActions(billingProductLogic({ product }))
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const ctaAction = featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' ? 'Upgrade' : 'Subscribe'
+    const ctaAction = billing?.subscription_level === 'custom' ? 'Subscribe' : 'Upgrade'
     const upgradeButtons = plans?.map((plan, i) => {
         return (
             <td key={`${plan.plan_key}-cta`} className="PlanTable__td__upgradeButton">
@@ -137,11 +137,8 @@ export const PlanComparison = ({
                             ? 'mailto:sales@posthog.com?subject=Enterprise%20plan%20request'
                             : getUpgradeProductLink({
                                   product,
-                                  upgradeToPlanKey: plan.plan_key || '',
                                   redirectPath,
                                   includeAddons,
-                                  subscriptionLevel: billing?.subscription_level,
-                                  featureFlags,
                               })
                     }
                     type={plan.current_plan || i < currentPlanIndex ? 'secondary' : 'primary'}
@@ -191,12 +188,7 @@ export const PlanComparison = ({
                 {!plan.current_plan && !plan.free_allocation && includeAddons && product.addons?.length > 0 && (
                     <p className="text-center ml-0 mt-2 mb-0">
                         <Link
-                            to={
-                                featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' &&
-                                billing?.subscription_level === 'free'
-                                    ? `/api/billing/activate?products=all_products:&redirect_path=${redirectPath}`
-                                    : `/api/billing/activate?products=${product.type}:${plan.plan_key}&redirect_path=${redirectPath}`
-                            }
+                            to={`/api/billing/activate?products=all_products:&redirect_path=${redirectPath}`}
                             className="text-muted text-xs"
                             disableClientSideRouting
                         >
@@ -231,7 +223,7 @@ export const PlanComparison = ({
                             hasActiveSubscription: billing?.has_active_subscription,
                         })
                         return (
-                            <td key={`${plan.plan_key}-basePrice`} className="text-sm font-bold">
+                            <td key={`${plan.plan_key}-basePrice`} className="text-sm font-medium">
                                 {plan.free_allocation && !plan.tiers
                                     ? 'Free forever'
                                     : plan.unit_amount_usd
@@ -239,9 +231,9 @@ export const PlanComparison = ({
                                     : plan.contact_support
                                     ? 'Custom'
                                     : plan.included_if == 'has_subscription'
-                                    ? featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test'
-                                        ? 'Usage-based - starting at $0'
-                                        : 'Free, included with any product subscription'
+                                    ? billing?.subscription_level === 'custom'
+                                        ? 'Free, included with any product subscription'
+                                        : 'Usage-based - starting at $0'
                                     : '$0 per month'}
                                 {isProrated && (
                                     <p className="text-xxs text-muted font-normal italic mt-2">

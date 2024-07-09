@@ -634,6 +634,7 @@ class OrderExpr(Expr):
 class ArrayAccess(Expr):
     array: Expr
     property: Expr
+    nullish: bool = False
 
 
 @dataclass(kw_only=True)
@@ -650,6 +651,7 @@ class Dict(Expr):
 class TupleAccess(Expr):
     tuple: Expr
     index: int
+    nullish: bool = False
 
 
 @dataclass(kw_only=True)

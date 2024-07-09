@@ -6,7 +6,7 @@ from django.urls import include
 from django.urls.conf import path
 from rest_framework_extensions.routers import NestedRegistryItem
 
-from ee.api import integration, time_to_see_data
+from ee.api import integration
 from posthog.api.routing import DefaultRouterPlusPlus
 
 from .api import (
@@ -35,7 +35,6 @@ def extend_api_router(
 ) -> None:
     root_router.register(r"billing", billing.BillingViewset, "billing")
     root_router.register(r"license", license.LicenseViewSet)
-    root_router.register(r"time_to_see_data", time_to_see_data.TimeToSeeDataViewSet, "query_metrics")
     root_router.register(r"integrations", integration.PublicIntegrationViewSet)
     organization_roles_router = organizations_router.register(
         r"roles",

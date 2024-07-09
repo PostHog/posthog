@@ -40,7 +40,7 @@ class TrendsActorsQueryBuilder:
 
     entity: EventsNode | ActionsNode
     time_frame: Optional[datetime]
-    breakdown_value: Optional[str | int] = None
+    breakdown_value: Optional[str | int | list[str]] = None
     compare_value: Optional[Compare] = None
     include_recordings: Optional[bool] = None
 
@@ -52,7 +52,7 @@ class TrendsActorsQueryBuilder:
         modifiers: HogQLQueryModifiers,
         series_index: int,
         time_frame: Optional[str | datetime],
-        breakdown_value: Optional[str | int] = None,
+        breakdown_value: Optional[str | int | list[str]] = None,
         compare_value: Optional[Compare] = None,
         include_recordings: Optional[bool] = None,
         limit_context: LimitContext = LimitContext.QUERY,
@@ -384,12 +384,11 @@ class TrendsActorsQueryBuilder:
             query_date_range=self.trends_date_range,
             timings=self.timings,
             modifiers=self.modifiers,
-            events_filter=self._events_where_expr(with_breakdown_expr=False),
             limit_context=self.limit_context,
         )
 
-        if breakdown.enabled and not breakdown.is_histogram_breakdown:
-            breakdown_filter = breakdown.events_where_filter(breakdown_values_override=self.breakdown_value)
+        if self.breakdown_value is not None and breakdown.enabled:
+            breakdown_filter = breakdown.get_actors_query_where_filter(lookup_values=self.breakdown_value)
             if breakdown_filter is not None:
                 conditions.append(breakdown_filter)
 

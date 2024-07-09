@@ -6,7 +6,7 @@ from freezegun import freeze_time
 from rest_framework.exceptions import ValidationError
 from posthog.api.instance_settings import get_instance_setting
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType
+from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType, FunnelVizType
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
@@ -21,6 +21,9 @@ from posthog.queries.funnels import ClickhouseFunnelActors
 from posthog.schema import (
     ActorsQuery,
     BreakdownFilter,
+    BreakdownType,
+    FunnelConversionWindowTimeUnit,
+    FunnelsFilter,
     InsightDateRange,
     EventsNode,
     FunnelsActorsQuery,
@@ -3701,6 +3704,70 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             self.assertEqual(results[0]["count"], 1)
 
+        def test_time_to_convert_funnel_ignores_breakdown(self):
+            _create_person(distinct_ids=[f"user_1"], team=self.team, properties={"userRole": "admin"})
+            _create_person(distinct_ids=[f"user_2"], team=self.team, properties={"userRole": "user"})
+            _create_person(distinct_ids=[f"user_3"], team=self.team, properties={"userRole": "user"})
+
+            events_by_person = {
+                "user_1": [
+                    {
+                        "event": "a",
+                        "timestamp": datetime(2024, 3, 22, 13, 10),
+                    },
+                    {
+                        "event": "b",
+                        "timestamp": datetime(2024, 3, 22, 13, 11),
+                    },
+                ],
+                "user_2": [
+                    {
+                        "event": "a",
+                        "timestamp": datetime(2024, 3, 22, 13, 1),
+                    },
+                    {
+                        "event": "a",
+                        "timestamp": datetime(2024, 3, 22, 13, 35),
+                    },
+                    {
+                        "event": "b",
+                        "timestamp": datetime(2024, 3, 22, 13, 41),
+                    },
+                ],
+                "user_3": [
+                    {
+                        "event": "a",
+                        "timestamp": datetime(2024, 3, 22, 13, 1),
+                    },
+                    {
+                        "event": "a",
+                        "timestamp": datetime(2024, 3, 22, 13, 35),
+                    },
+                    {
+                        "event": "a",
+                        "timestamp": datetime(2024, 3, 22, 13, 41),
+                    },
+                ],
+            }
+            journeys_for(events_by_person, self.team)
+
+            query = FunnelsQuery(
+                series=[EventsNode(event="a"), EventsNode(event="b")],
+                dateRange=InsightDateRange(
+                    date_from="2024-03-22",
+                    date_to="2024-03-22",
+                ),
+                breakdownFilter=BreakdownFilter(breakdown="userRoles", breakdown_type=BreakdownType.PERSON),
+                funnelsFilter=FunnelsFilter(
+                    funnelVizType=FunnelVizType.TIME_TO_CONVERT,
+                    funnelWindowInterval=10,
+                    funnelWindowIntervalUnit=FunnelConversionWindowTimeUnit.MINUTE,
+                ),
+            )
+            result = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            assert result.average_conversion_time == 210
+            assert result.bins == [[60, 1], [210, 0], [360, 1]]
+
     return TestGetFunnel
 
 
@@ -3742,9 +3809,9 @@ FROM
         (SELECT
             e.timestamp AS timestamp,
             person_id AS aggregation_target,
-            if(true, 1, 0) AS step_0,
+            if(1, 1, 0) AS step_0,
             if(equals(step_0, 1), timestamp, NULL) AS latest_0,
-            if(true, 1, 0) AS step_1,
+            if(1, 1, 0) AS step_1,
             if(equals(step_1, 1), timestamp, NULL) AS latest_1
         FROM
             events AS e
@@ -3802,9 +3869,9 @@ FROM
                 (SELECT
                     e.timestamp AS timestamp,
                     person_id AS aggregation_target,
-                    if(true, 1, 0) AS step_0,
+                    if(1, 1, 0) AS step_0,
                     if(equals(step_0, 1), timestamp, NULL) AS latest_0,
-                    if(true, 1, 0) AS step_1,
+                    if(1, 1, 0) AS step_1,
                     if(equals(step_1, 1), timestamp, NULL) AS latest_1
                 FROM
                     events AS e
@@ -3873,9 +3940,9 @@ FROM
                     (SELECT
                         e.timestamp AS timestamp,
                         person_id AS aggregation_target,
-                        if(true, 1, 0) AS step_0,
+                        if(1, 1, 0) AS step_0,
                         if(equals(step_0, 1), timestamp, NULL) AS latest_0,
-                        if(true, 1, 0) AS step_1,
+                        if(1, 1, 0) AS step_1,
                         if(equals(step_1, 1), timestamp, NULL) AS latest_1
                     FROM
                         events AS e
