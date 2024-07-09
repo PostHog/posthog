@@ -11,6 +11,7 @@ from django.urls.base import reverse
 from django.utils import timezone
 from rest_framework import status
 
+from ee.models.explicit_team_membership import ExplicitTeamMembership
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.constants import AvailableFeature
 from posthog.models import Dashboard, Organization, Team, User
@@ -1000,6 +1001,31 @@ class TestInviteSignupAPI(APIBaseTest):
         self.assertEqual(user.organization, self.organization)
         self.assertEqual(user.current_team, team)
         self.assertEqual(user.team, team)
+
+    def test_api_invite_signup_invite_has_private_project_access(self):
+        self.client.logout()
+        self.team.access_control = True
+        self.team.save()
+        team = Team.objects.create(name="Public project", organization=self.organization, access_control=False)
+        invite: OrganizationInvite = OrganizationInvite.objects.create(
+            target_email="test+privatepublic@posthog.com",
+            level=OrganizationMembership.Level.MEMBER,
+            organization=self.organization,
+            private_project_access=[{"id": self.team.id, "level": ExplicitTeamMembership.Level.ADMIN}],
+        )
+        response = self.client.post(
+            f"/api/signup/{invite.id}/",
+            {"first_name": "Charlie", "password": VALID_TEST_PASSWORD},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        user = cast(User, User.objects.order_by("-pk")[0])
+        self.assertEqual(user.organization_memberships.count(), 1)
+        self.assertEqual(user.organization, self.organization)
+        self.assertEqual(user.current_team, team)
+        self.assertEqual(user.team, team)
+        # get all teams user has access to
+        teams = user.teams.filter(organization=self.organization)
+        self.assertEqual(teams.count(), 2)
 
     def test_api_invite_sign_up_member_joined_email_is_not_sent_for_initial_member(self):
         invite: OrganizationInvite = OrganizationInvite.objects.create(

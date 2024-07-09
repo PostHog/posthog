@@ -4,12 +4,14 @@ from unittest.mock import ANY, patch
 from django.core import mail
 from rest_framework import status
 
+from ee.models.explicit_team_membership import ExplicitTeamMembership
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import (
     Organization,
     OrganizationInvite,
     OrganizationMembership,
 )
+from posthog.models.team.team import Team
 from posthog.test.base import APIBaseTest
 
 NAME_SEEDS = ["John", "Jane", "Alice", "Bob", ""]
@@ -158,6 +160,31 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         obj = OrganizationInvite.objects.get(id=response.json()["id"])
         self.assertEqual(obj.level, OrganizationMembership.Level.OWNER)
 
+        self.assertEqual(OrganizationInvite.objects.count(), count + 1)
+
+    def test_can_specify_private_project_access_in_invite(self):
+        email = "x@posthog.com"
+        count = OrganizationInvite.objects.count()
+        private_team = Team.objects.create(organization=self.organization, name="Private Team", access_control=True)
+        ExplicitTeamMembership.objects.create(
+            team=private_team,
+            parent_membership=self.organization_membership,
+            level=ExplicitTeamMembership.Level.ADMIN,
+        )
+        response = self.client.post(
+            "/api/organizations/@current/invites/",
+            {
+                "target_email": email,
+                "level": OrganizationMembership.Level.MEMBER,
+                "private_project_access": [{"id": self.team.id, "level": ExplicitTeamMembership.Level.ADMIN}],
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        obj = OrganizationInvite.objects.get(id=response.json()["id"])
+        self.assertEqual(obj.level, OrganizationMembership.Level.MEMBER)
+        self.assertEqual(
+            obj.private_project_access, [{"id": self.team.id, "level": ExplicitTeamMembership.Level.ADMIN}]
+        )
         self.assertEqual(OrganizationInvite.objects.count(), count + 1)
 
     def test_cannot_create_invite_for_another_org(self):
