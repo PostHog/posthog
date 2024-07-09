@@ -136,39 +136,35 @@ export function Cohorts(): JSX.Element {
     ]
 
     return (
-        <div>
-            {cohorts?.length == 0 && !cohortsLoading ? (
-                <ProductIntroduction
-                    productName="Cohorts"
-                    productKey={ProductKey.COHORTS}
-                    thingName="cohort"
-                    description="Use cohorts to group people together, such as users who used your app in the last week, or people who viewed the signup page but didn’t convert."
-                    isEmpty={cohorts?.length == 0 && !cohortsLoading}
-                    docsURL="https://posthog.com/docs/data/cohorts"
-                    action={() => router.actions.push(urls.cohort('new'))}
-                    customHog={ListHog}
+        <>
+            <ProductIntroduction
+                productName="Cohorts"
+                productKey={ProductKey.COHORTS}
+                thingName="cohort"
+                description="Use cohorts to group people together, such as users who used your app in the last week, or people who viewed the signup page but didn’t convert."
+                isEmpty={cohorts?.length == 0 && !cohortsLoading}
+                docsURL="https://posthog.com/docs/data/cohorts"
+                action={() => router.actions.push(urls.cohort('new'))}
+                customHog={ListHog}
+            />
+
+            <div className="flex justify-between items-center mb-4 gap-2">
+                <LemonInput
+                    type="search"
+                    placeholder="Search for cohorts"
+                    onChange={setSearchTerm}
+                    value={searchTerm}
                 />
-            ) : (
-                <>
-                    <div className="flex justify-between items-center mb-4 gap-2">
-                        <LemonInput
-                            type="search"
-                            placeholder="Search for cohorts"
-                            onChange={setSearchTerm}
-                            value={searchTerm}
-                        />
-                    </div>
-                    <LemonTable
-                        columns={columns}
-                        loading={cohortsLoading}
-                        rowKey="id"
-                        pagination={{ pageSize: 100 }}
-                        dataSource={searchTerm ? cohortsSearch(searchTerm) : cohorts ?? []}
-                        nouns={['cohort', 'cohorts']}
-                        data-attr="cohorts-table"
-                    />
-                </>
-            )}
-        </div>
+            </div>
+            <LemonTable
+                columns={columns}
+                loading={cohortsLoading}
+                rowKey="id"
+                pagination={{ pageSize: 100 }}
+                dataSource={searchTerm ? cohortsSearch(searchTerm) : cohorts ?? []}
+                nouns={['cohort', 'cohorts']}
+                data-attr="cohorts-table"
+            />
+        </>
     )
 }
