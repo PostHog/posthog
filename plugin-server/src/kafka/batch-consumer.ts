@@ -72,6 +72,7 @@ export const startBatchConsumer = async ({
     callEachBatchWhenEmpty = false,
     debug,
     queuedMaxMessagesKBytes = 102400,
+    kafkaStatisticIntervalMs = 0,
 }: {
     connectionConfig: GlobalConfig
     groupId: string
@@ -91,6 +92,13 @@ export const startBatchConsumer = async ({
     callEachBatchWhenEmpty?: boolean
     debug?: string
     queuedMaxMessagesKBytes?: number
+    /**
+     * default to 0 which disables logging
+     * granularity of 1000ms
+     * configures kafka to emit a statics event on this interval
+     * consumer has to register a callback to listen to the event
+     */
+    kafkaStatisticIntervalMs: number
 }): Promise<BatchConsumer> => {
     // Starts consuming from `topic` in batches of `fetchBatchSize` messages,
     // with consumer group id `groupId`. We use `connectionConfig` to connect
@@ -159,6 +167,7 @@ export const startBatchConsumer = async ({
         'partition.assignment.strategy': 'cooperative-sticky',
         rebalance_cb: true,
         offset_commit_cb: true,
+        'statistics.interval.ms': kafkaStatisticIntervalMs,
     }
 
     if (debug) {
