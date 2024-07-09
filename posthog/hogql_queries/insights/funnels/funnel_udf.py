@@ -68,6 +68,7 @@ class FunnelUDF(FunnelBase):
             breakdown_prop = ""
 
         prop_selector = 'prop' if self.context.breakdown else default_breakdown_selector
+        prop_vals = 'groupUniqArray(prop)' if self.context.breakdown else f'[{default_breakdown_selector}]'
 
         breakdown_attribution_string = f"{self.context.breakdownAttributionType}{f'_{self.context.funnelsFilter.breakdownAttributionValue}' if self.context.breakdownAttributionType == BreakdownAttributionType.STEP else ''}"
 
@@ -77,6 +78,7 @@ class FunnelUDF(FunnelBase):
                     {self.context.max_steps}, 
                     {self.conversion_window_limit()},
                     '{breakdown_attribution_string}',
+                    {prop_vals},
                     arraySort(t -> t.1, groupArray(tuple(toFloat(timestamp), {prop_selector}, arrayFilter((x) -> x != 0, [{steps}{exclusions}]))))
                 ) as af_tuple,
                 af_tuple.1 as af,
