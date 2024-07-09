@@ -87,8 +87,7 @@ def parse_user_aggregation_with_conversion_window_and_breakdown(num_steps, conve
 
         for i in range(1, num_steps + 1):
             if entered_timestamp[i].timestamp == 0:
-                printit(i - 1, prop_val)
-
+                printit(i - 1, prop_val
 
         printit(num_steps, prop_val)
         return
