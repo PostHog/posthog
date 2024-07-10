@@ -336,7 +336,6 @@ export interface PluginServerCapabilities {
     cdpProcessedEvents?: boolean
     cdpFunctionCallbacks?: boolean
     cdpFunctionOverflow?: boolean
-    personOverrides?: boolean
     appManagementSingleton?: boolean
     preflightSchedules?: boolean // Used for instance health checks on hobby deploy, not useful on cloud
     http?: boolean
