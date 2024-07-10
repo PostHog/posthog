@@ -89,7 +89,7 @@ class TeamManager(models.Manager):
 
     def create_with_data(self, user: Any = None, default_dashboards: bool = True, **kwargs) -> "Team":
         kwargs["test_account_filters"] = self.set_test_account_filters(kwargs.get("organization"))
-        team = cast("Team", super().create(**kwargs))
+        team = cast("Team", self.create(**kwargs))
 
         # Create default dashboards (skipped for demo projects)
         if default_dashboards:
