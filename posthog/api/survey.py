@@ -447,7 +447,6 @@ class SurveyAPISerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "name",
-            "description",
             "type",
             "linked_flag_key",
             "targeting_flag_key",

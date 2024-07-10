@@ -2030,6 +2030,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
         basic_survey = Survey.objects.create(
             team=self.team,
             created_by=self.user,
+            description="These are my notes about the survey",
             name="Survey 1",
             type="popover",
             questions=[{"type": "open", "question": "What's a survey?"}],
@@ -2062,7 +2063,6 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                     {
                         "id": str(basic_survey.id),
                         "name": "Survey 1",
-                        "description": "",
                         "type": "popover",
                         "questions": [{"type": "open", "question": "What's a survey?"}],
                         "conditions": None,
@@ -2075,7 +2075,6 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                     {
                         "id": str(survey_with_flags.id),
                         "name": "Survey 2",
-                        "description": "",
                         "type": "popover",
                         "conditions": None,
                         "appearance": None,

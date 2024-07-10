@@ -9,6 +9,7 @@ import {
     IconNight,
     IconQuestion,
     IconSearch,
+    IconTestTube,
     IconToggle,
     IconX,
 } from '@posthog/icons'
@@ -22,6 +23,7 @@ import { useEffect, useRef } from 'react'
 import { ActionsToolbarMenu } from '~/toolbar/actions/ActionsToolbarMenu'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { EventDebugMenu } from '~/toolbar/debug/EventDebugMenu'
+import { ExperimentsToolbarMenu } from '~/toolbar/experiments/ExperimentsToolbarMenu'
 import { FlagsToolbarMenu } from '~/toolbar/flags/FlagsToolbarMenu'
 import { HeatmapToolbarMenu } from '~/toolbar/stats/HeatmapToolbarMenu'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
@@ -102,6 +104,8 @@ export function ToolbarInfoMenu(): JSX.Element | null {
         <HedgehogMenu />
     ) : visibleMenu === 'debugger' ? (
         <EventDebugMenu />
+    ) : visibleMenu === 'experiments' ? (
+        <ExperimentsToolbarMenu />
     ) : null
 
     useEffect(() => {
@@ -217,6 +221,9 @@ export function Toolbar(): JSX.Element | null {
                         </ToolbarButton>
                         <ToolbarButton menuId="debugger" title="Event debugger">
                             <IconLive />
+                        </ToolbarButton>
+                        <ToolbarButton menuId="experiments" title="Experiments">
+                            <IconTestTube />
                         </ToolbarButton>
                     </>
                 ) : (
