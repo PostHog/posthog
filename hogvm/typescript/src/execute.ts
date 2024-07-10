@@ -391,12 +391,12 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                     const args = Array(temp)
                         .fill(null)
                         .map(() => popStack())
-                    if (options?.functions && options.functions.hasOwnProperty(name) && options.functions[name]) {
+                    if (options?.functions && Object.hasOwn(options.functions, name) && options.functions[name]) {
                         pushStack(convertJSToHog(options.functions[name](...args.map(convertHogToJS))))
                     } else if (
                         name !== 'toString' &&
                         ((options?.asyncFunctions &&
-                            options.asyncFunctions.hasOwnProperty(name) &&
+                            Object.hasOwn(options.asyncFunctions, name) &&
                             options.asyncFunctions[name]) ||
                             name in ASYNC_STL)
                     ) {
