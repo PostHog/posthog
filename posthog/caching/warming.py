@@ -1,6 +1,10 @@
+from datetime import timedelta, UTC, datetime
+from collections.abc import Generator
+
 import structlog
 from celery import shared_task
 from celery.canvas import chain
+from django.db.models import Q
 from sentry_sdk import capture_exception
 
 from posthog.api.services.query import process_query_dict
@@ -9,16 +13,55 @@ from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql_queries.query_cache import QueryCacheManager
 from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import conversion_to_query_based
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import Team, Insight
+from posthog.models import Team, Insight, DashboardTile
 
 logger = structlog.get_logger(__name__)
 
+LAST_VIEWED_THRESHOLD = timedelta(days=7)
+
+
+def priority_insights(team: Team) -> Generator[str, None, None]:
+    combos = QueryCacheManager.get_stale_insights(team_id=team.pk, limit=50)
+
+    now = datetime.now(UTC)
+    dashboard_q_filter = Q()
+    insight_ids_single = set()
+
+    for insight_id, dashboard_id in (combo.split(":") for combo in combos):
+        if dashboard_id:
+            dashboard_q_filter |= Q(insight_id=insight_id, dashboard_id=dashboard_id)
+        else:
+            insight_ids_single.add(insight_id)
+
+    if insight_ids_single:
+        single_insights = (
+            team.insight_set.filter(
+                insightviewed__last_viewed_at__gte=now - LAST_VIEWED_THRESHOLD, pk__in=insight_ids_single
+            )
+            .distinct()
+            .values_list("id", flat=True)
+        )
+        for insight in single_insights:
+            yield insight, None
+
+    if not dashboard_q_filter:
+        return
+
+    dashboard_tiles = (
+        DashboardTile.objects.filter(dashboard__last_accessed_at__gte=now - LAST_VIEWED_THRESHOLD)
+        .filter(dashboard_q_filter)
+        .distinct()
+        .values_list("insight_id", "dashboard_id")
+    )
+    for insight_id, dashboard_id in dashboard_tiles:
+        yield insight_id, dashboard_id
+
 
 @shared_task(ignore_result=True, expires=60 * 60)
-def schedule_warming_for_largest_teams_task():
+def schedule_warming_for_teams_task():
     team_ids = largest_teams()
 
-    logger.info("Warming insight cache: largest teams", team_ids=team_ids)
+    logger.info("Warming insight cache: teams", team_ids=team_ids)
 
     teams = Team.objects.filter(pk__in=team_ids)
 
@@ -26,15 +69,14 @@ def schedule_warming_for_largest_teams_task():
         teams = Team.objects.all()[:10]
 
     for team in teams:
-        insight_ids = QueryCacheManager.get_stale_insights(team_id=team.pk, limit=50)
+        insight_tuples = priority_insights(team)
 
-        task_groups = chain(*(warm_insight_cache_task.si(insight_id) for insight_id in insight_ids))
+        task_groups = chain(*(warm_insight_cache_task.si(*insight_tuple) for insight_tuple in insight_tuples))
         task_groups.apply_async()
 
 
 @shared_task(ignore_result=True, expires=60 * 60)
-def warm_insight_cache_task(insight_id: str):
-    insight_id, dashboard_id = insight_id.split(":")
+def warm_insight_cache_task(insight_id: str, dashboard_id: str):
     insight = Insight.objects.get(pk=insight_id)
     dashboard = None
 
@@ -44,7 +86,7 @@ def warm_insight_cache_task(insight_id: str):
         dashboard = insight.dashboards.get(pk=dashboard_id)
 
     with conversion_to_query_based(insight):
-        logger.info(f"Warming insight {insight.pk} for team {insight.team_id} and dashboard {dashboard_id}")
+        logger.info(f"Warming insight cache: {insight.pk} for team {insight.team_id} and dashboard {dashboard_id}")
 
         try:
             process_query_dict(

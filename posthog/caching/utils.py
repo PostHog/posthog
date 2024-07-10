@@ -28,16 +28,17 @@ def ensure_is_date(candidate: Optional[Union[str, datetime]]) -> Optional[dateti
     return parser().parse(candidate)
 
 
-def largest_teams() -> set[int]:
+def largest_teams(limit: Optional[int] = 3) -> set[int]:
     teams_by_event_count = sync_execute(
         """
-        SELECT team_id, COUNT(*) AS event_count
-        FROM events
-        WHERE timestamp > subtractDays(now(), 7)
-        GROUP BY team_id
-        ORDER BY event_count DESC
-        LIMIT 3;
-    """
+            SELECT team_id, COUNT(*) AS event_count
+            FROM events
+            WHERE timestamp > subtractDays(now(), 7)
+            GROUP BY team_id
+            ORDER BY event_count DESC
+            LIMIT {limit};
+        """,
+        {"limit": limit},
     )
     return {int(team_id) for team_id, _ in teams_by_event_count}
 
