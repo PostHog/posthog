@@ -78,7 +78,7 @@ export function TextCardInternal(
             ref={ref}
         >
             {showEditingControls && (
-                <div className="border-b flex justify-end">
+                <div className="absolute right-4 top-4">
                     <More
                         overlay={
                             <>
@@ -143,7 +143,7 @@ export function TextCardInternal(
             )}
 
             <div className="TextCard__body w-full">
-                <TextContent text={text.body} />
+                <TextContent text={text.body} className="p-4" />
             </div>
 
             {showResizeHandles && (

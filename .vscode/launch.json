@@ -165,14 +165,7 @@
     "compounds": [
         {
             "name": "PostHog",
-            "configurations": [
-                "Backend",
-                "Celery Threaded Pool",
-                "Celery Redbeat Scheduler",
-                "Frontend",
-                "Plugin Server",
-                "Temporal Worker"
-            ],
+            "configurations": ["Backend", "Celery Threaded Pool", "Frontend", "Plugin Server", "Temporal Worker"],
             "stopAll": true,
             "presentation": {
                 "order": 1,
@@ -184,7 +177,6 @@
             "configurations": [
                 "Backend (with local billing)",
                 "Celery Threaded Pool",
-                "Celery Redbeat Scheduler",
                 "Frontend",
                 "Plugin Server",
                 "Temporal Worker"

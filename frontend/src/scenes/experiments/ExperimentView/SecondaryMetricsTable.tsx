@@ -142,7 +142,7 @@ export function SecondaryMetricsTable({
                     title: <div className="py-2">Variant</div>,
                     render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
                         if (!experimentResults || !experimentResults.insight) {
-                            return <span className="font-semibold">{capitalizeFirstLetter(item.variant)}</span>
+                            return <span className="font-semibold">{item.variant}</span>
                         }
                         return (
                             <div className="flex items-center py-2">

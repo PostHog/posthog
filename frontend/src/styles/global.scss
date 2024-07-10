@@ -83,15 +83,6 @@ input[type='radio'] {
     }
 }
 
-.page-buttons {
-    display: flex;
-    flex-grow: 1;
-    flex-shrink: 0;
-    gap: 0.5rem;
-    align-items: center;
-    justify-content: right;
-}
-
 .secondary {
     font-size: 0.9em;
     font-weight: var(--font-medium);
@@ -113,19 +104,6 @@ input[type='radio'] {
 mark {
     background-color: var(--mark) !important;
     border-radius: var(--radius);
-}
-
-// Supplement text, such as email under user name
-.supplement {
-    overflow: hidden;
-    font-size: 0.8125rem;
-    color: var(--muted-alt);
-    text-overflow: ellipsis;
-
-    &--danger {
-        font-weight: 600;
-        color: var(--danger);
-    }
 }
 
 hr {
@@ -245,12 +223,6 @@ input::-ms-clear {
     }
 }
 
-.title-icon {
-    margin-left: 0.375rem;
-    font-size: 1rem;
-    line-height: 0;
-}
-
 // Graph series glyph
 
 .graph-series-glyph {
@@ -365,48 +337,8 @@ input::-ms-clear {
     }
 }
 
-// Overlays
-
-.overlay__parent {
-    position: relative;
-}
-
-.overlay__child {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    transition: opacity 0.25s ease;
-
-    .overlay--danger & {
-        background: repeating-linear-gradient(
-            -45deg,
-            rgb(255 255 255 / 50%),
-            rgb(255 255 255 / 50%) 0.75rem,
-            var(--danger) 0.5rem,
-            var(--danger) 20px
-        );
-    }
-}
-
-// Tags
-
-.simple-tag {
-    padding: 2px 6px;
-    border-radius: var(--radius);
-
-    &.tag-light-blue {
-        background-color: var(--primary-highlight);
-    }
-}
-
 // AntD overrrides, placed inside `body` to increase specifity (nicely avoiding the need for !important)
 body {
-    // Until we have 3000 rolled out we fallback to standard colors
-    --primary-3000-highlight: var(--primary-highlight);
-    --primary-highlight: var(--primary-3000-highlight);
-
     // Remove below once we're using Tailwind's base
     --tw-ring-offset-width: 0px;
     --tw-ring-offset-color: var(--bg-light);

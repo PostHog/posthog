@@ -71,6 +71,10 @@ export const startBatchConsumer = async ({
     queuedMinMessages = 100000,
     callEachBatchWhenEmpty = false,
     debug,
+    queuedMaxMessagesKBytes = 102400,
+    kafkaStatisticIntervalMs = 0,
+    fetchMinBytes,
+    maxHealthHeartbeatIntervalMs = 60_000,
 }: {
     connectionConfig: GlobalConfig
     groupId: string
@@ -89,6 +93,17 @@ export const startBatchConsumer = async ({
     queuedMinMessages?: number
     callEachBatchWhenEmpty?: boolean
     debug?: string
+    queuedMaxMessagesKBytes?: number
+    fetchMinBytes?: number
+    /**
+     * default to 0 which disables logging
+     * granularity of 1000ms
+     * configures kafka to emit a statistics event on this interval
+     * consumer has to register a callback to listen to the event
+     * see https://github.com/confluentinc/librdkafka/blob/master/STATISTICS.md
+     */
+    kafkaStatisticIntervalMs?: number
+    maxHealthHeartbeatIntervalMs?: number
 }): Promise<BatchConsumer> => {
     // Starts consuming from `topic` in batches of `fetchBatchSize` messages,
     // with consumer group id `groupId`. We use `connectionConfig` to connect
@@ -100,8 +115,8 @@ export const startBatchConsumer = async ({
     // Kafka.
     //
     // Note that we do not handle any pre-fetching explicitly, rather
-    // node-rdkafka will fill it's own internal queue of messages as fast as it
-    // can, and we will consume from that queue periodicatlly. Prefetching will
+    // node-rdkafka will fill its own internal queue of messages as fast as it
+    // can, and we will consume from that queue periodically. Prefetching will
     // stop if the internal queue is full, and will resume once we have
     // `consume`d some messages.
     //
@@ -138,7 +153,7 @@ export const startBatchConsumer = async ({
         // https://github.com/confluentinc/librdkafka/blob/e75de5be191b6b8e9602efc969f4af64071550de/CONFIGURATION.md?plain=1#L118
         // Minimum number of messages per topic+partition librdkafka tries to maintain in the local consumer queue
         'queued.min.messages': queuedMinMessages, // 100000 is the default
-        'queued.max.messages.kbytes': 102400, // 1048576 is the default, we go smaller to reduce mem usage.
+        'queued.max.messages.kbytes': queuedMaxMessagesKBytes, // 1048576 is the default, we go smaller to reduce mem usage.
         // Use cooperative-sticky rebalancing strategy, which is the
         // [default](https://kafka.apache.org/documentation/#consumerconfigs_partition.assignment.strategy)
         // in the Java Kafka Client. There its actually
@@ -157,6 +172,15 @@ export const startBatchConsumer = async ({
         'partition.assignment.strategy': 'cooperative-sticky',
         rebalance_cb: true,
         offset_commit_cb: true,
+    }
+
+    // undefined is valid but things get unhappy if you provide that explicitly
+    if (fetchMinBytes) {
+        consumerConfig['fetch.min.bytes'] = fetchMinBytes
+    }
+
+    if (kafkaStatisticIntervalMs) {
+        consumerConfig['statistics.interval.ms'] = kafkaStatisticIntervalMs
     }
 
     if (debug) {
@@ -308,9 +332,11 @@ export const startBatchConsumer = async ({
     const mainLoop = startConsuming()
 
     const isHealthy = () => {
-        // We define health as the last consumer loop having run in the last
-        // minute. This might not be bullet-proof, let's see.
-        return Date.now() - lastHeartbeatTime < 60000
+        // this is called as a readiness and a liveness probe
+        const hasRun = lastHeartbeatTime > 0
+        const isWithinInterval = Date.now() - lastHeartbeatTime < maxHealthHeartbeatIntervalMs
+        const isConnected = consumer.isConnected()
+        return hasRun ? isConnected && isWithinInterval : isConnected
     }
 
     const stop = async () => {

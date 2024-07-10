@@ -30,6 +30,9 @@ export function renderColumn(
     setQuery?: (query: DataTableNode) => void,
     context?: QueryContext
 ): JSX.Element | string {
+    const queryContextColumnName = key.startsWith('context.columns.') ? trimQuotes(key.substring(16)) : undefined
+    const queryContextColumn = queryContextColumnName ? context?.columns?.[queryContextColumnName] : undefined
+
     if (value === loadingColumn) {
         return <Spinner />
     } else if (value === errorColumn) {
@@ -42,6 +45,9 @@ export function renderColumn(
                 </span>
             </Tooltip>
         )
+    } else if (queryContextColumnName && queryContextColumn?.render) {
+        const Component = queryContextColumn?.render
+        return <Component record={record} columnName={queryContextColumnName} value={value} query={query} />
     } else if (typeof value === 'object' && Array.isArray(value) && value[0] === '__hx_tag') {
         return renderHogQLX(value)
     } else if (isHogQLQuery(query.source)) {

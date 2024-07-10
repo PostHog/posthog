@@ -197,6 +197,7 @@ LT: '<';
 NOT_EQ: '!=' | '<>';
 NOT_IREGEX: '!~*';
 NOT_REGEX: '!~';
+NULL_PROPERTY: '?.';
 NULLISH: '??';
 PERCENT: '%';
 PLUS: '+';

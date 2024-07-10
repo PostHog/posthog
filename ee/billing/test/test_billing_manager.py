@@ -132,4 +132,4 @@ class TestBillingManager(BaseTest):
         organization.refresh_from_db()
         BillingManager(license).update_billing_admin_emails(organization)
         assert billing_patch_request_mock.call_count == 1
-        assert billing_patch_request_mock.call_args[1]["json"]["org_admin_emails"] == ["y2@x.com", "y3@x.com"]
+        assert sorted(billing_patch_request_mock.call_args[1]["json"]["org_admin_emails"]) == ["y2@x.com", "y3@x.com"]

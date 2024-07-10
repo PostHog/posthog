@@ -154,7 +154,7 @@ function DestinationOptionsTable(): JSX.Element {
     const hogFunctionTargets = hogFunctionsEnabled
         ? Object.values(hogFunctionTemplates).map(convertHogFunctionToTableEntry)
         : []
-    const targets = [...batchExportTargets, ...pluginTargets, ...hogFunctionTargets]
+    const targets = [...hogFunctionTargets, ...batchExportTargets, ...pluginTargets]
     return <NodeOptionsTable stage={PipelineStage.Destination} targets={targets} loading={loading} />
 }
 

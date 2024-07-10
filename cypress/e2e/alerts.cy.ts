@@ -1,5 +1,5 @@
-import { createInsight, insight, savedInsights } from '../productAnalytics'
 import { decideResponse } from '../fixtures/api/decide'
+import { createInsight } from '../productAnalytics'
 
 describe('Alerts', () => {
     it('Should allow create and delete an alert', () => {

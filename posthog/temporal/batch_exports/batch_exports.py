@@ -46,7 +46,7 @@ FROM
         team_id={team_id},
         interval_start={interval_start},
         interval_end={interval_end}
-    )
+    ) AS persons
 FORMAT ArrowStream
 """
 
@@ -61,7 +61,7 @@ FROM
         interval_end={interval_end},
         include_events={include_events}::Array(String),
         exclude_events={exclude_events}::Array(String)
-    )
+    ) AS events
 FORMAT ArrowStream
 """)
 
@@ -76,7 +76,7 @@ FROM
         interval_end={interval_end},
         include_events={include_events}::Array(String),
         exclude_events={exclude_events}::Array(String)
-    )
+    ) AS events
 FORMAT ArrowStream
 """)
 
@@ -90,7 +90,7 @@ FROM
         interval_end={interval_end},
         include_events={include_events}::Array(String),
         exclude_events={exclude_events}::Array(String)
-    )
+    ) AS events
 FORMAT ArrowStream
 """)
 

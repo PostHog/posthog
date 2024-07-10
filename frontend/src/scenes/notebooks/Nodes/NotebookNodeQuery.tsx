@@ -8,7 +8,6 @@ import { notebookNodeLogic } from './notebookNodeLogic'
 import { NotebookNodeProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
 import { containsHogQLQuery, isHogQLQuery, isInsightVizNode, isNodeWithSource } from '~/queries/utils'
 import { LemonButton } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { urls } from 'scenes/urls'
 
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -96,7 +95,7 @@ const Component = ({
     }
 
     return (
-        <div className={clsx('flex flex-1 flex-col h-full')}>
+        <div className="flex flex-1 flex-col h-full">
             <Query
                 // use separate keys for the settings and visualization to avoid conflicts with insightProps
                 uniqueKey={nodeId + '-component'}

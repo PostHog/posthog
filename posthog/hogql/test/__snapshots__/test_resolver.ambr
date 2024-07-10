@@ -2741,6 +2741,200 @@
   }
   '''
 # ---
+# name: TestResolver.test_expression_field_type_scope
+  '''
+  {
+    select: [
+      {
+        alias: "some_expr"
+        expr: {
+          alias: "properties"
+          expr: {
+            chain: [
+              "properties"
+            ]
+            type: {
+              name: "properties"
+              table_type: {
+                alias: "e"
+                table_type: {
+                  table: {
+                    fields: {
+                      $group_0: {},
+                      $group_1: {},
+                      $group_2: {},
+                      $group_3: {},
+                      $group_4: {},
+                      $session_id: {},
+                      $window_id: {},
+                      created_at: {},
+                      distinct_id: {},
+                      elements_chain: {},
+                      event: {},
+                      goe_0: {},
+                      goe_1: {},
+                      goe_2: {},
+                      goe_3: {},
+                      goe_4: {},
+                      group_0: {},
+                      group_1: {},
+                      group_2: {},
+                      group_3: {},
+                      group_4: {},
+                      pdi: {},
+                      person: {},
+                      person_id: {},
+                      poe: {},
+                      properties: {},
+                      session: {},
+                      some_expr: {},
+                      team_id: {},
+                      timestamp: {},
+                      uuid: {}
+                    }
+                  }
+                }
+              }
+            }
+          }
+          hidden: True
+          type: {
+            alias: "properties"
+            type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "some_expr"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "some_expr"
+        expr: {
+          alias: "properties"
+          expr: {
+            chain: [
+              "properties"
+            ]
+            type: {
+              name: "properties"
+              table_type: {
+                alias: "p"
+                table_type: {
+                  table: {
+                    fields: {
+                      $virt_initial_channel_type: {},
+                      $virt_initial_referring_domain_type: {},
+                      created_at: {},
+                      id: {},
+                      is_identified: {},
+                      pdi: {},
+                      properties: {},
+                      some_expr: {},
+                      team_id: {}
+                    },
+                    filter: None
+                  }
+                }
+              }
+            }
+          }
+          hidden: True
+          type: {
+            alias: "properties"
+            type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "some_expr"
+          type: <recursion ...>
+        }
+      }
+    ]
+    select_from: {
+      alias: "e"
+      next_join: {
+        alias: "p"
+        constraint: {
+          constraint_type: "ON"
+          expr: {
+            left: {
+              alias: "uuid"
+              expr: {
+                chain: [
+                  "e",
+                  "uuid"
+                ]
+                type: {
+                  name: "uuid"
+                  table_type: <recursion ...>
+                }
+              }
+              hidden: True
+              type: {
+                alias: "uuid"
+                type: <recursion ...>
+              }
+            }
+            op: "=="
+            right: {
+              alias: "id"
+              expr: {
+                chain: [
+                  "p",
+                  "id"
+                ]
+                type: {
+                  name: "id"
+                  table_type: <recursion ...>
+                }
+              }
+              hidden: True
+              type: {
+                alias: "id"
+                type: <recursion ...>
+              }
+            }
+            type: {
+              data_type: "bool"
+              nullable: False
+            }
+          }
+        }
+        join_type: "LEFT JOIN"
+        table: {
+          chain: [
+            "persons"
+          ]
+          type: <recursion ...>
+        }
+        type: <recursion ...>
+      }
+      table: {
+        chain: [
+          "events"
+        ]
+        type: <recursion ...>
+      }
+      type: <recursion ...>
+    }
+    type: {
+      aliases: {}
+      anonymous_tables: []
+      columns: {
+        some_expr: <recursion ...>
+      }
+      ctes: {}
+      tables: {
+        e: <recursion ...>,
+        p: <recursion ...>
+      }
+    }
+  }
+  '''
+# ---
 # name: TestResolver.test_resolve_boolean_operation_types
   '''
   {
