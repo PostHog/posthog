@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Optional, cast
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import QuerySet
@@ -96,7 +96,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
     def validate(self, attrs):
         team = self.context["get_team"]()
         attrs["team"] = team
-        instance = cast(HogFunction, self.instance)
+        instance = cast(Optional[HogFunction], self.instance)
 
         if self.context["view"].action == "create":
             # Ensure we have sensible defaults when created
@@ -111,6 +111,8 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 for key, val in attrs["inputs"].items():
                     if val.get("secret"):
                         attrs["inputs"][key] = instance.inputs.get(key)
+
+                attrs["inputs_schema"] = attrs.get("inputs_schema", instance.inputs_schema)
 
             attrs["inputs"] = validate_inputs(attrs["inputs_schema"], attrs["inputs"])
         if "hog" in attrs:
