@@ -5,6 +5,7 @@ import structlog
 from celery import shared_task
 from celery.canvas import chain
 from django.db.models import Q
+from prometheus_client import Counter
 from sentry_sdk import capture_exception
 
 from posthog.api.services.query import process_query_dict
@@ -17,11 +18,20 @@ from posthog.models import Team, Insight, DashboardTile
 
 logger = structlog.get_logger(__name__)
 
+STALE_INSIGHTS_COUNTER = Counter(
+    "posthog_cache_warming_stale_insights", "Number of stale insights to warm", ["team_id"]
+)
+PRIORITY_INSIGHTS_COUNTER = Counter(
+    "posthog_cache_warming_priority_insights", "Number of priority insights to warm", ["team_id", "dashboard"]
+)
+
 LAST_VIEWED_THRESHOLD = timedelta(days=7)
 
 
 def priority_insights(team: Team) -> Generator[str, None, None]:
     combos = QueryCacheManager.get_stale_insights(team_id=team.pk, limit=50)
+
+    STALE_INSIGHTS_COUNTER.labels(team_id=team.pk).inc(len(combos))
 
     now = datetime.now(UTC)
     dashboard_q_filter = Q()
@@ -84,6 +94,8 @@ def warm_insight_cache_task(insight_id: str, dashboard_id: str):
     if dashboard_id:
         tag_queries(dashboard_id=dashboard_id)
         dashboard = insight.dashboards.get(pk=dashboard_id)
+
+    PRIORITY_INSIGHTS_COUNTER.labels(team_id=insight.team_id, dashboard="true" if dashboard_id else "false").inc()
 
     with conversion_to_query_based(insight):
         logger.info(f"Warming insight cache: {insight.pk} for team {insight.team_id} and dashboard {dashboard_id}")

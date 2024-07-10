@@ -36,7 +36,7 @@ def largest_teams(limit: Optional[int] = 3) -> set[int]:
             WHERE timestamp > subtractDays(now(), 7)
             GROUP BY team_id
             ORDER BY event_count DESC
-            LIMIT {limit};
+            LIMIT %(limit)s
         """,
         {"limit": limit},
     )
