@@ -7,7 +7,7 @@ from posthog.hogql import ast
 from posthog.hogql.database.models import (
     FieldOrTable,
 )
-from posthog.hogql.database.s3_table import S3Table
+from posthog.hogql.database.s3_table import S3Table, build_function_call
 from posthog.models.team import Team
 from posthog.models.utils import (
     CreatedMetaFields,
@@ -115,17 +115,19 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
 
     def get_columns(self, safe_expose_ch_error=True) -> DataWarehouseTableColumns:
         try:
+            s3_table_func = build_function_call(
+                url=self.url_pattern,
+                format=self.format,
+                access_key=self.credential.access_key,
+                access_secret=self.credential.access_secret,
+            )
+
             result = sync_execute(
-                """DESCRIBE TABLE (
-                SELECT * FROM
-                    deltaLake(%(url_pattern)s, %(access_key)s, %(access_secret)s)
-                LIMIT 1
-            )""",
-                {
-                    "url_pattern": self.url_pattern,
-                    "access_key": self.credential.access_key,
-                    "access_secret": self.credential.access_secret,
-                },
+                f"""DESCRIBE TABLE (
+                    SELECT *
+                    FROM {s3_table_func}
+                    LIMIT 1
+                )"""
             )
         except Exception as err:
             capture_exception(err)
@@ -150,15 +152,15 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
 
     def get_count(self, safe_expose_ch_error=True) -> int:
         try:
+            s3_table_func = build_function_call(
+                url=self.url_pattern,
+                format=self.format,
+                access_key=self.credential.access_key,
+                access_secret=self.credential.access_secret,
+            )
+
             result = sync_execute(
-                """SELECT count() FROM
-                s3(%(url_pattern)s, %(access_key)s, %(access_secret)s, %(format)s)""",
-                {
-                    "url_pattern": self.url_pattern,
-                    "access_key": self.credential.access_key,
-                    "access_secret": self.credential.access_secret,
-                    "format": self.format,
-                },
+                f"SELECT count() FROM {s3_table_func}",
             )
         except Exception as err:
             capture_exception(err)
