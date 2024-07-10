@@ -27,13 +27,13 @@ export const mergeFinalFailuresCounter = new Counter({
 export const mergeTxnAttemptCounter = new Counter({
     name: 'person_merge_txn_attempt_total',
     help: 'Number of person merge attempts.',
-    labelNames: ['call', 'oldPersonIdentified', 'newPersonIdentified', 'poEEmbraceJoin'],
+    labelNames: ['call', 'oldPersonIdentified', 'newPersonIdentified'],
 })
 
 export const mergeTxnSuccessCounter = new Counter({
     name: 'person_merge_txn_success_total',
     help: 'Number of person merges that succeeded.',
-    labelNames: ['call', 'oldPersonIdentified', 'newPersonIdentified', 'poEEmbraceJoin'],
+    labelNames: ['call', 'oldPersonIdentified', 'newPersonIdentified'],
 })
 
 export const personPropertyKeyUpdateCounter = new Counter({
@@ -113,8 +113,7 @@ export class PersonState {
         private distinctId: string,
         private timestamp: DateTime,
         private processPerson: boolean, // $process_person_profile flag from the event
-        private db: DB,
-        private personOverrideWriter?: DeferredPersonOverrideWriter
+        private db: DB
     ) {
         this.eventProperties = event.properties!
 
@@ -714,7 +713,6 @@ export class PersonState {
                 call: this.event.event, // $identify, $create_alias or $merge_dangerously
                 oldPersonIdentified: String(otherPerson.is_identified),
                 newPersonIdentified: String(mergeInto.is_identified),
-                poEEmbraceJoin: String(!!this.personOverrideWriter),
             })
             .inc()
 
@@ -762,13 +760,6 @@ export class PersonState {
 
                 const deletePersonMessages = await this.db.deletePerson(otherPerson, tx)
 
-                if (this.personOverrideWriter) {
-                    await this.personOverrideWriter.addPersonOverride(
-                        tx,
-                        getPersonOverrideDetails(this.teamId, otherPerson, mergeInto)
-                    )
-                }
-
                 return [person, [...updatePersonMessages, ...distinctIdMessages, ...deletePersonMessages]]
             }
         )
@@ -778,7 +769,6 @@ export class PersonState {
                 call: this.event.event, // $identify, $create_alias or $merge_dangerously
                 oldPersonIdentified: String(otherPerson.is_identified),
                 newPersonIdentified: String(mergeInto.is_identified),
-                poEEmbraceJoin: String(!!this.personOverrideWriter),
             })
             .inc()
 
@@ -800,22 +790,6 @@ type PersonOverrideDetails = {
     old_person_id: string
     override_person_id: string
     oldest_event: DateTime
-}
-
-function getPersonOverrideDetails(
-    teamId: number,
-    oldPerson: InternalPerson,
-    overridePerson: InternalPerson
-): PersonOverrideDetails {
-    if (teamId != oldPerson.team_id || teamId != overridePerson.team_id) {
-        throw new Error('cannot merge persons across different teams')
-    }
-    return {
-        team_id: teamId,
-        old_person_id: oldPerson.uuid,
-        override_person_id: overridePerson.uuid,
-        oldest_event: overridePerson.created_at,
-    }
 }
 
 export class FlatPersonOverrideWriter {
