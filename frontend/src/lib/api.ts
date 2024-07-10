@@ -1028,6 +1028,9 @@ const api = {
                 [ActivityScope.TEAM]: () => {
                     return new ApiRequest().projectsDetail().withAction('activity')
                 },
+                [ActivityScope.SURVEY]: () => {
+                    return new ApiRequest().surveys().withAction('activity')
+                },
             }
 
             const pagingParameters = { page: page || 1, limit: ACTIVITY_PAGE_SIZE }

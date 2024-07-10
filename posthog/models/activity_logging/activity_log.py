@@ -204,6 +204,7 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "post_to_slack",
         "property_type_format",
     ],
+    # TODO: add a field exclusion for "Survey"
     "Team": ["uuid", "updated_at", "api_token", "created_at", "id"],
 }
 

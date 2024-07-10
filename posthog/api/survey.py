@@ -24,7 +24,8 @@ from posthog.api.utils import get_token
 from posthog.client import sync_execute
 from posthog.constants import AvailableFeature
 from posthog.exceptions import generate_exception_response
-from posthog.models.activity_logging.activity_log import changes_between, log_activity, Detail
+from posthog.models.activity_logging.activity_log import changes_between, load_activity, log_activity, Detail
+from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.feedback.survey import Survey
 from posthog.models.team.team import Team
@@ -470,6 +471,22 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             counts[survey_id] = count
 
         return Response(counts)
+
+    @action(methods=["GET"], detail=True)
+    def activity(self, request: request.Request, **kwargs):
+        limit = int(request.query_params.get("limit", "10"))
+        page = int(request.query_params.get("page", "1"))
+
+        team = self.get_object()
+
+        activity_page = load_activity(
+            scope="Survey",
+            team_id=team.pk,
+            item_ids=[str(team.pk)],
+            limit=limit,
+            page=page,
+        )
+        return activity_page_response(activity_page, limit, page, request)
 
 
 class SurveyAPISerializer(serializers.ModelSerializer):
