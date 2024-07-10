@@ -29,7 +29,7 @@ PRIORITY_INSIGHTS_COUNTER = Counter(
 LAST_VIEWED_THRESHOLD = timedelta(days=7)
 
 
-def priority_insights(team: Team) -> Generator[tuple[str, Optional[str]], None, None]:
+def priority_insights(team: Team) -> Generator[tuple[int, Optional[int]], None, None]:
     combos = QueryCacheManager.get_stale_insights(team_id=team.pk, limit=500)
 
     STALE_INSIGHTS_COUNTER.labels(team_id=team.pk).inc(len(combos))
@@ -52,8 +52,8 @@ def priority_insights(team: Team) -> Generator[tuple[str, Optional[str]], None, 
             .distinct()
             .values_list("id", flat=True)
         )
-        for insight_id in single_insights:
-            yield insight_id, None
+        for single_insight_id in single_insights:
+            yield single_insight_id, None
 
     if not dashboard_q_filter:
         return
@@ -64,8 +64,7 @@ def priority_insights(team: Team) -> Generator[tuple[str, Optional[str]], None, 
         .distinct()
         .values_list("insight_id", "dashboard_id")
     )
-    for insight_id, dashboard_id in dashboard_tiles:
-        yield insight_id, int(dashboard_id)
+    yield from dashboard_tiles
 
 
 @shared_task(ignore_result=True, expires=60 * 60)
@@ -87,7 +86,7 @@ def schedule_warming_for_teams_task():
 
 
 @shared_task(ignore_result=True, expires=60 * 60)
-def warm_insight_cache_task(insight_id: str, dashboard_id: str):
+def warm_insight_cache_task(insight_id: int, dashboard_id: int):
     insight = Insight.objects.get(pk=insight_id)
     dashboard = None
 
