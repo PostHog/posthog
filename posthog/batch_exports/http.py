@@ -355,7 +355,7 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = BatchExport.objects.exclude(deleted=True).order_by("-created_at").prefetch_related("destination").all()
     serializer_class = BatchExportSerializer
     scope_object_read_actions: list[str] = ["retrieve", "list"]
-    scope_object_write_actions: list[str] = ["destroy", "create", "backfill", "pause", "unpause"]
+    scope_object_write_actions: list[str] = ["destroy", "create", "backfill", "pause", "unpause", "patch"]
 
     @action(methods=["POST"], detail=True)
     def backfill(self, request: request.Request, *args, **kwargs) -> response.Response:
