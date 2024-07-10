@@ -160,7 +160,7 @@ describe('Surveys', () => {
         // handle confirmation dialog
         cy.get('.LemonModal__layout').should('be.visible')
         cy.contains('Delete this survey?').should('be.visible')
-        cy.get('.LemonModal__footer').contains('button', 'Stop').click()
+        cy.get('.LemonModal__footer').contains('button', 'Delete').click()
         cy.clickNavMenu('surveys')
         cy.get('tbody').should('not.exist')
     })
