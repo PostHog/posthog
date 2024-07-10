@@ -36,9 +36,9 @@ describe('Surveys', () => {
         cy.get('[data-attr="more-button"]').click()
         cy.get('.Popover__content').contains('Delete').click()
         // Handle the confirmation dialog
-        cy.get('.ReactModal__Overlay').should('be.visible')
+        cy.get('.LemonModal__footer').should('be.visible')
         cy.contains('Delete this survey?').should('be.visible')
-        cy.get('.ReactModal__Overlay').contains('button', 'Delete').click()
+        cy.get('.LemonModal__footer').contains('button', 'Delete').click()
 
         cy.clickNavMenu('surveys')
         cy.get('tbody').should('not.exist')
@@ -115,7 +115,7 @@ describe('Surveys', () => {
         // launch survey
         cy.get('[data-attr="launch-survey"]').click()
         // Handle the confirmation dialog
-        cy.get('.ReactModal__Overlay').should('be.visible')
+        cy.get('.LemonModal__layout').should('be.visible')
         cy.contains('Launch this survey?').should('be.visible')
         cy.get('.LemonModal__footer').contains('button', 'Launch').click()
 
@@ -127,7 +127,7 @@ describe('Surveys', () => {
         // Update the stop survey part
         cy.contains('Stop').click()
         // Handle the confirmation dialog
-        cy.get('.ReactModal__Overlay').should('be.visible')
+        cy.get('.LemonModal__layout').should('be.visible')
         cy.contains('Stop this survey?').should('be.visible')
         cy.get('.LemonModal__footer').contains('button', 'Stop').click()
 
@@ -157,9 +157,9 @@ describe('Surveys', () => {
         // delete survey
         cy.get('[data-attr="more-button"]').click()
         // handle confirmation dialog
-        cy.get('.ReactModal__Overlay').should('be.visible')
+        cy.get('.LemonModal__layout').should('be.visible')
         cy.contains('Delete this survey?').should('be.visible')
-        cy.get('.ReactModal__Overlay').contains('button', 'Stop').click()
+        cy.get('.LemonModal__footer').contains('button', 'Stop').click()
         cy.clickNavMenu('surveys')
         cy.get('tbody').should('not.exist')
     })
@@ -208,12 +208,9 @@ describe('Surveys', () => {
         // Launch the survey first, the duplicated one should be in draft
         cy.get('[data-attr="launch-survey"]').click()
         // Handle the confirmation dialog
-        cy.get('.ReactModal__Overlay').should('be.visible')
+        cy.get('.LemonModal__footer').should('be.visible')
         cy.contains('Launch this survey?').should('be.visible')
-        cy.get('.ReactModal__Overlay').contains('button', 'Launch').click()
-
-        // Wait for the modal to disappear before clicking the more button
-        cy.get('.ReactModal__Overlay').should('not.exist')
+        cy.get('.LemonModal__footer').contains('button', 'Launch').click()
 
         // try to duplicate survey
         cy.get('[data-attr=more-button]').click()
@@ -234,9 +231,9 @@ describe('Surveys', () => {
         // delete the duplicated survey
         cy.get('[data-attr=more-button]').click()
         cy.get('[data-attr=delete-survey]').click()
-        cy.get('.ReactModal__Overlay').should('be.visible')
+        cy.get('.LemonModal__footer').should('be.visible')
         cy.contains('Delete this survey?').should('be.visible')
-        cy.get('.ReactModal__Overlay').contains('button', 'Delete').click()
+        cy.get('.LemonModal__footer').contains('button', 'Delete').click()
 
         // Archive the original survey
         cy.clickNavMenu('surveys')
@@ -244,9 +241,9 @@ describe('Surveys', () => {
         cy.get('[data-attr=stop-survey]').click()
         cy.get('[data-attr=more-button]').click()
         cy.get('[data-attr=archive-survey]').click()
-        cy.get('.ReactModal__Overlay').should('be.visible')
+        cy.get('.LemonModal__footer').should('be.visible')
         cy.contains('Archive this survey?').should('be.visible')
-        cy.get('.ReactModal__Overlay').contains('button', 'Archive').click()
+        cy.get('.LemonModal__footer').contains('button', 'Archive').click()
 
         // check if the duplicated survey is created with draft state
         cy.get('[data-attr=more-button]').click()
