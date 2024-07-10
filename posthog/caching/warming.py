@@ -7,7 +7,6 @@ from celery import shared_task
 from celery.canvas import chain
 from django.db.models import Q
 from prometheus_client import Counter
-from pydantic import BaseModel
 from sentry_sdk import capture_exception
 
 from posthog.api.services.query import process_query_dict
@@ -17,11 +16,14 @@ from posthog.hogql_queries.query_cache import QueryCacheManager
 from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import conversion_to_query_based
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team, Insight, DashboardTile
+from posthog.schema import GenericCachedQueryResponse
 
 logger = structlog.get_logger(__name__)
 
 STALE_INSIGHTS_COUNTER = Counter(
-    "posthog_cache_warming_stale_insights", "Number of stale insights present", ["team_id"]
+    "posthog_cache_warming_stale_insights",
+    "Number of stale insights present",
+    ["team_id"],
 )
 PRIORITY_INSIGHTS_COUNTER = Counter(
     "posthog_cache_warming_priority_insights",
@@ -33,6 +35,13 @@ LAST_VIEWED_THRESHOLD = timedelta(days=7)
 
 
 def priority_insights(team: Team) -> Generator[tuple[int, Optional[int]], None, None]:
+    """
+    This is the place to decide which insights should be kept warm.
+    The reasoning is that this will be a yes or no decision. If we need to keep it warm, we try our best
+    to not let the cache go stale. There isn't any middle ground, like trying to refresh it once a day, since
+    that would be like clock that's only right twice a day.
+    """
+
     combos = QueryCacheManager.get_stale_insights(team_id=team.pk, limit=500)
 
     STALE_INSIGHTS_COUNTER.labels(team_id=team.pk).inc(len(combos))
@@ -106,15 +115,16 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: int):
                 insight.team,
                 insight.query,
                 dashboard_filters_json=dashboard.filters if dashboard is not None else None,
-                # We can do recent cache in case someone refreshed after this task was triggered
-                # All we want to achieve is keeping it warm
+                # We need an execution mode with recent cache:
+                # - in case someone refreshed after this task was triggered
+                # - if insight + dashboard combinations have the same cache key, we prevent needless recalculations
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
             )
 
             PRIORITY_INSIGHTS_COUNTER.labels(
                 team_id=insight.team_id,
                 dashboard=dashboard_id is not None,
-                is_cached=results.is_cached if isinstance(results, BaseModel) else False,
+                is_cached=results.is_cached if isinstance(results, GenericCachedQueryResponse) else False,
             ).inc()
         except Exception as e:
             capture_exception(e)

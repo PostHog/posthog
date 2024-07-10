@@ -29,6 +29,11 @@ class QueryCacheManager:
         """
         Use redis sorted set to get stale insights. We sort by the timestamp and get the insights that are
         stale compared to the current time. We start with the least stale insights.
+
+        It is accepted that we store all combinations of insight + dashboard, even if the dashboard might not have
+        additional filters (which makes this dashboard insight the same as the single one). This is easily mitigated by
+        the fact we should have the very same cache key for these and we calculate the insights in sequence. Thus, the
+        first calculation to refresh it will refresh all of them.
         """
         current_time = datetime.now(UTC)
         insights = redis.get_client().zrangebyscore(
@@ -60,14 +65,8 @@ class QueryCacheManager:
         cache.set(self.cache_key, fresh_response_serialized, settings.CACHED_RESULTS_TTL)
 
         if target_age:
-            # TODO: Add more conditions
-            # This is the place to decide if this insight should be kept warm.
-            # The reasoning is that this will be a yes or no decision. If we need to keep it warm, we try our best
-            # to not let the cache go stale. There isn't any middle ground, like trying to refresh it once a day, since
-            # that would be like clock that's only right twice a day.
             self.update_last_refresh(target_age)
         else:
-            # In case conditions have changed, remove the insight from the redis set.
             self.remove_last_refresh()
 
     def get_cache_data(self) -> Optional[dict]:
