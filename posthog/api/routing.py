@@ -220,13 +220,11 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
 
     @property
     def _is_team_view(self):
-        # NOTE: We check the property first as it avoids any potential DB lookups via the parents_query_dict
-        return self.param_derived_from_user_current_team == "team_id" or "team_id" in self.parents_query_dict
+        return self.param_derived_from_user_current_team == "team_id" or "team_id" in self.parent_query_kwargs
 
     @property
     def _is_project_view(self):
-        # NOTE: We check the property first as it avoids any potential DB lookups via the parents_query_dict
-        return self.param_derived_from_user_current_team == "project_id" or "project_id" in self.parents_query_dict
+        return self.param_derived_from_user_current_team == "project_id" or "project_id" in self.parent_query_kwargs
 
     @cached_property
     def team_id(self) -> int:
@@ -341,6 +339,20 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             return queryset
 
     @cached_property
+    def parent_query_kwargs(self) -> dict[str, Any]:
+        parent_query_kwargs: dict[str, str] = {}
+        for kwarg_name, kwarg_value in self.kwargs.items():
+            # drf-extensions nested parameters are prefixed
+            if kwarg_name.startswith(extensions_api_settings.DEFAULT_PARENT_LOOKUP_KWARG_NAME_PREFIX):
+                query_lookup = kwarg_name.replace(
+                    extensions_api_settings.DEFAULT_PARENT_LOOKUP_KWARG_NAME_PREFIX,
+                    "",
+                    1,
+                )
+                parent_query_kwargs[query_lookup] = kwarg_value
+        return parent_query_kwargs
+
+    @cached_property
     def parents_query_dict(self) -> dict[str, Any]:
         # used to override the last visited project if there's a token in the request
         team_from_request = self._get_team_from_request()
@@ -358,48 +370,39 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
 
         result = {}
         # process URL parameters (here called kwargs), such as organization_id in /api/organizations/:organization_id/
-        for kwarg_name, kwarg_value in self.kwargs.items():
-            # drf-extensions nested parameters are prefixed
-            if kwarg_name.startswith(extensions_api_settings.DEFAULT_PARENT_LOOKUP_KWARG_NAME_PREFIX):
-                query_lookup = kwarg_name.replace(
-                    extensions_api_settings.DEFAULT_PARENT_LOOKUP_KWARG_NAME_PREFIX,
-                    "",
-                    1,
-                )
-
-                query_value = kwarg_value
-                if query_value == "@current":
-                    if not self.request.user.is_authenticated:
-                        raise AuthenticationFailed()
-                    if query_lookup == "team_id":
-                        current_team = self.request.user.team
-                        if current_team is None:
-                            raise NotFound(
-                                "Project not found."  # TODO: "Environment" instead of "Project" when project environments are rolled out
-                            )
-                        query_value = current_team.id
-                    elif query_lookup == "project_id":
-                        current_team = self.request.user.team
-                        if current_team is None:
-                            raise NotFound("Project not found.")
-                        query_value = current_team.project_id
-                    elif query_lookup == "organization_id":
-                        current_organization = self.request.user.organization
-                        if current_organization is None:
-                            raise NotFound("Organization not found.")
-                        query_value = current_organization.id
-                elif query_lookup == "team_id":
-                    try:
-                        query_value = team_from_request.id if team_from_request else int(query_value)
-                    except ValueError:
-                        raise NotFound("Project not found.")  # TODO: "Environment"
+        for query_lookup, query_value in self.parent_query_kwargs.items():
+            if query_value == "@current":
+                if not self.request.user.is_authenticated:
+                    raise AuthenticationFailed()
+                if query_lookup == "team_id":
+                    current_team = self.request.user.team
+                    if current_team is None:
+                        raise NotFound(
+                            "Project not found."  # TODO: "Environment" instead of "Project" when project environments are rolled out
+                        )
+                    query_value = current_team.id
                 elif query_lookup == "project_id":
-                    try:
-                        query_value = team_from_request.project_id if team_from_request else int(query_value)
-                    except ValueError:
+                    current_team = self.request.user.team
+                    if current_team is None:
                         raise NotFound("Project not found.")
+                    query_value = current_team.project_id
+                elif query_lookup == "organization_id":
+                    current_organization = self.request.user.organization
+                    if current_organization is None:
+                        raise NotFound("Organization not found.")
+                    query_value = current_organization.id
+            elif query_lookup == "team_id":
+                try:
+                    query_value = team_from_request.id if team_from_request else int(query_value)
+                except ValueError:
+                    raise NotFound("Project not found.")  # TODO: "Environment"
+            elif query_lookup == "project_id":
+                try:
+                    query_value = team_from_request.project_id if team_from_request else int(query_value)
+                except ValueError:
+                    raise NotFound("Project not found.")
 
-                result[query_lookup] = query_value
+            result[query_lookup] = query_value
 
         return result
 
