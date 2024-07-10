@@ -115,7 +115,7 @@ pub async fn post_hoghook(
 
             WebhookJobParameters {
                 body: fetch_options.body.unwrap_or("".to_owned()),
-                headers: fetch_options.headers.unwrap_or(HashMap::new()),
+                headers: fetch_options.headers.unwrap_or_default(),
                 method: fetch_options.method.unwrap_or(HttpMethod::POST),
                 url: url
                     .as_str()

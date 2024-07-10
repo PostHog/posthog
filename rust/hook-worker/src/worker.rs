@@ -6,14 +6,13 @@ use chrono::Utc;
 use futures::future::join_all;
 use health::HealthHandle;
 use http::StatusCode;
-use rdkafka::metadata;
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use reqwest::{header, Client};
 use serde_json::Value;
 use tokio::sync;
 use tracing::error;
 
-use hook_common::kafka_producer::{self, KafkaContext};
+use hook_common::kafka_producer::KafkaContext;
 use hook_common::pgqueue::PgTransactionBatch;
 use hook_common::{
     pgqueue::{Job, PgQueue, PgQueueJob, PgTransactionJob, RetryError, RetryInvalidError},
@@ -41,6 +40,7 @@ trait WebhookJob: PgQueueJob + std::marker::Send {
         self.job().queue.to_owned()
     }
 
+    #[allow(dead_code)]
     fn target(&self) -> String {
         self.job().target.to_owned()
     }
