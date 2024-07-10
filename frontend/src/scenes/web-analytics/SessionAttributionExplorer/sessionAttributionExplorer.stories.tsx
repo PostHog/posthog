@@ -18,13 +18,13 @@ const meta: Meta = {
             get: {
                 '/api/projects/:team_id/query/:id/': async (_, res, ctx) => {
                     // eslint-disable-next-line @typescript-eslint/no-var-requires
-                    return res(ctx.json(require('./mocks/fixtures/sessionAttributionQueryStatus.json')))
+                    return res(ctx.json(require('./__mocks__/sessionAttributionQueryStatus.json')))
                 },
             },
             post: {
                 '/api/projects/:team_id/query/': async (_, res, ctx) => {
                     // eslint-disable-next-line @typescript-eslint/no-var-requires
-                    return res(ctx.json(require('./mocks/fixtures/sessionAttributionQuery.json')))
+                    return res(ctx.json(require('./__mocks__/sessionAttributionQuery.json')))
                 },
             },
         }),
