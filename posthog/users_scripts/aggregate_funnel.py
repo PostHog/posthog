@@ -44,7 +44,7 @@ def breakdown_to_single_quoted_string(breakdown):
 
 # each one can be multiple steps here
 # it only matters when they entered the funnel - you can propagate the time from the previous step when you update
-# This function is defined for Clickhouse in aggregate_funnel.xml along with types
+# This function is defined for Clickhouse in test_function.xml along with types
 # num_steps is the total number of steps in the funnel
 # conversion_window_limit is in seconds
 # events is a array of tuples of (timestamp, breakdown, [steps])
@@ -57,6 +57,8 @@ def parse_user_aggregation_with_conversion_window_and_breakdown(
     prop_vals: list[Any],
     events: Sequence[tuple[float, list[str] | int | str, list[int]]],
 ):
+    default_entered_timestamp = EnteredTimestamp(0, [])
+    max_step = [0, default_entered_timestamp]
     # If the attribution mode is a breakdown step, set this to the integer that represents that step
     breakdown_step = int(breakdown_attribution_type[5:]) if breakdown_attribution_type.startswith("step_") else None
 
@@ -88,16 +90,26 @@ def parse_user_aggregation_with_conversion_window_and_breakdown(
                     entered_timestamp[step] = replace(
                         entered_timestamp[step - 1], timings=[*entered_timestamp[step - 1].timings, timestamp]
                     )
+                if step > max_step[0]:
+                    max_step[:] = (step, entered_timestamp[step])
         return True
 
     # We call this for each possible breakdown value.
     def loop_prop_val(prop_val):
         # an array of when the user entered the funnel
         # entered_timestamp = [(0, "", [])] * (num_steps + 1)
-        entered_timestamp: list[EnteredTimestamp] = [EnteredTimestamp(0, [])] * (num_steps + 1)
+        max_step[:] = [0, default_entered_timestamp]
+        entered_timestamp: list[EnteredTimestamp] = [default_entered_timestamp] * (num_steps + 1)
 
         def add_result(i):
             final = entered_timestamp[i]
+            results.append(
+                f"({i - 1}, {breakdown_to_single_quoted_string(prop_val)}, {str([final.timings[i] - final.timings[i - 1] for i in range(1, i)])})"
+            )
+
+        def add_max_step():
+            i = max_step[0]
+            final = max_step[1]
             results.append(
                 f"({i - 1}, {breakdown_to_single_quoted_string(prop_val)}, {str([final.timings[i] - final.timings[i - 1] for i in range(1, i)])})"
             )
@@ -137,13 +149,7 @@ def parse_user_aggregation_with_conversion_window_and_breakdown(
                 return
 
         # Find the furthest step we have made it to and print it
-        for i in range(1, num_steps + 1):
-            if entered_timestamp[i].timestamp == 0:
-                add_result(i - 1)
-                return
-
-        # Catch-all. We should never hit this.
-        add_result(num_steps)
+        add_max_step()
         return
 
     [loop_prop_val(prop_val) for prop_val in prop_vals]
