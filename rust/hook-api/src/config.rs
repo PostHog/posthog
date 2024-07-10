@@ -19,6 +19,9 @@ pub struct Config {
 
     #[envconfig(default = "5000000")]
     pub max_body_size: usize,
+
+    #[envconfig(default = "false")]
+    pub hog_mode: bool,
 }
 
 impl Config {

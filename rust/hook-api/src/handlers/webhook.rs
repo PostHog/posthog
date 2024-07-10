@@ -1,11 +1,14 @@
+use std::collections::HashMap;
 use std::time::Instant;
 
 use axum::{extract::State, http::StatusCode, Json};
 use hook_common::webhook::{WebhookJobMetadata, WebhookJobParameters};
 use serde_derive::Deserialize;
+use serde_json::Value;
 use url::Url;
 
 use hook_common::pgqueue::{NewJob, PgQueue};
+use hook_common::webhook::HttpMethod;
 use serde::Serialize;
 use tracing::{debug, error};
 
@@ -29,7 +32,7 @@ fn default_max_attempts() -> u32 {
     3
 }
 
-pub async fn post(
+pub async fn post_webhook(
     State(pg_queue): State<PgQueue>,
     Json(payload): Json<WebhookPostRequestBody>,
 ) -> Result<Json<WebhookPostResponse>, (StatusCode, Json<WebhookPostResponse>)> {
@@ -62,6 +65,92 @@ pub async fn post(
     Ok(Json(WebhookPostResponse { error: None }))
 }
 
+#[derive(Debug, Deserialize)]
+pub struct HogFetchParameters {
+    pub body: Option<String>,
+    pub headers: Option<HashMap<String, String>>,
+    pub method: Option<HttpMethod>,
+}
+
+pub async fn post_hoghook(
+    State(pg_queue): State<PgQueue>,
+    Json(mut payload): Json<Value>,
+) -> Result<Json<WebhookPostResponse>, (StatusCode, Json<WebhookPostResponse>)> {
+    debug!("received payload: {:?}", payload);
+
+    let parameters: WebhookJobParameters = match &mut payload {
+        Value::Object(object) => {
+            let async_fn_request = object
+                .get("asyncFunctionRequest")
+                .ok_or_else(|| bad_request("missing required field 'asyncFunctionRequest'"))?;
+
+            let name = async_fn_request
+                .get("name")
+                .ok_or_else(|| bad_request("missing required field 'asyncFunctionRequest.name'"))?;
+
+            if name != "fetch" {
+                return Err(bad_request("asyncFunctionRequest.name must be 'fetch'"));
+            }
+
+            let args = async_fn_request
+                .get("args")
+                .ok_or_else(|| bad_request("missing required field 'asyncFunctionRequest.args'"))?;
+
+            let url = args.get(0).ok_or_else(|| {
+                bad_request("missing required field 'asyncFunctionRequest.args[0]'")
+            })?;
+
+            let fetch_options: HogFetchParameters = if let Some(value) = args.get(1) {
+                debug!("fetch_options: {:?}", value);
+                serde_json::from_value(value.clone()).map_err(|_| {
+                    bad_request("failed to deserialize asyncFunctionRequest.args[1]")
+                })?
+            } else {
+                HogFetchParameters {
+                    body: None,
+                    headers: None,
+                    method: None,
+                }
+            };
+
+            WebhookJobParameters {
+                body: fetch_options.body.unwrap_or("".to_owned()),
+                headers: fetch_options.headers.unwrap_or(HashMap::new()),
+                method: fetch_options.method.unwrap_or(HttpMethod::POST),
+                url: url
+                    .as_str()
+                    .ok_or_else(|| bad_request("url must be a string"))?
+                    .to_owned(),
+            }
+        }
+        _ => return Err(bad_request("expected JSON object")),
+    };
+
+    let url_hostname = get_hostname(&parameters.url)?;
+    let max_attempts = default_max_attempts() as i32;
+
+    let job = NewJob::new(max_attempts, payload, parameters, url_hostname.as_str());
+
+    let start_time = Instant::now();
+
+    pg_queue.enqueue(job).await.map_err(internal_error)?;
+
+    let elapsed_time = start_time.elapsed().as_secs_f64();
+    metrics::histogram!("webhook_api_enqueue").record(elapsed_time);
+
+    Ok(Json(WebhookPostResponse { error: None }))
+}
+
+fn bad_request(msg: &str) -> (StatusCode, Json<WebhookPostResponse>) {
+    error!(msg);
+    (
+        StatusCode::BAD_REQUEST,
+        Json(WebhookPostResponse {
+            error: Some(msg.to_owned()),
+        }),
+    )
+}
+
 fn internal_error<E>(err: E) -> (StatusCode, Json<WebhookPostResponse>)
 where
     E: std::error::Error,
@@ -76,23 +165,11 @@ where
 }
 
 fn get_hostname(url_str: &str) -> Result<String, (StatusCode, Json<WebhookPostResponse>)> {
-    let url = Url::parse(url_str).map_err(|_| {
-        (
-            StatusCode::BAD_REQUEST,
-            Json(WebhookPostResponse {
-                error: Some("could not parse url".to_owned()),
-            }),
-        )
-    })?;
+    let url = Url::parse(url_str).map_err(|_| bad_request("could not parse url"))?;
 
     match url.host_str() {
         Some(hostname) => Ok(hostname.to_owned()),
-        None => Err((
-            StatusCode::BAD_REQUEST,
-            Json(WebhookPostResponse {
-                error: Some("couldn't extract hostname from url".to_owned()),
-            }),
-        )),
+        None => Err(bad_request("couldn't extract hostname from url")),
     }
 }
 
@@ -119,8 +196,9 @@ mod tests {
     #[sqlx::test(migrations = "../migrations")]
     async fn webhook_success(db: PgPool) {
         let pg_queue = PgQueue::new_from_pool("test_index", db).await;
+        let hog_mode = false;
 
-        let app = add_routes(Router::new(), pg_queue, MAX_BODY_SIZE);
+        let app = add_routes(Router::new(), pg_queue, hog_mode, MAX_BODY_SIZE);
 
         let mut headers = collections::HashMap::new();
         headers.insert("Content-Type".to_owned(), "application/json".to_owned());
@@ -161,8 +239,9 @@ mod tests {
     #[sqlx::test(migrations = "../migrations")]
     async fn webhook_bad_url(db: PgPool) {
         let pg_queue = PgQueue::new_from_pool("test_index", db).await;
+        let hog_mode = false;
 
-        let app = add_routes(Router::new(), pg_queue, MAX_BODY_SIZE);
+        let app = add_routes(Router::new(), pg_queue, hog_mode, MAX_BODY_SIZE);
 
         let response = app
             .oneshot(
@@ -198,8 +277,9 @@ mod tests {
     #[sqlx::test(migrations = "../migrations")]
     async fn webhook_payload_missing_fields(db: PgPool) {
         let pg_queue = PgQueue::new_from_pool("test_index", db).await;
+        let hog_mode = false;
 
-        let app = add_routes(Router::new(), pg_queue, MAX_BODY_SIZE);
+        let app = add_routes(Router::new(), pg_queue, hog_mode, MAX_BODY_SIZE);
 
         let response = app
             .oneshot(
@@ -219,8 +299,9 @@ mod tests {
     #[sqlx::test(migrations = "../migrations")]
     async fn webhook_payload_not_json(db: PgPool) {
         let pg_queue = PgQueue::new_from_pool("test_index", db).await;
+        let hog_mode = false;
 
-        let app = add_routes(Router::new(), pg_queue, MAX_BODY_SIZE);
+        let app = add_routes(Router::new(), pg_queue, hog_mode, MAX_BODY_SIZE);
 
         let response = app
             .oneshot(
@@ -240,8 +321,9 @@ mod tests {
     #[sqlx::test(migrations = "../migrations")]
     async fn webhook_payload_body_too_large(db: PgPool) {
         let pg_queue = PgQueue::new_from_pool("test_index", db).await;
+        let hog_mode = false;
 
-        let app = add_routes(Router::new(), pg_queue, MAX_BODY_SIZE);
+        let app = add_routes(Router::new(), pg_queue, hog_mode, MAX_BODY_SIZE);
 
         let bytes: Vec<u8> = vec![b'a'; MAX_BODY_SIZE + 1];
         let long_string = String::from_utf8_lossy(&bytes);

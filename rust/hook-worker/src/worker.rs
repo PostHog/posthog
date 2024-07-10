@@ -1,20 +1,25 @@
-use std::collections;
 use std::sync::Arc;
 use std::time;
+use std::{collections, iter};
 
 use chrono::Utc;
 use futures::future::join_all;
 use health::HealthHandle;
+use http::StatusCode;
+use rdkafka::metadata;
+use rdkafka::producer::{FutureProducer, FutureRecord};
+use reqwest::{header, Client};
+use serde_json::Value;
+use tokio::sync;
+use tracing::error;
+
+use hook_common::kafka_producer::{self, KafkaContext};
 use hook_common::pgqueue::PgTransactionBatch;
 use hook_common::{
     pgqueue::{Job, PgQueue, PgQueueJob, PgTransactionJob, RetryError, RetryInvalidError},
     retry::RetryPolicy,
-    webhook::{HttpMethod, WebhookJobError, WebhookJobMetadata, WebhookJobParameters},
+    webhook::{HttpMethod, WebhookJobError, WebhookJobParameters},
 };
-use http::StatusCode;
-use reqwest::{header, Client};
-use tokio::sync;
-use tracing::error;
 
 use crate::dns::{NoPublicIPv4Error, PublicIPv4Resolver};
 use crate::error::{
@@ -22,11 +27,11 @@ use crate::error::{
 };
 use crate::util::first_n_bytes_of_response;
 
-/// A WebhookJob is any `PgQueueJob` with `WebhookJobParameters` and `WebhookJobMetadata`.
+/// A WebhookJob is any `PgQueueJob` with `WebhookJobParameters` and `Value`.
 trait WebhookJob: PgQueueJob + std::marker::Send {
     fn parameters(&self) -> &WebhookJobParameters;
-    fn metadata(&self) -> &WebhookJobMetadata;
-    fn job(&self) -> &Job<WebhookJobParameters, WebhookJobMetadata>;
+    fn metadata(&self) -> &Value;
+    fn job(&self) -> &Job<WebhookJobParameters, Value>;
 
     fn attempt(&self) -> i32 {
         self.job().attempt
@@ -41,16 +46,16 @@ trait WebhookJob: PgQueueJob + std::marker::Send {
     }
 }
 
-impl WebhookJob for PgTransactionJob<'_, WebhookJobParameters, WebhookJobMetadata> {
+impl WebhookJob for PgTransactionJob<'_, WebhookJobParameters, Value> {
     fn parameters(&self) -> &WebhookJobParameters {
         &self.job.parameters
     }
 
-    fn metadata(&self) -> &WebhookJobMetadata {
+    fn metadata(&self) -> &Value {
         &self.job.metadata
     }
 
-    fn job(&self) -> &Job<WebhookJobParameters, WebhookJobMetadata> {
+    fn job(&self) -> &Job<WebhookJobParameters, Value> {
         &self.job
     }
 }
@@ -71,6 +76,10 @@ pub struct WebhookWorker<'p> {
     max_concurrent_jobs: usize,
     /// The retry policy used to calculate retry intervals when a job fails with a retryable error.
     retry_policy: RetryPolicy,
+    /// Kafka producer used to send results when in Hog mode
+    kafka_producer: FutureProducer<KafkaContext>,
+    /// Whether we are running in Hog mode or not
+    hog_mode: bool,
     /// The liveness check handle, to call on a schedule to report healthy
     liveness: HealthHandle,
 }
@@ -105,6 +114,8 @@ impl<'p> WebhookWorker<'p> {
         max_concurrent_jobs: usize,
         retry_policy: RetryPolicy,
         allow_internal_ips: bool,
+        kafka_producer: FutureProducer<KafkaContext>,
+        hog_mode: bool,
         liveness: HealthHandle,
     ) -> Self {
         let client = build_http_client(request_timeout, allow_internal_ips)
@@ -118,14 +129,14 @@ impl<'p> WebhookWorker<'p> {
             client,
             max_concurrent_jobs,
             retry_policy,
+            kafka_producer,
+            hog_mode,
             liveness,
         }
     }
 
     /// Wait until at least one job becomes available in our queue in transactional mode.
-    async fn wait_for_jobs_tx<'a>(
-        &self,
-    ) -> PgTransactionBatch<'a, WebhookJobParameters, WebhookJobMetadata> {
+    async fn wait_for_jobs_tx<'a>(&self) -> PgTransactionBatch<'a, WebhookJobParameters, Value> {
         let mut interval = tokio::time::interval(self.poll_interval);
 
         loop {
@@ -175,15 +186,21 @@ impl<'p> WebhookWorker<'p> {
 
             let client = self.client.clone();
             let retry_policy = self.retry_policy.clone();
+            let kafka_producer = self.kafka_producer.clone();
+            let hog_mode = self.hog_mode;
 
             tokio::spawn(async move {
-                let mut futures = Vec::new();
+                let mut futures = Vec::with_capacity(batch.jobs.len());
+                let mut metadatas = Vec::with_capacity(batch.jobs.len());
 
                 // We have to `take` the Vec of jobs from the batch to avoid a borrow checker
                 // error below when we commit.
                 for job in std::mem::take(&mut batch.jobs) {
                     let client = client.clone();
                     let retry_policy = retry_policy.clone();
+
+                    // TODO: Remove the clone by taking ownership of the metadata
+                    metadatas.push(job.metadata().clone());
 
                     let future =
                         async move { process_webhook_job(client, job, &retry_policy).await };
@@ -192,9 +209,67 @@ impl<'p> WebhookWorker<'p> {
                 }
 
                 let results = join_all(futures).await;
-                for result in results {
+
+                let mut kafka_ack_futures = Vec::new();
+                for (result, mut metadata) in iter::zip(results, metadatas) {
                     if let Err(e) = result {
                         error!("error processing webhook job: {}", e);
+                    } else if hog_mode {
+                        if let Value::Object(ref mut object) = metadata {
+                            if let Ok(result) = result {
+                                match result {
+                                    WebhookResult::Success(response) => {
+                                        object.insert(
+                                            "asyncFunctionResponse".to_owned(),
+                                            serde_json::Value::String(
+                                                response.status().to_string(),
+                                            ),
+                                        );
+                                    }
+                                    WebhookResult::Failed(error) => {
+                                        object.insert(
+                                            "asyncFunctionResponse".to_owned(),
+                                            serde_json::Value::String(error.to_string()),
+                                        );
+                                    }
+                                    WebhookResult::WillRetry => {
+                                        // Nothing to do
+                                    }
+                                }
+                            }
+                        }
+
+                        let payload = serde_json::to_string(&metadata).unwrap();
+
+                        match kafka_producer.send_result(FutureRecord {
+                            topic: "cdp_function_callbacks", // TODO: Config
+                            payload: Some(&payload),
+                            partition: None,
+                            key: None::<&str>,
+                            timestamp: None,
+                            headers: None,
+                        }) {
+                            Ok(future) => kafka_ack_futures.push(future),
+                            Err((error, _)) => {
+                                // TODO
+                                error!("error producing kafka message: {}", error);
+                            }
+                        };
+                    }
+                }
+
+                for result in join_all(kafka_ack_futures).await {
+                    match result {
+                        Ok(Ok(_)) => {}
+                        Ok(Err((error, _))) => {
+                            // TODO
+                            error!("error producing kafka message: {}", error);
+                        }
+                        Err(_) => {
+                            // Cancelled due to timeout while retrying
+                            // TODO
+                            error!("error producing kafka message: timed out");
+                        }
                     }
                 }
 
@@ -206,6 +281,12 @@ impl<'p> WebhookWorker<'p> {
             });
         }
     }
+}
+
+enum WebhookResult {
+    Success(reqwest::Response),
+    WillRetry,
+    Failed(String),
 }
 
 /// Process a webhook job by transitioning it to its appropriate state after its request is sent.
@@ -226,7 +307,7 @@ async fn process_webhook_job<W: WebhookJob>(
     client: reqwest::Client,
     webhook_job: W,
     retry_policy: &RetryPolicy,
-) -> Result<(), WorkerError> {
+) -> Result<WebhookResult, WorkerError> {
     let parameters = webhook_job.parameters();
 
     let labels = [("queue", webhook_job.queue())];
@@ -246,7 +327,7 @@ async fn process_webhook_job<W: WebhookJob>(
     let elapsed = now.elapsed().as_secs_f64();
 
     match send_result {
-        Ok(_) => {
+        Ok(response) => {
             let created_at = webhook_job.job().created_at;
             let retries = webhook_job.job().attempt - 1;
             let labels_with_retries = [
@@ -269,7 +350,7 @@ async fn process_webhook_job<W: WebhookJob>(
             metrics::histogram!("webhook_jobs_processing_duration_seconds", &labels)
                 .record(elapsed);
 
-            Ok(())
+            Ok(WebhookResult::Success(response))
         }
         Err(WebhookError::Parse(WebhookParseError::ParseHeadersError(e))) => {
             webhook_job
@@ -282,7 +363,7 @@ async fn process_webhook_job<W: WebhookJob>(
 
             metrics::counter!("webhook_jobs_failed", &labels).increment(1);
 
-            Ok(())
+            Ok(WebhookResult::Failed(e.to_string()))
         }
         Err(WebhookError::Parse(WebhookParseError::ParseHttpMethodError(e))) => {
             webhook_job
@@ -295,7 +376,7 @@ async fn process_webhook_job<W: WebhookJob>(
 
             metrics::counter!("webhook_jobs_failed", &labels).increment(1);
 
-            Ok(())
+            Ok(WebhookResult::Failed(e.to_string()))
         }
         Err(WebhookError::Parse(WebhookParseError::ParseUrlError(e))) => {
             webhook_job
@@ -308,7 +389,7 @@ async fn process_webhook_job<W: WebhookJob>(
 
             metrics::counter!("webhook_jobs_failed", &labels).increment(1);
 
-            Ok(())
+            Ok(WebhookResult::Failed(e.to_string()))
         }
         Err(WebhookError::Request(request_error)) => {
             let webhook_job_error = WebhookJobError::from(&request_error);
@@ -329,7 +410,7 @@ async fn process_webhook_job<W: WebhookJob>(
                         Ok(_) => {
                             metrics::counter!("webhook_jobs_retried", &labels).increment(1);
 
-                            Ok(())
+                            Ok(WebhookResult::WillRetry)
                         }
                         Err(RetryError::RetryInvalidError(RetryInvalidError {
                             job: webhook_job,
@@ -346,7 +427,7 @@ async fn process_webhook_job<W: WebhookJob>(
 
                             metrics::counter!("webhook_jobs_failed", &labels).increment(1);
 
-                            Ok(())
+                            Ok(WebhookResult::Failed(error.to_string()))
                         }
                         Err(RetryError::DatabaseError(job_error)) => {
                             metrics::counter!("webhook_jobs_database_error", &labels).increment(1);
@@ -354,7 +435,7 @@ async fn process_webhook_job<W: WebhookJob>(
                         }
                     }
                 }
-                WebhookRequestError::NonRetryableRetryableRequestError { .. } => {
+                WebhookRequestError::NonRetryableRetryableRequestError { error, .. } => {
                     webhook_job
                         .fail(webhook_job_error)
                         .await
@@ -365,7 +446,7 @@ async fn process_webhook_job<W: WebhookJob>(
 
                     metrics::counter!("webhook_jobs_failed", &labels).increment(1);
 
-                    Ok(())
+                    Ok(WebhookResult::Failed(error.to_string()))
                 }
             }
         }
@@ -496,6 +577,8 @@ mod tests {
     // See: https://github.com/rust-lang/rust/issues/46379.
     use health::HealthRegistry;
     use hook_common::pgqueue::{DatabaseError, NewJob};
+    use hook_common::test::create_mock_kafka;
+    use hook_common::webhook::WebhookJobMetadata;
     use sqlx::PgPool;
 
     /// Use process id as a worker id for tests.
@@ -512,7 +595,7 @@ mod tests {
         queue: &PgQueue,
         max_attempts: i32,
         job_parameters: WebhookJobParameters,
-        job_metadata: WebhookJobMetadata,
+        job_metadata: Value,
     ) -> Result<(), DatabaseError> {
         let job_target = job_parameters.url.to_owned();
         let new_job = NewJob::new(max_attempts, job_metadata, job_parameters, &job_target);
@@ -579,10 +662,12 @@ mod tests {
             &queue,
             1,
             webhook_job_parameters.clone(),
-            webhook_job_metadata,
+            serde_json::to_value(webhook_job_metadata).unwrap(),
         )
         .await
         .expect("failed to enqueue job");
+        let (_mock_cluster, mock_producer) = create_mock_kafka().await;
+        let hog_mode = false;
         let worker = WebhookWorker::new(
             &worker_id,
             &queue,
@@ -592,6 +677,8 @@ mod tests {
             10,
             RetryPolicy::default(),
             false,
+            mock_producer,
+            hog_mode,
             liveness,
         );
 

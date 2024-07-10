@@ -3,6 +3,8 @@ use std::time;
 
 use envconfig::Envconfig;
 
+use hook_common::config::KafkaConfig;
+
 #[derive(Envconfig, Clone)]
 pub struct Config {
     #[envconfig(from = "BIND_HOST", default = "0.0.0.0")]
@@ -40,6 +42,12 @@ pub struct Config {
 
     #[envconfig(default = "false")]
     pub allow_internal_ips: bool,
+
+    #[envconfig(default = "false")]
+    pub hog_mode: bool,
+
+    #[envconfig(nested = true)]
+    pub kafka: KafkaConfig,
 }
 
 impl Config {
