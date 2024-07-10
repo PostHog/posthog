@@ -93,6 +93,12 @@ def parse_user_aggregation_with_conversion_window_and_breakdown(
                     )
                 if step > max_step[0]:
                     max_step[:] = (step, entered_timestamp[step])
+
+        if funnel_order_type == "strict":
+            for i in range(len(entered_timestamp)):
+                if i not in steps:
+                    entered_timestamp[i] = default_entered_timestamp
+
         return True
 
     # We call this for each possible breakdown value.

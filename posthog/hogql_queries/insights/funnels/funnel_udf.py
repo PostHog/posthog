@@ -28,7 +28,12 @@ class FunnelUDF(FunnelBase):
         )
 
     def get_query(self) -> ast.SelectQuery:
-        inner_event_query = self._get_inner_event_query_for_udf(entity_name="events")
+        if self.context.funnelsFilter.funnelOrderType == "strict":
+            inner_event_query = self._get_inner_event_query_for_udf(
+                entity_name="events", skip_step_filter=True, skip_entity_filter=True
+            )
+        else:
+            inner_event_query = self._get_inner_event_query_for_udf(entity_name="events")
 
         default_breakdown_selector = "[]" if self._query_has_array_breakdown() else "''"
 
