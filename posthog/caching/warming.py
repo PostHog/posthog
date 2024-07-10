@@ -7,6 +7,7 @@ from celery import shared_task
 from celery.canvas import chain
 from django.db.models import Q
 from prometheus_client import Counter
+from pydantic import BaseModel
 from sentry_sdk import capture_exception
 
 from posthog.api.services.query import process_query_dict
@@ -23,7 +24,9 @@ STALE_INSIGHTS_COUNTER = Counter(
     "posthog_cache_warming_stale_insights", "Number of stale insights present", ["team_id"]
 )
 PRIORITY_INSIGHTS_COUNTER = Counter(
-    "posthog_cache_warming_priority_insights", "Number of priority insights warmed", ["team_id", "dashboard"]
+    "posthog_cache_warming_priority_insights",
+    "Number of priority insights warmed",
+    ["team_id", "dashboard", "is_cached"],
 )
 
 LAST_VIEWED_THRESHOLD = timedelta(days=7)
@@ -95,13 +98,11 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: int):
         tag_queries(dashboard_id=dashboard_id)
         dashboard = insight.dashboards.get(pk=dashboard_id)
 
-    PRIORITY_INSIGHTS_COUNTER.labels(team_id=insight.team_id, dashboard="true" if dashboard_id else "false").inc()
-
     with conversion_to_query_based(insight):
         logger.info(f"Warming insight cache: {insight.pk} for team {insight.team_id} and dashboard {dashboard_id}")
 
         try:
-            process_query_dict(
+            results = process_query_dict(
                 insight.team,
                 insight.query,
                 dashboard_filters_json=dashboard.filters if dashboard is not None else None,
@@ -109,5 +110,11 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: int):
                 # All we want to achieve is keeping it warm
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
             )
+
+            PRIORITY_INSIGHTS_COUNTER.labels(
+                team_id=insight.team_id,
+                dashboard=dashboard_id is not None,
+                is_cached=results.is_cached if isinstance(results, BaseModel) else False,
+            ).inc()
         except Exception as e:
             capture_exception(e)
