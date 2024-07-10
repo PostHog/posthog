@@ -1,7 +1,16 @@
 import '../Experiment.scss'
 
 import { IconArchive, IconCheck, IconX } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDivider, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonDialog,
+    LemonDivider,
+    LemonTag,
+    LemonTagType,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { AnimationType } from 'lib/animations/animations'
 import { Animation } from 'lib/components/Animation/Animation'
@@ -357,19 +366,94 @@ export function PageHeaderCustom(): JSX.Element {
                                     <LemonDivider vertical />
                                 </>
                             )}
-                            <ResetButton experiment={experiment} onConfirm={resetRunningExperiment} />
+                            <ResetButton
+                                experiment={experiment}
+                                onConfirm={() => {
+                                    LemonDialog.open({
+                                        title: 'Reset this experiment?',
+                                        content: (
+                                            <div className="text-sm text-muted">
+                                                All collected data so far will be discarded and the experiment will go
+                                                back to draft mode.
+                                                {experiment.archived && (
+                                                    <div className="mt-2">
+                                                        Resetting will also unarchive the experiment.
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ),
+                                        primaryButton: {
+                                            children: 'Reset',
+                                            type: 'primary',
+                                            onClick: () => resetRunningExperiment(),
+                                            size: 'small',
+                                        },
+                                        secondaryButton: {
+                                            children: 'Cancel',
+                                            type: 'tertiary',
+                                            size: 'small',
+                                        },
+                                    })
+                                }}
+                            />
                             {!experiment.end_date && (
                                 <LemonButton
                                     type="secondary"
                                     data-attr="stop-experiment"
                                     status="danger"
-                                    onClick={() => endExperiment()}
+                                    onClick={() => {
+                                        LemonDialog.open({
+                                            title: 'Stop this experiment?',
+                                            content: (
+                                                <div className="text-sm text-muted">
+                                                    This action will end data collection. The experiment can be
+                                                    restarted later if needed.
+                                                </div>
+                                            ),
+                                            primaryButton: {
+                                                children: 'Stop',
+                                                type: 'primary',
+                                                onClick: () => endExperiment(),
+                                                size: 'small',
+                                            },
+                                            secondaryButton: {
+                                                children: 'Cancel',
+                                                type: 'tertiary',
+                                                size: 'small',
+                                            },
+                                        })
+                                    }}
                                 >
                                     Stop
                                 </LemonButton>
                             )}
                             {isExperimentStopped && (
-                                <LemonButton type="secondary" status="danger" onClick={() => archiveExperiment()}>
+                                <LemonButton
+                                    type="secondary"
+                                    status="danger"
+                                    onClick={() => {
+                                        LemonDialog.open({
+                                            title: 'Archive this experiment?',
+                                            content: (
+                                                <div className="text-sm text-muted">
+                                                    This action will move the experiment to the archived tab. It can be
+                                                    restored at any time.
+                                                </div>
+                                            ),
+                                            primaryButton: {
+                                                children: 'Archive',
+                                                type: 'primary',
+                                                onClick: () => archiveExperiment(),
+                                                size: 'small',
+                                            },
+                                            secondaryButton: {
+                                                children: 'Cancel',
+                                                type: 'tertiary',
+                                                size: 'small',
+                                            },
+                                        })
+                                    }}
+                                >
                                     <b>Archive</b>
                                 </LemonButton>
                             )}
