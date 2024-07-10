@@ -219,6 +219,37 @@ function isValidJsonArray(maybeJson: string): boolean {
     return false
 }
 
+function formatNumericBreakdownLabel(
+    breakdown_value: number,
+    breakdownFilter: BreakdownFilter | null | undefined,
+    formatPropertyValueForDisplay: FormatPropertyValueForDisplayFunction | undefined,
+    multipleBreakdownIndex: number | undefined
+): string {
+    if (isOtherBreakdown(breakdown_value)) {
+        return BREAKDOWN_OTHER_DISPLAY
+    }
+
+    if (isNullBreakdown(breakdown_value)) {
+        return BREAKDOWN_NULL_DISPLAY
+    }
+
+    if (formatPropertyValueForDisplay) {
+        const nestedBreakdown =
+            typeof multipleBreakdownIndex === 'number'
+                ? breakdownFilter?.breakdowns?.[multipleBreakdownIndex]
+                : undefined
+
+        return (
+            formatPropertyValueForDisplay(
+                nestedBreakdown?.value ?? breakdownFilter?.breakdown,
+                breakdown_value
+            )?.toString() ?? 'None'
+        )
+    }
+
+    return String(breakdown_value)
+}
+
 export function formatBreakdownLabel(
     breakdown_value: BreakdownKeyType | undefined,
     breakdownFilter: BreakdownFilter | null | undefined,
@@ -248,48 +279,50 @@ export function formatBreakdownLabel(
             return formattedBucketStart
         }
         return `${formattedBucketStart} – ${formattedBucketEnd}`
-    } else if (breakdownFilter?.breakdown_type === 'cohort') {
+    }
+
+    if (breakdownFilter?.breakdown_type === 'cohort') {
         // :TRICKY: Different endpoints represent the all users cohort breakdown differently
         if (breakdown_value === 0 || breakdown_value === 'all') {
             return 'All Users'
         }
 
         return cohorts?.filter((c) => c.id == breakdown_value)[0]?.name ?? (breakdown_value || '').toString()
-    } else if (typeof breakdown_value == 'number') {
-        if (isOtherBreakdown(breakdown_value)) {
-            return BREAKDOWN_OTHER_DISPLAY
-        }
+    }
 
-        if (isNullBreakdown(breakdown_value)) {
-            return BREAKDOWN_NULL_DISPLAY
-        }
+    if (typeof breakdown_value == 'number') {
+        return formatNumericBreakdownLabel(
+            breakdown_value,
+            breakdownFilter,
+            formatPropertyValueForDisplay,
+            multipleBreakdownIndex
+        )
+    }
 
-        if (formatPropertyValueForDisplay) {
-            const nestedBreakdown =
-                typeof multipleBreakdownIndex === 'number'
-                    ? breakdownFilter?.breakdowns?.[multipleBreakdownIndex]
-                    : undefined
+    const maybeNumericValue = Number(breakdown_value)
+    if (!Number.isNaN(maybeNumericValue)) {
+        return formatNumericBreakdownLabel(
+            maybeNumericValue,
+            breakdownFilter,
+            formatPropertyValueForDisplay,
+            multipleBreakdownIndex
+        )
+    }
 
-            return (
-                formatPropertyValueForDisplay(
-                    nestedBreakdown?.value ?? breakdownFilter?.breakdown,
-                    breakdown_value
-                )?.toString() ?? 'None'
-            )
-        }
-
-        return String(breakdown_value)
-    } else if (typeof breakdown_value == 'string') {
+    if (typeof breakdown_value == 'string') {
         return isOtherBreakdown(breakdown_value) || breakdown_value === 'nan'
             ? BREAKDOWN_OTHER_DISPLAY
             : isNullBreakdown(breakdown_value) || breakdown_value === ''
             ? BREAKDOWN_NULL_DISPLAY
             : breakdown_value
-    } else if (Array.isArray(breakdown_value)) {
+    }
+
+    if (Array.isArray(breakdown_value)) {
         return breakdown_value
             .map((v, index) => formatBreakdownLabel(v, breakdownFilter, cohorts, formatPropertyValueForDisplay, index))
             .join('::')
     }
+
     return ''
 }
 
