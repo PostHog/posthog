@@ -180,9 +180,9 @@ describe('Surveys', () => {
         cy.get('[data-attr=more-button]').click()
         cy.get('[data-attr=delete-survey]').click()
         // Handle the confirmation dialog
-        cy.get('.ReactModal__Overlay').should('be.visible')
+        cy.get('.LemonModal__layout').should('be.visible')
         cy.contains('Delete this survey?').should('be.visible')
-        cy.get('.ReactModal__Overlay').contains('button', 'Delete').click()
+        cy.get('.LemonModal__footer').contains('button', 'Delete').click()
         cy.get('.Toastify__toast-body').contains('Survey deleted').should('be.visible')
     })
 
@@ -234,6 +234,9 @@ describe('Surveys', () => {
         // delete the duplicated survey
         cy.get('[data-attr=more-button]').click()
         cy.get('[data-attr=delete-survey]').click()
+        cy.get('.ReactModal__Overlay').should('be.visible')
+        cy.contains('Delete this survey?').should('be.visible')
+        cy.get('.ReactModal__Overlay').contains('button', 'Delete').click()
 
         // Archive the original survey
         cy.clickNavMenu('surveys')
@@ -241,6 +244,9 @@ describe('Surveys', () => {
         cy.get('[data-attr=stop-survey]').click()
         cy.get('[data-attr=more-button]').click()
         cy.get('[data-attr=archive-survey]').click()
+        cy.get('.ReactModal__Overlay').should('be.visible')
+        cy.contains('Archive this survey?').should('be.visible')
+        cy.get('.ReactModal__Overlay').contains('button', 'Archive').click()
 
         // check if the duplicated survey is created with draft state
         cy.get('[data-attr=more-button]').click()
