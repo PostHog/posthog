@@ -89,7 +89,7 @@ describe('Surveys', () => {
         cy.get('[class="survey-form"]').find('.ratings-number').should('have.length', 5)
 
         // add targeting filters
-        cy.get('.LemonCollapsePanel').contains('Display Conditions').click()
+        cy.get('.LemonCollapsePanel').contains('Display conditions').click()
         cy.contains('All users').click()
         cy.get('.Popover__content').contains('Users who match').click()
         cy.contains('Add user targeting').click()
@@ -143,7 +143,7 @@ describe('Surveys', () => {
         cy.get('.Popover__content').contains('Edit').click()
 
         // remove user targeting properties
-        cy.get('.LemonCollapsePanel').contains('Display Conditions').click()
+        cy.get('.LemonCollapsePanel').contains('Display conditions').click()
         cy.contains('Remove all user properties').click()
 
         // save
@@ -193,7 +193,7 @@ describe('Surveys', () => {
         cy.get('[data-attr=survey-name]').focus().type(name).should('have.value', name)
 
         // Add user targetting criteria
-        cy.get('.LemonCollapsePanel').contains('Display Conditions').click()
+        cy.get('.LemonCollapsePanel').contains('Display conditions').click()
         cy.contains('All users').click()
         cy.get('.Popover__content').contains('Users who match').click()
         cy.contains('Add user targeting').click()
