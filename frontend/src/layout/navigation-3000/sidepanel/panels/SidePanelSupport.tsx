@@ -288,6 +288,19 @@ export const SidePanelSupport = (): JSX.Element => {
                                             Request a feature
                                         </LemonButton>
                                     </li>
+                                    <li>
+                                        <LemonButton
+                                            type="secondary"
+                                            status="alt"
+                                            to={`https://github.com/PostHog/posthog/issues/new?assignees=&labels=bug&projects=&template=bug_report.yml&debug-info=${encodeURIComponent(
+                                                getPublicSupportSnippet(region, user)
+                                            )}`}
+                                            icon={<IconFeatures />}
+                                            targetBlank
+                                        >
+                                            Report a bug
+                                        </LemonButton>
+                                    </li>
                                 </ul>
                             </Section>
                         </>
