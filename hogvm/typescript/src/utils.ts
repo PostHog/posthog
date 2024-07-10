@@ -115,8 +115,6 @@ export function calculateCost(object: any, marked: Set<any> | undefined = undefi
         }
     } else if (typeof object === 'string') {
         return COST_PER_UNIT + object.length
-    } else if (typeof object === 'number') {
-        return COST_PER_UNIT
     } else {
         return COST_PER_UNIT
     }

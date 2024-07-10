@@ -39,25 +39,32 @@ export function escapeIdentifier(identifier: string | number): string {
         .join('')}\``
 }
 
-export function printHogValue(obj: any): string {
+export function printHogValue(obj: any, marked: Set<any> | undefined = undefined): string {
+    if (!marked) {
+        marked = new Set()
+    }
+    if (typeof obj === 'object' && obj !== null && marked.has(obj)) {
+        return 'null'
+    }
+    marked.add(obj)
     if (Array.isArray(obj)) {
         if ((obj as any).__isHogTuple) {
             if (obj.length < 2) {
-                return `tuple(${obj.map(printHogValue).join(', ')})`
+                return `tuple(${obj.map((o) => printHogValue(o, marked)).join(', ')})`
             }
-            return `(${obj.map(printHogValue).join(', ')})`
+            return `(${obj.map((o) => printHogValue(o, marked)).join(', ')})`
         } else {
-            return `[${obj.map(printHogValue).join(', ')}]`
+            return `[${obj.map((o) => printHogValue(o, marked)).join(', ')}]`
         }
     }
     if (obj instanceof Map) {
         return `{${Array.from(obj.entries())
-            .map(([key, value]) => `${printHogValue(key)}: ${printHogValue(value)}`)
+            .map(([key, value]) => `${printHogValue(key, marked)}: ${printHogValue(value, marked)}`)
             .join(', ')}}`
     }
     if (typeof obj === 'object' && obj !== null) {
         return `{${Object.entries(obj)
-            .map(([key, value]) => `${printHogValue(key)}: ${printHogValue(value)}`)
+            .map(([key, value]) => `${printHogValue(key, marked)}: ${printHogValue(value, marked)}`)
             .join(', ')}}`
     }
     if (typeof obj === 'boolean') {

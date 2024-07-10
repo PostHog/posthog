@@ -5,8 +5,8 @@ import { ASYNC_STL, STL } from './stl/stl'
 import { calculateCost, convertHogToJS, convertJSToHog, getNestedValue, like, setNestedValue } from './utils'
 
 const DEFAULT_MAX_ASYNC_STEPS = 100
+const DEFAULT_MAX_MEMORY = 64 * 1024 * 1024 // 64 MB
 const DEFAULT_TIMEOUT_MS = 5000 // ms
-const MAX_MEMORY = 64 * 1024 * 1024 // 64 MB
 const MAX_FUNCTION_ARGS_LENGTH = 300
 
 export interface VMState {
@@ -39,6 +39,8 @@ export interface ExecOptions {
     timeout?: number
     /** Max number of async function that can happen. When reached the function will throw */
     maxAsyncSteps?: number
+    /** Memory limit in bytes. This is calculated based on the size of the VM stack. */
+    memoryLimit?: number
 }
 
 export interface ExecResult {
@@ -110,11 +112,12 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
     const asyncSteps = vmState ? vmState.asyncSteps : 0
     const syncDuration = vmState ? vmState.syncDuration : 0
     const stack: any[] = vmState ? vmState.stack : []
-    const memStack: number[] = stack.map(calculateCost)
+    const memStack: number[] = stack.map((s) => calculateCost(s))
     const callStack: [number, number, number][] = vmState ? vmState.callStack : []
     const declaredFunctions: Record<string, [number, number]> = vmState ? vmState.declaredFunctions : {}
     let memUsed = memStack.reduce((acc, val) => acc + val, 0)
     let maxMemUsed = Math.max(vmState ? vmState.maxMemUsed : 0, memUsed)
+    const memLimit = options?.memoryLimit ?? DEFAULT_MAX_MEMORY
     let ip = vmState ? vmState.ip : 1
     let ops = vmState ? vmState.ops : 0
     const timeout = options?.timeout ?? DEFAULT_TIMEOUT_MS
@@ -132,8 +135,8 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
         memStack.push(calculateCost(value))
         memUsed += memStack[memStack.length - 1]
         maxMemUsed = Math.max(maxMemUsed, memUsed)
-        if (memUsed > MAX_MEMORY) {
-            throw new Error(`Memory limit of ${MAX_MEMORY} bytes exceeded. Tried to allocate ${memUsed} bytes.`)
+        if (memUsed > memLimit && memLimit > 0) {
+            throw new Error(`Memory limit of ${memLimit} bytes exceeded. Tried to allocate ${memUsed} bytes.`)
         }
         return stack.push(value)
     }

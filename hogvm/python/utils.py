@@ -51,16 +51,20 @@ def set_nested_value(obj, chain, value) -> Any:
     return obj
 
 
-def calculate_cost(object) -> int:
-    if isinstance(object, dict):
-        return COST_PER_UNIT + sum([calculate_cost(key) + calculate_cost(value) for key, value in object.items()])
-    elif isinstance(object, list) or isinstance(object, tuple):
-        return COST_PER_UNIT + sum([calculate_cost(val) for val in object])
-    elif object is None:
+def calculate_cost(object, marked: set | None = None) -> int:
+    if marked is None:
+        marked = set()
+    if (isinstance(object, dict) or isinstance(object, list) or isinstance(object, tuple)) and id(object) in marked:
         return COST_PER_UNIT
+    marked.add(id(object))
+
+    if isinstance(object, dict):
+        return COST_PER_UNIT + sum(
+            [calculate_cost(key, marked) + calculate_cost(value, marked) for key, value in object.items()]
+        )
+    elif isinstance(object, list) or isinstance(object, tuple):
+        return COST_PER_UNIT + sum([calculate_cost(val, marked) for val in object])
     elif isinstance(object, str):
         return COST_PER_UNIT + len(object)
-    elif isinstance(object, int):
-        return COST_PER_UNIT
     else:
         return COST_PER_UNIT

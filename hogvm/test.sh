@@ -1,5 +1,8 @@
 #!/bin/bash
 set -e
+cd typescript
+pnpm run build
+cd ..
 
 cd ..
 
