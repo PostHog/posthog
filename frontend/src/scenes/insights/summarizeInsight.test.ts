@@ -578,5 +578,44 @@ describe('summarizing insights', () => {
 
             expect(result).toEqual('person, id, created_at, person.$delete from persons')
         })
+
+        it('summarizes a Trends insight with multiple breakdowns', () => {
+            const query: TrendsQuery = {
+                kind: NodeKind.TrendsQuery,
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: '$pageview',
+                        name: '$pageview',
+                        math: BaseMathType.UniqueUsers,
+                    },
+                ],
+                breakdownFilter: {
+                    breakdowns: [
+                        {
+                            type: 'event',
+                            value: '$browser',
+                        },
+                        {
+                            type: 'person',
+                            value: 'custom_prop',
+                        },
+                        {
+                            type: 'session',
+                            value: '$session_duration',
+                        },
+                    ],
+                },
+            }
+
+            const result = summarizeInsight(
+                { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
+                summaryContext
+            )
+
+            expect(result).toEqual(
+                "Pageview unique users by event's Browser, person's custom_prop, session's Session duration"
+            )
+        })
     })
 })

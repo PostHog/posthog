@@ -246,7 +246,7 @@ export class EventPipelineRunner {
         args: Parameters<Step>,
         teamId: number,
         sentToDql = true
-    ): ReturnType<Step> {
+    ): Promise<ReturnType<Step>> {
         const timer = new Date()
         return runInSpan(
             {

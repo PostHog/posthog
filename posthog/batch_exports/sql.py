@@ -7,15 +7,24 @@ CREATE OR REPLACE VIEW persons_batch_export ON CLUSTER {settings.CLICKHOUSE_CLUS
         pd.distinct_id AS distinct_id,
         toString(p.id) AS person_id,
         p.properties AS properties,
-        pd.version AS version,
-        pd._timestamp AS _inserted_at
+        pd.version AS person_distinct_id_version,
+        p.version AS person_version,
+        multiIf(
+            (pd._timestamp  >= {{interval_start:DateTime64}} AND pd._timestamp < {{interval_end:DateTime64}})
+                AND NOT (p._timestamp >= {{interval_start:DateTime64}} AND p._timestamp < {{interval_end:DateTime64}}),
+            pd._timestamp,
+            (p._timestamp  >= {{interval_start:DateTime64}} AND p._timestamp < {{interval_end:DateTime64}})
+                AND NOT (pd._timestamp >= {{interval_start:DateTime64}} AND pd._timestamp < {{interval_end:DateTime64}}),
+            p._timestamp,
+            least(p._timestamp, pd._timestamp)
+        ) AS _inserted_at
     FROM (
         SELECT
             team_id,
             distinct_id,
             max(version) AS version,
             argMax(person_id, person_distinct_id2.version) AS person_id,
-            max(_timestamp) AS _timestamp
+            argMax(_timestamp, person_distinct_id2.version) AS _timestamp
         FROM
             person_distinct_id2
         WHERE
@@ -24,13 +33,26 @@ CREATE OR REPLACE VIEW persons_batch_export ON CLUSTER {settings.CLICKHOUSE_CLUS
             team_id,
             distinct_id
     ) AS pd
-    INNER JOIN
-        person p ON p.id = pd.person_id AND p.team_id = pd.team_id
+    INNER JOIN (
+        SELECT
+            team_id,
+            id,
+            max(version) AS version,
+            argMax(properties, person.version) AS properties,
+            argMax(_timestamp, person.version) AS _timestamp
+        FROM
+            person
+        WHERE
+            team_id = {{team_id:Int64}}
+        GROUP BY
+            team_id,
+            id
+    ) AS p ON p.id = pd.person_id AND p.team_id = pd.team_id
     WHERE
         pd.team_id = {{team_id:Int64}}
         AND p.team_id = {{team_id:Int64}}
-        AND pd._timestamp >= {{interval_start:DateTime64}}
-        AND pd._timestamp < {{interval_end:DateTime64}}
+        AND (pd._timestamp  >= {{interval_start:DateTime64}} AND pd._timestamp < {{interval_end:DateTime64}})
+            OR (p._timestamp  >= {{interval_start:DateTime64}} AND p._timestamp < {{interval_end:DateTime64}})
     ORDER BY
         _inserted_at
 )

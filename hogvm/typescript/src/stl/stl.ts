@@ -20,6 +20,7 @@ export const STL: Record<string, (args: any[], name: string, timeout: number) =>
     toFloat: (args) => {
         return !isNaN(parseFloat(args[0])) ? parseFloat(args[0]) : null
     },
+    // ifNull is complied into JUMP instructions. Keeping the function here for backwards compatibility
     ifNull: (args) => {
         return args[0] !== null ? args[0] : args[1]
     },
@@ -79,21 +80,35 @@ export const STL: Record<string, (args: any[], name: string, timeout: number) =>
     },
     jsonStringify: (args) => {
         // Recursively convert maps to objects
-        function convert(x: any): any {
-            if (x instanceof Map) {
-                const obj: Record<string, any> = {}
-                x.forEach((value, key) => {
-                    obj[key] = convert(value)
-                })
-                return obj
-            } else if (typeof x === 'object' && Array.isArray(x)) {
-                return x.map(convert)
-            } else if (typeof x === 'object' && x !== null) {
-                const obj: Record<string, any> = {}
-                for (const key in x) {
-                    obj[key] = convert(x[key])
+        function convert(x: any, marked?: Set<any>): any {
+            if (!marked) {
+                marked = new Set()
+            }
+            if (typeof x === 'object' && x !== null) {
+                if (marked.has(x)) {
+                    return null
                 }
-                return obj
+                marked.add(x)
+                try {
+                    if (x instanceof Map) {
+                        const obj: Record<string, any> = {}
+                        x.forEach((value, key) => {
+                            obj[convert(key, marked)] = convert(value, marked)
+                        })
+                        return obj
+                    }
+                    if (typeof x === 'object' && Array.isArray(x)) {
+                        return x.map((v) => convert(v, marked))
+                    }
+
+                    const obj: Record<string, any> = {}
+                    for (const key in x) {
+                        obj[key] = convert(x[key], marked)
+                    }
+                    return obj
+                } finally {
+                    marked.delete(x)
+                }
             }
             return x
         }

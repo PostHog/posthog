@@ -99,3 +99,38 @@ export function ExceptionAutocaptureSettings(): JSX.Element {
         </>
     )
 }
+
+export function WebVitalsAutocaptureSettings(): JSX.Element {
+    const { userLoading } = useValues(userLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const { updateCurrentTeam } = useActions(teamLogic)
+
+    return (
+        <>
+            <p>
+                Since posthog-js version 1.141.2 you can enable{' '}
+                <Link to="https://github.com/GoogleChrome/web-vitals" target="_blank">
+                    Google Chrome's web vitals
+                </Link>{' '}
+                collection. Web vitals events can be used in insights, and when web vitals capture is enabled it is used
+                to enhance other parts of PostHog like web analytics and session replay.
+            </p>
+            <LemonSwitch
+                id="posthog-autocapture-web-vitals-switch"
+                onChange={(checked) => {
+                    updateCurrentTeam({
+                        autocapture_web_vitals_opt_in: checked,
+                    })
+                }}
+                checked={!!currentTeam?.autocapture_web_vitals_opt_in}
+                disabled={userLoading}
+                label={
+                    <>
+                        Enable web vitals autocapture <LemonTag>NEW</LemonTag>
+                    </>
+                }
+                bordered
+            />
+        </>
+    )
+}
