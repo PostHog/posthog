@@ -7,11 +7,19 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { AnnotationDataWithoutInsight, annotationsModel } from '~/models/annotationsModel'
-import { AnnotationScope, DatedAnnotationType, InsightLogicProps, InsightModel, IntervalType } from '~/types'
+import {
+    AnnotationScope,
+    DashboardType,
+    DatedAnnotationType,
+    InsightLogicProps,
+    InsightModel,
+    IntervalType,
+} from '~/types'
 
 import type { annotationsOverlayLogicType } from './annotationsOverlayLogicType'
 
-export interface AnnotationsOverlayLogicProps extends InsightLogicProps {
+export interface AnnotationsOverlayLogicProps extends Omit<InsightLogicProps, 'dashboardId'> {
+    dashboardId: DashboardType['id'] | undefined
     insightNumericId: InsightModel['id'] | 'new'
     dates: string[]
     ticks: Tick[]
@@ -40,7 +48,7 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
     connect(() => ({
         values: [
             insightLogic,
-            ['insightId', 'dashboardId'],
+            ['insightId'],
             insightVizDataLogic,
             ['interval'],
             annotationsModel,
@@ -95,6 +103,10 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
         },
     })),
     selectors({
+        annotationsOverlayProps: [
+            () => [(_, props) => props],
+            (props: AnnotationsOverlayLogicProps): AnnotationsOverlayLogicProps => props,
+        ],
         intervalUnit: [(s) => [s.interval], (interval) => interval || 'day'],
         pointsPerTick: [
             (_, p) => [p.ticks],
@@ -129,7 +141,7 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
             },
         ],
         relevantAnnotations: [
-            (s, p) => [s.annotations, s.dateRange, p.insightNumericId, s.dashboardId],
+            (s, p) => [s.annotations, s.dateRange, p.insightNumericId, p.dashboardId],
             (annotations, dateRange, insightNumericId, dashboardNumericId) => {
                 // This assumes that there are no more annotations in the project than AnnotationsViewSet
                 // pagination class's default_limit of 100. As of June 2023, this is not true on Cloud US,

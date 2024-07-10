@@ -62,6 +62,7 @@ export function AnnotationsOverlay({
 
     const annotationsOverlayLogicProps: AnnotationsOverlayLogicProps = {
         ...insightProps,
+        dashboardId: insightProps.dashboardId,
         insightNumericId,
         dates,
         ticks: chart.scales.x.ticks,
@@ -185,7 +186,7 @@ function AnnotationsPopover({
         insightId,
         activeBadgeElement,
         isPopoverShown,
-        dashboardId,
+        annotationsOverlayProps,
     } = useValues(annotationsOverlayLogic)
     const { closePopover } = useActions(annotationsOverlayLogic)
     const { openModalToCreateAnnotation } = useActions(annotationModalLogic)
@@ -210,7 +211,9 @@ function AnnotationsPopover({
                     footer={
                         <LemonButton
                             type="primary"
-                            onClick={() => openModalToCreateAnnotation(activeDate, insightId, dashboardId)}
+                            onClick={() =>
+                                openModalToCreateAnnotation(activeDate, insightId, annotationsOverlayProps.dashboardId)
+                            }
                             disabled={!isDateLocked}
                         >
                             Add annotation
