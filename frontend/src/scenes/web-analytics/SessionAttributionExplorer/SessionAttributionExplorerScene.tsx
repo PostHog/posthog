@@ -1,4 +1,5 @@
-import { IconCollapse, IconExpand } from '@posthog/icons'
+import { IconCollapse, IconExpand, IconPlus } from '@posthog/icons'
+import { LemonMenu, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { IconFeedback } from 'lib/lemon-ui/icons'
@@ -11,7 +12,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { Query } from '~/queries/Query/Query'
-import { DataTableNode, HogQLQuery } from '~/queries/schema'
+import { DataTableNode, HogQLQuery, SessionAttributionGroupBy } from '~/queries/schema'
 import { isSessionPropertyFilters } from '~/queries/schema-guards'
 import { QueryContext, QueryContextColumnComponent } from '~/queries/types'
 
@@ -116,6 +117,71 @@ const queryContext: QueryContext = {
     emptyStateDetail: 'Try changing the date range, or changing the property filters.',
 }
 
+const groupByOptions = [
+    {
+        label: 'Channel type',
+        value: SessionAttributionGroupBy.ChannelType,
+    },
+    {
+        label: 'Referring domain',
+        value: SessionAttributionGroupBy.ReferringDomain,
+    },
+    {
+        label: 'UTM source',
+        value: SessionAttributionGroupBy.Source,
+    },
+    {
+        label: 'UTM medium',
+        value: SessionAttributionGroupBy.Medium,
+    },
+    {
+        label: 'UTM campaign',
+        value: SessionAttributionGroupBy.Campaign,
+    },
+    {
+        label: 'Ad IDs',
+        value: SessionAttributionGroupBy.AdIds,
+    },
+    {
+        label: 'Entry URL',
+        value: SessionAttributionGroupBy.InitialURL,
+    },
+]
+
+export const GroupByFilter = (): JSX.Element => {
+    const { groupBy } = useValues(sessionAttributionExplorerLogic)
+    const { enableGroupBy, disableGroupBy } = useActions(sessionAttributionExplorerLogic)
+
+    return (
+        <div className="mb-2">
+            <LemonMenu
+                items={groupByOptions.map(({ label, value }) => {
+                    return {
+                        label: () => (
+                            <LemonSwitch
+                                checked={groupBy.includes(value)}
+                                onChange={(val) => {
+                                    if (val) {
+                                        enableGroupBy(value)
+                                    } else {
+                                        disableGroupBy(value)
+                                    }
+                                }}
+                                fullWidth={true}
+                                label={label}
+                            />
+                        ),
+                    }
+                })}
+            >
+                <LemonButton icon={<IconPlus />} size="small" type="secondary">
+                    Group by
+                </LemonButton>
+            </LemonMenu>
+        </div>
+    )
+}
+
 export function SessionAttributionExplorer(): JSX.Element {
     const { query } = useValues(sessionAttributionExplorerLogic)
     const { setDateRange, setProperties } = useActions(sessionAttributionExplorerLogic)
@@ -161,6 +227,7 @@ export function SessionAttributionExplorer(): JSX.Element {
                     ) : null}
                 </div>
             </LemonBanner>
+            <GroupByFilter />
             <Query<DataTableNode>
                 context={queryContext}
                 query={query}
