@@ -7,7 +7,6 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { DatabaseSchemaViewTable } from '~/queries/schema'
-import { ProductKey } from '~/types'
 
 import type { dataWarehouseViewsLogicType } from './dataWarehouseViewsLogicType'
 
@@ -51,12 +50,6 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             (s) => [s.views, s.databaseLoading],
             (views, databaseLoading): boolean => {
                 return views?.length == 0 && !databaseLoading
-            },
-        ],
-        shouldShowProductIntroduction: [
-            (s) => [s.user],
-            (user): boolean => {
-                return !user?.has_seen_product_intro_for?.[ProductKey.DATA_WAREHOUSE_SAVED_QUERY]
             },
         ],
     }),
