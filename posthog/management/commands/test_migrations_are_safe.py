@@ -67,6 +67,7 @@ def validate_migration_sql(sql) -> bool:
             return True
         if "CONSTRAINT" in operation_sql and (
             "-- existing-table-constraint-ignore" not in operation_sql
+            and " NOT VALID" not in operation_sql
             and (
                 table_being_altered not in tables_created_so_far
                 or _get_table("ALTER TABLE", operation_sql) not in new_tables
