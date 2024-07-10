@@ -156,6 +156,30 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         return value
 
+    def validate_conditions(self, value):
+        if value is None:
+            return value
+
+        actions = value.get("actions")
+        if actions is None:
+            return value
+
+        values = actions.get("values")
+        if values is None or len(values) == 0:
+            return value
+
+        action_names = (value.get("name") for value in values)
+        project_actions = Action.objects.filter(team_id=self.context["team_id"], name__in=action_names)
+
+        for project_action in project_actions:
+            for step in project_action.steps:
+                if step.properties is not None and len(step.properties) > 0:
+                    raise serializers.ValidationError(
+                        "Survey cannot be activated by an Action with property filters defined on it."
+                    )
+
+        return value
+
     def validate_questions(self, value):
         if value is None:
             return value
@@ -340,7 +364,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         action_names = (value.get("name") for value in values)
 
-        instance.actions.set(Action.objects.filter(name__in=action_names))
+        instance.actions.set(Action.objects.filter(team_id=self.context["team_id"], name__in=action_names))
         instance.save()
 
     def _add_user_survey_interacted_filters(self, instance: Survey, end_date=None):

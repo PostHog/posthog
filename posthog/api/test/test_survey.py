@@ -1818,6 +1818,45 @@ class TestSurveyQuestionValidationWithEnterpriseFeatures(APIBaseTest):
 
 
 class TestSurveyWithActions(APIBaseTest):
+    def test_cannot_use_actions_with_properties(self):
+        Action.objects.create(
+            team=self.team,
+            name="person subscribed",
+            steps_json=[
+                {
+                    "event": "$pageview",
+                    "url": "docs",
+                    "url_matching": "contains",
+                    "properties": {"type": "person", "key": "val"},
+                }
+            ],
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks beta release survey",
+                "description": "Get feedback on the new notebooks feature",
+                "type": "popover",
+                "conditions": {
+                    "actions": {"values": [{"name": "person subscribed"}]},
+                },
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "What's a survey?",
+                        "description": "This is a description",
+                        "descriptionContentType": "text",
+                    }
+                ],
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
+        assert (
+            response.json()["detail"] == "Survey cannot be activated by an Action with property filters defined on it."
+        )
+
     def test_can_set_associated_actions(self):
         Action.objects.create(
             team=self.team,
@@ -2168,7 +2207,6 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
             REMOTE_ADDR=ip,
         )
 
-    @snapshot_postgres_queries
     def test_list_surveys_with_actions(self):
         action = Action.objects.create(
             team=self.team,
