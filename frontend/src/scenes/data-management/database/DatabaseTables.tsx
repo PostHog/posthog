@@ -4,10 +4,11 @@ import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { defaultQuery } from 'scenes/data-warehouse/utils'
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 import { urls } from 'scenes/urls'
 
-import { DatabaseSchemaTable, DataTableNode, NodeKind } from '~/queries/schema'
+import { DatabaseSchemaTable } from '~/queries/schema'
 
 import { DatabaseTable } from './DatabaseTable'
 
@@ -76,22 +77,7 @@ export function DatabaseTables<T extends DatabaseSchemaTable>({
                                   key: 'name',
                                   dataIndex: 'name',
                                   render: function RenderTable(table, obj: T) {
-                                      const query: DataTableNode = {
-                                          kind: NodeKind.DataTableNode,
-                                          full: true,
-                                          source: {
-                                              kind: NodeKind.HogQLQuery,
-                                              // TODO: Use `hogql` tag?
-                                              query: `SELECT ${Object.values(obj.fields)
-                                                  .filter(
-                                                      ({ table, fields, chain, schema_valid }) =>
-                                                          !table && !fields && !chain && schema_valid
-                                                  )
-                                                  .map(({ name }) => name)} FROM ${
-                                                  table === 'numbers' ? 'numbers(0, 10)' : table
-                                              } LIMIT 100`,
-                                          },
-                                      }
+                                      const query = defaultQuery(table as string, Object.values(obj.fields))
                                       return (
                                           <div className="flex">
                                               <Link to={urls.insightNew(undefined, undefined, JSON.stringify(query))}>

@@ -15,7 +15,6 @@ import { ProductKey } from '~/types'
 
 import { handleLoginRedirect } from './authentication/loginLogic'
 import { billingLogic } from './billing/billingLogic'
-import { SOURCE_DETAILS, sourceWizardLogic } from './data-warehouse/new/sourceWizardLogic'
 import { onboardingLogic, OnboardingStepKey } from './onboarding/onboardingLogic'
 import { organizationLogic } from './organizationLogic'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
@@ -29,7 +28,6 @@ export const productUrlMapping: Partial<Record<ProductKey, string[]>> = {
     [ProductKey.FEATURE_FLAGS]: [urls.featureFlags(), urls.earlyAccessFeatures(), urls.experiments()],
     [ProductKey.SURVEYS]: [urls.surveys()],
     [ProductKey.PRODUCT_ANALYTICS]: [urls.insights(), urls.webAnalytics()],
-    [ProductKey.DATA_WAREHOUSE]: [urls.dataWarehouse()],
 }
 
 export const sceneLogic = kea<sceneLogicType>([
@@ -41,16 +39,7 @@ export const sceneLogic = kea<sceneLogicType>([
     path(['scenes', 'sceneLogic']),
     connect(() => ({
         logic: [router, userLogic, preflightLogic],
-        actions: [
-            router,
-            ['locationChanged'],
-            commandBarLogic,
-            ['setCommandBar'],
-            inviteLogic,
-            ['hideInviteModal'],
-            sourceWizardLogic,
-            ['selectConnector', 'handleRedirect', 'setStep'],
-        ],
+        actions: [router, ['locationChanged'], commandBarLogic, ['setCommandBar'], inviteLogic, ['hideInviteModal']],
         values: [
             featureFlagLogic,
             ['featureFlags'],
@@ -273,25 +262,9 @@ export const sceneLogic = kea<sceneLogicType>([
                                 onboardingLogic.mount()
                                 onboardingLogic.actions.setIncludeIntro(!!values.billing)
                                 onboardingLogic.unmount()
-
-                                if (
-                                    scene === Scene.DataWarehouseTable &&
-                                    params.searchParams.kind == 'hubspot' &&
-                                    params.searchParams.code
-                                ) {
-                                    actions.selectConnector(SOURCE_DETAILS['Hubspot'])
-                                    actions.handleRedirect(params.searchParams.kind, {
-                                        code: params.searchParams.code,
-                                    })
-                                    actions.setStep(2)
-                                    router.actions.replace(
-                                        urls.onboarding(productKeyFromUrl, OnboardingStepKey.INSTALL)
-                                    )
-                                } else {
-                                    router.actions.replace(
-                                        urls.onboarding(productKeyFromUrl, OnboardingStepKey.PRODUCT_INTRO)
-                                    )
-                                }
+                                router.actions.replace(
+                                    urls.onboarding(productKeyFromUrl, OnboardingStepKey.PRODUCT_INTRO)
+                                )
                                 return
                             }
                         }
