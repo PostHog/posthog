@@ -1,9 +1,7 @@
 import { LemonButton, LemonDropdown, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
@@ -16,7 +14,6 @@ import { DatabaseTable } from './DatabaseTable'
 export function DatabaseTablesContainer(): JSX.Element {
     const { filteredTables, databaseLoading } = useValues(databaseTableListLogic)
     const { toggleJoinTableModal, selectSourceTable } = useActions(viewLinkLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <>
@@ -29,20 +26,18 @@ export function DatabaseTablesContainer(): JSX.Element {
                             <div className="mt-2">
                                 <span className="card-secondary">Columns</span>
                                 <DatabaseTable table={row.name} tables={filteredTables} inEditSchemaMode={false} />
-                                {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] && (
-                                    <div className="w-full flex justify-end">
-                                        <LemonButton
-                                            className="mt-2"
-                                            type="primary"
-                                            onClick={() => {
-                                                selectSourceTable(row.name)
-                                                toggleJoinTableModal()
-                                            }}
-                                        >
-                                            Add link to view
-                                        </LemonButton>
-                                    </div>
-                                )}
+                                <div className="w-full flex justify-end">
+                                    <LemonButton
+                                        className="mt-2"
+                                        type="primary"
+                                        onClick={() => {
+                                            selectSourceTable(row.name)
+                                            toggleJoinTableModal()
+                                        }}
+                                    >
+                                        Add link to view
+                                    </LemonButton>
+                                </div>
                             </div>
                         </div>
                     )
