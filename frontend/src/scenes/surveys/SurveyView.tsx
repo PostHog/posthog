@@ -159,7 +159,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                 content: (
                                                     <div className="text-sm text-muted">
                                                         The survey will immediately start displaying to users matching
-                                                        the targeting conditions.
+                                                        the display conditions.
                                                     </div>
                                                 ),
                                                 primaryButton: {
