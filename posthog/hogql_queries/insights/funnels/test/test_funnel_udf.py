@@ -14,6 +14,9 @@ from posthog.test.base import (
     _create_person,
 )
 from test_funnel import funnel_test_factory
+from posthog.hogql_queries.insights.funnels.test.conversion_time_cases import (
+    funnel_conversion_time_test_factory,
+)
 
 
 def _create_action(**kwargs):
@@ -52,3 +55,12 @@ class TestFunnelGroupBreakdownUDF(
 @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
 class TestFOSSFunnelUDF(funnel_test_factory(Funnel, _create_event, _create_person)):  # type: ignore
     maxDiff = None
+
+
+@patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
+class TestFunnelConversionTimeUDF(
+    ClickhouseTestMixin,
+    funnel_conversion_time_test_factory(FunnelOrderType.ORDERED, ClickhouseFunnelActors),  # type: ignore
+):
+    maxDiff = None
+    pass

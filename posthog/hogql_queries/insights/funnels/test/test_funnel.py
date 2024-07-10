@@ -86,6 +86,7 @@ class TestFunnelGroupBreakdown(
     pass
 
 
+@patch("posthoganalytics.feature_enabled", new=Mock(return_value=False))
 class TestFunnelConversionTime(
     ClickhouseTestMixin,
     funnel_conversion_time_test_factory(FunnelOrderType.ORDERED, ClickhouseFunnelActors),  # type: ignore
