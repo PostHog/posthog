@@ -158,8 +158,8 @@ function SeriesDisplay({
     const hasBreakdown =
         isInsightQueryWithBreakdown(query) &&
         query.breakdownFilter != null &&
-        query.breakdownFilter.breakdown_type != null &&
-        query.breakdownFilter.breakdown != null
+        ((query.breakdownFilter.breakdown_type != null && query.breakdownFilter.breakdown != null) ||
+            Array.isArray(query.breakdownFilter.breakdowns))
 
     const mathDefinition = mathDefinitions[
         isLifecycleQuery(query)
