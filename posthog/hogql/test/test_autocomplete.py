@@ -5,7 +5,7 @@ from posthog.hogql.database.models import StringDatabaseField
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PERSONS_FIELDS
 from posthog.models.property_definition import PropertyDefinition
-from posthog.schema import HogQLAutocomplete, HogQLAutocompleteResponse, HogLanguage, HogQLQuery
+from posthog.schema import HogQLAutocomplete, HogQLAutocompleteResponse, HogLanguage, HogQLQuery, Kind
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 
@@ -50,6 +50,19 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
             kind="HogQLAutocomplete",
             query=query,
             language=HogLanguage.HOG_TEMPLATE,
+            sourceQuery=HogQLQuery(query="select * from events"),
+            startPosition=start,
+            endPosition=end,
+        )
+        return get_hogql_autocomplete(query=autocomplete, team=self.team, database_arg=database)
+
+    def _program(
+        self, query: str, start: int, end: int, database: Optional[Database] = None
+    ) -> HogQLAutocompleteResponse:
+        autocomplete = HogQLAutocomplete(
+            kind="HogQLAutocomplete",
+            query=query,
+            language=HogLanguage.HOG,
             sourceQuery=HogQLQuery(query="select * from events"),
             startPosition=start,
             endPosition=end,
@@ -310,3 +323,16 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         assert suggestion is not None
         assert suggestion.label == "event"
         assert suggestion.insertText == "event"
+
+    def test_autocomplete_hog(self):
+        database = create_hogql_database(team_id=self.team.pk, team_arg=self.team)
+
+        query = "let var1 := 3; let otherVar := 5; print(v)"
+        results = self._program(query=query, start=41, end=41, database=database)
+
+        suggestions = list(filter(lambda x: x.kind == Kind.VARIABLE, results.suggestions))
+        assert len(suggestions) == 2
+        assert sorted([suggestion.label for suggestion in suggestions]) == ["otherVar", "var1"]
+
+        suggestions = list(filter(lambda x: x.kind == Kind.FUNCTION, results.suggestions))
+        assert len(suggestions) > 0

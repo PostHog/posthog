@@ -798,6 +798,63 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
         )
 
+    def test_feature_flag_with_greater_than_filter(self):
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["example_id"],
+            properties={"$some_prop": 5},
+        )
+        feature_flag = self.create_feature_flag(
+            key="flag-with-gt-filter",
+            filters={
+                "groups": [{"properties": [{"key": "$some_prop", "value": 4, "type": "person", "operator": "gt"}]}]
+            },
+        )
+
+        with self.assertNumQueries(4):
+            self.assertEqual(
+                self.match_flag(feature_flag, "example_id"),
+                FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+            )
+
+    def test_feature_flag_with_greater_than_filter_no_match(self):
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["example_id"],
+            properties={"$some_prop": 3},
+        )
+        feature_flag = self.create_feature_flag(
+            key="flag-with-gt-filter",
+            filters={
+                "groups": [{"properties": [{"key": "$some_prop", "value": 4, "type": "person", "operator": "gt"}]}]
+            },
+        )
+
+        with self.assertNumQueries(4):
+            self.assertEqual(
+                self.match_flag(feature_flag, "example_id"),
+                FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+            )
+
+    def test_feature_flag_with_greater_than_filter_invalid_value(self):
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["example_id"],
+            properties={"$some_prop": 3},
+        )
+        feature_flag = self.create_feature_flag(
+            key="flag-with-gt-filter",
+            filters={
+                "groups": [{"properties": [{"key": "$some_prop", "value": ["4"], "type": "person", "operator": "gt"}]}]
+            },
+        )
+
+        with self.assertNumQueries(3):
+            self.assertEqual(
+                self.match_flag(feature_flag, "example_id"),
+                FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+            )
+
     def test_coercion_of_strings_and_numbers(self):
         Person.objects.create(
             team=self.team,

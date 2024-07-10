@@ -2,7 +2,6 @@ import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea
 import { forms } from 'kea-forms'
 import { urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -10,7 +9,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { annotationsModel, deserializeAnnotation } from '~/models/annotationsModel'
-import { AnnotationScope, AnnotationType, InsightModel, ProductKey } from '~/types'
+import { AnnotationScope, AnnotationType, InsightModel } from '~/types'
 
 import type { annotationModalLogicType } from './annotationModalLogicType'
 
@@ -127,15 +126,6 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
             (s) => [s.annotations, s.annotationsLoading],
             (annotations, annotationsLoading): boolean => {
                 return annotations.length === 0 && !annotationsLoading
-            },
-        ],
-        shouldShowProductIntroduction: [
-            (s) => [s.user, s.featureFlags],
-            (user, featureFlags): boolean => {
-                return (
-                    !user?.has_seen_product_intro_for?.[ProductKey.ANNOTATIONS] &&
-                    !!featureFlags[FEATURE_FLAGS.SHOW_PRODUCT_INTRO_EXISTING_PRODUCTS]
-                )
             },
         ],
     })),

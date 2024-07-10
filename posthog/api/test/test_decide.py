@@ -192,7 +192,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self._update_team({"capture_performance_opt_in": True})
 
         response = self._post_decide().json()
-        self.assertEqual(response["capturePerformance"], True)
+        self.assertEqual(response["capturePerformance"], {"network_timing": True, "web_vitals": False})
 
     def test_session_recording_sample_rate(self, *args):
         # :TRICKY: Test for regression around caching
@@ -370,6 +370,18 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.assertEqual(
             response["autocaptureExceptions"],
             {"endpoint": "/e/"},
+        )
+
+    def test_web_vitals_autocapture_opt_in(self, *args):
+        response = self._post_decide().json()
+        self.assertEqual(response["capturePerformance"], False)
+
+        self._update_team({"autocapture_web_vitals_opt_in": True})
+
+        response = self._post_decide().json()
+        self.assertEqual(
+            response["capturePerformance"],
+            {"web_vitals": True, "network_timing": False},
         )
 
     def test_user_session_recording_opt_in_wildcard_domain(self, *args):
@@ -2200,6 +2212,149 @@ class TestDecide(BaseTest, QueryMatchingTest):
             self.assertEqual(response.json()["featureFlags"], {"cohort-flag": False})
             self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
 
+    def test_flag_with_invalid_cohort_filter_condition(self, *args):
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        self.client.logout()
+
+        person1_distinct_id = "example_id"
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=[person1_distinct_id],
+            properties={"registration_ts": 1716447600},
+        )
+
+        # Create a cohort with an invalid filter condition (tis broken filter came from this issue: https://github.com/PostHog/posthog/issues/23213)
+        # The invalid condition is that the registration_ts property is compared against a list of values
+        # Since this filter must match everything, the flag should evaluate to False
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                # This is the valid condition
+                                {
+                                    "key": "registration_ts",
+                                    "type": "person",
+                                    "value": "1716274800",
+                                    "operator": "gte",
+                                },
+                                # This is the invalid condition (lte operator comparing against a list of values)
+                                {
+                                    "key": "registration_ts",
+                                    "type": "person",
+                                    "value": ["1716447600"],
+                                    "operator": "lte",
+                                },
+                            ],
+                        }
+                    ],
+                }
+            },
+            name="Test cohort",
+        )
+
+        # Create a feature flag that uses the cohort
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "id",
+                                "type": "cohort",
+                                "value": cohort.pk,
+                            }
+                        ],
+                    }
+                ]
+            },
+            name="This is a cohort-based flag",
+            key="cohort-flag",
+            created_by=self.user,
+        )
+
+        with self.assertNumQueries(5):
+            response = self._post_decide(api_version=3, distinct_id=person1_distinct_id)
+            self.assertEqual(response.json()["featureFlags"], {"cohort-flag": False})
+            self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
+
+    def test_flag_with_invalid_but_safe_cohort_filter_condition(self, *args):
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        self.client.logout()
+
+        person1_distinct_id = "example_id"
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=[person1_distinct_id],
+            properties={"registration_ts": 1716447600},
+        )
+
+        # Create a cohort with a safe OR filter that contains an invalid condition
+        # it should still evaluate the FeatureFlag to True
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                # This is the valid condition
+                                {
+                                    "key": "registration_ts",
+                                    "type": "person",
+                                    "value": "1716274800",
+                                    "operator": "gte",
+                                },
+                                # This is the invalid condition (lte operator comparing against a list of values)
+                                {
+                                    "key": "registration_ts",
+                                    "type": "person",
+                                    "value": ["1716447600"],
+                                    "operator": "lte",
+                                },
+                            ],
+                        }
+                    ],
+                }
+            },
+            name="Test cohort",
+        )
+
+        # Create a feature flag that uses the cohort
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "id",
+                                "type": "cohort",
+                                "value": cohort.pk,
+                            }
+                        ],
+                    }
+                ]
+            },
+            name="This is a cohort-based flag",
+            key="cohort-flag",
+            created_by=self.user,
+        )
+
+        with self.assertNumQueries(5):
+            response = self._post_decide(api_version=3, distinct_id=person1_distinct_id)
+            self.assertEqual(response.json()["featureFlags"], {"cohort-flag": True})
+            self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
+
     def test_flag_with_unknown_cohort(self, *args):
         self.team.app_urls = ["https://example.com"]
         self.team.save()
@@ -2691,7 +2846,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
         self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
         self.assertEqual(response["siteApps"], [])
-        self.assertEqual(response["capturePerformance"], True)
+        self.assertEqual(response["capturePerformance"], {"network_timing": True, "web_vitals": False})
         self.assertEqual(response["featureFlags"], {})
         self.assertEqual(
             response["autocaptureExceptions"],
@@ -2716,7 +2871,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             )
             self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
             self.assertEqual(response["siteApps"], [])
-            self.assertEqual(response["capturePerformance"], True)
+            self.assertEqual(response["capturePerformance"], {"network_timing": True, "web_vitals": False})
             self.assertEqual(
                 response["autocaptureExceptions"],
                 {"endpoint": "/e/"},
@@ -3466,7 +3621,7 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
             )
             self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
             self.assertEqual(response["siteApps"], [])
-            self.assertEqual(response["capturePerformance"], True)
+            self.assertEqual(response["capturePerformance"], {"network_timing": True, "web_vitals": False})
             self.assertEqual(response["featureFlags"], {"no-props": True})
             self.assertEqual(response["errorsWhileComputingFlags"], True)
 

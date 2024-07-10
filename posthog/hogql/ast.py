@@ -144,7 +144,9 @@ class BaseTableType(Type):
             if isinstance(field, VirtualTable):
                 return VirtualTableType(table_type=self, field=name, virtual_table=field)
             if isinstance(field, ExpressionField):
-                return ExpressionFieldType(table_type=self, name=name, expr=field.expr)
+                return ExpressionFieldType(
+                    table_type=self, name=name, expr=field.expr, isolate_scope=field.isolate_scope or False
+                )
             return FieldType(name=name, table_type=self)
         raise QueryError(f"Field not found: {name}")
 
@@ -295,7 +297,9 @@ class SelectViewType(Type):
             if isinstance(field, VirtualTable):
                 return VirtualTableType(table_type=self, field=name, virtual_table=field)
             if isinstance(field, ExpressionField):
-                return ExpressionFieldType(table_type=self, name=name, expr=field.expr)
+                return ExpressionFieldType(
+                    table_type=self, name=name, expr=field.expr, isolate_scope=field.isolate_scope or False
+                )
             return FieldType(name=name, table_type=self)
         raise ResolutionError(f"Field {name} not found on view query with name {self.view_name}")
 
@@ -443,6 +447,8 @@ class ExpressionFieldType(Type):
     name: str
     expr: Expr
     table_type: TableOrSelectType
+    # Pushes the parent table type to the scope when resolving any child fields
+    isolate_scope: bool = False
 
     def resolve_constant_type(self, context: "HogQLContext") -> "ConstantType":
         if self.expr.type is not None:
@@ -628,6 +634,7 @@ class OrderExpr(Expr):
 class ArrayAccess(Expr):
     array: Expr
     property: Expr
+    nullish: bool = False
 
 
 @dataclass(kw_only=True)
@@ -644,6 +651,7 @@ class Dict(Expr):
 class TupleAccess(Expr):
     tuple: Expr
     index: int
+    nullish: bool = False
 
 
 @dataclass(kw_only=True)

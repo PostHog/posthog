@@ -25,6 +25,7 @@ export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> 
     autoFocus?: boolean
     sourceQuery?: AnyDataNode
     globals?: Record<string, any>
+    schema?: Record<string, any> | null
 }
 let codeEditorIndex = 0
 
@@ -44,6 +45,7 @@ function initEditor(
             monaco.languages.register({ id: 'hog', extensions: ['.hog'], mimetypes: ['application/hog'] })
             monaco.languages.setLanguageConfiguration('hog', hog.conf())
             monaco.languages.setMonarchTokensProvider('hog', hog.language())
+            monaco.languages.registerCompletionItemProvider('hog', hogQLAutocompleteProvider(HogLanguage.hog))
             monaco.languages.registerCodeActionProvider('hog', hogQLMetadataProvider())
         }
     }
@@ -122,6 +124,7 @@ export function CodeEditor({
     autoFocus,
     globals,
     sourceQuery,
+    schema,
     ...editorProps
 }: CodeEditorProps): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
@@ -158,6 +161,36 @@ export function CodeEditor({
             monacoRoot?.remove()
         }
     }, [])
+
+    useEffect(() => {
+        if (!monaco) {
+            return
+        }
+        monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
+            jsx: editorProps?.path?.endsWith('.tsx')
+                ? monaco.languages.typescript.JsxEmit.React
+                : monaco.languages.typescript.JsxEmit.Preserve,
+            esModuleInterop: true,
+        })
+    }, [monaco, editorProps.path])
+
+    useEffect(() => {
+        if (!monaco) {
+            return
+        }
+        monaco.languages.json.jsonDefaults.setDiagnosticsOptions({
+            validate: true,
+            schemas: schema
+                ? [
+                      {
+                          uri: 'http://internal/node-schema.json',
+                          fileMatch: ['*'],
+                          schema: schema,
+                      },
+                  ]
+                : [],
+        })
+    }, [monaco, schema])
 
     // Using useRef, not useState, as we don't want to reload the component when this changes.
     const monacoDisposables = useRef([] as IDisposable[])

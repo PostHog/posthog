@@ -260,11 +260,16 @@ export interface PluginsServerConfig extends CdpConfig {
     SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL: KafkaSecurityProtocol | undefined
     SESSION_RECORDING_KAFKA_BATCH_SIZE: number
     SESSION_RECORDING_KAFKA_QUEUE_SIZE: number
+    SESSION_RECORDING_KAFKA_QUEUE_SIZE_KB: number | undefined
     SESSION_RECORDING_KAFKA_DEBUG: string | undefined
     SESSION_RECORDING_MAX_PARALLEL_FLUSHES: number
+    SESSION_RECORDING_KAFKA_FETCH_MIN_BYTES: number
 
     POSTHOG_SESSION_RECORDING_REDIS_HOST: string | undefined
     POSTHOG_SESSION_RECORDING_REDIS_PORT: number | undefined
+
+    // kafka debug stats interval
+    SESSION_RECORDING_KAFKA_CONSUMPTION_STATISTICS_EVENT_INTERVAL_MS: number
 }
 
 export interface Hub extends PluginsServerConfig {

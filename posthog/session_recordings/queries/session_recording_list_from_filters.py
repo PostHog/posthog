@@ -6,6 +6,7 @@ from posthog.hogql import ast
 from posthog.hogql.ast import Constant, CompareOperation
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import entity_to_expr, property_to_expr
+from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.models import Team, Property
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
@@ -152,7 +153,8 @@ class SessionRecordingListFromFilters:
         if person_id_compare_operation:
             exprs.append(person_id_compare_operation)
 
-        if self._filter.session_ids:
+        # we check for session_ids type not for truthiness since we want to allow empty lists
+        if isinstance(self._filter.session_ids, list):
             exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.In,
@@ -181,7 +183,7 @@ class SessionRecordingListFromFilters:
         optional_exprs: list[ast.Expr] = []
 
         # if in PoE mode then we should be pushing person property queries into here
-        events_sub_query = EventsSubQuery(self._team, self._filter, self.ttl_days).get_query()
+        events_sub_query = ReplayFiltersEventsSubQuery(self._team, self._filter).get_query_for_session_id_matching()
         if events_sub_query:
             optional_exprs.append(
                 ast.CompareOperation(
@@ -193,7 +195,7 @@ class SessionRecordingListFromFilters:
 
         # we want to avoid a join to persons since we don't ever need to select from them,
         # so we create our own persons sub query here
-        # if PoE mode is on then this will be handled in the events subquery and we don't need to do anything here
+        # if PoE mode is on then this will be handled in the events subquery, and we don't need to do anything here
         person_subquery = PersonsPropertiesSubQuery(self._team, self._filter, self.ttl_days).get_query()
         if person_subquery:
             optional_exprs.append(
@@ -426,15 +428,23 @@ class PersonsIdCompareOperation:
             )
 
 
-class EventsSubQuery:
+class ReplayFiltersEventsSubQuery:
     _team: Team
     _filter: SessionRecordingsFilter
-    _ttl_days: int
 
-    def __init__(self, team: Team, filter: SessionRecordingsFilter, ttl_days: int):
+    @property
+    def ttl_days(self):
+        return ttl_days(self._team)
+
+    def __init__(
+        self,
+        team: Team,
+        filter: SessionRecordingsFilter,
+        hogql_query_modifiers: Optional[HogQLQueryModifiers] = None,
+    ):
         self._team = team
         self._filter = filter
-        self._ttl_days = ttl_days
+        self._hogql_query_modifiers = hogql_query_modifiers
 
     @cached_property
     def _event_predicates(self):
@@ -459,18 +469,42 @@ class EventsSubQuery:
 
         return event_exprs, list(event_names)
 
-    def get_query(self) -> ast.SelectQuery | ast.SelectUnionQuery | None:
+    def _select_from_events(self, select_expr: ast.Expr) -> ast.SelectQuery:
+        return ast.SelectQuery(
+            select=[select_expr],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=self._where_predicates(),
+            having=self._having_predicates(),
+            group_by=[ast.Field(chain=["$session_id"])],
+        )
+
+    def get_query_for_session_id_matching(self) -> ast.SelectQuery | ast.SelectUnionQuery | None:
         use_poe = poe_is_active(self._team) and self.person_properties
         if self._filter.entities or self.event_properties or use_poe:
-            return ast.SelectQuery(
-                select=[ast.Alias(alias="session_id", expr=ast.Field(chain=["$session_id"]))],
-                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                where=self._where_predicates(),
-                having=self._having_predicates(),
-                group_by=[ast.Field(chain=["$session_id"])],
-            )
+            return self._select_from_events(ast.Alias(alias="session_id", expr=ast.Field(chain=["$session_id"])))
         else:
             return None
+
+    def get_query_for_event_id_matching(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+        return self._select_from_events(ast.Call(name="groupUniqArray", args=[ast.Field(chain=["uuid"])]))
+
+    def get_event_ids_for_session(self) -> SessionRecordingQueryResult:
+        query = self.get_query_for_event_id_matching()
+
+        hogql_query_response = execute_hogql_query(
+            query=query,
+            team=self._team,
+            query_type="SessionRecordingMatchingEventsForSessionQuery",
+            modifiers=self._hogql_query_modifiers,
+        )
+
+        flattened_results = [str(uuid) for row in hogql_query_response.results for uuid in row[0]]
+
+        return SessionRecordingQueryResult(
+            results=flattened_results,
+            has_more_recording=False,
+            timings=hogql_query_response.timings,
+        )
 
     def _where_predicates(self) -> ast.Expr:
         exprs: list[ast.Expr] = [
@@ -482,7 +516,7 @@ class EventsSubQuery:
             ast.CompareOperation(
                 op=ast.CompareOperationOp.GtEq,
                 left=ast.Field(chain=["timestamp"]),
-                right=ast.Constant(value=datetime.now() - timedelta(days=self._ttl_days)),
+                right=ast.Constant(value=datetime.now() - timedelta(days=self.ttl_days)),
             ),
             ast.CompareOperation(
                 op=ast.CompareOperationOp.LtEq,

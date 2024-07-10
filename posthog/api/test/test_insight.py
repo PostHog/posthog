@@ -307,7 +307,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             calculate_for_query_based_insight.assert_called_once_with(
                 mock.ANY,
                 dashboard=mock.ANY,
-                execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
+                execution_mode=ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
                 user=mock.ANY,
             )
 
@@ -318,7 +318,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             calculate_for_query_based_insight.assert_called_once_with(
                 mock.ANY,
                 dashboard=mock.ANY,
-                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
                 user=mock.ANY,
             )
 

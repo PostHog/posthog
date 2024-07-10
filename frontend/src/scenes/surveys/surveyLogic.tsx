@@ -651,7 +651,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         ? state.questions[idx].description
                         : defaultSurveyFieldValues[type].questions[0].description
                     const thankYouMessageHeader = isEditingThankYouMessage
-                        ? state.appearance.thankYouMessageHeader
+                        ? state.appearance?.thankYouMessageHeader
                         : defaultSurveyFieldValues[type].appearance.thankYouMessageHeader
                     const newQuestions = [...state.questions]
                     newQuestions[idx] = {
@@ -878,6 +878,11 @@ export const surveyLogic = kea<surveyLogicType>([
             (survey: Survey) => (questionIndex: number) => {
                 return survey.questions[questionIndex].descriptionContentType
             },
+        ],
+        surveyRepeatedActivationAvailable: [
+            (s) => [s.survey],
+            (survey: Survey): boolean =>
+                survey.conditions?.events?.values != undefined && survey.conditions?.events?.values?.length > 0,
         ],
         hasTargetingSet: [
             (s) => [s.survey],

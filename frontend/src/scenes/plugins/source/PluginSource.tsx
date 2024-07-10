@@ -45,18 +45,6 @@ export function PluginSource({
         if (!monaco) {
             return
         }
-        monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
-            jsx: currentFile.endsWith('.tsx')
-                ? monaco.languages.typescript.JsxEmit.React
-                : monaco.languages.typescript.JsxEmit.Preserve,
-            esModuleInterop: true,
-        })
-    }, [monaco, currentFile])
-
-    useEffect(() => {
-        if (!monaco) {
-            return
-        }
         void import('./types/packages.json').then((files) => {
             for (const [fileName, fileContents] of Object.entries(files).filter(
                 ([fileName]) => fileName !== 'default'

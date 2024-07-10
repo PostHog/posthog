@@ -95,6 +95,8 @@ class BooleanDatabaseField(DatabaseField):
 
 class ExpressionField(DatabaseField):
     expr: Expr
+    # Pushes the parent table type to the scope when resolving any child fields
+    isolate_scope: Optional[bool] = None
 
 
 class FieldTraverser(FieldOrTable):

@@ -21,7 +21,7 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.functions.mapping import ALL_EXPOSED_FUNCTION_NAMES
-from posthog.hogql.parser import parse_select, parse_expr, parse_string_template
+from posthog.hogql.parser import parse_select, parse_expr, parse_string_template, parse_program
 from posthog.hogql import ast
 from posthog.hogql.base import AST, CTE, ConstantType
 from posthog.hogql.resolver import resolve_types
@@ -40,6 +40,8 @@ from posthog.schema import (
 from hogvm.python.stl import STL
 
 ALL_HOG_FUNCTIONS = list(STL.keys())
+MATCH_ANY_CHARACTER = "$$_POSTHOG_ANY_$$"
+PROPERTY_DEFINITION_LIMIT = 220
 
 
 class GetNodeAtPositionTraverser(TraversingVisitor):
@@ -293,8 +295,52 @@ def extend_responses(
     )
 
 
-MATCH_ANY_CHARACTER = "$$_POSTHOG_ANY_$$"
-PROPERTY_DEFINITION_LIMIT = 220
+class VariableFinder(TraversingVisitor):
+    node: AST | None = None
+    stack: list[AST]
+    blocks: list[AST]
+    vars: list[set[str]]
+    node_vars: set[str]
+
+    def __init__(self, node: ast.AST):
+        super().__init__()
+        self.node = node
+        self.stack = []
+        self.blocks = []
+        self.vars = []
+        self.node_vars = set()
+
+    def visit(self, node: ast.AST | None):
+        if node is None:
+            return
+        if node == self.node:
+            for block_vars in self.vars:
+                self.node_vars.update(block_vars)
+            return
+
+        has_block = isinstance(node, ast.Block) or isinstance(node, ast.Program) or isinstance(node, ast.Function)
+        if has_block:
+            self.blocks.append(node)
+            self.vars.append(set())
+
+        self.stack.append(node)
+        super().visit(node)
+        self.stack.pop()
+
+        if has_block:
+            self.blocks.pop()
+            self.vars.pop()
+
+    def visit_variable_declaration(self, node: ast.VariableDeclaration):
+        if len(self.vars) > 0:
+            self.vars[-1].add(node.name)
+        super().visit_variable_declaration(node)
+
+
+def gather_hog_variables_in_scope(root_node, node) -> list[str]:
+    finder = VariableFinder(node)
+    finder.visit(root_node)
+    return list(finder.node_vars)
 
 
 def get_hogql_autocomplete(
@@ -326,36 +372,31 @@ def get_hogql_autocomplete(
             query_to_try = query.query[: query.endPosition] + extra_characters + query.query[query.endPosition :]
             query_start = query.startPosition
             query_end = query.endPosition + length_to_add
+            node_ast: ast.AST
 
             if query.language == HogLanguage.HOG_QL:
                 with timings.measure("parse_select"):
-                    select_ast = parse_select(query_to_try)
+                    select_ast = parse_select(query_to_try, timings=timings)
                     root_node: ast.AST = select_ast
             elif query.language == HogLanguage.HOG_QL_EXPR:
                 with timings.measure("parse_expr"):
-                    node_ast = parse_expr(query_to_try)
+                    node_ast = parse_expr(query_to_try, timings=timings)
                     select_ast = cast(ast.SelectQuery, clone_expr(source_query, clear_locations=True))
                     select_ast.select = [node_ast]
                     root_node = node_ast
             elif query.language == HogLanguage.HOG_TEMPLATE:
                 with timings.measure("parse_template"):
-                    node_ast = parse_string_template(query_to_try)
+                    node_ast = parse_string_template(query_to_try, timings=timings)
                     select_ast = cast(ast.SelectQuery, clone_expr(source_query, clear_locations=True))
                     select_ast.select = [node_ast]
                     root_node = node_ast
+            elif query.language == HogLanguage.HOG:
+                with timings.measure("parse_program"):
+                    node_ast = parse_program(query_to_try, timings=timings)
+                    select_ast = cast(ast.SelectQuery, clone_expr(source_query, clear_locations=True))
+                    root_node = node_ast
             else:
                 raise ValueError(f"Unsupported autocomplete language: {query.language}")
-
-            if query.filters:
-                try:
-                    select_ast = cast(ast.SelectQuery, replace_filters(select_ast, query.filters, team))
-                except Exception:
-                    pass
-
-            if isinstance(select_ast, ast.SelectQuery):
-                ctes = select_ast.ctes
-            elif isinstance(select_ast, ast.SelectUnionQuery):
-                ctes = select_ast.select_queries[0].ctes
 
             with timings.measure("find_node"):
                 # to account for the magic F' symbol we append to change antlr's mode
@@ -363,7 +404,6 @@ def get_hogql_autocomplete(
                 find_node = GetNodeAtPositionTraverser(root_node, query_start + extra, query_end + extra)
             node = find_node.node
             parent_node = find_node.parent_node
-            nearest_select = find_node.nearest_select_query or select_ast
 
             if isinstance(query.globals, dict) and isinstance(node, ast.Field):
                 for index, key in enumerate(node.chain):
@@ -396,6 +436,33 @@ def get_hogql_autocomplete(
                         kind=Kind.FOLDER,
                         details=values,
                     )
+
+            if query.language == HogLanguage.HOG:
+                hog_vars = gather_hog_variables_in_scope(root_node, node)
+                extend_responses(
+                    keys=hog_vars,
+                    suggestions=response.suggestions,
+                    kind=Kind.VARIABLE,
+                )
+                extend_responses(
+                    ALL_HOG_FUNCTIONS,
+                    response.suggestions,
+                    Kind.FUNCTION,
+                    insert_text=lambda key: f"{key}()",
+                )
+                break
+
+            if query.filters:
+                try:
+                    select_ast = cast(ast.SelectQuery, replace_filters(select_ast, query.filters, team))
+                except Exception:
+                    pass
+
+            if isinstance(select_ast, ast.SelectQuery):
+                ctes = select_ast.ctes
+            elif isinstance(select_ast, ast.SelectUnionQuery):
+                ctes = select_ast.select_queries[0].ctes
+            nearest_select = find_node.nearest_select_query or select_ast
 
             table_has_alias = (
                 nearest_select is not None

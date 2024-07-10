@@ -1,5 +1,5 @@
 import { UUIDT } from '../../src/utils/utils'
-import { capture, createOrganization, createTeam, fetchEvents, fetchPersons, getMetric } from '../api'
+import { capture, createOrganization, createTeam, fetchEvents, fetchGroups, fetchPersons, getMetric } from '../api'
 import { waitForExpect } from '../expectations'
 
 let organizationId: string
@@ -28,6 +28,17 @@ test.concurrent(`event ingestion: can set and update group properties`, async ()
         },
     })
 
+    await waitForExpect(async () => {
+        const group = await fetchGroups(teamId)
+        expect(group).toEqual([
+            expect.objectContaining({
+                group_type_index: 0,
+                group_key: 'posthog',
+                group_properties: { prop: 'value' },
+            }),
+        ])
+    })
+
     const firstEventUuid = new UUIDT().toString()
     await capture({
         teamId,
@@ -45,9 +56,6 @@ test.concurrent(`event ingestion: can set and update group properties`, async ()
         expect(event).toEqual(
             expect.objectContaining({
                 $group_0: 'posthog',
-                group0_properties: {
-                    prop: 'value',
-                },
             })
         )
     })
@@ -68,6 +76,17 @@ test.concurrent(`event ingestion: can set and update group properties`, async ()
         },
     })
 
+    await waitForExpect(async () => {
+        const group = await fetchGroups(teamId)
+        expect(group).toContainEqual(
+            expect.objectContaining({
+                group_type_index: 0,
+                group_key: 'posthog',
+                group_properties: { prop: 'updated value' },
+            })
+        )
+    })
+
     const secondEventUuid = new UUIDT().toString()
     await capture({
         teamId,
@@ -84,9 +103,6 @@ test.concurrent(`event ingestion: can set and update group properties`, async ()
         expect(event).toEqual(
             expect.objectContaining({
                 $group_0: 'posthog',
-                group0_properties: {
-                    prop: 'updated value',
-                },
             })
         )
     })
@@ -144,7 +160,6 @@ test.concurrent(`event ingestion: handles $groupidentify with no properties`, as
     expect(event).toEqual(
         expect.objectContaining({
             $group_0: 'posthog',
-            group0_properties: {},
         })
     )
 })

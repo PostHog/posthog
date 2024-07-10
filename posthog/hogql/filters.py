@@ -7,7 +7,7 @@ from posthog.hogql.errors import QueryError
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.visitor import CloningVisitor
 from posthog.models import Team
-from posthog.schema import HogQLFilters
+from posthog.schema import HogQLFilters, SessionPropertyFilter
 from posthog.utils import relative_date_parse
 
 
@@ -39,21 +39,39 @@ class ReplaceFilters(CloningVisitor):
             last_select = self.selects[-1]
             last_join = last_select.select_from
             found_events = False
+            found_sessions = False
             while last_join is not None:
                 if isinstance(last_join.table, ast.Field):
                     if last_join.table.chain == ["events"]:
                         found_events = True
+                    if last_join.table.chain == ["sessions"]:
+                        found_sessions = True
+                    if found_events and found_sessions:
                         break
                 last_join = last_join.next_join
 
-            if not found_events:
+            if not found_events and not found_sessions:
                 raise QueryError(
-                    "Cannot use 'filters' placeholder in a SELECT clause that does not select from the events table."
+                    "Cannot use 'filters' placeholder in a SELECT clause that does not select from the events or sessions table."
                 )
 
             exprs: list[ast.Expr] = []
             if self.filters.properties is not None:
-                exprs.append(property_to_expr(self.filters.properties, self.team))
+                if found_sessions:
+                    session_properties = [p for p in self.filters.properties if isinstance(p, SessionPropertyFilter)]
+                    non_session_properties = [
+                        p for p in self.filters.properties if not isinstance(p, SessionPropertyFilter)
+                    ]
+                    if non_session_properties and not found_events:
+                        raise QueryError(
+                            "Can only use session properties in a filter when selecting from only the sessions table."
+                        )
+                    exprs.append(property_to_expr(session_properties, self.team, scope="session"))
+                    exprs.append(property_to_expr(non_session_properties, self.team, scope="event"))
+                else:
+                    exprs.append(property_to_expr(self.filters.properties, self.team, scope="event"))
+
+            timestamp_field = ast.Field(chain=["timestamp"]) if found_events else ast.Field(chain=["$start_timestamp"])
 
             dateTo = self.filters.dateRange.date_to if self.filters.dateRange else None
             if dateTo is not None:
@@ -64,7 +82,7 @@ class ReplaceFilters(CloningVisitor):
                 exprs.append(
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.Lt,
-                        left=ast.Field(chain=["timestamp"]),
+                        left=timestamp_field,
                         right=ast.Constant(value=parsed_date),
                     )
                 )
@@ -79,7 +97,7 @@ class ReplaceFilters(CloningVisitor):
                 exprs.append(
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.GtEq,
-                        left=ast.Field(chain=["timestamp"]),
+                        left=timestamp_field,
                         right=ast.Constant(value=parsed_date),
                     )
                 )

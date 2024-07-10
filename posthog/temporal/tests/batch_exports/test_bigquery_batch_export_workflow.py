@@ -118,7 +118,15 @@ async def assert_clickhouse_records_in_bigquery(
         if batch_export_schema is not None:
             schema_column_names = [field["alias"] for field in batch_export_schema["fields"]]
         elif isinstance(batch_export_model, BatchExportModel) and batch_export_model.name == "persons":
-            schema_column_names = ["team_id", "distinct_id", "person_id", "properties", "version", "_inserted_at"]
+            schema_column_names = [
+                "team_id",
+                "distinct_id",
+                "person_id",
+                "properties",
+                "person_version",
+                "person_distinct_id_version",
+                "_inserted_at",
+            ]
 
     expected_records = []
     async for record_batch in iter_model_records(
@@ -272,7 +280,7 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
     * Are not duplicates of other events that are in the same batch.
     * Do not have an event name contained in the batch export's `exclude_events`.
     """
-    if isinstance(model, BatchExportModel) and model.name == "person" and exclude_events is not None:
+    if isinstance(model, BatchExportModel) and model.name == "persons" and exclude_events is not None:
         pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
 
     batch_export_schema: BatchExportSchema | None = None
@@ -381,7 +389,7 @@ async def test_insert_into_bigquery_activity_merges_data_in_follow_up_runs(
             properties={"utm_medium": "referral", "$initial_os": "Linux", "new_property": "Something"},
         )
 
-        person_distinct_id, _ = await generate_test_person_distinct_id2_in_clickhouse(
+        await generate_test_person_distinct_id2_in_clickhouse(
             clickhouse_client,
             ateam.pk,
             person_id=uuid.UUID(new_person[0]["id"]),
@@ -470,7 +478,7 @@ async def test_bigquery_export_workflow(
     The workflow should update the batch export run status to completed and produce the expected
     records to the configured BigQuery table.
     """
-    if isinstance(model, BatchExportModel) and model.name == "person" and exclude_events is not None:
+    if isinstance(model, BatchExportModel) and model.name == "persons" and exclude_events is not None:
         pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
 
     batch_export_schema: BatchExportSchema | None = None
@@ -562,7 +570,7 @@ async def test_bigquery_export_workflow_without_events(
 
     The workflow should update the batch export run status to completed and set 0 as `records_completed`.
     """
-    if isinstance(model, BatchExportModel) and model.name == "person" and exclude_events is not None:
+    if isinstance(model, BatchExportModel) and model.name == "persons" and exclude_events is not None:
         pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
 
     batch_export_schema: BatchExportSchema | None = None
