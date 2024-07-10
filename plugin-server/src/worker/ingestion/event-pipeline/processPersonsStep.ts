@@ -11,10 +11,7 @@ export async function processPersonsStep(
     timestamp: DateTime,
     processPerson: boolean
 ): Promise<[PluginEvent, Person, Promise<void>]> {
-    let overridesWriter: DeferredPersonOverrideWriter | undefined = undefined
-    if (runner.poEEmbraceJoin) {
-        overridesWriter = new DeferredPersonOverrideWriter(runner.hub.db.postgres)
-    }
+    const overridesWriter: DeferredPersonOverrideWriter | undefined = undefined
 
     const [person, kafkaAck] = await new PersonState(
         event,
