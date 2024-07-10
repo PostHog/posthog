@@ -278,8 +278,8 @@ export function Surveys(): JSX.Element {
                                                                         content: (
                                                                             <div className="text-sm text-muted">
                                                                                 The survey will immediately start
-                                                                                displaying to users matching the
-                                                                                display conditions.
+                                                                                displaying to users matching the display
+                                                                                conditions.
                                                                             </div>
                                                                         ),
                                                                         primaryButton: {
