@@ -850,6 +850,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                         "start_time": "2020-01-10T12:14:00Z",
                         "task_id": mock.ANY,
                         "team_id": mock.ANY,
+                        "insight_id": mock.ANY,
+                        "dashboard_id": mock.ANY,
                         "query_progress": None,
                         "labels": None,
                     }

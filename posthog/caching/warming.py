@@ -1,5 +1,6 @@
 from datetime import timedelta, UTC, datetime
 from collections.abc import Generator
+from typing import Optional
 
 import structlog
 from celery import shared_task
@@ -19,17 +20,17 @@ from posthog.models import Team, Insight, DashboardTile
 logger = structlog.get_logger(__name__)
 
 STALE_INSIGHTS_COUNTER = Counter(
-    "posthog_cache_warming_stale_insights", "Number of stale insights to warm", ["team_id"]
+    "posthog_cache_warming_stale_insights", "Number of stale insights present", ["team_id"]
 )
 PRIORITY_INSIGHTS_COUNTER = Counter(
-    "posthog_cache_warming_priority_insights", "Number of priority insights to warm", ["team_id", "dashboard"]
+    "posthog_cache_warming_priority_insights", "Number of priority insights warmed", ["team_id", "dashboard"]
 )
 
 LAST_VIEWED_THRESHOLD = timedelta(days=7)
 
 
-def priority_insights(team: Team) -> Generator[str, None, None]:
-    combos = QueryCacheManager.get_stale_insights(team_id=team.pk, limit=50)
+def priority_insights(team: Team) -> Generator[tuple[str, Optional[str]], None, None]:
+    combos = QueryCacheManager.get_stale_insights(team_id=team.pk, limit=500)
 
     STALE_INSIGHTS_COUNTER.labels(team_id=team.pk).inc(len(combos))
 
@@ -51,8 +52,8 @@ def priority_insights(team: Team) -> Generator[str, None, None]:
             .distinct()
             .values_list("id", flat=True)
         )
-        for insight in single_insights:
-            yield insight, None
+        for insight_id in single_insights:
+            yield insight_id, None
 
     if not dashboard_q_filter:
         return
@@ -64,7 +65,7 @@ def priority_insights(team: Team) -> Generator[str, None, None]:
         .values_list("insight_id", "dashboard_id")
     )
     for insight_id, dashboard_id in dashboard_tiles:
-        yield insight_id, dashboard_id
+        yield insight_id, int(dashboard_id)
 
 
 @shared_task(ignore_result=True, expires=60 * 60)
