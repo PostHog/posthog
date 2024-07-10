@@ -42,6 +42,14 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
         url: urls.insights(),
         scene: Scene.SavedInsights,
     },
+    [ProductKey.DATA_WAREHOUSE]: {
+        name: 'Data Warehouse',
+        icon: 'IconDatabase',
+        iconColor: 'salmon',
+        breadcrumbsName: 'Data Warehouse',
+        url: urls.dataWarehouse(),
+        scene: Scene.DataWarehouse,
+    },
     [ProductKey.SESSION_REPLAY]: {
         name: 'Session Replay',
         icon: 'IconRewindPlay',
@@ -63,14 +71,6 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
         iconColor: 'salmon',
         url: urls.surveys(),
         scene: Scene.Surveys,
-    },
-    [ProductKey.DATA_WAREHOUSE]: {
-        name: 'Data Warehouse',
-        icon: 'IconDatabase',
-        iconColor: 'salmon',
-        breadcrumbsName: 'Data Warehouse',
-        url: urls.dataWarehouse(),
-        scene: Scene.DataWarehouse,
     },
 }
 
