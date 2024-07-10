@@ -7,11 +7,7 @@ import { createHub } from '../../../src/utils/db/hub'
 import { PostgresUse } from '../../../src/utils/db/postgres'
 import { defaultRetryConfig } from '../../../src/utils/retries'
 import { UUIDT } from '../../../src/utils/utils'
-import {
-    DeferredPersonOverrideWriter,
-    FlatPersonOverrideWriter,
-    PersonState,
-} from '../../../src/worker/ingestion/person-state'
+import { FlatPersonOverrideWriter, PersonState } from '../../../src/worker/ingestion/person-state'
 import { uuidFromDistinctId } from '../../../src/worker/ingestion/person-uuid'
 import { delayUntilEventIngested } from '../../helpers/clickhouse'
 import { createOrganization, createTeam, fetchPostgresPersons, insertRow } from '../../helpers/sql'
@@ -24,7 +20,6 @@ const timestampch = '2020-01-01 12:00:05.000'
 
 interface PersonOverridesMode {
     supportsSyncTransaction: boolean
-    getWriter(hub: Hub): DeferredPersonOverrideWriter
     fetchPostgresPersonIdOverrides(
         hub: Hub,
         teamId: number
@@ -104,8 +99,7 @@ describe('PersonState.update()', () => {
             event.distinct_id!,
             timestampParam,
             processPerson,
-            customHub ? customHub.db : hub.db,
-            overridesMode?.getWriter(customHub ?? hub)
+            customHub ? customHub.db : hub.db
         )
     }
 

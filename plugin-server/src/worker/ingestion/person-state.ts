@@ -895,38 +895,6 @@ export class FlatPersonOverrideWriter {
     }
 }
 
-const deferredPersonOverridesWrittenCounter = new Counter({
-    name: 'deferred_person_overrides_written',
-    help: 'Number of person overrides that have been written as pending',
-})
-export class DeferredPersonOverrideWriter {
-    constructor(private postgres: PostgresRouter) {}
-
-    /**
-     * Enqueue an override for deferred processing.
-     */
-    public async addPersonOverride(tx: TransactionClient, overrideDetails: PersonOverrideDetails): Promise<void> {
-        await this.postgres.query(
-            tx,
-            SQL`
-            INSERT INTO posthog_pendingpersonoverride (
-                team_id,
-                old_person_id,
-                override_person_id,
-                oldest_event
-            ) VALUES (
-                ${overrideDetails.team_id},
-                ${overrideDetails.old_person_id},
-                ${overrideDetails.override_person_id},
-                ${overrideDetails.oldest_event}
-            )`,
-            undefined,
-            'pendingPersonOverride'
-        )
-        deferredPersonOverridesWrittenCounter.inc()
-    }
-}
-
 function SQL(sqlParts: TemplateStringsArray, ...args: any[]): { text: string; values: any[] } {
     // Generates a node-pq compatible query object given a tagged
     // template literal. The intention is to remove the need to match up
