@@ -83,7 +83,7 @@ def hubspot(
         yield dlt.resource(
             crm_objects,
             name=endpoint,
-            write_disposition="append",
+            write_disposition="replace",
         )(
             object_type=OBJECT_TYPE_SINGULAR[endpoint],
             api_key=api_key,
