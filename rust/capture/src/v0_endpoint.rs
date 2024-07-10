@@ -182,9 +182,13 @@ pub fn process_single_event(
         return Err(CaptureError::MissingEventName);
     }
 
-    let data_type = match context.historical_migration {
-        true => DataType::AnalyticsHistorical,
-        false => DataType::AnalyticsMain,
+    let data_type = match event.event.as_str() {
+        "$exception" => DataType::ExceptionMain,
+        "$$heatmap" => DataType::HeatmapMain,
+        _ => match context.historical_migration {
+            true => DataType::AnalyticsHistorical,
+            false => DataType::AnalyticsMain,
+        },
     };
 
     let data = serde_json::to_string(&event).map_err(|e| {
