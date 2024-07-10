@@ -537,7 +537,7 @@ class FeatureFlagViewSet(
     )
     def local_evaluation(self, request: request.Request, **kwargs):
         feature_flags: QuerySet[FeatureFlag] = FeatureFlag.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION).filter(
-            team_id=self.team_id, deleted=False, active=True
+            team__project_id=self.project_id, deleted=False, active=True
         )
 
         should_send_cohorts = "send_cohorts" in request.GET
