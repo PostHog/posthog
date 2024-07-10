@@ -72,7 +72,7 @@ def fetch_log_entries(
         clickhouse_kwargs["search"] = f"%{search}%"
     if len(level) > 0:
         clickhouse_where_parts.append("upper(level) in %(levels)s")
-        clickhouse_kwargs["levels"] = [l.upper() for l in level]
+        clickhouse_kwargs["levels"] = [lev.upper() for lev in level]
 
     clickhouse_query = f"""
         SELECT log_source_id, instance_id, timestamp, upper(level) as level, message FROM log_entries

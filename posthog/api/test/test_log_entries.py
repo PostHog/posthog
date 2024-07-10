@@ -103,13 +103,13 @@ class TestLogEntries(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         """Test the simple case of fetching a log entry."""
         self.create_log_for_function(level="info", instance_id="instance-id-1")
         self.create_log_for_function(level="error", instance_id="instance-id-2")
-        self.create_log_for_function(level="info", instance_id="instance-id-1")
-        self.create_log_for_function(level="warn", instance_id="instance-id-2")
+        self.create_log_for_function(level="error", instance_id="instance-id-1")
+        self.create_log_for_function(level="error", instance_id="instance-id-2")
 
         results = self.get_log_entries({"instance_id": "instance-id-1"}).json()["results"]
 
         assert len(results) == 2
         assert results[0]["instance_id"] == "instance-id-1"
         assert results[1]["instance_id"] == "instance-id-1"
-        assert results[0]["level"] == "WARN"
+        assert results[0]["level"] == "ERROR"
         assert results[1]["level"] == "INFO"
