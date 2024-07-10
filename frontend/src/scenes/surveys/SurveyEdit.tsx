@@ -8,6 +8,7 @@ import {
     LemonButton,
     LemonCheckbox,
     LemonCollapse,
+    LemonDialog,
     LemonDivider,
     LemonInput,
     LemonSelect,
@@ -51,6 +52,8 @@ export default function SurveyEdit(): JSX.Element {
         targetingFlagFilters,
         showSurveyRepeatSchedule,
         schedule,
+        hasBranchingLogic,
+        surveyRepeatedActivationAvailable,
     } = useValues(surveyLogic)
     const {
         setSurveyValue,
@@ -59,12 +62,13 @@ export default function SurveyEdit(): JSX.Element {
         setSelectedSection,
         setFlagPropertyErrors,
         setSchedule,
+        deleteBranchingLogic,
     } = useActions(surveyLogic)
     const { surveysMultipleQuestionsAvailable, surveysRecurringScheduleAvailable, surveysEventsAvailable } =
         useValues(surveysLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const sortedItemIds = survey.questions.map((_, idx) => idx.toString())
-    const { thankYouMessageDescriptionContentType } = survey.appearance
+    const { thankYouMessageDescriptionContentType = null } = survey.appearance ?? {}
     const surveysRecurringScheduleDisabledReason = surveysRecurringScheduleAvailable
         ? undefined
         : 'Subscribe to surveys for repeating surveys over a duration of time'
@@ -171,10 +175,37 @@ export default function SurveyEdit(): JSX.Element {
                                     <DndContext
                                         onDragEnd={({ active, over }) => {
                                             if (over && active.id !== over.id) {
-                                                onSortEnd({
-                                                    oldIndex: sortedItemIds.indexOf(active.id.toString()),
-                                                    newIndex: sortedItemIds.indexOf(over.id.toString()),
-                                                })
+                                                const finishDrag = (): void =>
+                                                    onSortEnd({
+                                                        oldIndex: sortedItemIds.indexOf(active.id.toString()),
+                                                        newIndex: sortedItemIds.indexOf(over.id.toString()),
+                                                    })
+
+                                                if (hasBranchingLogic) {
+                                                    LemonDialog.open({
+                                                        title: 'Your survey has active branching logic',
+                                                        description: (
+                                                            <p className="py-2">
+                                                                Rearranging questions will remove your branching logic.
+                                                                Are you sure you want to continue?
+                                                            </p>
+                                                        ),
+
+                                                        primaryButton: {
+                                                            children: 'Continue',
+                                                            status: 'danger',
+                                                            onClick: () => {
+                                                                deleteBranchingLogic()
+                                                                finishDrag()
+                                                            },
+                                                        },
+                                                        secondaryButton: {
+                                                            children: 'Cancel',
+                                                        },
+                                                    })
+                                                } else {
+                                                    finishDrag()
+                                                }
                                             }
                                         }}
                                     >
@@ -226,14 +257,48 @@ export default function SurveyEdit(): JSX.Element {
                                                                               icon={<IconTrash />}
                                                                               data-attr="delete-survey-confirmation"
                                                                               onClick={(e) => {
-                                                                                  e.stopPropagation()
-                                                                                  setSelectedPageIndex(
-                                                                                      survey.questions.length - 1
-                                                                                  )
-                                                                                  setSurveyValue('appearance', {
-                                                                                      ...survey.appearance,
-                                                                                      displayThankYouMessage: false,
-                                                                                  })
+                                                                                  const deleteConfirmationMessage =
+                                                                                      (): void => {
+                                                                                          e.stopPropagation()
+                                                                                          setSelectedPageIndex(
+                                                                                              survey.questions.length -
+                                                                                                  1
+                                                                                          )
+                                                                                          setSurveyValue('appearance', {
+                                                                                              ...survey.appearance,
+                                                                                              displayThankYouMessage:
+                                                                                                  false,
+                                                                                          })
+                                                                                      }
+
+                                                                                  if (hasBranchingLogic) {
+                                                                                      LemonDialog.open({
+                                                                                          title: 'Your survey has active branching logic',
+                                                                                          description: (
+                                                                                              <p className="py-2">
+                                                                                                  Deleting the
+                                                                                                  confirmation message
+                                                                                                  will remove your
+                                                                                                  branching logic. Are
+                                                                                                  you sure you want to
+                                                                                                  continue?
+                                                                                              </p>
+                                                                                          ),
+                                                                                          primaryButton: {
+                                                                                              children: 'Continue',
+                                                                                              status: 'danger',
+                                                                                              onClick: () => {
+                                                                                                  deleteBranchingLogic()
+                                                                                                  deleteConfirmationMessage()
+                                                                                              },
+                                                                                          },
+                                                                                          secondaryButton: {
+                                                                                              children: 'Cancel',
+                                                                                          },
+                                                                                      })
+                                                                                  } else {
+                                                                                      deleteConfirmationMessage()
+                                                                                  }
                                                                               }}
                                                                               tooltipPlacement="top-end"
                                                                           />
@@ -291,6 +356,25 @@ export default function SurveyEdit(): JSX.Element {
                                                                                       'text'
                                                                                   }
                                                                                   textPlaceholder="ex: We really appreciate it."
+                                                                              />
+                                                                          </LemonField.Pure>
+                                                                          <LemonField.Pure
+                                                                              className="mt-2"
+                                                                              label="Button text"
+                                                                          >
+                                                                              <LemonInput
+                                                                                  value={
+                                                                                      survey.appearance
+                                                                                          .thankYouMessageCloseButtonText
+                                                                                  }
+                                                                                  onChange={(val) =>
+                                                                                      setSurveyValue('appearance', {
+                                                                                          ...survey.appearance,
+                                                                                          thankYouMessageCloseButtonText:
+                                                                                              val,
+                                                                                      })
+                                                                                  }
+                                                                                  placeholder="example: Close"
                                                                               />
                                                                           </LemonField.Pure>
                                                                           <LemonField.Pure className="mt-2">
@@ -407,8 +491,8 @@ export default function SurveyEdit(): JSX.Element {
                               ]
                             : []),
                         {
-                            key: SurveyEditSection.Targeting,
-                            header: 'Targeting',
+                            key: SurveyEditSection.DisplayConditions,
+                            header: 'Display conditions',
                             content: (
                                 <LemonField.Pure>
                                     <LemonSelect
@@ -625,35 +709,70 @@ export default function SurveyEdit(): JSX.Element {
                                                     label="User sends events"
                                                     info="Note that these events are only observed, and activate this survey, in the current user session."
                                                 >
-                                                    <EventSelect
-                                                        filterGroupTypes={[TaxonomicFilterGroupType.CustomEvents]}
-                                                        onChange={(includedEvents) => {
-                                                            setSurveyValue('conditions', {
-                                                                ...survey.conditions,
-                                                                events: {
-                                                                    values: includedEvents.map((e) => {
-                                                                        return { name: e }
-                                                                    }),
-                                                                },
-                                                            })
-                                                        }}
-                                                        selectedEvents={
-                                                            survey.conditions?.events?.values &&
-                                                            survey.conditions?.events?.values.length > 0
-                                                                ? survey.conditions?.events?.values.map((v) => v.name)
-                                                                : []
-                                                        }
-                                                        addElement={
-                                                            <LemonButton
-                                                                size="small"
-                                                                type="secondary"
-                                                                icon={<IconPlus />}
-                                                                sideIcon={null}
-                                                            >
-                                                                Add event
-                                                            </LemonButton>
-                                                        }
-                                                    />
+                                                    <>
+                                                        <EventSelect
+                                                            filterGroupTypes={[TaxonomicFilterGroupType.CustomEvents]}
+                                                            onChange={(includedEvents) => {
+                                                                setSurveyValue('conditions', {
+                                                                    ...survey.conditions,
+                                                                    events: {
+                                                                        values: includedEvents.map((e) => {
+                                                                            return { name: e }
+                                                                        }),
+                                                                    },
+                                                                })
+                                                            }}
+                                                            selectedEvents={
+                                                                survey.conditions?.events?.values?.length !=
+                                                                    undefined &&
+                                                                survey.conditions?.events?.values?.length > 0
+                                                                    ? survey.conditions?.events?.values.map(
+                                                                          (v) => v.name
+                                                                      )
+                                                                    : []
+                                                            }
+                                                            addElement={
+                                                                <LemonButton
+                                                                    size="small"
+                                                                    type="secondary"
+                                                                    icon={<IconPlus />}
+                                                                    sideIcon={null}
+                                                                >
+                                                                    Add event
+                                                                </LemonButton>
+                                                            }
+                                                        />
+                                                        {surveyRepeatedActivationAvailable && (
+                                                            <div className="flex flex-row gap-2 items-center">
+                                                                Survey display frequency
+                                                                <LemonSelect
+                                                                    onChange={(value) => {
+                                                                        setSurveyValue('conditions', {
+                                                                            ...survey.conditions,
+                                                                            events: {
+                                                                                ...survey.conditions?.events,
+                                                                                repeatedActivation: value,
+                                                                            },
+                                                                        })
+                                                                    }}
+                                                                    value={
+                                                                        survey.conditions?.events?.repeatedActivation ||
+                                                                        false
+                                                                    }
+                                                                    options={[
+                                                                        {
+                                                                            label: 'Just once',
+                                                                            value: false,
+                                                                        },
+                                                                        {
+                                                                            label: 'Every time any of the above events are captured',
+                                                                            value: true,
+                                                                        },
+                                                                    ]}
+                                                                />
+                                                            </div>
+                                                        )}
+                                                    </>
                                                 </LemonField.Pure>
                                             )}
                                         </>

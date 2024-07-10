@@ -5,7 +5,7 @@ import posthoganalytics
 import structlog
 from django.db import transaction
 from django.utils.timezone import now
-from rest_framework import request, response, serializers, viewsets, filters
+from rest_framework import filters, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import (
     NotAuthenticated,
@@ -76,11 +76,11 @@ def validate_date_input(date_input: Any, team: Team | None = None) -> dt.datetim
 
     if parsed.tzinfo is None:
         if team:
-            parsed = parsed.replace(tzinfo=team.timezone_info).astimezone(dt.timezone.utc)
+            parsed = parsed.replace(tzinfo=team.timezone_info).astimezone(dt.UTC)
         else:
-            parsed = parsed.replace(tzinfo=dt.timezone.utc)
+            parsed = parsed.replace(tzinfo=dt.UTC)
     else:
-        parsed = parsed.astimezone(dt.timezone.utc)
+        parsed = parsed.astimezone(dt.UTC)
 
     return parsed
 
@@ -354,6 +354,8 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "batch_export"
     queryset = BatchExport.objects.exclude(deleted=True).order_by("-created_at").prefetch_related("destination").all()
     serializer_class = BatchExportSerializer
+    scope_object_read_actions: list[str] = ["retrieve", "list"]
+    scope_object_write_actions: list[str] = ["destroy", "create", "backfill", "pause", "unpause"]
 
     @action(methods=["POST"], detail=True)
     def backfill(self, request: request.Request, *args, **kwargs) -> response.Response:

@@ -1,4 +1,5 @@
 import dataclasses
+from datetime import timedelta
 from typing import Any, Optional, cast, TYPE_CHECKING
 from collections.abc import Callable
 
@@ -6,7 +7,7 @@ from hogvm.python.execute import execute_bytecode, BytecodeResult
 from hogvm.python.stl import STL
 from posthog.hogql import ast
 from posthog.hogql.base import AST
-from posthog.hogql.errors import NotImplementedError
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_program
 from posthog.hogql.visitor import Visitor
 from hogvm.python.operation import (
@@ -109,7 +110,7 @@ class BytecodeBuilder(Visitor):
             if local.depth < self.scope_depth:
                 break
             if local.name == name:
-                raise NotImplementedError(f"Variable `{name}` already declared in this scope")
+                raise QueryError(f"Variable `{name}` already declared in this scope")
 
         self.locals.append(Local(name, self.scope_depth))
 
@@ -135,7 +136,7 @@ class BytecodeBuilder(Visitor):
     def visit_compare_operation(self, node: ast.CompareOperation):
         operation = COMPARE_OPERATIONS[node.op]
         if operation in [Operation.IN_COHORT, Operation.NOT_IN_COHORT]:
-            raise NotImplementedError("Cohort operations are not supported")
+            raise QueryError("Cohort operations are not supported")
         return [*self.visit(node.right), *self.visit(node.left), operation]
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
@@ -164,10 +165,19 @@ class BytecodeBuilder(Visitor):
         return [*chain, Operation.GET_GLOBAL, len(node.chain)]
 
     def visit_tuple_access(self, node: ast.TupleAccess):
-        return [*self.visit(node.tuple), Operation.INTEGER, node.index, Operation.GET_PROPERTY]
+        return [
+            *self.visit(node.tuple),
+            Operation.INTEGER,
+            node.index,
+            Operation.GET_PROPERTY_NULLISH if node.nullish else Operation.GET_PROPERTY,
+        ]
 
     def visit_array_access(self, node: ast.ArrayAccess):
-        return [*self.visit(node.array), *self.visit(node.property), Operation.GET_PROPERTY]
+        return [
+            *self.visit(node.array),
+            *self.visit(node.property),
+            Operation.GET_PROPERTY_NULLISH if node.nullish else Operation.GET_PROPERTY,
+        ]
 
     def visit_constant(self, node: ast.Constant):
         if node.value is True:
@@ -183,7 +193,7 @@ class BytecodeBuilder(Visitor):
         elif isinstance(node.value, str):
             return [Operation.STRING, node.value]
         else:
-            raise NotImplementedError(f"Constant type `{type(node.value)}` is not supported")
+            raise QueryError(f"Constant type `{type(node.value)}` is not supported")
 
     def visit_call(self, node: ast.Call):
         if node.name == "not" and len(node.args) == 1:
@@ -198,10 +208,48 @@ class BytecodeBuilder(Visitor):
             for arg in reversed(node.args):
                 args.extend(self.visit(arg))
             return [*args, Operation.OR, len(node.args)]
+        if node.name == "if" and len(node.args) >= 2:
+            expr = self.visit(node.args[0])
+            then = self.visit(node.args[1])
+            else_ = self.visit(node.args[2]) if len(node.args) == 3 else None
+            response = []
+            response.extend(expr)
+            response.extend([Operation.JUMP_IF_FALSE, len(then) + (2 if else_ else 0)])
+            response.extend(then)
+            if else_:
+                response.extend([Operation.JUMP, len(else_)])
+                response.extend(else_)
+            return response
+        if node.name == "multiIf" and len(node.args) >= 2:
+            if len(node.args) <= 3:
+                return self.visit(ast.Call(name="if", args=node.args))
+            prev = None if len(node.args) % 2 == 0 else self.visit(node.args[-1])
+            for i in range(len(node.args) - 2 - (len(node.args) % 2), -1, -2):
+                expr = self.visit(node.args[i])
+                then = self.visit(node.args[i + 1])
+                response = []
+                response.extend(expr)
+                response.extend([Operation.JUMP_IF_FALSE, len(then) + (2 if prev else 0)])
+                response.extend(then)
+                if prev:
+                    response.extend([Operation.JUMP, len(prev)])
+                    response.extend(prev)
+                prev = response
+            return prev
+        if node.name == "ifNull" and len(node.args) == 2:
+            expr = self.visit(node.args[0])
+            if_null = self.visit(node.args[1])
+            response = []
+            response.extend(expr)
+            response.extend([Operation.JUMP_IF_STACK_NOT_NULL, len(if_null) + 1])
+            response.extend([Operation.POP])
+            response.extend(if_null)
+            return response
+
         if node.name not in STL and node.name not in self.functions and node.name not in self.supported_functions:
-            raise NotImplementedError(f"HogQL function `{node.name}` is not implemented")
+            raise QueryError(f"HogQL function `{node.name}` is not implemented")
         if node.name in self.functions and len(node.args) != len(self.functions[node.name].params):
-            raise NotImplementedError(
+            raise QueryError(
                 f"Function `{node.name}` expects {len(self.functions[node.name].params)} arguments, got {len(node.args)}"
             )
         response = []
@@ -335,13 +383,13 @@ class BytecodeBuilder(Visitor):
 
                     return ops
 
-            raise NotImplementedError(f'Variable "{name}" not declared in this scope. Can not assign to globals.')
+            raise QueryError(f'Variable "{name}" not declared in this scope. Can not assign to globals.')
 
-        raise NotImplementedError(f"Can not assign to this type of expression")
+        raise QueryError(f"Can not assign to this type of expression")
 
     def visit_function(self, node: ast.Function):
         if node.name in self.functions:
-            raise NotImplementedError(f"Function `{node.name}` already declared")
+            raise QueryError(f"Function `{node.name}` already declared")
         all_known_functions = self.supported_functions.union(set(self.functions.keys()))
         all_known_functions.add(node.name)
 
@@ -388,7 +436,7 @@ def execute_hog(
     team: Optional["Team"] = None,
     globals: Optional[dict[str, Any]] = None,
     functions: Optional[dict[str, Callable[..., Any]]] = None,
-    timeout=10,
+    timeout=timedelta(seconds=10),
 ) -> BytecodeResult:
     source_code = source_code.strip()
     if source_code.count("\n") == 0:

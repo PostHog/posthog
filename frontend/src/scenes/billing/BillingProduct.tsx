@@ -1,4 +1,4 @@
-import { IconCheckCircle, IconChevronDown, IconDocument, IconPlus } from '@posthog/icons'
+import { IconCheckCircle, IconChevronDown, IconDocument, IconInfo, IconPlus } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -15,7 +15,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useRef } from 'react'
 import { getProductIcon } from 'scenes/products/Products'
 
-import { BillingProductV2AddonType, BillingProductV2Type, BillingV2TierType } from '~/types'
+import { BillingProductV2AddonType, BillingProductV2Type, BillingTierType, ProductKey } from '~/types'
 
 import { convertLargeNumberToWords, getUpgradeProductLink, summarizeUsage } from './billing-utils'
 import { BillingGauge } from './BillingGauge'
@@ -29,7 +29,7 @@ import { ProductPricingModal } from './ProductPricingModal'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 
 export const getTierDescription = (
-    tiers: BillingV2TierType[],
+    tiers: BillingTierType[],
     i: number,
     product: BillingProductV2Type | BillingProductV2AddonType,
     interval: string
@@ -78,17 +78,25 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
 
     const upgradeToPlanKey = upgradePlan?.plan_key
     const currentPlanKey = currentPlan?.plan_key
+
+    // Note(@zach): The upgrade card will be removed when Subscribe to all products is fully rolled out
     const showUpgradeCard =
-        (upgradePlan?.product_key !== 'platform_and_support' || product?.addons?.length === 0) && upgradePlan
+        (upgradePlan?.product_key !== 'platform_and_support' || product?.addons?.length === 0) &&
+        upgradePlan &&
+        billing?.subscription_level === 'custom'
 
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
         700: 'medium',
     })
 
+    // Used when a product is offered for free to beta users, so we want to show usage but
+    // there is no pricing (aka tiers) and no free_allotment
+    const isTemporaryFreeProduct = !product.tiered && !product.free_allocation && !product.inclusion_only
+
     return (
         <div
-            className={clsx('flex flex-wrap max-w-300 pb-12', {
+            className={clsx('flex flex-wrap max-w-300 pb-8', {
                 'flex-col pb-4': size === 'small',
             })}
             ref={ref}
@@ -132,24 +140,25 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                 >
                                                     Learn how to reduce your bill
                                                 </LemonButton>
-                                                {product.plans?.length > 0 ? (
-                                                    <LemonButton
-                                                        fullWidth
-                                                        onClick={() => {
-                                                            setSurveyResponse(product.type, '$survey_response_1')
-                                                            reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, product.type)
-                                                        }}
-                                                    >
-                                                        Unsubscribe
-                                                    </LemonButton>
-                                                ) : (
-                                                    <LemonButton
-                                                        fullWidth
-                                                        to="mailto:sales@posthog.com?subject=Custom%20plan%20unsubscribe%20request"
-                                                    >
-                                                        Contact support to unsubscribe
-                                                    </LemonButton>
-                                                )}
+                                                {billing?.subscription_level === 'custom' &&
+                                                    (product.plans?.length > 0 ? (
+                                                        <LemonButton
+                                                            fullWidth
+                                                            onClick={() => {
+                                                                setSurveyResponse(product.type, '$survey_response_1')
+                                                                reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, product.type)
+                                                            }}
+                                                        >
+                                                            Unsubscribe
+                                                        </LemonButton>
+                                                    ) : (
+                                                        <LemonButton
+                                                            fullWidth
+                                                            to="mailto:sales@posthog.com?subject=Custom%20plan%20unsubscribe%20request"
+                                                        >
+                                                            Contact support to unsubscribe
+                                                        </LemonButton>
+                                                    ))}
                                             </>
                                         }
                                     />
@@ -159,14 +168,14 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         </div>
                     </div>
                 </div>
-                <div className="px-8">
+                <div className="px-8 pb-8 sm:pb-0">
                     {product.percentage_usage > 1 && (
                         <LemonBanner className="mt-6" type="error">
                             You have exceeded the {customLimitUsd ? 'billing limit' : 'free tier limit'} for this
                             product.
                         </LemonBanner>
                     )}
-                    <div className="flex w-full items-center gap-x-8">
+                    <div className="sm:flex w-full items-center gap-x-8">
                         {product.contact_support && (!product.subscribed || isUnlicensedDebug) ? (
                             <div className="py-8">
                                 {!billing?.has_active_subscription && (
@@ -190,19 +199,28 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                 <>
                                     {product.tiered ? (
                                         <>
-                                            {product.subscribed && (
-                                                <LemonButton
-                                                    icon={
-                                                        showTierBreakdown ? <IconChevronDown /> : <IconChevronRight />
-                                                    }
-                                                    onClick={() => setShowTierBreakdown(!showTierBreakdown)}
-                                                />
-                                            )}
-                                            <div className="grow">
-                                                <BillingGauge items={billingGaugeItems} product={product} />
+                                            <div className="flex w-full items-center gap-x-8">
+                                                {product.subscribed && (
+                                                    <LemonButton
+                                                        icon={
+                                                            showTierBreakdown ? (
+                                                                <IconChevronDown />
+                                                            ) : (
+                                                                <IconChevronRight />
+                                                            )
+                                                        }
+                                                        onClick={() => setShowTierBreakdown(!showTierBreakdown)}
+                                                    />
+                                                )}
+                                                <div className="grow">
+                                                    <BillingGauge items={billingGaugeItems} product={product} />
+                                                    {!product.subscribed && (
+                                                        <FeatureFlagUsageNotice product={product} />
+                                                    )}
+                                                </div>
                                             </div>
                                             {product.subscribed ? (
-                                                <div className="flex justify-end gap-8 flex-wrap items-end">
+                                                <div className="flex justify-end gap-8 flex-wrap items-end shrink-0">
                                                     <Tooltip
                                                         title={`The current ${
                                                             billing?.discount_percent ? 'discounted ' : ''
@@ -214,7 +232,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                             <div className="font-bold text-3xl leading-7">
                                                                 $
                                                                 {(
-                                                                    parseFloat(product.current_amount_usd || '') *
+                                                                    parseFloat(product.current_amount_usd || '0') *
                                                                     (1 -
                                                                         (billing?.discount_percent
                                                                             ? billing.discount_percent / 100
@@ -241,7 +259,9 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                                 <div className="font-bold text-muted text-lg leading-5">
                                                                     $
                                                                     {(
-                                                                        parseFloat(product.projected_amount_usd || '') *
+                                                                        parseFloat(
+                                                                            product.projected_amount_usd || '0'
+                                                                        ) *
                                                                         (1 -
                                                                             (billing?.discount_percent
                                                                                 ? billing.discount_percent / 100
@@ -270,6 +290,24 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                 </div>
                                             </Tooltip>
                                         </div>
+                                    ) : isTemporaryFreeProduct ? (
+                                        <div className="grow">
+                                            <div className="grow">
+                                                <BillingGauge items={billingGaugeItems} product={product} />
+                                                <FeatureFlagUsageNotice product={product} />
+                                            </div>
+                                            {/* TODO: rms: remove this notice after August 8 2024 */}
+                                            {product.type == ProductKey.DATA_WAREHOUSE &&
+                                                currentPlan?.plan_key === 'free-20240530-beta-users-initial' &&
+                                                new Date() < new Date('2024-08-08') && (
+                                                    <LemonBanner type="info" className="mb-6">
+                                                        <p>
+                                                            Free usage for beta users until August 8, 2024. Then, get 30
+                                                            million rows free every month.
+                                                        </p>
+                                                    </LemonBanner>
+                                                )}
+                                        </div>
                                     ) : null}
                                 </>
                             )
@@ -284,7 +322,27 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     {showTierBreakdown && <BillingProductPricingTable product={product} />}
                     {product.addons?.length > 0 && (
                         <div className="pb-8">
-                            <h4 className="my-4">Addons</h4>
+                            <h4 className="my-4">Add-ons</h4>
+                            {billing?.subscription_level == 'free' && (
+                                <LemonBanner type="warning" className="text-sm mb-4" hideIcon>
+                                    <div className="flex justify-between items-center">
+                                        <div>
+                                            Add-ons are only available on paid plans. Upgrade to access these features.
+                                        </div>
+                                        <LemonButton
+                                            className="shrink-0"
+                                            to={`/api/billing/activate?products=all_products:&redirect_path=${redirectPath}&intent_product=${product.type}`}
+                                            type="primary"
+                                            status="alt"
+                                            disableClientSideRouting
+                                            loading={!!billingProductLoading}
+                                            onClick={() => setBillingProductLoading(product.type)}
+                                        >
+                                            Upgrade now
+                                        </LemonButton>
+                                    </div>
+                                </LemonBanner>
+                            )}
                             <div className="gap-y-4 flex flex-col">
                                 {product.addons
                                     // TODO: enhanced_persons: remove this filter
@@ -392,12 +450,11 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         !upgradePlan.unit_amount_usd && (
                                             <BillingUpgradeCTA
                                                 data-attr={`${product.type}-upgrade-cta`}
-                                                to={getUpgradeProductLink(
+                                                to={getUpgradeProductLink({
                                                     product,
-                                                    upgradeToPlanKey || '',
                                                     redirectPath,
-                                                    false // don't include addons, as we're not in onboarding
-                                                )}
+                                                    includeAddons: false,
+                                                })}
                                                 type="primary"
                                                 icon={<IconPlus />}
                                                 disableClientSideRouting
@@ -434,4 +491,17 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
             />
         </div>
     )
+}
+
+export const FeatureFlagUsageNotice = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
+    return product.type === 'feature_flags' ? (
+        <p className="mt-4 ml-0 text-sm text-muted italic">
+            <IconInfo className="mr-1" />
+            Questions? Here's{' '}
+            <Link to="https://posthog.com/docs/feature-flags/common-questions#billing--usage" className="italic">
+                how we calculate usage
+            </Link>{' '}
+            for feature flags.
+        </p>
+    ) : null
 }

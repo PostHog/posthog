@@ -38,7 +38,7 @@ export enum SurveyEditSection {
     Presentation = 'presentation',
     Appearance = 'appearance',
     Customization = 'customization',
-    Targeting = 'targeting',
+    DisplayConditions = 'DisplayConditions',
     Scheduling = 'scheduling',
     CompletionConditions = 'CompletionConditions',
 }
@@ -170,6 +170,7 @@ export const surveyLogic = kea<surveyLogicType>([
             specificQuestionIndex,
         }),
         resetBranchingForQuestion: (questionIndex) => ({ questionIndex }),
+        deleteBranchingLogic: true,
         archiveSurvey: true,
         setWritingHTMLDescription: (writingHTML: boolean) => ({ writingHTML }),
         setSurveyTemplateValues: (template: any) => ({ template }),
@@ -612,7 +613,7 @@ export const surveyLogic = kea<surveyLogicType>([
         submitSurveyFailure: async () => {
             // When errors occur, scroll to the error, but wait for errors to be set in the DOM first
             if (hasFormErrors(values.flagPropertyErrors) || values.urlMatchTypeValidationError) {
-                actions.setSelectedSection(SurveyEditSection.Targeting)
+                actions.setSelectedSection(SurveyEditSection.DisplayConditions)
             } else {
                 actions.setSelectedSection(SurveyEditSection.Steps)
             }
@@ -650,7 +651,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         ? state.questions[idx].description
                         : defaultSurveyFieldValues[type].questions[0].description
                     const thankYouMessageHeader = isEditingThankYouMessage
-                        ? state.appearance.thankYouMessageHeader
+                        ? state.appearance?.thankYouMessageHeader
                         : defaultSurveyFieldValues[type].appearance.thankYouMessageHeader
                     const newQuestions = [...state.questions]
                     newQuestions[idx] = {
@@ -679,9 +680,9 @@ export const surveyLogic = kea<surveyLogicType>([
 
                     if (type === SurveyQuestionBranchingType.NextQuestion) {
                         delete question.branching
-                    } else if (type === SurveyQuestionBranchingType.ConfirmationMessage) {
+                    } else if (type === SurveyQuestionBranchingType.End) {
                         question.branching = {
-                            type: SurveyQuestionBranchingType.ConfirmationMessage,
+                            type: SurveyQuestionBranchingType.End,
                         }
                     } else if (type === SurveyQuestionBranchingType.ResponseBased) {
                         if (
@@ -735,9 +736,8 @@ export const surveyLogic = kea<surveyLogicType>([
                     if ('responseValues' in question.branching) {
                         if (nextStep === SurveyQuestionBranchingType.NextQuestion) {
                             delete question.branching.responseValues[responseValue]
-                        } else if (nextStep === SurveyQuestionBranchingType.ConfirmationMessage) {
-                            question.branching.responseValues[responseValue] =
-                                SurveyQuestionBranchingType.ConfirmationMessage
+                        } else if (nextStep === SurveyQuestionBranchingType.End) {
+                            question.branching.responseValues[responseValue] = SurveyQuestionBranchingType.End
                         } else if (nextStep === SurveyQuestionBranchingType.SpecificQuestion) {
                             question.branching.responseValues[responseValue] = specificQuestionIndex
                         }
@@ -755,6 +755,17 @@ export const surveyLogic = kea<surveyLogicType>([
                     delete question.branching
 
                     newQuestions[questionIndex] = question
+                    return {
+                        ...state,
+                        questions: newQuestions,
+                    }
+                },
+                deleteBranchingLogic: (state) => {
+                    const newQuestions = [...state.questions]
+                    newQuestions.forEach((question) => {
+                        delete question.branching
+                    })
+
                     return {
                         ...state,
                         questions: newQuestions,
@@ -867,6 +878,11 @@ export const surveyLogic = kea<surveyLogicType>([
             (survey: Survey) => (questionIndex: number) => {
                 return survey.questions[questionIndex].descriptionContentType
             },
+        ],
+        surveyRepeatedActivationAvailable: [
+            (s) => [s.survey],
+            (survey: Survey): boolean =>
+                survey.conditions?.events?.values != undefined && survey.conditions?.events?.values?.length > 0,
         ],
         hasTargetingSet: [
             (s) => [s.survey],
@@ -1010,7 +1026,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     return SurveyQuestionBranchingType.NextQuestion
                 }
 
-                return SurveyQuestionBranchingType.ConfirmationMessage
+                return SurveyQuestionBranchingType.End
             },
         ],
         getResponseBasedBranchingDropdownValue: [
@@ -1036,7 +1052,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     return SurveyQuestionBranchingType.NextQuestion
                 }
 
-                return SurveyQuestionBranchingType.ConfirmationMessage
+                return SurveyQuestionBranchingType.End
             },
         ],
         hasCycle: [
@@ -1048,7 +1064,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         graph.set(fromIndex, new Set())
                     }
 
-                    if (question.branching?.type === SurveyQuestionBranchingType.ConfirmationMessage) {
+                    if (question.branching?.type === SurveyQuestionBranchingType.End) {
                         return
                     } else if (
                         question.branching?.type === SurveyQuestionBranchingType.SpecificQuestion &&
@@ -1094,6 +1110,11 @@ export const surveyLogic = kea<surveyLogicType>([
                 return cycleDetected
             },
         ],
+        hasBranchingLogic: [
+            (s) => [s.survey],
+            (survey) =>
+                survey.questions.some((question) => question.branching && Object.keys(question.branching).length > 0),
+        ],
     }),
     forms(({ actions, props, values }) => ({
         survey: {
@@ -1136,7 +1157,7 @@ export const surveyLogic = kea<surveyLogicType>([
         },
     })),
     urlToAction(({ actions, props }) => ({
-        [urls.survey(props.id ?? 'new')]: (_, __, ___, { method }) => {
+        [urls.survey(props.id ?? 'new')]: (_, { edit }, __, { method }) => {
             // We always set the editingSurvey to true when we create a new survey
             if (props.id === 'new') {
                 actions.editingSurvey(true)
@@ -1150,6 +1171,10 @@ export const surveyLogic = kea<surveyLogicType>([
                     actions.resetSurvey()
                 }
             }
+
+            if (edit) {
+                actions.editingSurvey(true)
+            }
         },
     })),
     actionToUrl(({ values }) => ({
@@ -1158,6 +1183,16 @@ export const surveyLogic = kea<surveyLogicType>([
             hashParams['fromTemplate'] = true
 
             return [urls.survey(values.survey.id), router.values.searchParams, hashParams]
+        },
+        editingSurvey: ({ editing }) => {
+            const searchParams = router.values.searchParams
+            if (editing) {
+                searchParams['edit'] = true
+            } else {
+                delete searchParams['edit']
+            }
+
+            return [router.values.location.pathname, router.values.searchParams, router.values.hashParams]
         },
     })),
     afterMount(({ props, actions }) => {

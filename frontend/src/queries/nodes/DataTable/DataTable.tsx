@@ -66,6 +66,8 @@ import {
 } from '~/queries/utils'
 import { EventType, InsightLogicProps } from '~/types'
 
+import { DataTableOpenEditor } from './DataTableOpenEditor'
+
 interface DataTableProps {
     uniqueKey?: string | number
     query: DataTableNode
@@ -411,7 +413,12 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
             <PersonsSearch key="persons-search" query={query.source as PersonsNode} setQuery={setQuerySource} />
         ) : null,
         showPropertyFilter && sourceFeatures.has(QueryFeature.eventPropertyFilters) ? (
-            <EventPropertyFilters key="event-property" query={query.source as EventsQuery} setQuery={setQuerySource} />
+            <EventPropertyFilters
+                key="event-property"
+                query={query.source as EventsQuery}
+                setQuery={setQuerySource}
+                taxonomicGroupTypes={Array.isArray(showPropertyFilter) ? showPropertyFilter : undefined}
+            />
         ) : null,
         showPropertyFilter && sourceFeatures.has(QueryFeature.personPropertyFilters) ? (
             <PersonPropertyFilters
@@ -444,6 +451,9 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
             <ColumnConfigurator key="column-configurator" query={query} setQuery={setQuery} />
         ) : null,
         showExport ? <DataTableExport key="data-table-export" query={query} setQuery={setQuery} /> : null,
+        showExport && showOpenEditorButton ? (
+            <DataTableOpenEditor key="data-table-export" query={query} setQuery={setQuery} />
+        ) : null,
     ].filter((x) => !!x)
 
     const showFirstRow = !isReadOnly && (firstRowLeft.length > 0 || firstRowRight.length > 0)

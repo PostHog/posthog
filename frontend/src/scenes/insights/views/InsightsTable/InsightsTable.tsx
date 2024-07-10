@@ -17,7 +17,7 @@ import { ChartDisplayType, ItemMode } from '~/types'
 import { entityFilterLogic } from '../../filters/ActionFilter/entityFilterLogic'
 import { countryCodeToName } from '../WorldMap'
 import { AggregationColumnItem, AggregationColumnTitle } from './columns/AggregationColumn'
-import { BreakdownColumnItem, BreakdownColumnTitle } from './columns/BreakdownColumn'
+import { BreakdownColumnItem, BreakdownColumnTitle, MultipleBreakdownColumnTitle } from './columns/BreakdownColumn'
 import { SeriesCheckColumnItem, SeriesCheckColumnTitle } from './columns/SeriesCheckColumn'
 import { SeriesColumnItem } from './columns/SeriesColumn'
 import { ValueColumnItem, ValueColumnTitle } from './columns/ValueColumn'
@@ -48,8 +48,7 @@ export function InsightsTable({
     isMainInsightView = false,
 }: InsightsTableProps): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
-    const { insightProps, isInDashboardContext, insight, hiddenLegendKeys } = useValues(insightLogic)
-    const { toggleVisibility } = useActions(insightLogic)
+    const { insightProps, isInDashboardContext, queryBasedInsight } = useValues(insightLogic)
     const {
         insightDataLoading,
         indexedResults,
@@ -61,7 +60,9 @@ export function InsightsTable({
         breakdownFilter,
         trendsFilter,
         isSingleSeries,
+        hiddenLegendIndexes,
     } = useValues(trendsDataLogic(insightProps))
+    const { toggleHiddenLegendIndex, updateHiddenLegendIndexes } = useActions(trendsDataLogic(insightProps))
     const { aggregation, allowAggregation } = useValues(insightsTableDataLogic(insightProps))
     const { setAggregationType } = useActions(insightsTableDataLogic(insightProps))
 
@@ -90,8 +91,8 @@ export function InsightsTable({
                     <SeriesCheckColumnTitle
                         indexedResults={indexedResults}
                         canCheckUncheckSeries={canCheckUncheckSeries}
-                        hiddenLegendKeys={hiddenLegendKeys}
-                        toggleVisibility={toggleVisibility}
+                        hiddenLegendIndexes={hiddenLegendIndexes}
+                        updateHiddenLegendIndexes={updateHiddenLegendIndexes}
                     />
                 )}
                 <span>Series</span>
@@ -112,8 +113,8 @@ export function InsightsTable({
                 <SeriesCheckColumnItem
                     item={item}
                     canCheckUncheckSeries={canCheckUncheckSeries}
-                    hiddenLegendKeys={hiddenLegendKeys}
-                    toggleVisibility={toggleVisibility}
+                    hiddenLegendIndexes={hiddenLegendIndexes}
+                    toggleHiddenLegendIndex={toggleHiddenLegendIndex}
                     label={<div className="ml-2 font-normal">{label}</div>}
                 />
             ) : (
@@ -139,7 +140,7 @@ export function InsightsTable({
                     item={item}
                     canCheckUncheckSeries={canCheckUncheckSeries}
                     isMainInsightView={isMainInsightView}
-                    toggleVisibility={toggleVisibility}
+                    toggleHiddenLegendIndex={toggleHiddenLegendIndex}
                     formatItemBreakdownLabel={formatItemBreakdownLabel}
                 />
             ),
@@ -153,6 +154,7 @@ export function InsightsTable({
                 return compareFn()(labelA, labelB)
             },
         })
+
         if (isTrends && display === ChartDisplayType.WorldMap) {
             columns.push({
                 title: <WorldMapColumnTitle />,
@@ -165,6 +167,46 @@ export function InsightsTable({
                 },
             })
         }
+    }
+
+    if (breakdownFilter?.breakdowns) {
+        breakdownFilter.breakdowns.forEach((breakdown, index) => {
+            const formatItemBreakdownLabel = (item: IndexedTrendResult): string =>
+                formatBreakdownLabel(
+                    Array.isArray(item.breakdown_value) ? item.breakdown_value[index] : item.breakdown_value,
+                    breakdownFilter,
+                    cohorts,
+                    formatPropertyValueForDisplay,
+                    index
+                )
+
+            columns.push({
+                title: <MultipleBreakdownColumnTitle>{breakdown.value?.toString()}</MultipleBreakdownColumnTitle>,
+                render: (_, item) => (
+                    <BreakdownColumnItem
+                        item={item}
+                        canCheckUncheckSeries={canCheckUncheckSeries}
+                        isMainInsightView={isMainInsightView}
+                        toggleHiddenLegendIndex={toggleHiddenLegendIndex}
+                        formatItemBreakdownLabel={formatItemBreakdownLabel}
+                    />
+                ),
+                key: `breakdown-${breakdown.value?.toString() || index}`,
+                sorter: (a, b) => {
+                    const leftValue = Array.isArray(a.breakdown_value) ? a.breakdown_value[index] : a.breakdown_value
+                    const rightValue = Array.isArray(b.breakdown_value) ? b.breakdown_value[index] : b.breakdown_value
+
+                    if (typeof leftValue === 'number' && typeof rightValue === 'number') {
+                        return leftValue - rightValue
+                    }
+
+                    const labelA = formatItemBreakdownLabel(a)
+                    const labelB = formatItemBreakdownLabel(b)
+
+                    return compareFn()(labelA, labelB)
+                },
+            })
+        })
     }
 
     if (allowAggregation) {
@@ -216,9 +258,11 @@ export function InsightsTable({
 
     return (
         <LemonTable
-            id={isInDashboardContext ? insight.short_id : undefined}
+            id={isInDashboardContext ? queryBasedInsight.short_id : undefined}
             dataSource={
-                isLegend || isMainInsightView ? indexedResults : indexedResults.filter((r) => !hiddenLegendKeys?.[r.id])
+                isLegend || isMainInsightView
+                    ? indexedResults
+                    : indexedResults.filter((r) => !hiddenLegendIndexes?.includes(r.id))
             }
             embedded={embedded}
             columns={columns}

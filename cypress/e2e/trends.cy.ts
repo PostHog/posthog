@@ -55,7 +55,11 @@ describe('Trends', () => {
 
         cy.get('[data-attr=math-node-hogql-expression-0]').click()
         cy.get('[data-attr=math-hogql-select-0]').click()
-        cy.get('[data-attr=inline-hogql-editor]').click().clear().type('avg(1042) * 2048')
+        cy.get('.CodeEditorResizeable')
+            .click()
+            .type(
+                '{backspace}{backspace}{backspace}{backspace}{backspace}{backspace}{backspace}{backspace}{backspace}avg(1042) * 2048'
+            )
         cy.contains('Update HogQL expression').click()
 
         cy.get('[data-attr=chart-filter]').click()

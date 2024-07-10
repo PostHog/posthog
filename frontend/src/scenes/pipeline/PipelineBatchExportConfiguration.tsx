@@ -120,7 +120,10 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
                                         info="A model defines the data that will be exported."
                                     >
                                         <LemonSelect
-                                            options={tables.map((table) => ({ value: table.name, label: table.id }))}
+                                            options={tables.map((table) => ({
+                                                value: table.name,
+                                                label: table.id,
+                                            }))}
                                             value={selectedModel}
                                             onSelect={(newValue) => {
                                                 setSelectedModel(newValue)

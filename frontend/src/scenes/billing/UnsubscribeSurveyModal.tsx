@@ -14,7 +14,7 @@ export const UnsubscribeSurveyModal = ({
 }: {
     product: BillingProductV2Type | BillingProductV2AddonType
 }): JSX.Element | null => {
-    const { surveyID, surveyResponse } = useValues(billingProductLogic({ product }))
+    const { surveyID, surveyResponse, isAddonProduct } = useValues(billingProductLogic({ product }))
     const { setSurveyResponse, reportSurveyDismissed } = useActions(billingProductLogic({ product }))
     const { deactivateProduct, resetUnsubscribeError } = useActions(billingLogic)
     const { unsubscribeError, billingLoading, billing } = useValues(billingLogic)
@@ -25,7 +25,15 @@ export const UnsubscribeSurveyModal = ({
         product.type == 'data_pipelines' ||
         (product.type == 'product_analytics' &&
             (product as BillingProductV2Type)?.addons?.filter((addon) => addon.type === 'data_pipelines')[0]
-                ?.subscribed)
+                ?.subscribed) ||
+        billing?.subscription_level === 'paid'
+
+    let action = 'Unsubscribe'
+    let actionVerb = 'unsubscribing'
+    if (billing?.subscription_level === 'paid') {
+        action = isAddonProduct ? 'Remove addon' : 'Downgrade'
+        actionVerb = isAddonProduct ? 'removing this addon' : 'downgrading'
+    }
 
     return (
         <LemonModal
@@ -33,8 +41,12 @@ export const UnsubscribeSurveyModal = ({
                 reportSurveyDismissed(surveyID)
                 resetUnsubscribeError()
             }}
-            width="max(40vw)"
-            title={`Why are you unsubscribing from ${product.name}?`}
+            width="max(44vw)"
+            title={
+                billing?.subscription_level === 'paid'
+                    ? `Why are you ${actionVerb}?`
+                    : `Why are you ${actionVerb} from ${product.name}?`
+            }
             footer={
                 <>
                     <LemonButton
@@ -49,11 +61,15 @@ export const UnsubscribeSurveyModal = ({
                         type={textAreaNotEmpty ? 'primary' : 'secondary'}
                         disabledReason={includesPipelinesAddon && unsubscribeDisabledReason}
                         onClick={() => {
-                            deactivateProduct(product.type)
+                            deactivateProduct(
+                                billing?.subscription_level === 'paid' && !isAddonProduct
+                                    ? 'all_products'
+                                    : product.type
+                            )
                         }}
                         loading={billingLoading}
                     >
-                        Unsubscribe
+                        {action}
                     </LemonButton>
                 </>
             }
@@ -68,7 +84,7 @@ export const UnsubscribeSurveyModal = ({
                 ) : (
                     <LemonBanner type="info">
                         <p>
-                            Your invoice will be billed immediately.{' '}
+                            Any outstanding invoices will be billed immediately.{' '}
                             <Link to={billing?.stripe_portal_url} target="_blank">
                                 View invoices
                             </Link>
@@ -77,7 +93,7 @@ export const UnsubscribeSurveyModal = ({
                 )}
                 <LemonTextArea
                     data-attr="unsubscribe-reason-survey-textarea"
-                    placeholder="Reason for unsubscribing..."
+                    placeholder={`Reason for ${actionVerb}...`}
                     value={surveyResponse['$survey_response']}
                     onChange={(value) => {
                         setSurveyResponse(value, '$survey_response')

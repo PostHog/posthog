@@ -6,8 +6,10 @@ import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { DashboardPrivilegeLevel } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -15,6 +17,7 @@ import { Splotch, SplotchColor } from 'lib/lemon-ui/Splotch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter } from 'lib/utils'
 import React from 'react'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
@@ -66,8 +69,9 @@ export function InsightMeta({
     showDetailsControls = true,
     moreButtons,
 }: InsightMetaProps): JSX.Element {
-    const { short_id, name, dashboards } = insight
-    const { exporterResourceParams, insightProps } = useValues(insightLogic)
+    const { short_id, name, dashboards, next_allowed_client_refresh: nextAllowedClientRefresh } = insight
+    const { insightProps } = useValues(insightLogic)
+    const { exportContext } = useValues(insightDataLogic(insightProps))
     const { samplingFactor } = useValues(insightVizDataLogic(insightProps))
     const { nameSortedDashboards } = useValues(dashboardsModel)
 
@@ -75,12 +79,20 @@ export function InsightMeta({
     const editable = insight.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit
 
     const summary = useSummarizeInsight()(insight.query)
+    const refreshDisabledReason =
+        nextAllowedClientRefresh && dayjs(nextAllowedClientRefresh).isAfter(dayjs())
+            ? 'You are viewing the most recent calculated results.'
+            : loading
+            ? 'Refreshing...'
+            : undefined
 
     return (
         <CardMeta
             ribbonColor={ribbonColor}
             showEditingControls={showEditingControls}
             showDetailsControls={showDetailsControls}
+            refresh={refresh}
+            refreshDisabledReason={refreshDisabledReason}
             setAreDetailsShown={setAreDetailsShown}
             areDetailsShown={areDetailsShown}
             topHeading={<TopHeading insight={insight} />}
@@ -103,7 +115,11 @@ export function InsightMeta({
                         </h4>
                     </Link>
 
-                    {!!insight.description && <div className="CardMeta__description">{insight.description}</div>}
+                    {!!insight.description && (
+                        <LemonMarkdown className="CardMeta__description" lowKeyHeadings>
+                            {insight.description}
+                        </LemonMarkdown>
+                    )}
                     {insight.tags && insight.tags.length > 0 && <ObjectTags tags={insight.tags} staticOnly />}
 
                     {loading && <LemonTableLoader loading={true} />}
@@ -128,6 +144,7 @@ export function InsightMeta({
                                 onClick={() => {
                                     refresh()
                                 }}
+                                disabledReason={refreshDisabledReason}
                                 fullWidth
                             >
                                 Refresh
@@ -208,7 +225,7 @@ export function InsightMeta({
                     >
                         Duplicate
                     </LemonButton>
-                    {exporterResourceParams ? (
+                    {exportContext ? (
                         <>
                             <LemonDivider />
                             <ExportButton
@@ -221,11 +238,11 @@ export function InsightMeta({
                                     },
                                     {
                                         export_format: ExporterFormat.CSV,
-                                        export_context: exporterResourceParams,
+                                        export_context: exportContext,
                                     },
                                     {
                                         export_format: ExporterFormat.XLSX,
-                                        export_context: exporterResourceParams,
+                                        export_context: exportContext,
                                     },
                                 ]}
                             />

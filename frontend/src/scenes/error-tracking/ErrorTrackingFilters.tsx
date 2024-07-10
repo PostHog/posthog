@@ -31,8 +31,8 @@ export const ErrorTrackingFilters = ({ showOrder = true }: { showOrder?: boolean
                     <RecordingsUniversalFilterGroup />
                     <UniversalFilters.AddFilterButton type="secondary" size="small" />
                 </div>
-                <div className="flex space-x-1 justify-between px-2 py-1.5">
-                    <div className="flex space-x-1">
+                <div className="flex justify-between px-2 py-1.5 flex-wrap gap-1">
+                    <div className="flex flex-wrap gap-2">
                         <DateFilter
                             dateFrom={dateRange.date_from}
                             dateTo={dateRange.date_to}
@@ -56,15 +56,15 @@ export const ErrorTrackingFilters = ({ showOrder = true }: { showOrder?: boolean
                                         label: 'First seen',
                                     },
                                     {
-                                        value: 'unique_occurrences',
+                                        value: 'occurrences',
                                         label: 'Occurrences',
                                     },
                                     {
-                                        value: 'unique_users',
+                                        value: 'users',
                                         label: 'Users',
                                     },
                                     {
-                                        value: 'unique_sessions',
+                                        value: 'sessions',
                                         label: 'Sessions',
                                     },
                                 ]}
@@ -74,11 +74,11 @@ export const ErrorTrackingFilters = ({ showOrder = true }: { showOrder?: boolean
                     </div>
                     <div>
                         <TestAccountFilter
+                            size="small"
                             filters={{ filter_test_accounts: filterTestAccounts }}
                             onChange={({ filter_test_accounts }) => {
                                 setFilterTestAccounts(filter_test_accounts || false)
                             }}
-                            size="small"
                         />
                     </div>
                 </div>

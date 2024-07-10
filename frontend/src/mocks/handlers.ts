@@ -16,6 +16,7 @@ import { SharingConfigurationType } from '~/types'
 
 import { getAvailableProductFeatures } from './features'
 import { billingJson } from './fixtures/_billing'
+import * as statusPageAllOK from './fixtures/_status_page_all_ok.json'
 import { Mocks, MockSignature, mocksToHandlers } from './utils'
 
 export const EMPTY_PAGINATED_RESPONSE = { count: 0, results: [] as any[], next: null, previous: null }
@@ -123,6 +124,11 @@ export const defaultMocks: Mocks = {
         '/api/billing/': {
             ...billingJson,
         },
+        '/api/billing/get_invoices': {
+            link: null,
+            count: 0,
+        },
+        'https://status.posthog.com/api/v2/summary.json': statusPageAllOK,
     },
     post: {
         'https://us.i.posthog.com/e/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
@@ -132,6 +138,9 @@ export const defaultMocks: Mocks = {
         'https://us.i.posthog.com/engage/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
         '/api/projects/:team_id/insights/:insight_id/viewed/': (): MockSignature => [201, null],
         'api/projects/:team_id/query': [200, { results: [] }],
+    },
+    patch: {
+        '/api/projects/:team_id/session_recording_playlists/:playlist_id/': {},
     },
 }
 export const handlers = mocksToHandlers(defaultMocks)

@@ -1,13 +1,16 @@
 import dataclasses
-from typing import TYPE_CHECKING, Any, ClassVar, Optional, TypeAlias, cast
 from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, ClassVar, Optional, TypeAlias, cast, Union
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from django.db.models import Q
 from pydantic import ConfigDict, BaseModel
 from sentry_sdk import capture_exception
-from django.db.models import Q
+
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
+    FieldOrTable,
     FieldTraverser,
     SavedQuery,
     StringDatabaseField,
@@ -26,15 +29,15 @@ from posthog.hogql.database.models import (
     ExpressionField,
 )
 from posthog.hogql.database.schema.channel_type import create_initial_channel_type, create_initial_domain_type
+from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
+from posthog.hogql.database.schema.events import EventsTable
+from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.heatmaps import HeatmapsTable
 from posthog.hogql.database.schema.log_entries import (
     LogEntriesTable,
     ReplayConsoleLogsLogEntriesTable,
     BatchExportLogEntriesTable,
 )
-from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
-from posthog.hogql.database.schema.events import EventsTable
-from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.database.schema.person_distinct_id_overrides import (
     PersonDistinctIdOverridesTable,
@@ -45,12 +48,22 @@ from posthog.hogql.database.schema.person_distinct_ids import (
     PersonDistinctIdsTable,
     RawPersonDistinctIdsTable,
 )
-from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable, join_with_persons_table
+from posthog.hogql.database.schema.persons import (
+    PersonsTable,
+    RawPersonsTable,
+    join_with_persons_table,
+)
 from posthog.hogql.database.schema.session_replay_events import (
     RawSessionReplayEventsTable,
     SessionReplayEventsTable,
+    join_replay_table_to_sessions_table_v2,
 )
-from posthog.hogql.database.schema.sessions import RawSessionsTable, SessionsTable
+from posthog.hogql.database.schema.sessions_v1 import RawSessionsTableV1, SessionsTableV1
+from posthog.hogql.database.schema.sessions_v2 import (
+    SessionsTableV2,
+    RawSessionsTableV2,
+    join_events_table_to_sessions_table_v2,
+)
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
 from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_expr
@@ -67,6 +80,7 @@ from posthog.schema import (
     HogQLQuery,
     HogQLQueryModifiers,
     PersonsOnEventsMode,
+    SessionTableVersion,
 )
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
@@ -96,7 +110,7 @@ class Database(BaseModel):
     log_entries: LogEntriesTable = LogEntriesTable()
     console_logs_log_entries: ReplayConsoleLogsLogEntriesTable = ReplayConsoleLogsLogEntriesTable()
     batch_export_log_entries: BatchExportLogEntriesTable = BatchExportLogEntriesTable()
-    sessions: SessionsTable = SessionsTable()
+    sessions: Union[SessionsTableV1, SessionsTableV2] = SessionsTableV1()
     heatmaps: HeatmapsTable = HeatmapsTable()
 
     raw_session_replay_events: RawSessionReplayEventsTable = RawSessionReplayEventsTable()
@@ -105,7 +119,7 @@ class Database(BaseModel):
     raw_groups: RawGroupsTable = RawGroupsTable()
     raw_cohort_people: RawCohortPeople = RawCohortPeople()
     raw_person_distinct_id_overrides: RawPersonDistinctIdOverridesTable = RawPersonDistinctIdOverridesTable()
-    raw_sessions: RawSessionsTable = RawSessionsTable()
+    raw_sessions: Union[RawSessionsTableV1, RawSessionsTableV2] = RawSessionsTableV1()
 
     # system tables
     numbers: NumbersTable = NumbersTable()
@@ -200,6 +214,7 @@ def create_hogql_database(
     team_id: int, modifiers: Optional[HogQLQueryModifiers] = None, team_arg: Optional["Team"] = None
 ) -> Database:
     from posthog.models import Team
+    from posthog.hogql.database.s3_table import S3Table
     from posthog.hogql.query import create_default_modifiers_for_team
     from posthog.warehouse.models import (
         DataWarehouseTable,
@@ -233,6 +248,32 @@ def create_hogql_database(
             join_function=join_with_persons_table,
         )
 
+    if modifiers.sessionTableVersion in [SessionTableVersion.V2]:
+        raw_sessions = RawSessionsTableV2()
+        database.raw_sessions = raw_sessions
+        sessions = SessionsTableV2()
+        database.sessions = sessions
+        events = database.events
+        events.fields["session"] = LazyJoin(
+            from_field=["$session_id"],
+            join_table=sessions,
+            join_function=join_events_table_to_sessions_table_v2,
+        )
+        replay_events = database.session_replay_events
+        replay_events.fields["session"] = LazyJoin(
+            from_field=["session_id"],
+            join_table=sessions,
+            join_function=join_replay_table_to_sessions_table_v2,
+        )
+        replay_events.fields["events"].join_table = events
+        raw_replay_events = database.raw_session_replay_events
+        raw_replay_events.fields["session"] = LazyJoin(
+            from_field=["session_id"],
+            join_table=sessions,
+            join_function=join_replay_table_to_sessions_table_v2,
+        )
+        raw_replay_events.fields["events"].join_table = events
+
     database.persons.fields["$virt_initial_referring_domain_type"] = create_initial_domain_type(
         "$virt_initial_referring_domain_type"
     )
@@ -245,8 +286,29 @@ def create_hogql_database(
     warehouse_tables: dict[str, Table] = {}
     views: dict[str, Table] = {}
 
-    for table in DataWarehouseTable.objects.filter(team_id=team.pk).exclude(deleted=True):
-        warehouse_tables[table.name] = table.hogql_definition(modifiers)
+    for table in (
+        DataWarehouseTable.objects.filter(team_id=team.pk)
+        .exclude(deleted=True)
+        .select_related("credential", "external_data_source")
+    ):
+        s3_table = table.hogql_definition(modifiers)
+
+        # If the warehouse table has no _properties_ field, then set it as a virtual table
+        if s3_table.fields.get("properties") is None:
+
+            class WarehouseProperties(VirtualTable):
+                fields: dict[str, FieldOrTable] = s3_table.fields
+                parent_table: S3Table = s3_table
+
+                def to_printed_hogql(self):
+                    return self.parent_table.to_printed_hogql()
+
+                def to_printed_clickhouse(self, context):
+                    return self.parent_table.to_printed_clickhouse(context)
+
+            s3_table.fields["properties"] = WarehouseProperties()
+
+        warehouse_tables[table.name] = s3_table
 
     for saved_query in DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True):
         views[saved_query.name] = saved_query.hogql_definition()

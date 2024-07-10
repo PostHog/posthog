@@ -297,6 +297,10 @@ export function isEmptyObject(candidate: unknown): boolean {
     return isObject(candidate) && Object.keys(candidate).length === 0
 }
 
+export function isNonEmptyObject(candidate: unknown): candidate is Record<string, unknown> {
+    return isObject(candidate) && !isEmptyObject(candidate)
+}
+
 // https://stackoverflow.com/questions/25421233/javascript-removing-undefined-fields-from-an-object
 export function objectClean<T extends Record<string | number | symbol, unknown>>(obj: T): T {
     const response = { ...obj }
@@ -1758,4 +1762,15 @@ export function hasFormErrors(object: any): boolean {
         return Object.values(object).some(hasFormErrors)
     }
     return !!object
+}
+
+export function debounce<F extends (...args: Parameters<F>) => ReturnType<F>>(
+    func: F,
+    waitFor: number
+): (...args: Parameters<F>) => void {
+    let timeout: ReturnType<typeof setTimeout>
+    return (...args: Parameters<F>): void => {
+        clearTimeout(timeout)
+        timeout = setTimeout(() => func(...args), waitFor)
+    }
 }

@@ -2,7 +2,7 @@ import pytest
 
 from posthog.hogql.bytecode import to_bytecode, execute_hog
 from hogvm.python.operation import Operation as op, HOGQL_BYTECODE_IDENTIFIER as _H
-from posthog.hogql.errors import NotImplementedError
+from posthog.hogql.errors import NotImplementedError, QueryError
 from posthog.test.base import BaseTest
 
 
@@ -64,7 +64,19 @@ class TestBytecode(BaseTest):
         )
         self.assertEqual(
             to_bytecode("ifNull(properties.email, false)"),
-            [_H, op.FALSE, op.STRING, "email", op.STRING, "properties", op.GET_GLOBAL, 2, op.CALL, "ifNull", 2],
+            [
+                _H,
+                op.STRING,
+                "email",
+                op.STRING,
+                "properties",
+                op.GET_GLOBAL,
+                2,
+                op.JUMP_IF_STACK_NOT_NULL,
+                2,
+                op.POP,
+                op.FALSE,
+            ],
         )
         self.assertEqual(to_bytecode("1 = 2"), [_H, op.INTEGER, 2, op.INTEGER, 1, op.EQ])
         self.assertEqual(to_bytecode("1 == 2"), [_H, op.INTEGER, 2, op.INTEGER, 1, op.EQ])
@@ -176,22 +188,23 @@ class TestBytecode(BaseTest):
             [_H, op.STRING, "a", op.STRING, "b", op.TUPLE, 2],
         )
 
-    def test_bytecode_create_error(self):
+    def test_bytecode_create_not_implemented_error(self):
         with self.assertRaises(NotImplementedError) as e:
             to_bytecode("(select 1)")
         self.assertEqual(str(e.exception), "BytecodeBuilder has no method visit_select_query")
 
-        with self.assertRaises(NotImplementedError) as e:
+    def test_bytecode_create_query_error(self):
+        with self.assertRaises(QueryError) as e:
             to_bytecode("1 in cohort 2")
         self.assertEqual(str(e.exception), "Cohort operations are not supported")
 
-        with self.assertRaises(NotImplementedError) as e:
+        with self.assertRaises(QueryError) as e:
             execute_hog("globalVar := 1;")
         self.assertEqual(
             str(e.exception), 'Variable "globalVar" not declared in this scope. Can not assign to globals.'
         )
 
-        with self.assertRaises(NotImplementedError) as e:
+        with self.assertRaises(QueryError) as e:
             execute_hog("globalVar.properties.bla := 1;")
         self.assertEqual(
             str(e.exception), 'Variable "globalVar" not declared in this scope. Can not assign to globals.'

@@ -1,13 +1,14 @@
 import { LemonButton } from '@posthog/lemon-ui'
+import { urls } from 'scenes/urls'
 
-import { BillingProductV2AddonType, BillingProductV2Type, BillingV2FeatureType, BillingV2Type } from '~/types'
+import { BillingFeatureType, BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
 interface PayGateButtonProps {
     gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null
     productWithFeature: BillingProductV2AddonType | BillingProductV2Type
-    featureInfo: BillingV2FeatureType
+    featureInfo: BillingFeatureType
     onCtaClick: () => void
-    billing: BillingV2Type | null
+    isAddonProduct?: boolean
     scrollToProduct: boolean
 }
 
@@ -16,17 +17,18 @@ export const PayGateButton = ({
     productWithFeature,
     featureInfo,
     onCtaClick,
-    billing,
+    isAddonProduct,
     scrollToProduct = true,
 }: PayGateButtonProps): JSX.Element => {
     return (
         <LemonButton
-            to={getCtaLink(gateVariant, productWithFeature, featureInfo, scrollToProduct)}
+            to={getCtaLink(gateVariant, productWithFeature, featureInfo, isAddonProduct, scrollToProduct)}
+            disableClientSideRouting={gateVariant === 'add-card' && !isAddonProduct}
             type="primary"
             center
             onClick={onCtaClick}
         >
-            {getCtaLabel(gateVariant, billing)}
+            {getCtaLabel(gateVariant)}
         </LemonButton>
     )
 }
@@ -34,10 +36,15 @@ export const PayGateButton = ({
 const getCtaLink = (
     gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
     productWithFeature: BillingProductV2AddonType | BillingProductV2Type,
-    featureInfo: BillingV2FeatureType,
+    featureInfo: BillingFeatureType,
+    isAddonProduct?: boolean,
     scrollToProduct: boolean = true
 ): string | undefined => {
-    if (gateVariant === 'add-card') {
+    if (gateVariant === 'add-card' && !isAddonProduct) {
+        return `/api/billing/activate?products=all_products:&redirect_path=${urls.organizationBilling()}&intent_product=${
+            productWithFeature.type
+        }`
+    } else if (gateVariant === 'add-card') {
         return `/organization/billing${scrollToProduct ? `?products=${productWithFeature.type}` : ''}`
     } else if (gateVariant === 'contact-sales') {
         return `mailto:sales@posthog.com?subject=Inquiring about ${featureInfo.name}`
@@ -47,12 +54,9 @@ const getCtaLink = (
     return undefined
 }
 
-const getCtaLabel = (
-    gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
-    billing: BillingV2Type | null
-): string => {
+const getCtaLabel = (gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null): string => {
     if (gateVariant === 'add-card') {
-        return billing?.has_active_subscription ? 'Upgrade now' : 'Subscribe now'
+        return 'Upgrade now'
     } else if (gateVariant === 'contact-sales') {
         return 'Contact sales'
     }

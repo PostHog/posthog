@@ -88,6 +88,7 @@ export const eventToPersonProperties = new Set([
     'mc_cid', // mailchimp campaign id
     'igshid', // instagram
     'ttclid', // tiktok
+    'rdt_cid', // reddit
 ])
 export const initialEventToPersonProperties = new Set(
     Array.from(eventToPersonProperties, (key) => `$initial_${key.replace('$', '')}`)
