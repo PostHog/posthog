@@ -175,19 +175,6 @@ batch_exports_router = projects_router.register(
 batch_export_runs_router = batch_exports_router.register(
     r"runs", batch_exports.BatchExportRunViewSet, "runs", ["team_id", "batch_export_id"]
 )
-batch_exports_router.register(
-    r"logs",
-    batch_exports.BatchExportLogViewSet,
-    "batch_export_run_logs",
-    ["team_id", "batch_export_id"],
-)
-
-batch_export_runs_router.register(
-    r"logs",
-    batch_exports.BatchExportLogViewSet,
-    "batch_export_logs",
-    ["team_id", "batch_export_id", "run_id"],
-)
 
 projects_router.register(r"warehouse_tables", table.TableViewSet, "project_warehouse_tables", ["team_id"])
 projects_router.register(

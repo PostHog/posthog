@@ -72,7 +72,7 @@ def fetch_log_entries(
         clickhouse_kwargs["search"] = f"%{search}%"
     if len(level) > 0:
         clickhouse_where_parts.append("upper(level) in %(levels)s")
-        clickhouse_kwargs["levels"] = level
+        clickhouse_kwargs["levels"] = [l.upper() for l in level]
 
     clickhouse_query = f"""
         SELECT log_source_id, instance_id, timestamp, upper(level) as level, message FROM log_entries
@@ -84,6 +84,13 @@ def fetch_log_entries(
 
 class LogEntryMixin(viewsets.GenericViewSet):
     log_source: str  # Should be set by the inheriting class
+
+    def get_log_entry_instance_id(self) -> Optional[str]:
+        """
+        Can be used overridden to help with getting the instance_id for the log entry.
+        Otherwise it defaults to null or the query param if given
+        """
+        raise NotImplementedError()
 
     @action(detail=True, methods=["GET"])
     def logs(self, request: Request, *args, **kwargs):
@@ -99,13 +106,18 @@ class LogEntryMixin(viewsets.GenericViewSet):
 
         params = param_serializer.validated_data
 
+        try:
+            instance_id = self.get_log_entry_instance_id()
+        except NotImplementedError:
+            instance_id = params.get("instance_id")
+
         data = fetch_log_entries(
             team_id=self.team_id,  # type: ignore
             log_source=self.log_source,
             log_source_id=str(obj.id),
             limit=params["limit"],
             # From request params
-            instance_id=params.get("instance_id"),
+            instance_id=instance_id,
             after=params.get("after"),
             before=params.get("before"),
             search=params.get("search"),
