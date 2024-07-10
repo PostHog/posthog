@@ -498,7 +498,7 @@ export const FeatureFlagUsageNotice = ({ product }: { product: BillingProductV2T
         <p className="mt-4 ml-0 text-sm text-muted italic">
             <IconInfo className="mr-1" />
             Questions? Here's{' '}
-            <Link to="https://posthog.com/docs/feature-flags/common-questions#billing-usage" className="italic">
+            <Link to="https://posthog.com/docs/feature-flags/common-questions#billing--usage" className="italic">
                 how we calculate usage
             </Link>{' '}
             for feature flags.
