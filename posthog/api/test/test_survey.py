@@ -1816,6 +1816,8 @@ class TestSurveyQuestionValidationWithEnterpriseFeatures(APIBaseTest):
             == "You need to upgrade to PostHog Enterprise to use HTML in survey thank you message"
         )
 
+
+class TestSurveyWithActions(APIBaseTest):
     def test_can_set_associated_actions(self):
         Action.objects.create(
             team=self.team,
@@ -1855,6 +1857,107 @@ class TestSurveyQuestionValidationWithEnterpriseFeatures(APIBaseTest):
         assert len(survey.actions.all()) == 2
         assert survey.actions.filter(name="user subscribed").exists()
         assert survey.actions.filter(name="user unsubscribed").exists()
+
+    def test_can_remove_associated_actions(self):
+        Action.objects.create(
+            team=self.team,
+            name="user subscribed",
+            steps_json=[{"event": "$pageview", "url": "docs", "url_matching": "contains"}],
+        )
+        Action.objects.create(
+            team=self.team,
+            name="user unsubscribed",
+            steps_json=[{"event": "$pageview", "url": "docs", "url_matching": "contains"}],
+        )
+
+        survey_with_actions = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="survey with actions",
+            type="popover",
+            questions=[{"type": "open", "question": "Why's a hedgehog?"}],
+        )
+        survey_with_actions.actions.set(Action.objects.filter(name__in=["user subscribed", "user unsubscribed"]))
+        survey_with_actions.save()
+        assert survey_with_actions.actions.filter(name="user unsubscribed").exists()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_with_actions.id}/",
+            data={
+                "name": "Notebooks beta release survey",
+                "description": "Get feedback on the new notebooks feature",
+                "type": "popover",
+                "conditions": {
+                    "actions": {"values": [{"name": "user subscribed"}]},
+                },
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "What's a survey?",
+                        "description": "This is a description",
+                        "descriptionContentType": "text",
+                    }
+                ],
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_200_OK, response_data
+        survey = Survey.objects.get(id=response_data["id"])
+        assert survey is not None
+        assert len(survey.actions.all()) == 1
+        assert survey.actions.filter(name="user subscribed").exists()
+        assert not survey.actions.filter(name="user unsubscribed").exists()
+
+    def test_can_clear_associated_actions(self):
+        Action.objects.create(
+            team=self.team,
+            name="user subscribed",
+            steps_json=[{"event": "$pageview", "url": "docs", "url_matching": "contains"}],
+        )
+        Action.objects.create(
+            team=self.team,
+            name="user unsubscribed",
+            steps_json=[{"event": "$pageview", "url": "docs", "url_matching": "contains"}],
+        )
+
+        survey_with_actions = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="survey with actions",
+            type="popover",
+            questions=[{"type": "open", "question": "Why's a hedgehog?"}],
+        )
+        survey_with_actions.actions.set(Action.objects.filter(name__in=["user subscribed", "user unsubscribed"]))
+        survey_with_actions.save()
+        assert survey_with_actions.actions.filter(name="user subscribed").exists()
+        assert survey_with_actions.actions.filter(name="user unsubscribed").exists()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_with_actions.id}/",
+            data={
+                "name": "Notebooks beta release survey",
+                "description": "Get feedback on the new notebooks feature",
+                "type": "popover",
+                "conditions": {
+                    "actions": {"values": []},
+                },
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "What's a survey?",
+                        "description": "This is a description",
+                        "descriptionContentType": "text",
+                    }
+                ],
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_200_OK, response_data
+        survey = Survey.objects.get(id=response_data["id"])
+        assert survey is not None
+        assert len(survey.actions.all()) == 0
 
 
 class TestSurveysRecurringIterations(APIBaseTest):
