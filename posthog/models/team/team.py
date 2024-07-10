@@ -89,11 +89,11 @@ class TeamManager(models.Manager):
 
     def create_with_data(self, user: Any = None, default_dashboards: bool = True, **kwargs) -> "Team":
         kwargs["test_account_filters"] = self.set_test_account_filters(kwargs.get("organization"))
-        team = Team.objects.create(**kwargs)
+        team = super().create(**kwargs)
 
         # Create default dashboards (skipped for demo projects)
         if default_dashboards:
-            dashboard = Dashboard.objects.create(name="My App Dashboard", pinned=True, team=team)
+            dashboard = Dashboard.objects.db_manager(self.db).create(name="My App Dashboard", pinned=True, team=team)
             create_dashboard_from_template("DEFAULT_APP", dashboard)
             team.primary_dashboard = dashboard
             team.save()
