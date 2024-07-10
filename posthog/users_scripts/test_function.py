@@ -5,5 +5,8 @@ import sys
 
 if __name__ == "__main__":
     for line in sys.stdin:
-        parse_user_aggregation_with_conversion_window_and_breakdown(*parse_args(line))
+        try:
+            parse_user_aggregation_with_conversion_window_and_breakdown(*parse_args(line))
+        except Exception as e:
+            print(e, line)
         sys.stdout.flush()
