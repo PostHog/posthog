@@ -234,11 +234,21 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                     normalize_url: isNormalizeable ? true : undefined,
                 }
 
+                const updatedBreakdowns = values.breakdownFilter.breakdowns
+                    ? [...values.breakdownFilter.breakdowns, newBreakdown]
+                    : [newBreakdown]
+
                 props.updateBreakdownFilter({
-                    breakdowns: values.breakdownFilter.breakdowns
-                        ? [...values.breakdownFilter.breakdowns, newBreakdown]
-                        : [newBreakdown],
+                    breakdowns: updatedBreakdowns,
                 })
+
+                if (
+                    props.isTrends &&
+                    props.display === ChartDisplayType.WorldMap &&
+                    (updatedBreakdowns.length !== 1 || updatedBreakdowns[0].value !== 'geoip_country_code')
+                ) {
+                    props.updateDisplay?.(undefined)
+                }
             } else {
                 props.updateBreakdownFilter({
                     breakdowns: undefined,
