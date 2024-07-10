@@ -1,3 +1,6 @@
+/** Fixed cost per object in memory */
+const COST_PER_UNIT = 8
+
 export function like(string: string, pattern: string, caseInsensitive = false): boolean {
     pattern = String(pattern)
         .replaceAll(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')
@@ -78,4 +81,41 @@ export function convertHogToJS(x: any): any {
         return obj
     }
     return x
+}
+
+export function calculateCost(object: any, marked: Set<any> | undefined = undefined): any {
+    if (!marked) {
+        marked = new Set()
+    }
+    if (typeof object === 'object' && object !== null) {
+        if (marked.has(object)) {
+            return COST_PER_UNIT
+        }
+        marked.add(object)
+        try {
+            if (object instanceof Map) {
+                return (
+                    COST_PER_UNIT +
+                    Array.from(object.keys()).reduce(
+                        (acc, key) => acc + calculateCost(key, marked) + calculateCost(object.get(key), marked),
+                        0
+                    )
+                )
+            } else if (Array.isArray(object)) {
+                return COST_PER_UNIT + object.reduce((acc, val) => acc + calculateCost(val, marked), 0)
+            }
+            return (
+                COST_PER_UNIT +
+                Object.keys(object).reduce(
+                    (acc, key) => acc + calculateCost(key, marked) + calculateCost(object[key], marked),
+                    0
+                )
+            )
+        } finally {
+            marked.delete(object)
+        }
+    } else if (typeof object === 'string') {
+        return COST_PER_UNIT + object.length
+    }
+    return COST_PER_UNIT
 }

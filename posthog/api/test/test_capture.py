@@ -1743,6 +1743,7 @@ class TestCapture(BaseTest):
                 "highlight",
                 ["x-highlight-request"],
             ),
+            ("DateDome", ["x-datadome-clientid"]),
         ]
     )
     def test_cors_allows_tracing_headers(self, _: str, path: str, headers: list[str]) -> None:

@@ -92,7 +92,9 @@ describe('EventPipelineRunner', () => {
     beforeEach(() => {
         hub = {
             kafkaProducer: { queueMessage: jest.fn() },
-            teamManager: { fetchTeam: jest.fn(() => {}) },
+            teamManager: {
+                fetchTeam: jest.fn(() => {}),
+            },
             db: {
                 kafkaProducer: { queueMessage: jest.fn() },
                 fetchPerson: jest.fn(),
@@ -285,6 +287,49 @@ describe('EventPipelineRunner', () => {
                         message: 'My warning message!',
                     }),
                 })
+            })
+        })
+
+        describe('$$heatmap events', () => {
+            let heatmapEvent: PipelineEvent
+            beforeEach(() => {
+                heatmapEvent = {
+                    ...pipelineEvent,
+                    event: '$$heatmap',
+                    properties: {
+                        ...pipelineEvent.properties,
+                        $heatmap_data: {
+                            url1: ['data'],
+                            url2: ['more data'],
+                        },
+                    },
+                }
+
+                // setup just enough mocks that the right pipeline runs
+
+                runner = new TestEventPipelineRunner(hub, heatmapEvent)
+
+                jest.mocked(populateTeamDataStep).mockResolvedValue(heatmapEvent as any)
+
+                const heatmapPreIngestionEvent = {
+                    ...preIngestionEvent,
+                    event: '$$heatmap',
+                    properties: {
+                        ...heatmapEvent.properties,
+                    },
+                }
+                jest.mocked(prepareEventStep).mockResolvedValue(heatmapPreIngestionEvent)
+            })
+
+            it('runs the expected steps for heatmap_data', async () => {
+                await runner.runEventPipeline(heatmapEvent)
+
+                expect(runner.steps).toEqual([
+                    'populateTeamDataStep',
+                    'normalizeEventStep',
+                    'prepareEventStep',
+                    'extractHeatmapDataStep',
+                ])
             })
         })
     })
