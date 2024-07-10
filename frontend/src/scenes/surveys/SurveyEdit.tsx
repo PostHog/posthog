@@ -64,8 +64,12 @@ export default function SurveyEdit(): JSX.Element {
         setSchedule,
         deleteBranchingLogic,
     } = useActions(surveyLogic)
-    const { surveysMultipleQuestionsAvailable, surveysRecurringScheduleAvailable, surveysEventsAvailable } =
-        useValues(surveysLogic)
+    const {
+        surveysMultipleQuestionsAvailable,
+        surveysRecurringScheduleAvailable,
+        surveysEventsAvailable,
+        surveysActionsAvailable,
+    } = useValues(surveysLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const sortedItemIds = survey.questions.map((_, idx) => idx.toString())
     const { thankYouMessageDescriptionContentType = null } = survey.appearance ?? {}
@@ -773,6 +777,39 @@ export default function SurveyEdit(): JSX.Element {
                                                             </div>
                                                         )}
                                                     </>
+                                                </LemonField.Pure>
+                                            )}
+                                            {featureFlags[FEATURE_FLAGS.SURVEYS_ACTIONS] && surveysActionsAvailable && (
+                                                <LemonField.Pure
+                                                    label="User performs actions"
+                                                    info="Note that these actions are only observed, and activate this survey, in the current user session."
+                                                >
+                                                    <EventSelect
+                                                        filterGroupTypes={[TaxonomicFilterGroupType.Actions]}
+                                                        itemProperty="name"
+                                                        onChange={(includedActions) => {
+                                                            setSurveyValue('conditions', {
+                                                                ...survey.conditions,
+                                                                actionNames: includedActions,
+                                                            })
+                                                        }}
+                                                        selectedEvents={
+                                                            survey.conditions?.actionNames &&
+                                                            survey.conditions?.actionNames.length > 0
+                                                                ? survey.conditions?.actionNames
+                                                                : []
+                                                        }
+                                                        addElement={
+                                                            <LemonButton
+                                                                size="small"
+                                                                type="secondary"
+                                                                icon={<IconPlus />}
+                                                                sideIcon={null}
+                                                            >
+                                                                Add action
+                                                            </LemonButton>
+                                                        }
+                                                    />
                                                 </LemonField.Pure>
                                             )}
                                         </>

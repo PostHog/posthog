@@ -5,6 +5,7 @@ import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import React, { useState } from 'react'
 
 interface EventSelectProps {
+    itemProperty?: string
     onChange: (names: string[]) => void
     selectedEvents: string[]
     addElement: JSX.Element
@@ -12,6 +13,7 @@ interface EventSelectProps {
 }
 
 export const EventSelect = ({
+    itemProperty,
     onChange,
     selectedEvents,
     addElement,
@@ -44,8 +46,12 @@ export const EventSelect = ({
                 onClickOutside={() => setOpen(false)}
                 overlay={
                     <TaxonomicFilter
-                        onChange={(_, value) => {
-                            handleChange(value as string)
+                        onChange={(_, value, item) => {
+                            if (itemProperty && item.hasOwnProperty(itemProperty)) {
+                                handleChange(item[itemProperty] as string)
+                            } else {
+                                handleChange(value as string)
+                            }
                             setOpen(false)
                         }}
                         taxonomicGroupTypes={eventSelectFilterGroupTypes}
