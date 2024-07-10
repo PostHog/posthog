@@ -285,7 +285,7 @@ export const sceneLogic = kea<sceneLogicType>([
                                     })
                                     actions.setStep(2)
                                     router.actions.replace(
-                                        urls.onboarding(productKeyFromUrl, OnboardingStepKey.INSTALL)
+                                        urls.onboarding(productKeyFromUrl, OnboardingStepKey.LINK_DATA)
                                     )
                                 } else {
                                     router.actions.replace(
