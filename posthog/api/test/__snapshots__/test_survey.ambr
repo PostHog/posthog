@@ -300,8 +300,8 @@
          "posthog_action"."last_calculated_at"
   FROM "posthog_action"
   INNER JOIN "posthog_survey_actions" ON ("posthog_action"."id" = "posthog_survey_actions"."action_id")
-  WHERE "posthog_survey_actions"."survey_id" IN ('01909dc060120000c9e412af836cabd8'::uuid,
-                                                 '01909dc0601c000004af3af360a23948'::uuid)
+  WHERE "posthog_survey_actions"."survey_id" IN ('01909dcd713b0000760959fd457493e4'::uuid,
+                                                 '01909dcd71440000ad60c86a5442d81d'::uuid)
   '''
 # ---
 # name: TestSurveysAPIList.test_list_surveys_with_actions
@@ -443,7 +443,7 @@
   SELECT "posthog_action"."id"
   FROM "posthog_action"
   INNER JOIN "posthog_survey_actions" ON ("posthog_action"."id" = "posthog_survey_actions"."action_id")
-  WHERE "posthog_survey_actions"."survey_id" = '01909dc0606d0000c1c440902aede1f4'::uuid
+  WHERE "posthog_survey_actions"."survey_id" = '01909dcd719a00006095a9797d834b2c'::uuid
   '''
 # ---
 # name: TestSurveysAPIList.test_list_surveys_with_actions.5
@@ -643,6 +643,6 @@
          "posthog_action"."last_calculated_at"
   FROM "posthog_action"
   INNER JOIN "posthog_survey_actions" ON ("posthog_action"."id" = "posthog_survey_actions"."action_id")
-  WHERE "posthog_survey_actions"."survey_id" IN ('01909dc0606d0000c1c440902aede1f4'::uuid)
+  WHERE "posthog_survey_actions"."survey_id" IN ('01909dcd719a00006095a9797d834b2c'::uuid)
   '''
 # ---
