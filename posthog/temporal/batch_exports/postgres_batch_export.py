@@ -167,6 +167,8 @@ class PostgreSQLClient:
 
         async with self.connection.transaction():
             async with self.connection.cursor() as cursor:
+                await cursor.execute("SET TRANSACTION READ WRITE")
+
                 await cursor.execute(
                     sql.SQL(base_query).format(
                         pkey=primary_key_clause if primary_key else sql.SQL(""),
@@ -201,6 +203,8 @@ class PostgreSQLClient:
 
         async with self.connection.transaction():
             async with self.connection.cursor() as cursor:
+                await cursor.execute("SET TRANSACTION READ WRITE")
+
                 await cursor.execute(sql.SQL(base_query).format(table=table_identifier))
 
     @contextlib.asynccontextmanager
@@ -305,6 +309,8 @@ class PostgreSQLClient:
             async with self.connection.cursor() as cursor:
                 if schema:
                     await cursor.execute(sql.SQL("SET search_path TO {schema}").format(schema=sql.Identifier(schema)))
+                await cursor.execute("SET TRANSACTION READ WRITE")
+
                 await cursor.execute(merge_query)
 
     async def copy_tsv_to_postgres(
@@ -328,6 +334,8 @@ class PostgreSQLClient:
             async with self.connection.cursor() as cursor:
                 if schema:
                     await cursor.execute(sql.SQL("SET search_path TO {schema}").format(schema=sql.Identifier(schema)))
+
+                await cursor.execute("SET TRANSACTION READ WRITE")
 
                 async with cursor.copy(
                     # TODO: Switch to binary encoding as CSV has a million edge cases.
