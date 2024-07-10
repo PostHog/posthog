@@ -205,7 +205,6 @@ export async function createHub(
         actionManager,
         conversionBufferEnabledTeams,
         pluginConfigsToSkipElementsParsing: buildIntegerMatcher(process.env.SKIP_ELEMENTS_PARSING_PLUGINS, true),
-        poeWritesExcludeTeams: buildIntegerMatcher(process.env.POE_WRITES_EXCLUDE_TEAMS, false),
         eventsToDropByToken: createEventsToDropByToken(process.env.DROP_EVENTS_BY_TOKEN_DISTINCT_ID),
     }
 
