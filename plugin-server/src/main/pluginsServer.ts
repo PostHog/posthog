@@ -17,7 +17,6 @@ import { Hub, PluginServerCapabilities, PluginsServerConfig } from '../types'
 import { createHub, createKafkaClient, createKafkaProducerWrapper } from '../utils/db/hub'
 import { PostgresRouter } from '../utils/db/postgres'
 import { cancelAllScheduledJobs } from '../utils/node-schedule'
-import { PeriodicTask } from '../utils/periodic-task'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
 import { createRedisClient, delay } from '../utils/utils'
@@ -118,8 +117,6 @@ export async function startPluginsServer(
     let jobsConsumer: Consumer | undefined
     let schedulerTasksConsumer: Consumer | undefined
 
-    let personOverridesPeriodicTask: PeriodicTask | undefined
-
     let httpServer: Server | undefined // server
 
     let graphileWorker: GraphileWorker | undefined
@@ -159,7 +156,6 @@ export async function startPluginsServer(
             stopSessionRecordingBlobConsumer?.(),
             stopSessionRecordingBlobOverflowConsumer?.(),
             schedulerTasksConsumer?.disconnect(),
-            personOverridesPeriodicTask?.stop(),
             ...shutdownCallbacks.map((cb) => cb()),
         ])
 
