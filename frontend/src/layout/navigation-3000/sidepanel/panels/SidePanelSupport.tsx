@@ -292,9 +292,7 @@ export const SidePanelSupport = (): JSX.Element => {
                                         <LemonButton
                                             type="secondary"
                                             status="alt"
-                                            to={`https://github.com/PostHog/posthog/issues/new?assignees=&labels=bug&projects=&template=bug_report.yml&debug-info=${encodeURIComponent(
-                                                getPublicSupportSnippet(region, user)
-                                            )}`}
+                                            to="https://github.com/PostHog/posthog/issues/new?assignees=&labels=bug&projects=&template=bug_report.yml"
                                             icon={<IconFeatures />}
                                             targetBlank
                                         >
