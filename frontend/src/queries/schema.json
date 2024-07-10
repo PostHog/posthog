@@ -1385,6 +1385,10 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
                 "columns": {
                     "items": {},
                     "type": "array"

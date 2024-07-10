@@ -1547,6 +1547,9 @@ class CachedSessionAttributionExplorerQueryResponse(BaseModel):
     )
     cache_key: str
     cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
     columns: Optional[list] = None
     error: Optional[str] = Field(
         default=None,

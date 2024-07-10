@@ -17,6 +17,12 @@ import { SessionPropertyFilter } from '~/types'
 import type { sessionAttributionExplorerLogicType } from './sessionAttributionExplorerLogicType'
 
 export const initialProperties = [] as SessionPropertyFilter[]
+export const initialGroupBy = [
+    SessionAttributionGroupBy.Source,
+    SessionAttributionGroupBy.Medium,
+    SessionAttributionGroupBy.ChannelType,
+    SessionAttributionGroupBy.ReferringDomain,
+]
 export const defaultDateRange: DateRange = { date_from: '-7d', date_to: 'now' }
 export const sessionAttributionExplorerLogic = kea<sessionAttributionExplorerLogicType>([
     path(['scenes', 'webAnalytics', 'sessionDebuggerLogic']),
@@ -29,6 +35,12 @@ export const sessionAttributionExplorerLogic = kea<sessionAttributionExplorerLog
         setStateFromUrl: (state: { properties: SessionPropertyFilter[]; dateRange: DateRange | null }) => ({
             state,
         }),
+        enableGroupBy: (groupBy: SessionAttributionGroupBy) => {
+            return { groupBy }
+        },
+        disableGroupBy: (groupBy: SessionAttributionGroupBy) => {
+            return { groupBy }
+        },
     }),
     reducers({
         properties: [
@@ -45,23 +57,29 @@ export const sessionAttributionExplorerLogic = kea<sessionAttributionExplorerLog
                 setStateFromUrl: (_, { state }) => state.dateRange,
             },
         ],
+        groupBy: [
+            initialGroupBy,
+            {
+                enableGroupBy: (state, { groupBy }) => {
+                    return Array.from(new Set([...state, groupBy]))
+                },
+                disableGroupBy: (state, { groupBy }) => {
+                    return state.filter((item) => item !== groupBy)
+                },
+            },
+        ],
     }),
     selectors({
         query: [
-            (s) => [s.properties, s.dateRange],
-            (properties: SessionPropertyFilter[], dateRange): DataTableNode => {
+            (s) => [s.properties, s.dateRange, s.groupBy],
+            (properties: SessionPropertyFilter[], dateRange, groupBy): DataTableNode => {
                 const filters = {
                     properties,
                     dateRange: dateRange ?? defaultDateRange,
                 }
                 const source: SessionAttributionExplorerQuery = {
                     kind: NodeKind.SessionAttributionExplorerQuery,
-                    groupBy: [
-                        SessionAttributionGroupBy.Source,
-                        SessionAttributionGroupBy.Medium,
-                        SessionAttributionGroupBy.ChannelType,
-                        SessionAttributionGroupBy.ReferringDomain,
-                    ],
+                    groupBy: groupBy,
                     filters: filters,
                 }
 
