@@ -300,8 +300,8 @@
          "posthog_action"."last_calculated_at"
   FROM "posthog_action"
   INNER JOIN "posthog_survey_actions" ON ("posthog_action"."id" = "posthog_survey_actions"."action_id")
-  WHERE "posthog_survey_actions"."survey_id" IN ('01909e707c2e00007e83addbfdefaf10'::uuid,
-                                                 '01909e707c37000004bdefb6e8ed2d54'::uuid)
+  WHERE "posthog_survey_actions"."survey_id" IN ('01909e7bfd44000025886fb8603ac48e'::uuid,
+                                                 '01909e7bfd4d0000cfe91e24f22ffdc2'::uuid)
   '''
 # ---
 # name: TestSurveysAPIList.test_list_surveys_with_actions
