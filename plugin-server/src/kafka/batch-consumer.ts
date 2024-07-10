@@ -172,12 +172,15 @@ export const startBatchConsumer = async ({
         'partition.assignment.strategy': 'cooperative-sticky',
         rebalance_cb: true,
         offset_commit_cb: true,
-        'statistics.interval.ms': kafkaStatisticIntervalMs,
     }
 
     // undefined is valid but things get unhappy if you provide that explicitly
     if (fetchMinBytes) {
         consumerConfig['fetch.min.bytes'] = fetchMinBytes
+    }
+
+    if (kafkaStatisticIntervalMs) {
+        consumerConfig['statistics.interval.ms'] = kafkaStatisticIntervalMs
     }
 
     if (debug) {

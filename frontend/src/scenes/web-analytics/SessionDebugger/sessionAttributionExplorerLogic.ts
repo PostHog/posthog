@@ -63,7 +63,7 @@ SELECT
         if(isNotNull($entry_gad_source), 'gad_source', NULL)
         -- add more here if we add more ad ids
     ], ','), '') as "context.columns.has_ad_id",
-    topK(3)($entry_current_url) as "context.columns.example_entry_urls"
+    topK(10)($entry_current_url) as "context.columns.example_entry_urls"
 FROM sessions
 WHERE {filters}
 GROUP BY

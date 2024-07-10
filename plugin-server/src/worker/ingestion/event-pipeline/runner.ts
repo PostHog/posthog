@@ -70,6 +70,37 @@ export class EventPipelineRunner {
         return dropIds?.includes(event.distinct_id) || dropIds?.includes('*') || false
     }
 
+    /**
+     * Heatmap ingestion will eventually be its own plugin server deployment
+     * in the meantime we run this set of steps instead of wrapping each step in a conditional
+     * in the main pipeline steps runner
+     * or having a conditional inside each step
+     * // TODO move this out into its own pipeline runner when splitting the deployment
+     */
+    async runHeatmapPipelineSteps(event: PluginEvent, kafkaAcks: Promise<void>[]): Promise<EventPipelineResult> {
+        const processPerson = false
+
+        const [normalizedEvent] = await this.runStep(normalizeEventStep, [event, processPerson], event.team_id)
+
+        const preparedEvent = await this.runStep(
+            prepareEventStep,
+            [this, normalizedEvent, processPerson],
+            event.team_id
+        )
+
+        const [preparedEventWithoutHeatmaps, heatmapKafkaAcks] = await this.runStep(
+            extractHeatmapDataStep,
+            [this, preparedEvent],
+            event.team_id
+        )
+
+        if (heatmapKafkaAcks.length > 0) {
+            kafkaAcks.push(...heatmapKafkaAcks)
+        }
+
+        return this.registerLastStep('extractHeatmapDataStep', [preparedEventWithoutHeatmaps], kafkaAcks)
+    }
+
     async runEventPipeline(event: PipelineEvent): Promise<EventPipelineResult> {
         this.originalEvent = event
 
@@ -191,6 +222,10 @@ export class EventPipelineRunner {
             return this.registerLastStep('clientIngestionWarning', [event], kafkaAcks)
         }
 
+        if (event.event === '$$heatmap') {
+            return this.runHeatmapPipelineSteps(event, kafkaAcks)
+        }
+
         const processedEvent = await this.runStep(pluginsProcessEventStep, [this, event], event.team_id)
         if (processedEvent == null) {
             // A plugin dropped the event.
@@ -216,6 +251,9 @@ export class EventPipelineRunner {
             event.team_id
         )
 
+        // TRICKY: old client might still be sending heatmap_data as passengers on other events
+        // so this step is here even though up-to-date clients will be sending heatmap events
+        // for separate processing
         const [preparedEventWithoutHeatmaps, heatmapKafkaAcks] = await this.runStep(
             extractHeatmapDataStep,
             [this, preparedEvent],
@@ -246,7 +284,7 @@ export class EventPipelineRunner {
         args: Parameters<Step>,
         teamId: number,
         sentToDql = true
-    ): ReturnType<Step> {
+    ): Promise<ReturnType<Step>> {
         const timer = new Date()
         return runInSpan(
             {
