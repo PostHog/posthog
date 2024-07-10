@@ -2,9 +2,9 @@ import { LemonButton, LemonTable, LemonTableColumns, LemonTag, LemonTagType } fr
 import { useActions, useValues } from 'kea'
 import { sourceWizardLogic } from 'scenes/data-warehouse/new/sourceWizardLogic'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
+import { defaultQuery } from 'scenes/data-warehouse/utils'
 import { urls } from 'scenes/urls'
 
-import { DataTableNode, NodeKind } from '~/queries/schema'
 import { ExternalDataSourceSchema } from '~/types'
 
 export const SyncProgressStep = (): JSX.Element => {
@@ -68,21 +68,7 @@ export const SyncProgressStep = (): JSX.Element => {
             width: 0,
             render: function RenderStatus(_, schema) {
                 if (schema.table && schema.status === 'Completed') {
-                    const query: DataTableNode = {
-                        kind: NodeKind.DataTableNode,
-                        full: true,
-                        source: {
-                            kind: NodeKind.HogQLQuery,
-                            query: `SELECT ${schema.table.columns
-                                .filter(
-                                    ({ table, fields, chain, schema_valid }) =>
-                                        !table && !fields && !chain && schema_valid
-                                )
-                                .map(({ name }) => name)} FROM ${
-                                schema.table.name === 'numbers' ? 'numbers(0, 10)' : schema.table.name
-                            } LIMIT 100`,
-                        },
-                    }
+                    const query = defaultQuery(schema.table.name, schema.table.columns)
                     return (
                         <LemonButton
                             className="my-1"
