@@ -43,5 +43,9 @@ class Annotation(models.Model):
     def insight_name(self) -> Optional[str]:
         return self.dashboard_item.name if self.dashboard_item is not None else None
 
+    @property
+    def dashboard_name(self) -> Optional[str]:
+        return self.dashboard.name if self.dashboard is not None else None
+
     def get_analytics_metadata(self):
         return {"scope": str(self.scope), "date_marker": self.date_marker}
