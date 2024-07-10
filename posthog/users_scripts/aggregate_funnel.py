@@ -3,14 +3,15 @@ import ast
 import sys
 from dataclasses import dataclass, replace
 from itertools import groupby, permutations
-from typing import Any
+from typing import Any, cast
+from collections.abc import Callable
 from collections.abc import Sequence
 
 N_ARGS = 6
 
 
 def parse_args(line):
-    arg_functions = [int, int, str, str, ast.literal_eval, ast.literal_eval]
+    arg_functions: list[Callable] = [int, int, str, str, ast.literal_eval, ast.literal_eval]
     args = []
     start = 0
     for i in range(N_ARGS - 1):
@@ -109,8 +110,8 @@ def parse_user_aggregation_with_conversion_window_and_breakdown(
         entered_timestamp: list[EnteredTimestamp] = [default_entered_timestamp] * (num_steps + 1)
 
         def add_max_step():
-            i = max_step[0]
-            final = max_step[1]
+            i = cast(int, max_step[0])
+            final = cast(EnteredTimestamp, max_step[1])
             results.append(
                 f"({i - 1}, {breakdown_to_single_quoted_string(prop_val)}, {str([final.timings[i] - final.timings[i - 1] for i in range(1, i)])})"
             )
