@@ -87,24 +87,23 @@ export function calculateCost(object: any, marked: Set<any> | undefined = undefi
     if (!marked) {
         marked = new Set()
     }
-    if (typeof object === 'object' && object !== null && marked.has(object)) {
-        return COST_PER_UNIT
-    }
-    marked.add(object)
-    if (object instanceof Map) {
-        return (
-            COST_PER_UNIT +
-            Array.from(object.keys()).reduce(
-                (acc, key) => acc + calculateCost(key, marked) + calculateCost(object.get(key), marked),
-                0
-            )
-        )
-    } else if (typeof object === 'object') {
-        if (Array.isArray(object)) {
-            return COST_PER_UNIT + object.reduce((acc, val) => acc + calculateCost(val, marked), 0)
-        } else if (object === null) {
+    if (typeof object === 'object' && object !== null) {
+        if (marked.has(object)) {
             return COST_PER_UNIT
-        } else {
+        }
+        marked.add(object)
+        try {
+            if (object instanceof Map) {
+                return (
+                    COST_PER_UNIT +
+                    Array.from(object.keys()).reduce(
+                        (acc, key) => acc + calculateCost(key, marked) + calculateCost(object.get(key), marked),
+                        0
+                    )
+                )
+            } else if (Array.isArray(object)) {
+                return COST_PER_UNIT + object.reduce((acc, val) => acc + calculateCost(val, marked), 0)
+            }
             return (
                 COST_PER_UNIT +
                 Object.keys(object).reduce(
@@ -112,10 +111,11 @@ export function calculateCost(object: any, marked: Set<any> | undefined = undefi
                     0
                 )
             )
+        } finally {
+            marked.delete(object)
         }
     } else if (typeof object === 'string') {
         return COST_PER_UNIT + object.length
-    } else {
-        return COST_PER_UNIT
     }
+    return COST_PER_UNIT
 }

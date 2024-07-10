@@ -43,37 +43,37 @@ export function printHogValue(obj: any, marked: Set<any> | undefined = undefined
     if (!marked) {
         marked = new Set()
     }
-    if (typeof obj === 'object' && obj !== null && marked.has(obj)) {
-        return 'null'
-    }
-    marked.add(obj)
-    if (Array.isArray(obj)) {
-        if ((obj as any).__isHogTuple) {
-            if (obj.length < 2) {
-                return `tuple(${obj.map((o) => printHogValue(o, marked)).join(', ')})`
-            }
-            return `(${obj.map((o) => printHogValue(o, marked)).join(', ')})`
-        } else {
-            return `[${obj.map((o) => printHogValue(o, marked)).join(', ')}]`
-        }
-    }
-    if (obj instanceof Map) {
-        return `{${Array.from(obj.entries())
-            .map(([key, value]) => `${printHogValue(key, marked)}: ${printHogValue(value, marked)}`)
-            .join(', ')}}`
-    }
     if (typeof obj === 'object' && obj !== null) {
-        return `{${Object.entries(obj)
-            .map(([key, value]) => `${printHogValue(key, marked)}: ${printHogValue(value, marked)}`)
-            .join(', ')}}`
-    }
-    if (typeof obj === 'boolean') {
+        if (marked.has(obj)) {
+            return 'null'
+        }
+        marked.add(obj)
+        try {
+            if (Array.isArray(obj)) {
+                if ((obj as any).__isHogTuple) {
+                    if (obj.length < 2) {
+                        return `tuple(${obj.map((o) => printHogValue(o, marked)).join(', ')})`
+                    }
+                    return `(${obj.map((o) => printHogValue(o, marked)).join(', ')})`
+                }
+                return `[${obj.map((o) => printHogValue(o, marked)).join(', ')}]`
+            }
+            if (obj instanceof Map) {
+                return `{${Array.from(obj.entries())
+                    .map(([key, value]) => `${printHogValue(key, marked)}: ${printHogValue(value, marked)}`)
+                    .join(', ')}}`
+            }
+            return `{${Object.entries(obj)
+                .map(([key, value]) => `${printHogValue(key, marked)}: ${printHogValue(value, marked)}`)
+                .join(', ')}}`
+        } finally {
+            marked.delete(obj)
+        }
+    } else if (typeof obj === 'boolean') {
         return obj ? 'true' : 'false'
-    }
-    if (obj === null) {
+    } else if (obj === null) {
         return 'null'
-    }
-    if (typeof obj === 'string') {
+    } else if (typeof obj === 'string') {
         return escapeString(obj)
     }
     return obj.toString()

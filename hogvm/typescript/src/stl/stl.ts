@@ -84,24 +84,31 @@ export const STL: Record<string, (args: any[], name: string, timeout: number) =>
             if (!marked) {
                 marked = new Set()
             }
-            if (typeof x === 'object' && x !== null && marked.has(x)) {
-                return null
-            }
-            marked.add(x)
-            if (x instanceof Map) {
-                const obj: Record<string, any> = {}
-                x.forEach((value, key) => {
-                    obj[convert(key, marked)] = convert(value, marked)
-                })
-                return obj
-            } else if (typeof x === 'object' && Array.isArray(x)) {
-                return x.map((v) => convert(v, marked))
-            } else if (typeof x === 'object' && x !== null) {
-                const obj: Record<string, any> = {}
-                for (const key in x) {
-                    obj[key] = convert(x[key], marked)
+            if (typeof x === 'object' && x !== null) {
+                if (marked.has(x)) {
+                    return null
                 }
-                return obj
+                marked.add(x)
+                try {
+                    if (x instanceof Map) {
+                        const obj: Record<string, any> = {}
+                        x.forEach((value, key) => {
+                            obj[convert(key, marked)] = convert(value, marked)
+                        })
+                        return obj
+                    }
+                    if (typeof x === 'object' && Array.isArray(x)) {
+                        return x.map((v) => convert(v, marked))
+                    }
+
+                    const obj: Record<string, any> = {}
+                    for (const key in x) {
+                        obj[key] = convert(x[key], marked)
+                    }
+                    return obj
+                } finally {
+                    marked.delete(x)
+                }
             }
             return x
         }

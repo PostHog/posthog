@@ -115,14 +115,16 @@ def jsonStringify(name: str, args: list[Any], team: Optional["Team"], stdout: Op
                 return None
             else:
                 marked.add(id(obj))
-        if isinstance(obj, dict):
-            return {json_safe(k): json_safe(v) for k, v in obj.items()}
-        elif isinstance(obj, list):
-            return [json_safe(v) for v in obj]
-        elif isinstance(obj, tuple):
-            return tuple(json_safe(v) for v in obj)
-        else:
-            return obj
+                try:
+                    if isinstance(obj, dict):
+                        return {json_safe(k): json_safe(v) for k, v in obj.items()}
+                    elif isinstance(obj, list):
+                        return [json_safe(v) for v in obj]
+                    elif isinstance(obj, tuple):
+                        return tuple(json_safe(v) for v in obj)
+                finally:
+                    marked.remove(id(obj))
+        return obj
 
     if len(args) > 1 and isinstance(args[1], int) and args[1] > 0:
         return json.dumps(json_safe(args[0]), indent=args[1])

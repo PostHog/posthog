@@ -34,18 +34,21 @@ def escape_identifier(identifier: str | int) -> str:
 def print_hog_value(obj, marked: set | None = None):
     if marked is None:
         marked = set()
-    if (isinstance(obj, list) or isinstance(obj, dict) or isinstance(obj, tuple)) and id(obj) in marked:
-        return "null"
-    marked.add(id(obj))
-
-    if isinstance(obj, list):
-        return f"[{', '.join([print_hog_value(o, marked) for o in obj])}]"
-    if isinstance(obj, dict):
-        return f"{{{', '.join([f'{print_hog_value(key, marked)}: {print_hog_value(value, marked)}' for key, value in obj.items()])}}}"
-    if isinstance(obj, tuple):
-        if len(obj) < 2:
-            return f"tuple({', '.join([print_hog_value(o, marked) for o in obj])})"
-        return f"({', '.join([print_hog_value(o, marked) for o in obj])})"
+    if isinstance(obj, list) or isinstance(obj, dict) or isinstance(obj, tuple):
+        if id(obj) in marked:
+            return "null"
+        marked.add(id(obj))
+        try:
+            if isinstance(obj, list):
+                return f"[{', '.join([print_hog_value(o, marked) for o in obj])}]"
+            if isinstance(obj, dict):
+                return f"{{{', '.join([f'{print_hog_value(key, marked)}: {print_hog_value(value, marked)}' for key, value in obj.items()])}}}"
+            if isinstance(obj, tuple):
+                if len(obj) < 2:
+                    return f"tuple({', '.join([print_hog_value(o, marked) for o in obj])})"
+                return f"({', '.join([print_hog_value(o, marked) for o in obj])})"
+        finally:
+            marked.remove(id(obj))
     if obj is True:
         return "true"
     if obj is False:

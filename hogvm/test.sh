@@ -6,6 +6,9 @@ cd ..
 
 cd ..
 
+rm -f hogvm/__tests__/__snapshots__/*.stdout.nodejs
+rm -f hogvm/__tests__/__snapshots__/*.stdout.python
+
 for file in hogvm/__tests__/*.hog; do
     echo "Testing $file"
 
@@ -24,7 +27,6 @@ for file in hogvm/__tests__/*.hog; do
         rm $basename.stdout.python
     else
         echo "Test failed"
-        rm $basename.stdout.nodejs $basename.stdout.python
     fi
     set -e
 done
