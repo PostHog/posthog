@@ -202,9 +202,8 @@ export function SessionAttributionExplorer(): JSX.Element {
                             <Link to="https://posthog.com/docs/data/channel-type">Channel type</Link>.
                         </p>
                         <p>
-                            The table below groups sessions with the same value for Channel type, referring domain,
-                            source, medium, and which ad ids are present. It shows the count of sessions in each group,
-                            and some example entry URLs from that group.
+                            The table below shows sessions that are grouped, and you can change how they are grouped.
+                            Any columns that are not used in the grouping will show example values.
                         </p>
                         <p>If you believe that a session is attributed incorrectly, please let us know!</p>
                     </div>
