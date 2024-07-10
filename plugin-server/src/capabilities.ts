@@ -14,6 +14,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 ingestion: true,
                 ingestionOverflow: true,
                 ingestionHistorical: true,
+                eventsIngestionPipelines: true, // with null PluginServerMode we run all of them
                 pluginScheduledTasks: true,
                 processPluginJobs: true,
                 processAsyncOnEventHandlers: true,
@@ -45,6 +46,12 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return {
                 mmdb: true,
                 ingestionHistorical: true,
+                ...sharedCapabilities,
+            }
+        case PluginServerMode.events_ingestion:
+            return {
+                mmdb: true,
+                eventsIngestionPipelines: true,
                 ...sharedCapabilities,
             }
         case PluginServerMode.analytics_ingestion:

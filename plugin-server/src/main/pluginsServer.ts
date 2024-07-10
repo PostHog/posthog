@@ -34,6 +34,11 @@ import { startGraphileWorker } from './graphile-worker/worker-setup'
 import { startAnalyticsEventsIngestionConsumer } from './ingestion-queues/analytics-events-ingestion-consumer'
 import { startAnalyticsEventsIngestionHistoricalConsumer } from './ingestion-queues/analytics-events-ingestion-historical-consumer'
 import { startAnalyticsEventsIngestionOverflowConsumer } from './ingestion-queues/analytics-events-ingestion-overflow-consumer'
+import {
+    PIPELINES,
+    PipelineType,
+    startEventsIngestionPipelineConsumer,
+} from './ingestion-queues/events-ingestion-consumer'
 import { startJobsConsumer } from './ingestion-queues/jobs-consumer'
 import { IngestionConsumer, KafkaJSIngestionConsumer } from './ingestion-queues/kafka-queue'
 import {
@@ -102,6 +107,7 @@ export async function startPluginsServer(
     let analyticsEventsIngestionConsumer: IngestionConsumer | undefined
     let analyticsEventsIngestionOverflowConsumer: IngestionConsumer | undefined
     let analyticsEventsIngestionHistoricalConsumer: IngestionConsumer | undefined
+    let eventsIngestionConsumer: Map<string, IngestionConsumer> | undefined
     let onEventHandlerConsumer: KafkaJSIngestionConsumer | undefined
     let stopWebhooksHandlerConsumer: () => Promise<void> | undefined
 
@@ -149,6 +155,7 @@ export async function startPluginsServer(
             analyticsEventsIngestionConsumer?.stop(),
             analyticsEventsIngestionOverflowConsumer?.stop(),
             analyticsEventsIngestionHistoricalConsumer?.stop(),
+            ...Array.from(eventsIngestionConsumer?.values() || []).map((consumer) => consumer.stop()),
             onEventHandlerConsumer?.stop(),
             stopWebhooksHandlerConsumer?.(),
             bufferConsumer?.disconnect(),
@@ -332,6 +339,36 @@ export async function startPluginsServer(
             analyticsEventsIngestionHistoricalConsumer = queue
             shutdownOnConsumerExit(analyticsEventsIngestionHistoricalConsumer.consumer!)
             healthChecks['analytics-ingestion-historical'] = isAnalyticsEventsIngestionHistoricalHealthy
+        }
+
+        if (capabilities.eventsIngestionPipelines) {
+            async function start(pipelineKey: string, pipeline: PipelineType) {
+                ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, capabilities)
+                serverInstance = serverInstance ? serverInstance : { hub }
+                piscina = piscina ?? (await makePiscina(serverConfig, hub))
+                const { queue, isHealthy: isHealthy } = await startEventsIngestionPipelineConsumer({
+                    hub: hub,
+                    pipeline: pipeline,
+                })
+
+                eventsIngestionConsumer = eventsIngestionConsumer ?? new Map<string, IngestionConsumer>()
+                eventsIngestionConsumer.set(pipelineKey, queue)
+                shutdownOnConsumerExit(eventsIngestionConsumer.get(pipelineKey)!.consumer!)
+                healthChecks[`events-ingestion-pipeline-${pipelineKey}`] = isHealthy
+            }
+            if (serverConfig.PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE === null) {
+                for (const pipelineKey in PIPELINES) {
+                    await start(pipelineKey, PIPELINES[pipelineKey])
+                }
+            } else {
+                // Validate we have a valid pipeline
+                const pipelineKey = serverConfig.PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE
+                if (pipelineKey === null || !PIPELINES[pipelineKey]) {
+                    throw new Error(`Invalid events ingestion pipeline: ${pipelineKey}`)
+                }
+                const pipeline: PipelineType = PIPELINES[pipelineKey]
+                await start(pipelineKey, pipeline)
+            }
         }
 
         if (capabilities.ingestionOverflow) {
