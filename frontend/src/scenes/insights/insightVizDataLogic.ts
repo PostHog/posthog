@@ -179,7 +179,9 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         isUsingSessionAnalysis: [
             (s) => [s.series, s.breakdownFilter, s.properties],
             (series, breakdownFilter, properties) => {
-                const using_session_breakdown = breakdownFilter?.breakdown_type === 'session'
+                const using_session_breakdown =
+                    breakdownFilter?.breakdown_type === 'session' ||
+                    breakdownFilter?.breakdowns?.find((breakdown) => breakdown.type === 'session')
                 const using_session_math = series?.some((entity) => entity.math === 'unique_session')
                 const using_session_property_math = series?.some((entity) => {
                     // Should be made more generic is we ever add more session properties
