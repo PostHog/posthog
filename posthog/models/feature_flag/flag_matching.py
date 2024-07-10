@@ -115,7 +115,7 @@ class FlagsMatcherCache:
             raise DatabaseError("Failed to fetch group type mapping previously, not trying again.")
         try:
             with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS, DATABASE_FOR_FLAG_MATCHING):
-                group_type_mapping_rows = GroupTypeMapping.objects.using(DATABASE_FOR_FLAG_MATCHING).filter(
+                group_type_mapping_rows = GroupTypeMapping.objects.db_manager(DATABASE_FOR_FLAG_MATCHING).filter(
                     team_id=self.team_id
                 )
                 return {row.group_type: row.group_type_index for row in group_type_mapping_rows}
@@ -412,12 +412,14 @@ class FeatureFlagMatcher:
             with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS * 2, DATABASE_FOR_FLAG_MATCHING):
                 all_conditions: dict = {}
                 team_id = self.feature_flags[0].team_id
-                person_query: QuerySet = Person.objects.using(DATABASE_FOR_FLAG_MATCHING).filter(
+                person_query: QuerySet = Person.objects.db_manager(DATABASE_FOR_FLAG_MATCHING).filter(
                     team_id=team_id,
                     persondistinctid__distinct_id=self.distinct_id,
                     persondistinctid__team_id=team_id,
                 )
-                basic_group_query: QuerySet = Group.objects.using(DATABASE_FOR_FLAG_MATCHING).filter(team_id=team_id)
+                basic_group_query: QuerySet = Group.objects.db_manager(DATABASE_FOR_FLAG_MATCHING).filter(
+                    team_id=team_id
+                )
                 group_query_per_group_type_mapping: dict[GroupTypeIndex, tuple[QuerySet, list[str]]] = {}
                 # :TRICKY: Create a queryset for each group type that uniquely identifies a group, based on the groups passed in.
                 # If no groups for a group type are passed in, we can skip querying for that group type,
@@ -546,7 +548,7 @@ class FeatureFlagMatcher:
                 if not self.cohorts_cache and any(feature_flag.uses_cohorts for feature_flag in self.feature_flags):
                     all_cohorts = {
                         cohort.pk: cohort
-                        for cohort in Cohort.objects.using(DATABASE_FOR_FLAG_MATCHING).filter(
+                        for cohort in Cohort.objects.db_manager(DATABASE_FOR_FLAG_MATCHING).filter(
                             team_id=team_id, deleted=False
                         )
                     }
@@ -692,7 +694,7 @@ def get_feature_flag_hash_key_overrides(
 
     if not person_id_to_distinct_id_mapping:
         person_and_distinct_ids = list(
-            PersonDistinctId.objects.using(using_database)
+            PersonDistinctId.objects.db_manager(using_database)
             .filter(distinct_id__in=distinct_ids, team_id=team_id)
             .values_list("person_id", "distinct_id")
         )
@@ -703,7 +705,7 @@ def get_feature_flag_hash_key_overrides(
     person_ids = list(person_id_to_distinct_id.keys())
 
     for feature_flag, override, _ in sorted(
-        FeatureFlagHashKeyOverride.objects.using(using_database)
+        FeatureFlagHashKeyOverride.objects.db_manager(using_database)
         .filter(person_id__in=person_ids, team_id=team_id)
         .values_list("feature_flag_key", "hash_key", "person_id"),
         key=lambda x: 1 if person_id_to_distinct_id.get(x[2], "") == distinct_ids[0] else -1,
@@ -1027,7 +1029,7 @@ def get_all_properties_with_math_operators(
             cohort_id = int(cast(Union[str, int], prop.value))
             if cohorts_cache.get(cohort_id) is None:
                 queried_cohort = (
-                    Cohort.objects.using(DATABASE_FOR_FLAG_MATCHING)
+                    Cohort.objects.db_manager(DATABASE_FOR_FLAG_MATCHING)
                     .filter(pk=cohort_id, team_id=team_id, deleted=False)
                     .first()
                 )

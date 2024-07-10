@@ -10,6 +10,8 @@ if TYPE_CHECKING:
 
 
 class ProjectManager(models.Manager):
+    model: "Project"
+
     def create_with_team(self, team_fields: Optional[dict] = None, **kwargs) -> tuple["Project", "Team"]:
         from .team import Team
 

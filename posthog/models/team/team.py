@@ -62,6 +62,8 @@ class AvailableExtraSettings:
 
 
 class TeamManager(models.Manager):
+    model: "Team"
+
     def get_queryset(self):
         return super().get_queryset().defer(*DEPRECATED_ATTRS)
 
@@ -102,7 +104,7 @@ class TeamManager(models.Manager):
     def create(self, *args, **kwargs) -> "Team":
         from ..project import Project
 
-        with transaction.atomic():
+        with transaction.atomic(using=self._db):
             if "id" not in kwargs:
                 kwargs["id"] = self.increment_id_sequence()
             if kwargs.get("project") is None and kwargs.get("project_id") is None:
@@ -115,7 +117,7 @@ class TeamManager(models.Manager):
                     project_kwargs["organization_id"] = organization_id
                 if name := kwargs.get("name"):
                     project_kwargs["name"] = name
-                kwargs["project"] = Project.objects.create(id=kwargs["id"], **project_kwargs)
+                kwargs["project"] = Project.objects.db_manager(self._db).create(id=kwargs["id"], **project_kwargs)
             return super().create(*args, **kwargs)
 
     def get_team_from_token(self, token: Optional[str]) -> Optional["Team"]:
