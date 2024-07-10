@@ -173,15 +173,10 @@ jobs:
               run: cd plugin-server && pnpm test -- --runInBand --forceExit tests/ --shard=${{matrix.shard}}
 
     functional-tests:
-        name: Functional tests (POE=${{matrix.POE_EMBRACE_JOIN_FOR_TEAMS}},RDK=${{matrix.KAFKA_CONSUMPTION_USE_RDKAFKA}})
+        name: Functional tests
         needs: changes
         if: needs.changes.outputs.plugin-server == 'true'
         runs-on: ubuntu-latest
-
-        strategy:
-            fail-fast: false
-            matrix:
-                POE_EMBRACE_JOIN_FOR_TEAMS: ['', '*']
 
         env:
             REDIS_URL: 'redis://localhost'
@@ -190,7 +185,6 @@ jobs:
             KAFKA_HOSTS: 'kafka:9092'
             DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
             RELOAD_PLUGIN_JITTER_MAX_MS: 0
-            POE_EMBRACE_JOIN_FOR_TEAMS: ${{matrix.POE_EMBRACE_JOIN_FOR_TEAMS}}
 
         steps:
             - name: Code check out
