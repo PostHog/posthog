@@ -6,6 +6,7 @@ import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { ReactNode } from 'react'
 import { urls } from 'scenes/urls'
 
+import { propertyFilterTypeToPropertyDefinitionType } from '~/lib/components/PropertyFilters/utils'
 import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
 import { examples } from '~/queries/examples'
 import { ActionsNode, BreakdownFilter, DataWarehouseNode, EventsNode, PathsFilter } from '~/queries/schema'
@@ -242,7 +243,8 @@ function formatNumericBreakdownLabel(
         return (
             formatPropertyValueForDisplay(
                 nestedBreakdown?.value ?? breakdownFilter?.breakdown,
-                breakdown_value
+                breakdown_value,
+                propertyFilterTypeToPropertyDefinitionType(nestedBreakdown?.type ?? breakdownFilter?.breakdown_type)
             )?.toString() ?? 'None'
         )
     }
@@ -257,6 +259,12 @@ export function formatBreakdownLabel(
     formatPropertyValueForDisplay: FormatPropertyValueForDisplayFunction | undefined,
     multipleBreakdownIndex?: number
 ): string {
+    if (Array.isArray(breakdown_value)) {
+        return breakdown_value
+            .map((v, index) => formatBreakdownLabel(v, breakdownFilter, cohorts, formatPropertyValueForDisplay, index))
+            .join('::')
+    }
+
     if (typeof breakdown_value === 'string' && breakdown_value.length > 0 && isValidJsonArray(breakdown_value)) {
         // replace nan with null
         const bucketValues = breakdown_value.replace(/\bnan\b/g, 'null')
@@ -315,12 +323,6 @@ export function formatBreakdownLabel(
             : isNullBreakdown(breakdown_value) || breakdown_value === ''
             ? BREAKDOWN_NULL_DISPLAY
             : breakdown_value
-    }
-
-    if (Array.isArray(breakdown_value)) {
-        return breakdown_value
-            .map((v, index) => formatBreakdownLabel(v, breakdownFilter, cohorts, formatPropertyValueForDisplay, index))
-            .join('::')
     }
 
     return ''
