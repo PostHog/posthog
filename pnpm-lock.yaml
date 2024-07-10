@@ -263,8 +263,8 @@ dependencies:
     specifier: ^9.3.0
     version: 9.3.0(postcss@8.4.31)
   posthog-js:
-    specifier: 1.145.0
-    version: 1.145.0
+    specifier: 1.145.1
+    version: 1.145.1
   posthog-js-lite:
     specifier: 3.0.0
     version: 3.0.0
@@ -6540,7 +6540,7 @@ packages:
       '@storybook/client-logger': 7.6.20
       '@storybook/core-events': 7.6.20
       '@storybook/global': 5.0.0
-      qs: 6.12.2
+      qs: 6.12.3
       telejson: 7.2.0
       tiny-invariant: 1.3.3
     dev: true
@@ -7054,7 +7054,7 @@ packages:
       dequal: 2.0.3
       lodash: 4.17.21
       memoizerific: 1.11.3
-      qs: 6.12.2
+      qs: 6.12.3
       synchronous-promise: 2.0.17
       ts-dedent: 2.2.0
       util-deprecate: 1.0.2
@@ -7214,7 +7214,7 @@ packages:
     dependencies:
       '@storybook/client-logger': 7.6.20
       memoizerific: 1.11.3
-      qs: 6.12.2
+      qs: 6.12.3
     dev: true
 
   /@storybook/router@7.6.4:
@@ -17710,8 +17710,8 @@ packages:
     resolution: {integrity: sha512-dyajjnfzZD1tht4N7p7iwf7nBnR1MjVaVu+MKr+7gBgA39bn28wizCIJZztZPtHy4PY0YwtSGgwfBCuG/hnHgA==}
     dev: false
 
-  /posthog-js@1.145.0:
-    resolution: {integrity: sha512-LQdH6S2Ks3mnCI0q9aD5SZS0Uujc/90nuJuEeGDeGkWkVkYOSQJt4n0UHrIWEsZdmIKZf0a6OIBhTmO+yUiY3w==}
+  /posthog-js@1.145.1:
+    resolution: {integrity: sha512-T/M4Hk2X7vp3ivHP72FJzF4lqMQt59Rsugl8z3Uxb5xmeV2wDUstDeqEgu3NUVwAbWIwqXiMZF8At5Qzvbfffg==}
     dependencies:
       fflate: 0.4.8
       preact: 10.22.1
@@ -18088,8 +18088,8 @@ packages:
       side-channel: 1.0.6
     dev: true
 
-  /qs@6.12.2:
-    resolution: {integrity: sha512-x+NLUpx9SYrcwXtX7ob1gnkSems4i/mGZX5SlYxwIau6RrUSODO89TR/XDGGpn5RPWSYIB+aSfuSlV5+CmbTBg==}
+  /qs@6.12.3:
+    resolution: {integrity: sha512-AWJm14H1vVaO/iNZ4/hO+HyaTehuy9nRqVdkTqlJt0HWvBiBIEXFmb4C0DGeYo3Xes9rrEW+TxHsaigCbN5ICQ==}
     engines: {node: '>=0.6'}
     dependencies:
       side-channel: 1.0.6
