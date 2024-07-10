@@ -904,7 +904,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
 
         response = self.client.post(
             f"/api/organizations/{my_org.id}/plugins/",
-            {"url": "https://github.com/PostHog/helloworldplugin"},
+            {"url": "https://github.com/PostHog/helloworldplugin/1"},
         )
         self.assertEqual(response.status_code, 400)
         self.assertEqual(Plugin.objects.count(), 1)
@@ -912,7 +912,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         # try to save it for another org
         response = self.client.post(
             f"/api/organizations/{other_org.id}/plugins/",
-            {"url": "https://github.com/PostHog/helloworldplugin"},
+            {"url": "https://github.com/PostHog/helloworldplugin/2"},
         )
         self.assertEqual(response.status_code, 403)
         self.assertEqual(Plugin.objects.count(), 1)
@@ -921,13 +921,13 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
 
         response = self.client.post(
             f"/api/organizations/{other_org.id}/plugins/",
-            {"url": "https://github.com/PostHog/helloworldplugin"},
+            {"url": "https://github.com/PostHog/helloworldplugin/3"},
         )
         self.assertEqual(response.status_code, 201)
         self.assertEqual(Plugin.objects.count(), 2)
         response = self.client.post(
             f"/api/organizations/{other_org.id}/plugins/",
-            {"url": "https://github.com/PostHog/helloworldplugin"},
+            {"url": "https://github.com/PostHog/helloworldplugin/4"},
         )
         self.assertEqual(response.status_code, 400)
         self.assertEqual(Plugin.objects.count(), 2)
