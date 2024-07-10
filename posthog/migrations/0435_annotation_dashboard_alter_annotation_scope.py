@@ -36,6 +36,7 @@ import django.db.models.deletion
 
 
 class Migration(migrations.Migration):
+    atomic = False  # Added to support concurrent index creation
     dependencies = [
         ("posthog", "0434_add_web_vitals_opt_in"),
     ]
