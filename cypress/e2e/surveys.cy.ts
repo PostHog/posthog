@@ -156,10 +156,11 @@ describe('Surveys', () => {
 
         // delete survey
         cy.get('[data-attr="more-button"]').click()
+        cy.get('.Popover__content').contains('Delete').click()
         // handle confirmation dialog
         cy.get('.LemonModal__layout').should('be.visible')
         cy.contains('Delete this survey?').should('be.visible')
-        cy.get('.LemonModal__footer').contains('button', 'Stop').click()
+        cy.get('.LemonModal__footer').contains('button', 'Delete').click()
         cy.clickNavMenu('surveys')
         cy.get('tbody').should('not.exist')
     })
@@ -239,6 +240,9 @@ describe('Surveys', () => {
         cy.clickNavMenu('surveys')
         cy.get('[data-attr=surveys-table]').find(`[data-row-key="${name}"]`).find('a').click()
         cy.get('[data-attr=stop-survey]').click()
+        cy.get('.LemonModal__footer').should('be.visible')
+        cy.contains('Stop this survey?').should('be.visible')
+        cy.get('.LemonModal__footer').contains('button', 'Stop').click()
         cy.get('[data-attr=more-button]').click()
         cy.get('[data-attr=archive-survey]').click()
         cy.get('.LemonModal__footer').should('be.visible')
