@@ -26,6 +26,7 @@ export interface OnboardingLogicProps {
 export enum OnboardingStepKey {
     PRODUCT_INTRO = 'product_intro',
     INSTALL = 'install',
+    LINK_DATA = 'link_data',
     PLANS = 'plans',
     VERIFY = 'verify',
     PRODUCT_CONFIGURATION = 'configure',
