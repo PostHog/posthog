@@ -18,6 +18,7 @@ import { notebookActivityDescriber } from 'scenes/notebooks/Notebook/notebookAct
 import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
 import { pluginActivityDescriber } from 'scenes/plugins/pluginActivityDescriptions'
 import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
+import { surveyActivityDescriber } from 'scenes/surveys/surveyActivityDescriber'
 import { teamActivityDescriber } from 'scenes/teamActivityDescriber'
 import { urls } from 'scenes/urls'
 
@@ -50,6 +51,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return notebookActivityDescriber
         case ActivityScope.TEAM:
             return teamActivityDescriber
+        case ActivityScope.SURVEY:
+            return surveyActivityDescriber
         default:
             return (logActivity, asNotification) => defaultDescriber(logActivity, asNotification)
     }

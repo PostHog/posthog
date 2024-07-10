@@ -24,10 +24,12 @@ from posthog.api.utils import get_token
 from posthog.client import sync_execute
 from posthog.constants import AvailableFeature
 from posthog.exceptions import generate_exception_response
+from posthog.models.activity_logging.activity_log import changes_between, log_activity, Detail
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.feedback.survey import Survey
 from posthog.models.team.team import Team
 from posthog.utils_cors import cors_response
+from loginas.utils import is_impersonated_session
 
 SURVEY_TARGETING_FLAG_PREFIX = "survey-targeting-"
 ALLOWED_LINK_URL_SCHEMES = ["https", "mailto"]
@@ -252,9 +254,22 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
         instance = super().create(validated_data)
         self._add_user_survey_interacted_filters(instance)
 
+        team = Team.objects.get(id=self.context["team_id"])
+        log_activity(
+            organization_id=team.organization_id,
+            team_id=self.context["team_id"],
+            user=self.context["request"].user,
+            was_impersonated=is_impersonated_session(self.context["request"]),
+            item_id=instance.id,
+            scope="Survey",
+            activity="created",
+            detail=Detail(name=instance.name),
+        )
+
         return instance
 
     def update(self, instance: Survey, validated_data):
+        before_update = Survey.objects.get(pk=instance.pk)
         if validated_data.get("remove_targeting_flag"):
             if instance.targeting_flag:
                 instance.targeting_flag.delete()
@@ -302,6 +317,19 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
         instance = super().update(instance, validated_data)
 
         self._add_user_survey_interacted_filters(instance, end_date)
+
+        team = Team.objects.get(id=self.context["team_id"])
+        changes = changes_between("Survey", previous=before_update, current=instance)
+        log_activity(
+            organization_id=team.organization_id,
+            team_id=self.context["team_id"],
+            user=self.context["request"].user,
+            was_impersonated=is_impersonated_session(self.context["request"]),
+            item_id=instance.id,
+            scope="Survey",
+            activity="updated",
+            detail=Detail(changes=changes, name=instance.name),
+        )
         return instance
 
     def _add_user_survey_interacted_filters(self, instance: Survey, end_date=None):
@@ -408,6 +436,17 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         related_internal_targeting_flag = instance.internal_targeting_flag
         if related_internal_targeting_flag:
             related_internal_targeting_flag.delete()
+
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team_id,
+            user=request.user,
+            was_impersonated=is_impersonated_session(request),
+            item_id=instance.id,
+            scope="Survey",
+            activity="deleted",
+            detail=Detail(name=instance.name),
+        )
 
         return super().destroy(request, *args, **kwargs)
 
