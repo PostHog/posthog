@@ -168,6 +168,15 @@ class Team(UUIDClassicModel):
     class Meta:
         verbose_name = "team (soon to be environment)"
         verbose_name_plural = "teams (soon to be environments)"
+        constraints = [
+            models.CheckConstraint(
+                name="project_id_is_not_null",
+                # We have this as a constraint rather than IS NOT NULL on the field, because setting IS NOT NULL cannot
+                # be done without locking the table. By adding this constraint using Postgres's `NOT VALID` option
+                # (via Django `AddConstraintNotValid()`) and subsequent `VALIDATE CONSTRAINT`, we avoid locking.
+                check=models.Q(project_id__isnull=False),
+            )
+        ]
 
     organization: models.ForeignKey = models.ForeignKey(
         "posthog.Organization",
@@ -180,6 +189,7 @@ class Team(UUIDClassicModel):
         on_delete=models.CASCADE,
         related_name="teams",
         related_query_name="team",
+        null=True,
     )
     api_token: models.CharField = models.CharField(
         max_length=200,
