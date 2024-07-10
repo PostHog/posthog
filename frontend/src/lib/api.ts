@@ -650,6 +650,13 @@ class ApiRequest {
         return this.surveys(teamId).addPathComponent(id)
     }
 
+    public surveyActivity(id: Survey['id'], teamId?: TeamType['id']): ApiRequest {
+        if (id) {
+            return this.survey(id, teamId).addPathComponent('activity')
+        }
+        return this.surveys(teamId).addPathComponent('activity')
+    }
+
     // # Warehouse
     public dataWarehouseTables(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('warehouse_tables')
@@ -1028,8 +1035,8 @@ const api = {
                 [ActivityScope.TEAM]: () => {
                     return new ApiRequest().projectsDetail().withAction('activity')
                 },
-                [ActivityScope.SURVEY]: () => {
-                    return new ApiRequest().surveys().withAction('activity')
+                [ActivityScope.SURVEY]: (props) => {
+                    return new ApiRequest().surveyActivity((props.id ?? null) as string, teamId)
                 },
             }
 

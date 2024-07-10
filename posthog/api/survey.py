@@ -477,12 +477,9 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         limit = int(request.query_params.get("limit", "10"))
         page = int(request.query_params.get("page", "1"))
 
-        team = self.get_object()
-
         activity_page = load_activity(
             scope="Survey",
-            team_id=team.pk,
-            item_ids=[str(team.pk)],
+            team_id=self.team_id,
             limit=limit,
             page=page,
         )
