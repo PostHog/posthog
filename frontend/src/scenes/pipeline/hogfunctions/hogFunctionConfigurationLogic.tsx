@@ -245,7 +245,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 configuration.inputs_schema?.forEach((input) => {
                     const key = input.key
                     const value = inputs[key]?.value
-                    if (inputs[key].secret) {
+                    if (inputs[key]?.secret) {
                         // We leave unmodified secret values alone
                         return
                     }
