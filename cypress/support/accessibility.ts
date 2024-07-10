@@ -1,9 +1,7 @@
 import { Options } from 'cypress-axe'
 
 export const reportA11y = (options: Options, tag: string, skipFailures = true): void => {
-    if (typeof tag !== undefined) {
-        tag += '-'
-    }
+    tag += '-'
 
     // reports on A11y failures without failing the tests
     cy.checkA11y(

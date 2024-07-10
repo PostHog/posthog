@@ -42,8 +42,9 @@ class PluginConfigAdmin(admin.ModelAdmin):
             },
         ),
         (
-            "CDP",
+            "CDP (work in progress)",
             {
+                "classes": ["collapse"],
                 "fields": ["filters"],
             },
         ),

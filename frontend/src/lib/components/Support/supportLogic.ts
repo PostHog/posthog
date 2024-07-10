@@ -405,6 +405,10 @@ export const supportLogic = kea<supportLogicType>([
                             value: posthog.get_distinct_id(),
                         },
                         {
+                            id: 27242745654043,
+                            value: target_area ?? '',
+                        },
+                        {
                             id: 27031528411291,
                             value: userLogic?.values?.user?.organization?.id ?? '',
                         },

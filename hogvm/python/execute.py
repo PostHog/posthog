@@ -161,6 +161,9 @@ def execute_bytecode(
             case Operation.GET_PROPERTY:
                 property = pop_stack()
                 stack.append(get_nested_value(pop_stack(), [property]))
+            case Operation.GET_PROPERTY_NULLISH:
+                property = pop_stack()
+                stack.append(get_nested_value(pop_stack(), [property], nullish=True))
             case Operation.SET_PROPERTY:
                 value = pop_stack()
                 field = pop_stack()
@@ -189,6 +192,10 @@ def execute_bytecode(
             case Operation.JUMP_IF_FALSE:
                 count = next_token()
                 if not pop_stack():
+                    ip += count
+            case Operation.JUMP_IF_STACK_NOT_NULL:
+                count = next_token()
+                if len(stack) > 0 and stack[-1] is not None:
                     ip += count
             case Operation.DECLARE_FN:
                 name = next_token()

@@ -4,7 +4,7 @@ import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { PipelineStage, PluginConfigTypeNew, PluginConfigWithPluginInfoNew, PluginType, ProductKey } from '~/types'
+import { PipelineStage, PluginConfigTypeNew, PluginConfigWithPluginInfoNew, PluginType } from '~/types'
 
 import type { frontendAppsLogicType } from './frontendAppsLogicType'
 import { convertToPipelineNode, SiteApp } from './types'
@@ -77,12 +77,6 @@ export const frontendAppsLogic = kea<frontendAppsLogicType>([
                 const convertedFrontendApps = rawFrontendApp.map((t) => convertToPipelineNode(t, PipelineStage.SiteApp))
                 const enabledFirst = convertedFrontendApps.sort((a, b) => Number(b.enabled) - Number(a.enabled))
                 return enabledFirst
-            },
-        ],
-        shouldShowProductIntroduction: [
-            (s) => [s.user],
-            (user): boolean => {
-                return !user?.has_seen_product_intro_for?.[ProductKey.SITE_APPS]
             },
         ],
     }),

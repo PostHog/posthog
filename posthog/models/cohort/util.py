@@ -324,7 +324,10 @@ def recalculate_cohortpeople(
             "team_id": cohort.team_id,
             "new_version": pending_version,
         },
-        settings={"optimize_on_insert": 0},
+        settings={
+            "max_execution_time": 240,
+            "optimize_on_insert": 0,
+        },
         workload=Workload.OFFLINE,
     )
 
