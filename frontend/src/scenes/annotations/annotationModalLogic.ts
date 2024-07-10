@@ -9,7 +9,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { annotationsModel, deserializeAnnotation } from '~/models/annotationsModel'
-import { AnnotationScope, AnnotationType, InsightModel } from '~/types'
+import { AnnotationScope, AnnotationType, DashboardBasicType, InsightModel } from '~/types'
 
 import type { annotationModalLogicType } from './annotationModalLogicType'
 
