@@ -64,9 +64,6 @@ posthog/redis.py:0: error: Import cycle from Django settings module prevents typ
 posthog/plugins/utils.py:0: error: Subclass of "str" and "bytes" cannot exist: would have incompatible method signatures  [unreachable]
 posthog/plugins/utils.py:0: error: Statement is unreachable  [unreachable]
 posthog/clickhouse/kafka_engine.py:0: error: Import cycle from Django settings module prevents type inference for 'KAFKA_HOSTS_FOR_CLICKHOUSE'  [misc]
-posthog/models/project.py:0: error: Incompatible type for "project" of "Team" (got "_T", expected "Project | Combinable")  [misc]
-posthog/models/project.py:0: error: "_T" has no attribute "organization"  [attr-defined]
-posthog/models/project.py:0: error: Incompatible return value type (got "tuple[_T, Team]", expected "tuple[Project, Team]")  [return-value]
 posthog/utils.py:0: error: Import cycle from Django settings module prevents type inference for 'PERSISTED_FEATURE_FLAGS'  [misc]
 posthog/utils.py:0: error: Import cycle from Django settings module prevents type inference for 'OBJECT_STORAGE_ENABLED'  [misc]
 posthog/utils.py:0: error: Name "timezone.datetime" is not defined  [name-defined]
@@ -80,12 +77,6 @@ posthog/models/filters/mixins/simplify.py:0: error: Incompatible type for lookup
 posthog/models/organization.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "timedelta"  [attr-defined]
 posthog/models/organization.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "timedelta"  [attr-defined]
 posthog/models/filters/base_filter.py:0: error: "HogQLContext" has no attribute "person_on_events_mode"  [attr-defined]
-posthog/models/team/team.py:0: error: Signature of "create" incompatible with supertype "BaseManager"  [override]
-posthog/models/team/team.py:0: note: Superclass:
-posthog/models/team/team.py:0: note: def create(self, **kwargs: Any) -> _T
-posthog/models/team/team.py:0: note: Subclass:
-posthog/models/team/team.py:0: note: def create(self, *args: Any, **kwargs: Any) -> Team
-posthog/models/team/team.py:0: error: Incompatible return value type (got "_T", expected "Team")  [return-value]
 posthog/models/team/team.py:0: error: Statement is unreachable  [unreachable]
 posthog/models/team/team.py:0: error: Statement is unreachable  [unreachable]
 posthog/models/user.py:0: error: Incompatible types in assignment (expression has type "type[User]", base class "BaseManager" defined the type as "type[_T]")  [assignment]

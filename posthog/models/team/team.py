@@ -1,7 +1,7 @@
 import re
 from decimal import Decimal
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, cast
 from zoneinfo import ZoneInfo
 
 import posthoganalytics
@@ -89,7 +89,7 @@ class TeamManager(models.Manager):
 
     def create_with_data(self, user: Any = None, default_dashboards: bool = True, **kwargs) -> "Team":
         kwargs["test_account_filters"] = self.set_test_account_filters(kwargs.get("organization"))
-        team = super().create(**kwargs)
+        team = cast("Team", super().create(**kwargs))
 
         # Create default dashboards (skipped for demo projects)
         if default_dashboards:
@@ -99,7 +99,7 @@ class TeamManager(models.Manager):
             team.save()
         return team
 
-    def create(self, *args, **kwargs) -> "Team":
+    def create(self, **kwargs):
         from ..project import Project
 
         with transaction.atomic(using=self.db):
@@ -116,7 +116,7 @@ class TeamManager(models.Manager):
                 if name := kwargs.get("name"):
                     project_kwargs["name"] = name
                 kwargs["project"] = Project.objects.db_manager(self.db).create(id=kwargs["id"], **project_kwargs)
-            return super().create(*args, **kwargs)
+            return super().create(**kwargs)
 
     def get_team_from_token(self, token: Optional[str]) -> Optional["Team"]:
         if not token:
