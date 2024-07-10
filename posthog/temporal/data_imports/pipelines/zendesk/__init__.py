@@ -25,6 +25,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     "page[size]": 100,
                 },
             },
+            "table_format": "delta",
         },
         "organizations": {
             "name": "organizations",
@@ -43,6 +44,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     "page[size]": 100,
                 },
             },
+            "table_format": "delta",
         },
         "groups": {
             "name": "groups",
@@ -63,6 +65,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     "page[size]": 100,
                 },
             },
+            "table_format": "delta",
         },
         "sla_policies": {
             "name": "sla_policies",
@@ -78,6 +81,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     "next_url_path": "links.next",
                 },
             },
+            "table_format": "delta",
         },
         "users": {
             "name": "users",
@@ -101,6 +105,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     "page[size]": 100,
                 },
             },
+            "table_format": "delta",
         },
         "ticket_fields": {
             "name": "ticket_fields",
@@ -122,6 +127,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     "page[size]": 100,
                 },
             },
+            "table_format": "delta",
         },
         "ticket_events": {
             "name": "ticket_events",
@@ -145,6 +151,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     # },
                 },
             },
+            "table_format": "delta",
         },
         "tickets": {
             "name": "tickets",
@@ -167,6 +174,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     else None,
                 },
             },
+            "table_format": "delta",
         },
         "ticket_metric_events": {
             "name": "ticket_metric_events",
@@ -190,6 +198,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     # },
                 },
             },
+            "table_format": "delta",
         },
     }
 

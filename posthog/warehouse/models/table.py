@@ -61,6 +61,7 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         CSVWithNames = "CSVWithNames", "CSVWithNames"
         Parquet = "Parquet", "Parquet"
         JSON = "JSONEachRow", "JSON"
+        Delta = "Delta", "Delta"
 
     name: models.CharField = models.CharField(max_length=128)
     format: models.CharField = models.CharField(max_length=128, choices=TableFormat.choices)

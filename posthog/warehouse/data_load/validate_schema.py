@@ -72,7 +72,7 @@ async def validate_schema(
     params = {
         "credential": credential,
         "name": table_name,
-        "format": "Parquet",
+        "format": "DataLake",
         "url_pattern": new_url_pattern,
         "team_id": team_id,
         "row_count": row_count,
@@ -84,7 +84,7 @@ async def validate_schema(
     return {
         "credential": credential,
         "name": table_name,
-        "format": "Parquet",
+        "format": "DataLake",
         "url_pattern": new_url_pattern,
         "team_id": team_id,
         "row_count": row_count,
