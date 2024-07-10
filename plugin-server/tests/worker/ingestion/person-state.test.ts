@@ -36,24 +36,6 @@ interface PersonOverridesMode {
 
 const PersonOverridesModes: Record<string, PersonOverridesMode | undefined> = {
     disabled: undefined,
-    'deferred, without mappings (flat)': {
-        supportsSyncTransaction: false,
-        getWriter: (hub) => new DeferredPersonOverrideWriter(hub.db.postgres),
-        fetchPostgresPersonIdOverrides: async (hub, teamId) => {
-            const syncWriter = new FlatPersonOverrideWriter(hub.db.postgres)
-            await new DeferredPersonOverrideWorker(
-                hub.db.postgres,
-                hub.db.kafkaProducer,
-                syncWriter
-            ).processPendingOverrides()
-            return new Set(
-                (await syncWriter.getPersonOverrides(teamId)).map(({ old_person_id, override_person_id }) => ({
-                    old_person_id,
-                    override_person_id,
-                }))
-            )
-        },
-    },
 }
 
 describe('PersonState.update()', () => {
