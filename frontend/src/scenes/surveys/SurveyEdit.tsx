@@ -790,13 +790,17 @@ export default function SurveyEdit(): JSX.Element {
                                                         onChange={(includedActions) => {
                                                             setSurveyValue('conditions', {
                                                                 ...survey.conditions,
-                                                                actionNames: includedActions,
+                                                                actions: {
+                                                                    values: includedActions.map((e) => {
+                                                                        return { name: e }
+                                                                    }),
+                                                                },
                                                             })
                                                         }}
                                                         selectedEvents={
-                                                            survey.conditions?.actionNames &&
-                                                            survey.conditions?.actionNames.length > 0
-                                                                ? survey.conditions?.actionNames
+                                                            survey.conditions?.actions?.values &&
+                                                            survey.conditions?.actions?.values.length > 0
+                                                                ? survey.conditions?.actions?.values.map((v) => v.name)
                                                                 : []
                                                         }
                                                         addElement={
