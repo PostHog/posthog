@@ -117,7 +117,7 @@ describe('Surveys', () => {
         // Handle the confirmation dialog
         cy.get('.ReactModal__Overlay').should('be.visible')
         cy.contains('Launch this survey?').should('be.visible')
-        cy.get('.ReactModal__Overlay').contains('button', 'Launch').click()
+        cy.get('.LemonModal__footer').contains('button', 'Launch').click()
 
         // refresh, see survey show up on page
         cy.reload()
@@ -129,7 +129,7 @@ describe('Surveys', () => {
         // Handle the confirmation dialog
         cy.get('.ReactModal__Overlay').should('be.visible')
         cy.contains('Stop this survey?').should('be.visible')
-        cy.get('.ReactModal__Overlay').contains('button', 'Stop').click()
+        cy.get('.LemonModal__footer').contains('button', 'Stop').click()
 
         // back to surveys
         cy.clickNavMenu('surveys')
@@ -181,7 +181,7 @@ describe('Surveys', () => {
         cy.get('[data-attr=delete-survey]').click()
         // Handle the confirmation dialog
         cy.get('.ReactModal__Overlay').should('be.visible')
-        cy.contains('Are you sure you want to delete this survey?').should('be.visible')
+        cy.contains('Delete this survey?').should('be.visible')
         cy.get('.ReactModal__Overlay').contains('button', 'Delete').click()
         cy.get('.Toastify__toast-body').contains('Survey deleted').should('be.visible')
     })
@@ -209,7 +209,7 @@ describe('Surveys', () => {
         cy.get('[data-attr="launch-survey"]').click()
         // Handle the confirmation dialog
         cy.get('.ReactModal__Overlay').should('be.visible')
-        cy.contains('Are you sure you want to launch this survey?').should('be.visible')
+        cy.contains('Launch this survey?').should('be.visible')
         cy.get('.ReactModal__Overlay').contains('button', 'Launch').click()
 
         // Wait for the modal to disappear before clicking the more button
