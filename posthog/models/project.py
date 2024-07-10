@@ -10,12 +10,10 @@ if TYPE_CHECKING:
 
 
 class ProjectManager(models.Manager):
-    model: "Project"
-
     def create_with_team(self, team_fields: Optional[dict] = None, **kwargs) -> tuple["Project", "Team"]:
         from .team import Team
 
-        with transaction.atomic():
+        with transaction.atomic(using=self._db):
             common_id = Team.objects.increment_id_sequence()
             project = self.create(id=common_id, **kwargs)
             team = Team.objects.create(

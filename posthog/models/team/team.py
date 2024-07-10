@@ -62,8 +62,6 @@ class AvailableExtraSettings:
 
 
 class TeamManager(models.Manager):
-    model: "Team"
-
     def get_queryset(self):
         return super().get_queryset().defer(*DEPRECATED_ATTRS)
 
