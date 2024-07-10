@@ -35,8 +35,12 @@ describe('Surveys', () => {
         // delete survey
         cy.get('[data-attr="more-button"]').click()
         cy.get('.Popover__content').contains('Delete').click()
-        cy.clickNavMenu('surveys')
+        // Handle the confirmation dialog
+        cy.get('.ReactModal__Overlay').should('be.visible')
+        cy.contains('Delete this survey?').should('be.visible')
+        cy.get('.ReactModal__Overlay').contains('button', 'Delete').click()
 
+        cy.clickNavMenu('surveys')
         cy.get('tbody').should('not.exist')
     })
 
@@ -110,14 +114,22 @@ describe('Surveys', () => {
 
         // launch survey
         cy.get('[data-attr="launch-survey"]').click()
+        // Handle the confirmation dialog
+        cy.get('.ReactModal__Overlay').should('be.visible')
+        cy.contains('Launch this survey?').should('be.visible')
+        cy.get('.ReactModal__Overlay').contains('button', 'Launch').click()
 
         // refresh, see survey show up on page
         cy.reload()
 
         cy.contains('Unique users shown').should('exist')
 
-        // stop survey
+        // Update the stop survey part
         cy.contains('Stop').click()
+        // Handle the confirmation dialog
+        cy.get('.ReactModal__Overlay').should('be.visible')
+        cy.contains('Stop this survey?').should('be.visible')
+        cy.get('.ReactModal__Overlay').contains('button', 'Stop').click()
 
         // back to surveys
         cy.clickNavMenu('surveys')
@@ -144,7 +156,10 @@ describe('Surveys', () => {
 
         // delete survey
         cy.get('[data-attr="more-button"]').click()
-        cy.get('.Popover__content').contains('Delete').click()
+        // handle confirmation dialog
+        cy.get('.ReactModal__Overlay').should('be.visible')
+        cy.contains('Delete this survey?').should('be.visible')
+        cy.get('.ReactModal__Overlay').contains('button', 'Stop').click()
         cy.clickNavMenu('surveys')
         cy.get('tbody').should('not.exist')
     })
@@ -164,6 +179,10 @@ describe('Surveys', () => {
         cy.get(`[data-row-key=${name}]`).contains(name).click()
         cy.get('[data-attr=more-button]').click()
         cy.get('[data-attr=delete-survey]').click()
+        // Handle the confirmation dialog
+        cy.get('.ReactModal__Overlay').should('be.visible')
+        cy.contains('Are you sure you want to delete this survey?').should('be.visible')
+        cy.get('.ReactModal__Overlay').contains('button', 'Delete').click()
         cy.get('.Toastify__toast-body').contains('Survey deleted').should('be.visible')
     })
 
@@ -188,6 +207,13 @@ describe('Surveys', () => {
 
         // Launch the survey first, the duplicated one should be in draft
         cy.get('[data-attr="launch-survey"]').click()
+        // Handle the confirmation dialog
+        cy.get('.ReactModal__Overlay').should('be.visible')
+        cy.contains('Are you sure you want to launch this survey?').should('be.visible')
+        cy.get('.ReactModal__Overlay').contains('button', 'Launch').click()
+
+        // Wait for the modal to disappear before clicking the more button
+        cy.get('.ReactModal__Overlay').should('not.exist')
 
         // try to duplicate survey
         cy.get('[data-attr=more-button]').click()
