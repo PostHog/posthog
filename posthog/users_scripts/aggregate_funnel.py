@@ -1,24 +1,24 @@
 #!/usr/bin/python3
-
+import ast
 import sys
 from dataclasses import dataclass, replace
 from itertools import groupby, permutations
 from typing import Any
 from collections.abc import Sequence
 
-N_ARGS = 5
+N_ARGS = 6
 
 
 def parse_args(line):
-    t1 = line.find("\t")
-    num_steps = int(line[:t1])
-    t2 = line.find("\t", t1 + 1)
-    conversion_window_limit = int(line[t1 + 1 : t2])
-    t3 = line.find("\t", t2 + 1)
-    breakdown_attribution_type = line[t2 + 1 : t3]
-    t4 = line.find("\t", t3 + 1)
-    prop_vals = eval(line[t3 + 1 : t4])
-    return num_steps, conversion_window_limit, breakdown_attribution_type, prop_vals, eval(line[t4 + 1 :])
+    arg_functions = [int, int, str, str, ast.literal_eval, ast.literal_eval]
+    args = []
+    start = 0
+    for i in range(N_ARGS - 1):
+        end = line.find("\t", start)
+        args.append(arg_functions[i](line[start:end]))
+        start = end + 1
+    args.append(arg_functions[-1](line[start:]))
+    return args
 
 
 @dataclass(frozen=True)
@@ -54,6 +54,7 @@ def parse_user_aggregation_with_conversion_window_and_breakdown(
     num_steps: int,
     conversion_window_limit_seconds: int,
     breakdown_attribution_type: str,
+    funnel_order_type: str,
     prop_vals: list[Any],
     events: Sequence[tuple[float, list[str] | int | str, list[int]]],
 ):
@@ -170,7 +171,7 @@ def test():
     ]
 
     for x in y:
-        parse_user_aggregation_with_conversion_window_and_breakdown(3, 1209600, "first_touch", [""], x)
+        parse_user_aggregation_with_conversion_window_and_breakdown(3, 1209600, "first_touch", "strict", [""], x)
 
     """
     a = [(1719624249.503675,[1,2,4,5,6,7,8,9]),(1719624251.581988,[1,2,4,5,6,7,8,9]),(1719635907.573687,[1,2,4,5,6,7,8,9]),(1719635909.66015,[1,2,4,5,6,7,8,9]),(1719759818.990228,[1,2,4,5,6,7,8,9]),(1719759876.794997,[1,2,4,5,6,7,8,9]),(1719759878.856164,[1,2,4,5,6,7,8,9]),(1719803624.816091,[1,2,4,5,6,7,8,9]),(1719803809.529472,[1,2,4,5,6,7,8,9]),(1719803811.608051,[1,2,4,5,6,7,8,9]),(1719881651.587875,[3]),(1719886796.095619,[1,2,4,5,6,7,8,9]),(1719886798.206008,[1,2,4,5,6,7,8,9]),(1719968757.728293,[1,2,4,5,6,7,8,9]),(1719968784.265244,[1,2,4,5,6,7,8,9]),(1720048981.884196,[1,2,4,5,6,7,8,9]),(1720049173.969063,[1,2,4,5,6,7,8,9]),(1720067592.576889,[1,2,4,5,6,7,8,9]),(1720067656.454668,[1,2,4,5,6,7,8,9]),(1720067658.547188,[1,2,4,5,6,7,8,9]),(1720140655.805049,[1,2,4,5,6,7,8,9]),(1720140692.408485,[1,2,4,5,6,7,8,9])]
