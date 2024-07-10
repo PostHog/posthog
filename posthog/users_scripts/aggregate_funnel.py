@@ -108,12 +108,6 @@ def parse_user_aggregation_with_conversion_window_and_breakdown(
         max_step[:] = [0, default_entered_timestamp]
         entered_timestamp: list[EnteredTimestamp] = [default_entered_timestamp] * (num_steps + 1)
 
-        def add_result(i):
-            final = entered_timestamp[i]
-            results.append(
-                f"({i - 1}, {breakdown_to_single_quoted_string(prop_val)}, {str([final.timings[i] - final.timings[i - 1] for i in range(1, i)])})"
-            )
-
         def add_max_step():
             i = max_step[0]
             final = max_step[1]
@@ -152,7 +146,7 @@ def parse_user_aggregation_with_conversion_window_and_breakdown(
 
             # If we have hit the goal, we can terminate early
             if entered_timestamp[num_steps].timestamp > 0:
-                add_result(num_steps)
+                add_max_step()
                 return
 
         # Find the furthest step we have made it to and print it
