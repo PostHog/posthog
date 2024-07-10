@@ -239,16 +239,17 @@ class PostgreSQLClient:
             if delete is True:
                 await self.adelete_table(schema, table_name, not_found_ok)
 
-    async def amerge_identical_tables(
+    async def amerge_person_tables(
         self,
         final_table_name: str,
         stage_table_name: str,
         schema: str,
         merge_key: Fields,
         update_when_matched: Fields,
-        version_key: str = "version",
+        person_version_key: str = "person_version",
+        person_distinct_id_version_key: str = "person_distinct_id_version",
     ) -> None:
-        """Merge two identical tables in PostgreSQL.
+        """Merge two identical person model tables in PostgreSQL.
 
         Merging utilizes PostgreSQL's `INSERT INTO ... ON CONFLICT` statement. PostgreSQL version
         15 and later supports a `MERGE` command, but to ensure support for older versions of PostgreSQL
@@ -288,14 +289,14 @@ class PostgreSQLClient:
         SELECT {field_names} FROM {stage_table}
         ON CONFLICT ({conflict_fields}) DO UPDATE SET
             {update_clause}
-        WHERE EXCLUDED.{stage_version_key} > final.{final_version_key}
+        WHERE (EXCLUDED.{person_version_key} > final.{person_version_key} OR EXCLUDED.{person_distinct_id_version_key} > final.{person_distinct_id_version_key})
         """).format(
             final_table=final_table_identifier,
             conflict_fields=conflict_fields,
             stage_table=stage_table_identifier,
             merge_condition=merge_condition,
-            stage_version_key=sql.Identifier(version_key),
-            final_version_key=sql.Identifier(version_key),
+            person_version_key=sql.Identifier(person_version_key),
+            person_distinct_id_version_key=sql.Identifier(person_distinct_id_version_key),
             update_clause=update_clause,
             field_names=field_names,
         )
@@ -381,8 +382,8 @@ def get_postgres_fields_from_record_schema(
             else:
                 pg_type = "TEXT"
 
-        elif pa.types.is_signed_integer(pa_field.type):
-            if pa.types.is_int64(pa_field.type):
+        elif pa.types.is_signed_integer(pa_field.type) or pa.types.is_unsigned_integer(pa_field.type):
+            if pa.types.is_uint64(pa_field.type) or pa.types.is_int64(pa_field.type):
                 pg_type = "BIGINT"
             else:
                 pg_type = "INTEGER"
@@ -550,7 +551,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
                         ("team_id", "INT"),
                         ("distinct_id", "TEXT"),
                     )
-                    await pg_client.amerge_identical_tables(
+                    await pg_client.amerge_person_tables(
                         final_table_name=pg_table,
                         stage_table_name=pg_stage_table,
                         schema=inputs.schema,
