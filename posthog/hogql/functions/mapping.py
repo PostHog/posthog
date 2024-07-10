@@ -836,7 +836,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "aggregate_funnel": HogQLFunctionMeta("aggregate_funnel", 5, 5, aggregate=False),
     "aggregate_funnel_array": HogQLFunctionMeta("aggregate_funnel_array", 5, 5, aggregate=False),
     "aggregate_funnel_cohort": HogQLFunctionMeta("aggregate_funnel_cohort", 5, 5, aggregate=False),
-    "test_function_python": HogQLFunctionMeta("test_function_python", 5, 5, aggregate=False)
+    "test_function_python": HogQLFunctionMeta("test_function_python", 5, 5, aggregate=False),
 }
 # Permitted HogQL aggregations
 HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
@@ -888,7 +888,6 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     # "topKWeighted": HogQLFunctionMeta("topKWeighted", 1, 1, aggregate=True),
     # "topKWeightedIf": HogQLFunctionMeta("topKWeightedIf", 2, 2, aggregate=True),
     "groupArray": HogQLFunctionMeta("groupArray", 1, 1, aggregate=True),
-    "groupArrayArray": HogQLFunctionMeta("groupArrayArray", 1, 1, aggregate=True),
     "groupArrayIf": HogQLFunctionMeta("groupArrayIf", 2, 2, aggregate=True),
     # "groupArrayLast": HogQLFunctionMeta("groupArrayLast", 1, 1, aggregate=True),
     # "groupArrayLastIf": HogQLFunctionMeta("groupArrayLastIf", 2, 2, aggregate=True),

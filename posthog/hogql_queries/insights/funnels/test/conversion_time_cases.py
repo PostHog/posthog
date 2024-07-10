@@ -138,7 +138,7 @@ def funnel_conversion_time_test_factory(funnel_order_type: FunnelOrderType, Funn
                 {
                     "person1": [
                         {"event": "sign up", "timestamp": datetime(2020, 1, 1, 12)},
-                        {"event": "sign up", "timestamp": datetime(2020, 1, 1, 18)},
+                        {"event": "sign up", "timestamp": datetime(2020, 1, 1, 12, 30)},
                         {"event": "play movie", "timestamp": datetime(2020, 1, 1, 13)},
                         {"event": "buy", "timestamp": datetime(2020, 1, 1, 15)},
                     ],

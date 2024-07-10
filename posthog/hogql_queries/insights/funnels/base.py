@@ -405,7 +405,9 @@ class FunnelBase(ABC):
 
         return funnel_events_query
 
-    def _get_new_inner_event_query(
+    # This version of the inner event query modifies how exclusions are returned to
+    # make them behave more like steps. It returns a boolean "exclusion_{0..n}" for each event
+    def _get_inner_event_query_for_udf(
         self,
         entities: list[EntityNode] | None = None,
         entity_name="events",
@@ -467,7 +469,7 @@ class FunnelBase(ABC):
 
         if not skip_step_filter:
             assert isinstance(funnel_events_query.where, ast.Expr)
-            steps_conditions = self._new_get_steps_conditions(all_exclusions, length=len(entities_to_use))
+            steps_conditions = self._get_steps_conditions_for_udf(all_exclusions, length=len(entities_to_use))
             funnel_events_query.where = ast.And(exprs=[funnel_events_query.where, steps_conditions])
 
         if breakdown and breakdownAttributionType != BreakdownAttributionType.ALL_EVENTS:
@@ -627,7 +629,7 @@ class FunnelBase(ABC):
 
         return ast.Or(exprs=step_conditions)
 
-    def _new_get_steps_conditions(self, exclusions, length: int) -> ast.Expr:
+    def _get_steps_conditions_for_udf(self, exclusions, length: int) -> ast.Expr:
         step_conditions: list[ast.Expr] = []
 
         for index in range(length):
@@ -643,6 +645,7 @@ class FunnelBase(ABC):
         index: int,
         entity_name: str,
         step_prefix: str = "",
+        for_udf: bool = False,
     ) -> list[ast.Expr]:
         # step prefix is used to distinguish actual steps, and exclusion steps
         # without the prefix, we get the same parameter binding for both, which borks things up
@@ -651,9 +654,10 @@ class FunnelBase(ABC):
         step_cols.append(
             parse_expr(f"if({{condition}}, 1, 0) as {step_prefix}step_{index}", placeholders={"condition": condition})
         )
-        step_cols.append(
-            parse_expr(f"if({step_prefix}step_{index} = 1, timestamp, null) as {step_prefix}latest_{index}")
-        )
+        if not for_udf:
+            step_cols.append(
+                parse_expr(f"if({step_prefix}step_{index} = 1, timestamp, null) as {step_prefix}latest_{index}")
+            )
 
         for field in self.extra_event_fields_and_properties:
             step_cols.append(
@@ -900,7 +904,7 @@ class FunnelBase(ABC):
                 [
                     ast.Field(chain=[f"latest_{target_step}"]),
                     ast.Field(chain=[f"latest_{final_step}"]),
-                    ast.Field(chain=[f" latest_{first_step}"]),
+                    ast.Field(chain=[f"latest_{first_step}"]),
                 ],
                 [
                     parse_expr(f"argMax(latest_{target_step}, steps) AS timestamp"),
