@@ -460,7 +460,7 @@ export function HogFunctionInputWithSchema({ schema }: HogFunctionInputWithSchem
                                         {...attributes}
                                         {...listeners}
                                     >
-                                        {schema.label || schema.key}{' '}
+                                        {schema.label || schema.key}
                                         {schema.secret ? (
                                             <Tooltip title="This input is marked as secret. It will be encrypted and not visible after saving.">
                                                 <IconLock />
