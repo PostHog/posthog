@@ -7,7 +7,7 @@ from sentry_sdk import capture_exception
 from posthog.models.user import User
 from posthog.tasks.email import send_email_verification
 
-VERIFICATION_DISABLED_FLAG = "email_verification_disabled"
+VERIFICATION_DISABLED_FLAG = "email-verification-disabled"
 
 
 def is_email_verification_disabled(user: User) -> bool:
