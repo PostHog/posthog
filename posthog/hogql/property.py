@@ -203,7 +203,7 @@ def _field_to_compare_op(
             name="ifNull",
             args=[
                 ast.Call(name="match", args=[ast.Call(name="toString", args=[field]), ast.Constant(value=value)]),
-                ast.Constant(value=False),
+                ast.Constant(value=0),
             ],
         )
     elif operator == PropertyOperator.NOT_REGEX:
@@ -218,7 +218,7 @@ def _field_to_compare_op(
                         )
                     ],
                 ),
-                ast.Constant(value=True),
+                ast.Constant(value=1),
             ],
         )
     elif operator == PropertyOperator.EXACT or operator == PropertyOperator.IS_DATE_EXACT:
@@ -370,7 +370,7 @@ def property_to_expr(
 
         if isinstance(value, list):
             if len(value) == 0:
-                return ast.Constant(value=True)
+                return ast.Constant(value=1)
             elif len(value) == 1:
                 value = value[0]
             else:
