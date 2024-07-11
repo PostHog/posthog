@@ -1172,7 +1172,7 @@ class TestSurvey(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         survey_id = response.json()["id"]
 
-        self._assert_person_activity(
+        self._assert_survey_activity(
             survey_id,
             [
                 {
@@ -1208,7 +1208,7 @@ class TestSurvey(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        self._assert_person_activity(
+        self._assert_survey_activity(
             survey.id,
             [
                 {
@@ -1255,7 +1255,7 @@ class TestSurvey(APIBaseTest):
         response = self.client.delete(f"/api/projects/{self.team.id}/surveys/{survey.id}/")
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
-        self._assert_person_activity(
+        self._assert_survey_activity(
             None,  # can't query directly for deleted survey
             [
                 {
@@ -1275,33 +1275,9 @@ class TestSurvey(APIBaseTest):
             ],
         )
 
-    def _assert_person_activity(self, survey_id, expected):
+    def _assert_survey_activity(self, survey_id, expected):
         activity = self.client.get(f"/api/projects/{self.team.id}/surveys/{survey_id}/activity").json()
-        self.assertEqual(len(activity["results"]), len(expected))
-        for actual, expected_item in zip(activity["results"], expected):
-            self._assert_dict_equal(actual, expected_item)
-
-    def _assert_dict_equal(self, actual, expected, path=""):
-        self.assertEqual(set(actual.keys()), set(expected.keys()), f"Keys don't match at {path}")
-        for key in actual.keys():
-            actual_value = actual[key]
-            expected_value = expected[key]
-            new_path = f"{path}.{key}" if path else key
-
-            if isinstance(actual_value, dict) and isinstance(expected_value, dict):
-                self._assert_dict_equal(actual_value, expected_value, new_path)
-            elif isinstance(actual_value, list) and isinstance(expected_value, list):
-                self._assert_list_equal(actual_value, expected_value, new_path)
-            else:
-                self.assertEqual(actual_value, expected_value, f"Values don't match at {new_path}")
-
-    def _assert_list_equal(self, actual, expected, path):
-        self.assertEqual(len(actual), len(expected), f"List lengths don't match at {path}")
-        if all(isinstance(item, dict) for item in actual + expected):
-            for actual_item, expected_item in zip(actual, expected):
-                self._assert_dict_equal(actual_item, expected_item, path)
-        else:
-            self.assertCountEqual(actual, expected, f"List contents don't match at {path}")
+        self.assertEqual(activity["results"], expected)
 
 
 class TestMultipleChoiceQuestions(APIBaseTest):
