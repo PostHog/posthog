@@ -88,7 +88,7 @@ webdriver_manager==4.0.1
 whitenoise==6.5.0
 mimesis==5.2.1
 more-itertools==9.0.0
-django-two-factor-auth==1.14.0
+django-two-factor-auth==1.16.0
 phonenumberslite==8.13.6
 openai==1.10.0
 tiktoken==0.6.0
