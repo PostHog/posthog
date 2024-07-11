@@ -330,6 +330,17 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
+    if kind == "ErrorTrackingQuery":
+        from .error_tracking_query_runner import ErrorTrackingQueryRunner
+
+        return ErrorTrackingQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
     raise ValueError(f"Can't get a runner for an unknown query kind: {kind}")
 
 

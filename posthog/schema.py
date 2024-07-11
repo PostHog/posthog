@@ -324,7 +324,7 @@ class EntityType(StrEnum):
     NEW_ENTITY = "new_entity"
 
 
-class ErrorTrackingOrder(StrEnum):
+class Order(StrEnum):
     LAST_SEEN = "last_seen"
     FIRST_SEEN = "first_seen"
     OCCURRENCES = "occurrences"
@@ -658,6 +658,7 @@ class NodeKind(StrEnum):
     FUNNEL_CORRELATION_ACTORS_QUERY = "FunnelCorrelationActorsQuery"
     SESSIONS_TIMELINE_QUERY = "SessionsTimelineQuery"
     SESSION_ATTRIBUTION_EXPLORER_QUERY = "SessionAttributionExplorerQuery"
+    ERROR_TRACKING_QUERY = "ErrorTrackingQuery"
     DATA_TABLE_NODE = "DataTableNode"
     DATA_VISUALIZATION_NODE = "DataVisualizationNode"
     SAVED_INSIGHT_NODE = "SavedInsightNode"
@@ -1381,6 +1382,40 @@ class CachedActorsQueryResponse(BaseModel):
     types: list[str]
 
 
+class CachedErrorTrackingQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    columns: Optional[list] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: AwareDatetime
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    next_allowed_client_refresh: AwareDatetime
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list
+    timezone: str
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
 class CachedEventsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1905,6 +1940,28 @@ class Response6(BaseModel):
     types: Optional[list] = None
 
 
+class Response7(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    results: list
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
 class ChartSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1978,6 +2035,28 @@ class ElementPropertyFilter(BaseModel):
     operator: PropertyOperator
     type: Literal["element"] = "element"
     value: Optional[Union[str, float, list[Union[str, float]]]] = None
+
+
+class ErrorTrackingQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    results: list
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
 
 
 class EventPropertyFilter(BaseModel):
@@ -2479,6 +2558,28 @@ class QueryResponseAlternative13(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    columns: Optional[list] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    results: list
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class QueryResponseAlternative14(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     columns: list
     error: Optional[str] = Field(
         default=None,
@@ -2498,7 +2599,7 @@ class QueryResponseAlternative13(BaseModel):
     types: list[str]
 
 
-class QueryResponseAlternative14(BaseModel):
+class QueryResponseAlternative15(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2522,7 +2623,7 @@ class QueryResponseAlternative14(BaseModel):
     types: list[str]
 
 
-class QueryResponseAlternative15(BaseModel):
+class QueryResponseAlternative16(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2549,7 +2650,7 @@ class QueryResponseAlternative15(BaseModel):
     types: Optional[list] = Field(default=None, description="Types of returned columns")
 
 
-class QueryResponseAlternative16(BaseModel):
+class QueryResponseAlternative17(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2570,7 +2671,7 @@ class QueryResponseAlternative16(BaseModel):
     )
 
 
-class QueryResponseAlternative17(BaseModel):
+class QueryResponseAlternative18(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2594,7 +2695,7 @@ class QueryResponseAlternative17(BaseModel):
     types: Optional[list] = None
 
 
-class QueryResponseAlternative18(BaseModel):
+class QueryResponseAlternative19(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2615,7 +2716,7 @@ class QueryResponseAlternative18(BaseModel):
     types: Optional[list] = None
 
 
-class QueryResponseAlternative19(BaseModel):
+class QueryResponseAlternative20(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2638,7 +2739,29 @@ class QueryResponseAlternative19(BaseModel):
     types: Optional[list] = None
 
 
-class QueryResponseAlternative20(BaseModel):
+class QueryResponseAlternative21(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    results: list
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class QueryResponseAlternative22(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2651,24 +2774,6 @@ class QueryResponseAlternative20(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     results: list[dict[str, Any]]
-    timings: Optional[list[QueryTiming]] = Field(
-        default=None, description="Measured timings for different parts of the query generation process"
-    )
-
-
-class QueryResponseAlternative21(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    error: Optional[str] = Field(
-        default=None,
-        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-    )
-    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    results: Union[FunnelTimeToConvertResults, list[dict[str, Any]], list[list[dict[str, Any]]]]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -2686,13 +2791,31 @@ class QueryResponseAlternative23(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    results: Union[FunnelTimeToConvertResults, list[dict[str, Any]], list[list[dict[str, Any]]]]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class QueryResponseAlternative25(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
     results: list[dict[str, Any]]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
 
 
-class QueryResponseAlternative26(BaseModel):
+class QueryResponseAlternative28(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3582,7 +3705,7 @@ class PropertyGroupFilterValue(BaseModel):
     ]
 
 
-class QueryResponseAlternative22(BaseModel):
+class QueryResponseAlternative24(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3886,6 +4009,25 @@ class TrendsQuery(BaseModel):
     trendsFilter: Optional[TrendsFilter] = Field(default=None, description="Properties specific to the trends insight")
 
 
+class ErrorTrackingQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: DateRange
+    filterGroup: Optional[PropertyGroupFilter] = None
+    filterTestAccounts: Optional[bool] = None
+    fingerprint: Optional[str] = None
+    kind: Literal["ErrorTrackingQuery"] = "ErrorTrackingQuery"
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    order: Optional[Order] = None
+    response: Optional[ErrorTrackingQueryResponse] = None
+    select: list[str]
+
+
 class FunnelsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4172,7 +4314,7 @@ class LifecycleQuery(BaseModel):
     )
 
 
-class QueryResponseAlternative27(BaseModel):
+class QueryResponseAlternative29(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4203,8 +4345,8 @@ class QueryResponseAlternative(
             QueryResponseAlternative10,
             QueryResponseAlternative11,
             QueryResponseAlternative12,
-            Any,
             QueryResponseAlternative13,
+            Any,
             QueryResponseAlternative14,
             QueryResponseAlternative15,
             QueryResponseAlternative16,
@@ -4215,8 +4357,10 @@ class QueryResponseAlternative(
             QueryResponseAlternative21,
             QueryResponseAlternative22,
             QueryResponseAlternative23,
-            QueryResponseAlternative26,
-            QueryResponseAlternative27,
+            QueryResponseAlternative24,
+            QueryResponseAlternative25,
+            QueryResponseAlternative28,
+            QueryResponseAlternative29,
         ]
     ]
 ):
@@ -4234,8 +4378,8 @@ class QueryResponseAlternative(
         QueryResponseAlternative10,
         QueryResponseAlternative11,
         QueryResponseAlternative12,
-        Any,
         QueryResponseAlternative13,
+        Any,
         QueryResponseAlternative14,
         QueryResponseAlternative15,
         QueryResponseAlternative16,
@@ -4246,8 +4390,10 @@ class QueryResponseAlternative(
         QueryResponseAlternative21,
         QueryResponseAlternative22,
         QueryResponseAlternative23,
-        QueryResponseAlternative26,
-        QueryResponseAlternative27,
+        QueryResponseAlternative24,
+        QueryResponseAlternative25,
+        QueryResponseAlternative28,
+        QueryResponseAlternative29,
     ]
 
 
@@ -4526,7 +4672,7 @@ class DataTableNode(BaseModel):
     kind: Literal["DataTableNode"] = "DataTableNode"
     propertiesViaUrl: Optional[bool] = Field(default=None, description="Link properties via the URL (default: false)")
     response: Optional[
-        Union[dict[str, Any], Response, Response1, Response2, Response3, Response4, Response5, Response6]
+        Union[dict[str, Any], Response, Response1, Response2, Response3, Response4, Response5, Response6, Response7]
     ] = None
     showActions: Optional[bool] = Field(default=None, description="Show the kebab menu at the end of the row")
     showColumnConfigurator: Optional[bool] = Field(
@@ -4564,6 +4710,7 @@ class DataTableNode(BaseModel):
         WebStatsTableQuery,
         WebTopClicksQuery,
         SessionAttributionExplorerQuery,
+        ErrorTrackingQuery,
     ] = Field(..., description="Source of the events")
 
 
@@ -4599,6 +4746,7 @@ class HogQLAutocomplete(BaseModel):
             WebStatsTableQuery,
             WebTopClicksQuery,
             SessionAttributionExplorerQuery,
+            ErrorTrackingQuery,
         ]
     ] = Field(default=None, description="Query in whose context to validate.")
     startPosition: int = Field(..., description="Start position of the editor word")
@@ -4638,6 +4786,7 @@ class HogQLMetadata(BaseModel):
             WebStatsTableQuery,
             WebTopClicksQuery,
             SessionAttributionExplorerQuery,
+            ErrorTrackingQuery,
         ]
     ] = Field(
         default=None,
@@ -4679,6 +4828,7 @@ class QueryRequest(BaseModel):
         WebStatsTableQuery,
         WebTopClicksQuery,
         SessionAttributionExplorerQuery,
+        ErrorTrackingQuery,
         DataVisualizationNode,
         DataTableNode,
         SavedInsightNode,
@@ -4724,6 +4874,7 @@ class QuerySchemaRoot(
             WebStatsTableQuery,
             WebTopClicksQuery,
             SessionAttributionExplorerQuery,
+            ErrorTrackingQuery,
             DataVisualizationNode,
             DataTableNode,
             SavedInsightNode,
@@ -4757,6 +4908,7 @@ class QuerySchemaRoot(
         WebStatsTableQuery,
         WebTopClicksQuery,
         SessionAttributionExplorerQuery,
+        ErrorTrackingQuery,
         DataVisualizationNode,
         DataTableNode,
         SavedInsightNode,

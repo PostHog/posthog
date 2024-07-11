@@ -64,6 +64,7 @@ export enum NodeKind {
     FunnelCorrelationActorsQuery = 'FunnelCorrelationActorsQuery',
     SessionsTimelineQuery = 'SessionsTimelineQuery',
     SessionAttributionExplorerQuery = 'SessionAttributionExplorerQuery',
+    ErrorTrackingQuery = 'ErrorTrackingQuery',
 
     // Interface nodes
     DataTableNode = 'DataTableNode',
@@ -107,6 +108,7 @@ export type AnyDataNode =
     | WebStatsTableQuery
     | WebTopClicksQuery
     | SessionAttributionExplorerQuery
+    | ErrorTrackingQuery
 
 /**
  * @discriminator kind
@@ -130,6 +132,7 @@ export type QuerySchema =
     | WebStatsTableQuery
     | WebTopClicksQuery
     | SessionAttributionExplorerQuery
+    | ErrorTrackingQuery
 
     // Interface nodes
     | DataVisualizationNode
@@ -516,6 +519,7 @@ export interface DataTableNode
                     | WebStatsTableQuery
                     | WebTopClicksQuery
                     | SessionAttributionExplorerQuery
+                    | ErrorTrackingQuery
                 )['response']
             >
         >,
@@ -532,6 +536,7 @@ export interface DataTableNode
         | WebStatsTableQuery
         | WebTopClicksQuery
         | SessionAttributionExplorerQuery
+        | ErrorTrackingQuery
 
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
@@ -1193,8 +1198,6 @@ export interface WebTopClicksQueryResponse extends AnalyticsQueryResponseBase<un
 
 export type CachedWebTopClicksQueryResponse = CachedQueryResponse<WebTopClicksQueryResponse>
 
-export type ErrorTrackingOrder = 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
-
 export enum WebStatsBreakdown {
     Page = 'Page',
     InitialPage = 'InitialPage',
@@ -1262,6 +1265,28 @@ export interface SessionAttributionExplorerQueryResponse extends AnalyticsQueryR
     columns?: unknown[]
 }
 export type CachedSessionAttributionExplorerQueryResponse = CachedQueryResponse<SessionAttributionExplorerQueryResponse>
+
+export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
+    kind: NodeKind.ErrorTrackingQuery
+    select: HogQLExpression[]
+    order?: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
+    dateRange: DateRange
+    filterGroup?: PropertyGroupFilter
+    filterTestAccounts?: boolean
+    // Optional as only used when loading a specific group
+    fingerprint?: string
+    limit?: integer
+    offset?: integer
+}
+
+export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<any[]> {
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+    columns?: unknown[]
+}
+
+export type CachedErrorTrackingQueryResponse = CachedQueryResponse<ErrorTrackingQueryResponse>
 
 export type InsightQueryNode =
     | TrendsQuery

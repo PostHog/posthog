@@ -50,7 +50,7 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
                 loadEvents: async () => {
                     const response = await api.query(
                         errorTrackingGroupQuery({
-                            group: props.id,
+                            fingerprint: props.id,
                             dateRange: values.dateRange,
                             filterTestAccounts: values.filterTestAccounts,
                             filterGroup: values.filterGroup,
