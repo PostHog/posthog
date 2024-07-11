@@ -5,7 +5,7 @@ import { mkdirSync, rmSync } from 'node:fs'
 import { CODES, features, KafkaConsumer, librdkafkaVersion, Message, TopicPartition } from 'node-rdkafka'
 import { Counter, Gauge, Histogram, Summary } from 'prom-client'
 
-import { sessionRecordingConsumerConfig } from '../../../config/config'
+import { buildIntegerMatcher, sessionRecordingConsumerConfig } from '../../../config/config'
 import {
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
@@ -13,7 +13,7 @@ import {
 import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars, createRdProducerConfigFromEnvVars } from '../../../kafka/config'
 import { createKafkaProducer } from '../../../kafka/producer'
-import { PluginsServerConfig, RedisPool, TeamId } from '../../../types'
+import { PluginsServerConfig, RedisPool, TeamId, ValueMatcher } from '../../../types'
 import { BackgroundRefresher } from '../../../utils/background-refresher'
 import { KafkaProducerWrapper } from '../../../utils/db/kafka-producer-wrapper'
 import { PostgresRouter } from '../../../utils/db/postgres'
@@ -155,6 +155,7 @@ export class SessionRecordingIngester {
     private debugPartition: number | undefined = undefined
 
     private sharedClusterProducerWrapper: KafkaProducerWrapper | undefined = undefined
+    private isDebugLoggingEnabled: ValueMatcher<number>
 
     constructor(
         private globalServerConfig: PluginsServerConfig,
@@ -163,9 +164,8 @@ export class SessionRecordingIngester {
         private consumeOverflow: boolean,
         captureRedis: Redis | undefined
     ) {
-        this.debugPartition = globalServerConfig.SESSION_RECORDING_DEBUG_PARTITION
-            ? parseInt(globalServerConfig.SESSION_RECORDING_DEBUG_PARTITION)
-            : undefined
+        this.isDebugLoggingEnabled = buildIntegerMatcher(globalServerConfig.SESSION_RECORDING_DEBUG_PARTITION, true)
+
         this.topic = consumeOverflow
             ? KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW
             : KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
@@ -842,10 +842,6 @@ export class SessionRecordingIngester {
                 gaugeOffsetCommitted.set({ partition }, highestOffsetToCommit)
             })
         )
-    }
-
-    private isDebugLoggingEnabled(partition: number) {
-        return this.debugPartition === partition || this.config.SESSION_RECORDING_DEBUG_ALL
     }
 
     public async destroySessions(sessionsToDestroy: [string, SessionManager][]): Promise<void> {
