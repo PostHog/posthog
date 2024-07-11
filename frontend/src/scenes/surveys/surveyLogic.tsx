@@ -1124,13 +1124,13 @@ export const surveyLogic = kea<surveyLogicType>([
                 // to scroll to the right error section
                 name: !name && 'Please enter a name.',
                 questions: questions.map((question) => {
-                    const baseErrors = {
+                    const questionErrors = {
                         question: !question.question && 'Please enter a question label.',
                     }
 
                     if (question.type === SurveyQuestionType.Rating) {
                         return {
-                            ...baseErrors,
+                            ...questionErrors,
                             display: !question.display && 'Please choose a display type.',
                             scale: !question.scale && 'Please choose a scale.',
                             lowerBoundLabel: !question.lowerBoundLabel && 'Please enter a lower bound label.',
@@ -1141,14 +1141,14 @@ export const surveyLogic = kea<surveyLogicType>([
                         question.type === SurveyQuestionType.MultipleChoice
                     ) {
                         return {
-                            ...baseErrors,
+                            ...questionErrors,
                             choices: question.choices.some((choice) => !choice.trim())
                                 ? 'Please ensure all choices are non-empty.'
                                 : undefined,
                         }
                     }
 
-                    return baseErrors
+                    return questionErrors
                 }),
                 // release conditions controlled using a PureField in the form
                 targeting_flag_filters: values.flagPropertyErrors,
