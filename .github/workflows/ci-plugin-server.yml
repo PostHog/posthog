@@ -151,9 +151,11 @@ jobs:
               if: needs.changes.outputs.plugin-server == 'true'
               run: cd plugin-server && pnpm i
 
-            - name: Wait for Clickhouse & Kafka
+            - name: Wait for Clickhouse, Redis & Kafka
               if: needs.changes.outputs.plugin-server == 'true'
-              run: bin/check_kafka_clickhouse_up
+              run: |
+                  docker compose -f docker-compose.dev.yml up kafka redis clickhouse -d --wait
+                  bin/check_kafka_clickhouse_up
 
             - name: Set up databases
               if: needs.changes.outputs.plugin-server == 'true'
@@ -241,8 +243,10 @@ jobs:
                   pnpm install --frozen-lockfile
                   pnpm build
 
-            - name: Wait for Clickhouse & Kafka
-              run: bin/check_kafka_clickhouse_up
+            - name: Wait for Clickhouse, Redis & Kafka
+              run: |
+                  docker compose -f docker-compose.dev.yml up kafka redis clickhouse -d --wait
+                  bin/check_kafka_clickhouse_up
 
             - name: Set up databases
               env:
