@@ -214,19 +214,6 @@ export function LogLevelDisplay(level: LogEntryLevel): JSX.Element {
     return <span className={color}>{level}</span>
 }
 
-export const humanFriendlyFrequencyName = (frequency: Destination['interval']): string => {
-    switch (frequency) {
-        case 'realtime':
-            return 'Realtime'
-        case 'day':
-            return 'Daily'
-        case 'hour':
-            return 'Hourly'
-        case 'every 5 minutes':
-            return '5 min'
-    }
-}
-
 export function nameColumn<
     T extends { stage: PipelineStage; id: number; name: string; description?: string }
 >(): LemonTableColumn<T, 'name'> {
