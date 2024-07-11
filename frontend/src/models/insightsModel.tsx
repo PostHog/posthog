@@ -1,6 +1,5 @@
 import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, selectors } from 'kea'
-import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -16,7 +15,7 @@ export const insightsModel = kea<insightsModelType>([
     path(['models', 'insightsModel']),
     connect({ values: [featureFlagLogic, ['featureFlags']], logic: [teamLogic] }),
     actions(() => ({
-        renameInsight: (item: InsightModel) => ({ item }),
+        renameInsight: (item: QueryBasedInsightModel) => ({ item }),
         renameInsightSuccess: (item: InsightModel) => ({ item }),
         //TODO this duplicates the insight but not the dashboard tile (e.g. if duplicated from dashboard you lose tile color
         duplicateInsight: (item: QueryBasedInsightModel) => ({ item }),
@@ -46,9 +45,10 @@ export const insightsModel = kea<insightsModelType>([
                     insightName: (name) => (!name ? 'You must enter a name' : undefined),
                 },
                 onSubmit: async ({ insightName }) => {
-                    const updatedItem = await api.update(
-                        `api/projects/${teamLogic.values.currentTeamId}/insights/${item.id}`,
-                        { name: insightName }
+                    const updatedItem = await insightsApi.update(
+                        item.id,
+                        { name: insightName },
+                        { writeAsQuery: values.queryBasedInsightSaving, readAsQuery: false }
                     )
                     lemonToast.success(
                         <>

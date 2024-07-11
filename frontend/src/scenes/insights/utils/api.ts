@@ -4,40 +4,57 @@ import { getInsightFilterOrQueryForPersistance } from '~/queries/nodes/InsightQu
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { InsightModel, QueryBasedInsightModel } from '~/types'
 
+export type InsightsApiOptions<Flag> = {
+    writeAsQuery: boolean
+    readAsQuery: Flag
+}
+
 type ReturnedInsightModelByFlag<Flag extends boolean> = Flag extends true ? QueryBasedInsightModel : InsightModel
 
+export function getInsightModel<Flag extends boolean>(
+    insight: QueryBasedInsightModel,
+    asQuery: Flag
+): ReturnedInsightModelByFlag<Flag> {
+    return {
+        ...insight,
+        ...getInsightFilterOrQueryForPersistance(insight, asQuery),
+    } as ReturnedInsightModelByFlag<Flag>
+}
+
+async function _perform<Flag extends boolean>(
+    method: 'create' | 'update',
+    insight: Partial<QueryBasedInsightModel>,
+    options: InsightsApiOptions<Flag>,
+    id?: number
+): Promise<ReturnedInsightModelByFlag<Flag>> {
+    const { writeAsQuery, readAsQuery } = options
+
+    const data = 'filters' in insight ? getInsightModel(insight as QueryBasedInsightModel, writeAsQuery) : insight
+    const legacyInsight = method === 'create' ? await api.insights[method](data) : await api.insights[method](id!, data)
+
+    const response = readAsQuery ? getQueryBasedInsightModel(legacyInsight) : legacyInsight
+    return response as ReturnedInsightModelByFlag<Flag>
+}
+
 export const insightsApi = {
+    _perform,
     async create<Flag extends boolean>(
         insight: QueryBasedInsightModel,
-        options: {
-            writeAsQuery: boolean
-            readAsQuery: Flag
-        }
+        options: InsightsApiOptions<Flag>
     ): Promise<ReturnedInsightModelByFlag<Flag>> {
-        const data = {
-            ...insight,
-            ...getInsightFilterOrQueryForPersistance(insight, options.writeAsQuery),
-        }
-        const legacyInsight: InsightModel = await api.insights.create(data)
-        return (
-            options.readAsQuery ? getQueryBasedInsightModel(legacyInsight) : legacyInsight
-        ) as ReturnedInsightModelByFlag<Flag>
+        return this._perform('create', insight, options)
+    },
+    async update<Flag extends boolean>(
+        id: number,
+        insightUpdate: Partial<QueryBasedInsightModel>,
+        options: InsightsApiOptions<Flag>
+    ): Promise<ReturnedInsightModelByFlag<Flag>> {
+        return this._perform('update', insightUpdate, options, id)
     },
     async duplicate<Flag extends boolean>(
         insight: QueryBasedInsightModel,
-        options: {
-            writeAsQuery: boolean
-            readAsQuery: Flag
-        }
+        options: InsightsApiOptions<Flag>
     ): Promise<ReturnedInsightModelByFlag<Flag>> {
-        const data = {
-            ...insight,
-            ...getInsightFilterOrQueryForPersistance(insight, options.writeAsQuery),
-            name: insight.name ? `${insight.name} (copy)` : insight.name,
-        }
-        const legacyInsight: InsightModel = await api.insights.create(data)
-        return (
-            options.readAsQuery ? getQueryBasedInsightModel(legacyInsight) : legacyInsight
-        ) as ReturnedInsightModelByFlag<Flag>
+        return this.create({ ...insight, name: insight.name ? `${insight.name} (copy)` : insight.name }, options)
     },
 }

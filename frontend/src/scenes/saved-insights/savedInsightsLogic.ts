@@ -76,7 +76,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             debounce: boolean = true
         ) => ({ filters, merge, debounce }),
         updateFavoritedInsight: (insight: QueryBasedInsightModel, favorited: boolean) => ({ insight, favorited }),
-        renameInsight: (insight: InsightModel) => ({ insight }),
+        renameInsight: (insight: QueryBasedInsightModel) => ({ insight }),
         duplicateInsight: (insight: QueryBasedInsightModel, redirectToInsight = false) => ({
             insight,
             redirectToInsight,
