@@ -36,7 +36,7 @@ export function ProductCard({
     className?: string
 }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const { setIncludeIntro } = useActions(onboardingLogic)
+    const { setIncludeIntro, setTeamPropertiesForProduct } = useActions(onboardingLogic)
     const { user } = useValues(userLogic)
     const { reportOnboardingProductSelected } = useActions(eventUsageLogic)
     const onboardingCompleted = currentTeam?.has_completed_onboarding_for?.[productKey]
@@ -49,6 +49,7 @@ export function ProductCard({
             key={productKey}
             onClick={() => {
                 setIncludeIntro(false)
+                setTeamPropertiesForProduct(productKey as ProductKey)
                 if (!onboardingCompleted) {
                     const includeFirstOnboardingProductOnUserProperties = user?.date_joined
                         ? new Date(user?.date_joined) > new Date('2024-01-10T00:00:00Z')
