@@ -1559,16 +1559,22 @@ const api = {
             return await new ApiRequest().pluginConfigs().get()
         },
         async logs(pluginConfigId: number, params: LogEntryRequestParams): Promise<LogEntry[]> {
+            const levels = (params.level?.split(',') ?? []).filter((x) => x !== 'WARNING')
             const response = await new ApiRequest()
                 .pluginConfig(pluginConfigId)
                 .withAction('logs')
-                .withQueryString({
-                    limit: LOGS_PORTION_LIMIT,
-                    type_filter: params.level,
-                    search: params.search,
-                    before: params.before,
-                    after: params.after,
-                })
+                .withQueryString(
+                    toParams(
+                        {
+                            limit: LOGS_PORTION_LIMIT,
+                            type_filter: levels,
+                            search: params.search,
+                            before: params.before,
+                            after: params.after,
+                        },
+                        true
+                    )
+                )
                 .get()
 
             const results = response.results.map((entry: PluginLogEntry) => ({

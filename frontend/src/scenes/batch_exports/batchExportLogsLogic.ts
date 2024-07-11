@@ -70,7 +70,7 @@ export const batchExportLogsLogic = kea<batchExportLogsLogicType>([
                 const response = await api.batchExports.logs(batchExportId, {
                     search: values.searchTerm,
                     level: values.typeFilters.join(','),
-                    after: values.leadingEntry.timestamp,
+                    after: values.leadingEntry?.timestamp,
                 })
 
                 return [...response.results, ...values.batchExportLogsBackground]
