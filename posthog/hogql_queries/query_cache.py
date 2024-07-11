@@ -46,6 +46,17 @@ class QueryCacheManager:
             insights = insights[-limit:]
         return insights
 
+    @staticmethod
+    def cleanup_stale_insights(*, team_id: int, threshold: datetime) -> None:
+        """
+        Remove all stale insights that are older than the given timestamp.
+        """
+        redis.get_client().zremrangebyscore(
+            f"cache_timestamps:{team_id}",
+            "-inf",
+            threshold.timestamp(),
+        )
+
     def update_last_refresh(self, target_age: datetime) -> None:
         if not self.insight_id:
             return

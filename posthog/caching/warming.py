@@ -42,11 +42,12 @@ def priority_insights(team: Team) -> Generator[tuple[int, Optional[int]], None, 
     that would be like clock that's only right twice a day.
     """
 
+    threshold = datetime.now(UTC) - LAST_VIEWED_THRESHOLD
+    QueryCacheManager.cleanup_stale_insights(team_id=team.pk, threshold=threshold)
     combos = QueryCacheManager.get_stale_insights(team_id=team.pk, limit=500)
 
     STALE_INSIGHTS_COUNTER.labels(team_id=team.pk).inc(len(combos))
 
-    now = datetime.now(UTC)
     dashboard_q_filter = Q()
     insight_ids_single = set()
 
@@ -58,9 +59,7 @@ def priority_insights(team: Team) -> Generator[tuple[int, Optional[int]], None, 
 
     if insight_ids_single:
         single_insights = (
-            team.insight_set.filter(
-                insightviewed__last_viewed_at__gte=now - LAST_VIEWED_THRESHOLD, pk__in=insight_ids_single
-            )
+            team.insight_set.filter(insightviewed__last_viewed_at__gte=threshold, pk__in=insight_ids_single)
             .distinct()
             .values_list("id", flat=True)
         )
@@ -71,7 +70,7 @@ def priority_insights(team: Team) -> Generator[tuple[int, Optional[int]], None, 
         return
 
     dashboard_tiles = (
-        DashboardTile.objects.filter(dashboard__last_accessed_at__gte=now - LAST_VIEWED_THRESHOLD)
+        DashboardTile.objects.filter(dashboard__last_accessed_at__gte=threshold)
         .filter(dashboard_q_filter)
         .distinct()
         .values_list("insight_id", "dashboard_id")
