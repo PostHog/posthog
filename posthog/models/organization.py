@@ -407,9 +407,29 @@ class OrganizationInvite(UUIDModel):
             )
 
     def use(self, user: "User", *, prevalidated: bool = False) -> None:
+        from ee.models.explicit_team_membership import ExplicitTeamMembership
+
         if not prevalidated:
             self.validate(user=user)
         user.join(organization=self.organization, level=self.level)
+        for item in self.private_project_access:
+            try:
+                team: Team = self.organization.teams.get(id=item["id"])
+                parent_membership = OrganizationMembership.objects.get(
+                    organization=self.organization,
+                    user=user,
+                )
+            except self.organization.teams.model.DoesNotExist:
+                # if the team doesn't exist, it was probably deleted. We can still continue with the invite.
+                continue
+            if not team.access_control:
+                continue
+            ExplicitTeamMembership.objects.create(
+                team=team,
+                parent_membership=parent_membership,
+                level=item["level"],
+            )
+
         if is_email_available(with_absolute_urls=True) and self.organization.is_member_join_email_enabled:
             from posthog.tasks.email import send_member_join
 
