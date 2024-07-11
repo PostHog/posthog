@@ -15,7 +15,10 @@ from sentry_sdk import capture_exception
 from social_core.pipeline.partial import partial
 from social_django.strategy import DjangoStrategy
 
-from posthog.api.email_verification import EmailVerifier
+from posthog.api.email_verification import (
+    EmailVerifier,
+    is_email_verification_disabled,
+)
 from posthog.api.shared import UserBasicSerializer
 from posthog.demo.matrix import MatrixManager
 from posthog.demo.products.hedgebox import HedgeboxMatrix
@@ -39,7 +42,7 @@ logger = structlog.get_logger(__name__)
 
 
 def verify_email_or_login(request: HttpRequest, user: User) -> None:
-    if is_email_available() and not user.is_email_verified:
+    if is_email_available() and not user.is_email_verified and not is_email_verification_disabled(user):
         EmailVerifier.create_token_and_send_email_verification(user)
     else:
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
