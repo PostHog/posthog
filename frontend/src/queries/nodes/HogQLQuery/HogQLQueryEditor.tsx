@@ -12,6 +12,7 @@ import { CodeEditor } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import type { editor as importedEditor, IDisposable } from 'monaco-editor'
 import { useEffect, useRef, useState } from 'react'
+import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/external/dataWarehouseSceneLogic'
 import { DatabaseTableTreeWithItems } from 'scenes/data-warehouse/external/DataWarehouseTables'
 import useResizeObserver from 'use-resize-observer'
 
@@ -53,7 +54,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
     }
     const logic = hogQLQueryEditorLogic(hogQLQueryEditorLogicProps)
     const { queryInput, prompt, aiAvailable, promptError, promptLoading } = useValues(logic)
-    const { setQueryInput, saveQuery, setPrompt, draftFromPrompt, saveAsView } = useActions(logic)
+    const { setQueryInput, saveQuery, setPrompt, draftFromPrompt, saveAsView, onUpdateView } = useActions(logic)
 
     const codeEditorKey = `hogQLQueryEditor/${key}`
     const codeEditorLogicProps = {
@@ -64,6 +65,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
     }
     const { hasErrors, error, isValidView } = useValues(codeEditorLogic(codeEditorLogicProps))
 
+    const { editingView } = useValues(dataWarehouseSceneLogic)
     // Using useRef, not useState, as we don't want to reload the component when this changes.
     const monacoDisposables = useRef([] as IDisposable[])
     useEffect(() => {
@@ -210,22 +212,41 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                     {!props.setQuery ? 'No permission to update' : 'Update and run'}
                                 </LemonButton>
                             </div>
-                            <LemonButton
-                                className="ml-2"
-                                onClick={saveAsView}
-                                type="primary"
-                                center
-                                disabledReason={
-                                    hasErrors
-                                        ? error ?? 'Query has errors'
-                                        : !isValidView
-                                        ? 'All fields must have an alias'
-                                        : ''
-                                }
-                                data-attr="hogql-query-editor-save-as-view"
-                            >
-                                Save as view
-                            </LemonButton>
+                            {editingView ? (
+                                <LemonButton
+                                    className="ml-2"
+                                    onClick={onUpdateView}
+                                    type="primary"
+                                    center
+                                    disabledReason={
+                                        hasErrors
+                                            ? error ?? 'Query has errors'
+                                            : !isValidView
+                                            ? 'All fields must have an alias'
+                                            : ''
+                                    }
+                                    data-attr="hogql-query-editor-update-view"
+                                >
+                                    Update view
+                                </LemonButton>
+                            ) : (
+                                <LemonButton
+                                    className="ml-2"
+                                    onClick={saveAsView}
+                                    type="primary"
+                                    center
+                                    disabledReason={
+                                        hasErrors
+                                            ? error ?? 'Query has errors'
+                                            : !isValidView
+                                            ? 'All fields must have an alias'
+                                            : ''
+                                    }
+                                    data-attr="hogql-query-editor-save-as-view"
+                                >
+                                    Save as view
+                                </LemonButton>
+                            )}
                             <LemonButtonWithDropdown
                                 className="ml-2"
                                 icon={<IconInfo />}

@@ -563,6 +563,7 @@ export const routes: Record<string, Scene> = {
     [urls.survey(':id')]: Scene.Survey,
     [urls.surveyTemplates()]: Scene.SurveyTemplates,
     [urls.dataWarehouse()]: Scene.DataWarehouse,
+    [urls.dataWarehouseView(':id')]: Scene.DataWarehouse,
     [urls.dataWarehouseTable()]: Scene.DataWarehouseTable,
     [urls.dataWarehouseSettings(':tab')]: Scene.DataWarehouseSettings,
     [urls.dataWarehouseRedirect(':kind')]: Scene.DataWarehouseRedirect,

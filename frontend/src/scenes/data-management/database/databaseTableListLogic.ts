@@ -141,6 +141,21 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
                     }, {} as Record<string, DatabaseSchemaViewTable>)
             },
         ],
+        viewsMapById: [
+            (s) => [s.database],
+            (database): Record<string, DatabaseSchemaViewTable> => {
+                if (!database || !database.tables) {
+                    return {}
+                }
+
+                return Object.values(database.tables)
+                    .filter((n): n is DatabaseSchemaViewTable => n.type === 'view')
+                    .reduce((acc, cur) => {
+                        acc[cur.id] = database.tables[cur.name] as DatabaseSchemaViewTable
+                        return acc
+                    }, {} as Record<string, DatabaseSchemaViewTable>)
+            },
+        ],
     }),
     afterMount(({ actions }) => {
         actions.loadDatabase()
