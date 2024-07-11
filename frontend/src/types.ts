@@ -3863,6 +3863,16 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     status?: string
     incremental_field: string | null
     incremental_field_type: string | null
+    sync_frequency: DataWarehouseSyncInterval
+}
+
+export interface ExternalDataJob {
+    id: string
+    created_at: string
+    status: 'Running' | 'Failed' | 'Completed' | 'Cancelled'
+    schema: SimpleExternalDataSourceSchema
+    rows_synced: number
+    latest_error: string
 }
 
 export interface SimpleDataWarehouseTable {
