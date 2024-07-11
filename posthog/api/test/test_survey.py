@@ -2210,7 +2210,6 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                     "end_date": None,
                 },
             ]
-            expected_data.sort(key=lambda x: x["id"])
 
             self.assertListEqual(response_data, expected_data)
 

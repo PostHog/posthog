@@ -288,7 +288,9 @@ def changes_between(
                             after=right,
                         )
                     )
-            except models.ObjectDoesNotExist:
+            except:
+                # If we have any exceptions parsing stuff, we should just skip it
+                # rather than failing the request.  Right?
                 continue
 
     return changes

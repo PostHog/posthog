@@ -1,5 +1,5 @@
 from contextlib import contextmanager
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlparse
 
 import nh3
@@ -29,6 +29,7 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.feedback.survey import Survey
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.utils_cors import cors_response
 from loginas.utils import is_impersonated_session
 
@@ -441,7 +442,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         log_activity(
             organization_id=self.organization.id,
             team_id=self.team_id,
-            user=request.user,
+            user=cast(User, self.request.user),
             was_impersonated=is_impersonated_session(request),
             item_id=instance.id,
             scope="Survey",
