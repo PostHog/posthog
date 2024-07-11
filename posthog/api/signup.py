@@ -15,10 +15,7 @@ from sentry_sdk import capture_exception
 from social_core.pipeline.partial import partial
 from social_django.strategy import DjangoStrategy
 
-from posthog.api.email_verification import (
-    EmailVerifier,
-    is_email_verification_disabled,
-)
+from posthog.api.email_verification import EmailVerifier, is_email_verification_disabled
 from posthog.api.shared import UserBasicSerializer
 from posthog.demo.matrix import MatrixManager
 from posthog.demo.products.hedgebox import HedgeboxMatrix
@@ -49,7 +46,15 @@ def verify_email_or_login(request: HttpRequest, user: User) -> None:
 
 
 def get_redirect_url(uuid: str, is_email_verified: bool) -> str:
-    return "/verify_email/" + uuid if is_email_available() and not is_email_verified and not settings.DEMO else "/"
+    user = User.objects.get(uuid=uuid)
+    return (
+        "/verify_email/" + uuid
+        if is_email_available()
+        and not is_email_verified
+        and not is_email_verification_disabled(user)
+        and not settings.DEMO
+        else "/"
+    )
 
 
 class SignupSerializer(serializers.Serializer):

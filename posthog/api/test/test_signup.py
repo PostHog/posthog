@@ -107,6 +107,99 @@ class TestSignupAPI(APIBaseTest):
         # Assert that the password was correctly saved
         self.assertTrue(user.check_password(VALID_TEST_PASSWORD))
 
+    @patch("posthog.api.signup.is_email_available", return_value=True)
+    @patch("posthog.api.signup.EmailVerifier.create_token_and_send_email_verification")
+    def test_api_sign_up_requires_verification(self, mock_email_verifier, mock_is_email_available):
+        # Ensure the internal system metrics org doesn't prevent org-creation
+        Organization.objects.create(name="PostHog Internal Metrics", for_internal_metrics=True)
+
+        response = self.client.post(
+            "/api/signup/",
+            {
+                "first_name": "John",
+                "last_name": "Doe",
+                "email": "hedgehog@posthog.com",
+                "password": VALID_TEST_PASSWORD,
+                "organization_name": "Hedgehogs United, LLC",
+                "role_at_organization": "product",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        user = cast(User, User.objects.order_by("-pk")[0])
+
+        self.assertEqual(
+            response.json(),
+            {
+                "id": user.pk,
+                "uuid": str(user.uuid),
+                "distinct_id": user.distinct_id,
+                "first_name": "John",
+                "last_name": "Doe",
+                "email": "hedgehog@posthog.com",
+                "redirect_url": f"/verify_email/{user.uuid}",
+                "is_email_verified": False,
+                "hedgehog_config": None,
+            },
+        )
+
+        # Assert that the user is logged in
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["email"], "hedgehog@posthog.com")
+
+        mock_is_email_available.assert_called()
+        # Assert the email was sent.
+        mock_email_verifier.assert_called_once_with(user)
+
+    @patch("posthog.api.signup.is_email_available", return_value=True)
+    @patch("posthog.api.signup.EmailVerifier.create_token_and_send_email_verification")
+    @patch("posthog.api.signup.is_email_verification_disabled", return_value=True)
+    def test_api_sign_up_doesnt_require_verification_if_disabled(
+        self,
+        mock_verification_disabled,
+        mock_email_verifier,
+        mock_is_email_available,
+    ):
+        # Ensure the internal system metrics org doesn't prevent org-creation
+        Organization.objects.create(name="PostHog Internal Metrics", for_internal_metrics=True)
+
+        response = self.client.post(
+            "/api/signup/",
+            {
+                "first_name": "John",
+                "last_name": "Doe",
+                "email": "hedgehog@posthog.com",
+                "password": VALID_TEST_PASSWORD,
+                "organization_name": "Hedgehogs United, LLC",
+                "role_at_organization": "product",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        user = cast(User, User.objects.order_by("-pk")[0])
+
+        self.assertEqual(
+            response.json(),
+            {
+                "id": user.pk,
+                "uuid": str(user.uuid),
+                "distinct_id": user.distinct_id,
+                "first_name": "John",
+                "last_name": "Doe",
+                "email": "hedgehog@posthog.com",
+                "redirect_url": "/",
+                "is_email_verified": False,
+                "hedgehog_config": None,
+            },
+        )
+        mock_is_email_available.assert_called()
+        mock_verification_disabled.assert_called()
+        mock_email_verifier.assert_not_called()
+
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
     @pytest.mark.skip_on_multitenancy
     def test_signup_disallowed_on_email_collision(self):
         # Create a user with the same email
