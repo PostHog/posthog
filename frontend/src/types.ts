@@ -1967,6 +1967,7 @@ export interface PluginLogEntry {
     plugin_id: number
     plugin_config_id: number
     timestamp: string
+    source: string
     type: LogEntryLevel
     is_system: boolean
     message: string

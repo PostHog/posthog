@@ -1579,7 +1579,7 @@ const api = {
 
             const results = response.results.map((entry: PluginLogEntry) => ({
                 log_source_id: `${entry.plugin_config_id}`,
-                instance_id: entry.instance_id,
+                instance_id: entry.source,
                 timestamp: entry.timestamp,
                 level: entry.type,
                 message: entry.message,
