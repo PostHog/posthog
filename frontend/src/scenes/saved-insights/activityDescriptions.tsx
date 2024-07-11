@@ -235,6 +235,7 @@ const insightActionsMapping: Record<
 
 function summarizeChanges(filtersAfter: Partial<FilterType>): ChangeMapping | null {
     const query = filtersToQueryNode(filtersAfter)
+    const trendsQuery = query as TrendsQuery
 
     return {
         description: ['changed query definition'],
@@ -242,7 +243,8 @@ function summarizeChanges(filtersAfter: Partial<FilterType>): ChangeMapping | nu
             <div className="ActivityDescription">
                 <SeriesSummary query={query} />
                 <PropertiesSummary properties={query.properties} />
-                {(query as TrendsQuery)?.breakdownFilter?.breakdown_type && <BreakdownSummary query={query} />}
+                {(trendsQuery?.breakdownFilter?.breakdown_type ||
+                    (trendsQuery.breakdownFilter?.breakdowns?.length || 0) > 0) && <BreakdownSummary query={query} />}
             </div>
         ),
     }

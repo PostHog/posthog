@@ -342,21 +342,24 @@ export function BreakdownSummary({ query }: { query: InsightQueryNode }): JSX.El
         !isInsightQueryWithBreakdown(query) ||
         !query.breakdownFilter ||
         query.breakdownFilter.breakdown_type == null ||
-        query.breakdownFilter.breakdown == null
+        query.breakdownFilter.breakdown == null ||
+        !query.breakdownFilter.breakdowns?.length
     ) {
         return null
     }
 
-    const { breakdown_type, breakdown } = query.breakdownFilter
+    const { breakdown_type, breakdown, breakdowns } = query.breakdownFilter
     const breakdownArray = Array.isArray(breakdown) ? breakdown : [breakdown]
 
     return (
         <>
             <h5>Breakdown by</h5>
             <section className="InsightDetails__breakdown">
-                {breakdownArray.map((b) => (
-                    <BreakdownTag key={b} breakdown={b} breakdownType={breakdown_type} />
-                ))}
+                {Array.isArray(breakdowns)
+                    ? breakdowns.map((b) => (
+                          <BreakdownTag key={b.type + b.value} breakdown={b.value} breakdownType={b.type} />
+                      ))
+                    : breakdownArray.map((b) => <BreakdownTag key={b} breakdown={b} breakdownType={breakdown_type} />)}
             </section>
         </>
     )
