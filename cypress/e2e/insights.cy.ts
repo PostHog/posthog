@@ -1,5 +1,5 @@
 import { urls } from 'scenes/urls'
-import { createInsight, insight, savedInsights } from '../productAnalytics'
+import { createInsight, savedInsights } from '../productAnalytics'
 import { randomString } from '../support/random'
 
 // For tests related to trends please check trendsElements.js
