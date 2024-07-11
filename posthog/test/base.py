@@ -103,7 +103,7 @@ persons_ordering_int: int = 1
 
 
 # Expand string diffs
-unittest.util._MAX_LENGTH = 2000
+unittest.util._MAX_LENGTH = 2000  # type: ignore
 
 
 def _setup_test_data(klass):
