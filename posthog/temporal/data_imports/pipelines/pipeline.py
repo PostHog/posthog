@@ -63,6 +63,7 @@ class DataImportPipeline:
                 "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
                 "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
                 "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+                "region_name": settings.AIRBYTE_BUCKET_REGION,
             }
         else:
             credentials = {

@@ -22,6 +22,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
 from posthog.warehouse.models.external_data_job import get_latest_run_if_exists
 from dlt.sources.helpers.rest_client.client import RESTClient
+from dlt.common.configuration.specs.aws_credentials import AwsCredentials
 
 
 BUCKET_NAME = "test-pipeline"
@@ -88,14 +89,26 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
     ):
         return iter(mock_data_response)
 
+    def mock_to_session_credentials(class_self):
+        return {
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "aws_session_token": None,
+            "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
     with (
         mock.patch.object(RESTClient, "paginate", mock_paginate),
         override_settings(
             BUCKET_URL=f"s3://{BUCKET_NAME}",
             AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
             AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            AIRBYTE_BUCKET_REGION="us-east-1",
             AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
         ),
+        mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
     ):
         async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
             async with Worker(
