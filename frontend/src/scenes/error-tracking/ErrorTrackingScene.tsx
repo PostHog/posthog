@@ -20,7 +20,7 @@ export const scene: SceneExport = {
 }
 
 export function ErrorTrackingScene(): JSX.Element {
-    const { order, insightProps } = useValues(errorTrackingSceneLogic)
+    const { order } = useValues(errorTrackingSceneLogic)
     const { dateRange, filterTestAccounts, filterGroup, sparklineSelectedPeriod } = useValues(errorTrackingLogic)
 
     const query = useMemo(
@@ -44,7 +44,6 @@ export function ErrorTrackingScene(): JSX.Element {
             volume: { renderTitle: CustomVolumeColumnHeader },
         },
         showOpenEditorButton: false,
-        insightProps,
     }
 
     return (

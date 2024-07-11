@@ -17,7 +17,6 @@ from . import (
     comments,
     dead_letter_queue,
     early_access_feature,
-    error_tracking,
     event_definition,
     exports,
     feature_flag,
@@ -128,10 +127,6 @@ project_features_router = projects_router.register(
     ["team_id"],
 )
 project_surveys_router = projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["team_id"])
-
-project_error_tracking_router = projects_router.register(
-    r"error_tracking_groups", error_tracking.ErrorTrackingGroupViewSet, "project_error_tracking_groups", ["team_id"]
-)
 
 projects_router.register(
     r"dashboard_templates",

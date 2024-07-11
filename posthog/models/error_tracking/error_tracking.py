@@ -2,6 +2,7 @@ from django.db import models
 from django.contrib.postgres.fields import ArrayField
 from posthog.models.utils import UUIDModel
 from django.db import transaction
+from django.db.models import Q
 
 
 class ErrorTrackingGroup(UUIDModel):
@@ -24,6 +25,15 @@ class ErrorTrackingGroup(UUIDModel):
         null=True,
         blank=True,
     )
+
+    @classmethod
+    def find(cls, fingerprints):
+        query = Q(fingerprint__in=fingerprints)
+
+        for fp in fingerprints:
+            query |= Q(merged_fingerprints__contains=[fp])
+
+        return cls.objects.filter(query)
 
     @transaction.atomic
     def merge(self, groups: list["ErrorTrackingGroup"]) -> None:
