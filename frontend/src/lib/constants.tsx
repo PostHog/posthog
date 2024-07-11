@@ -157,7 +157,6 @@ export const FEATURE_FLAGS = {
     // owner: #team-replay, only to be enabled for PostHog team testing
     EXCEPTION_AUTOCAPTURE: 'exception-autocapture',
     WEB_VITALS_AUTOCAPTURE: 'web-vitals-autocapture', // owner: @team-replay
-    DATA_WAREHOUSE: 'data-warehouse', // owner: @EDsCODE
     FF_DASHBOARD_TEMPLATES: 'ff-dashboard-templates', // owner: @EDsCODE
     ARTIFICIAL_HOG: 'artificial-hog', // owner: @Twixes
     CS_DASHBOARDS: 'cs-dashboards', // owner: @pauldambra

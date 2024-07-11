@@ -52,7 +52,7 @@ def get_decide_site_apps(team: "Team", using_database: str = "default") -> list[
     from posthog.models import PluginConfig, PluginSourceFile
 
     sources = (
-        PluginConfig.objects.using(using_database)
+        PluginConfig.objects.db_manager(using_database)
         .filter(
             team=team,
             enabled=True,

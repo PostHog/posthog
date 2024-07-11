@@ -14,9 +14,9 @@ import {
 import { useActions, useValues } from 'kea'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { useEffect } from 'react'
+import { defaultQuery } from 'scenes/data-warehouse/utils'
 import { urls } from 'scenes/urls'
 
-import { DataTableNode, NodeKind } from '~/queries/schema'
 import { DataWarehouseSyncInterval, ExternalDataSourceSchema } from '~/types'
 
 import { SyncMethodForm } from '../../external/forms/SyncMethodForm'
@@ -143,22 +143,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                         key: 'table',
                         render: function RenderTable(_, schema) {
                             if (schema.table) {
-                                const query: DataTableNode = {
-                                    kind: NodeKind.DataTableNode,
-                                    full: true,
-                                    source: {
-                                        kind: NodeKind.HogQLQuery,
-                                        // TODO: Use `hogql` tag?
-                                        query: `SELECT ${schema.table.columns
-                                            .filter(
-                                                ({ table, fields, chain, schema_valid }) =>
-                                                    !table && !fields && !chain && schema_valid
-                                            )
-                                            .map(({ name }) => name)} FROM ${
-                                            schema.table.name === 'numbers' ? 'numbers(0, 10)' : schema.table.name
-                                        } LIMIT 100`,
-                                    },
-                                }
+                                const query = defaultQuery(schema.table.name, schema.table.columns)
                                 return (
                                     <Link to={urls.dataWarehouse(JSON.stringify(query))}>
                                         <code>{schema.table.name}</code>
