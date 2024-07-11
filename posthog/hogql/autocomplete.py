@@ -605,7 +605,6 @@ def get_hogql_autocomplete(
                             details=["Table"] * len(table_names),
                         )
         except Exception:
-            # raise e
             pass
 
         if len(response.suggestions) != 0:
