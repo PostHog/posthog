@@ -102,6 +102,7 @@ export type CdpConfig = {
     CDP_WATCHER_MIN_OBSERVATIONS: number
     CDP_WATCHER_OVERFLOW_RATING_THRESHOLD: number
     CDP_WATCHER_DISABLED_RATING_THRESHOLD: number
+    CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS: string
 }
 
 export interface PluginsServerConfig extends CdpConfig {

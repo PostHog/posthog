@@ -2,6 +2,7 @@ import { Webhook } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import fetch from 'node-fetch'
 
+import { HogFunctionInvocationResult } from '../cdp/types'
 import { buildIntegerMatcher } from '../config/config'
 import { PluginsServerConfig, ValueMatcher } from '../types'
 import { isProdEnv } from '../utils/env-utils'
@@ -127,7 +128,7 @@ export class RustyHook {
         return true
     }
 
-    public async enqueueForHog(payload: any): Promise<boolean> {
+    public async enqueueForHog(payload: HogFunctionInvocationResult): Promise<boolean> {
         // This is a temporary copy of `enqueueIfEnabledForTeam` above for Hog fetches because the
         // API differs. It will likely be replaced with a Kafka topic soon.
 

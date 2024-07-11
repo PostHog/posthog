@@ -11,7 +11,11 @@ export type AsyncFunctionExecutorOptions = {
 }
 
 export class AsyncFunctionExecutor {
-    constructor(private serverConfig: PluginsServerConfig, private rustyHook: RustyHook) {}
+    rusty_hook_enabled_teams: number[]
+
+    constructor(private serverConfig: PluginsServerConfig, private rustyHook: RustyHook) {
+        this.rusty_hook_enabled_teams = this.serverConfig.CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS.split(',').map(parseInt)
+    }
 
     async execute(
         request: HogFunctionInvocationResult,
@@ -44,42 +48,35 @@ export class AsyncFunctionExecutor {
         request: HogFunctionInvocationResult,
         options?: AsyncFunctionExecutorOptions
     ): Promise<HogFunctionInvocationAsyncResponse | undefined> {
-        // TODO: validate the args
-        // TODO: figure out `options`
-        const forceUseRustyHookForTesting = true
-        if (!options?.sync === false || forceUseRustyHookForTesting) {
-            // TODO: This is a hack because it's surprising to me that the body is currently an
-            // embedded JS(ON) object and not a string. We could handle this on the Hog side instead
-            // if desired.
-            const args = request.asyncFunctionRequest?.args[1]
-            let body = args.body
-            if (body) {
-                body = typeof body === 'string' ? body : JSON.stringify(body, undefined, 4)
-                request.asyncFunctionRequest!.args[1].body = body
-            }
-
-            await this.rustyHook.enqueueForHog(request)
+        if (!request.asyncFunctionRequest) {
             return
         }
 
-        status.info('🦔', `[HogExecutor] Webhook not sent via rustyhook, sending directly instead`)
+        // Sanitize the args
+        const [url, fetchOptions] = request.asyncFunctionRequest.args
 
-        const args = request.asyncFunctionRequest!.args ?? []
-        const url: string = args[0]
-        const fetchOptions = args[1]
+        if (typeof url !== 'string') {
+            status.error('🦔', `[HogExecutor] Invalid URL`, { ...request, url })
+            return
+        }
 
         const method = fetchOptions.method || 'POST'
         const headers = fetchOptions.headers || {
             'Content-Type': 'application/json',
         }
-        const body = fetchOptions.body || {}
+        let body = fetchOptions.body
+        // Modify the body to ensure it is a string (we allow Hog to send an object to keep things simple)
+        body = body ? (typeof body === 'string' ? body : JSON.stringify(body, undefined, 4)) : body
 
-        const webhook: Webhook = {
-            url,
-            method: method,
-            headers: headers,
-            body: typeof body === 'string' ? body : JSON.stringify(body, undefined, 4),
+        // Finally overwrite the args with the sanitized ones
+        request.asyncFunctionRequest.args = [url, { method, headers, body }]
+
+        if (!options?.sync === false && this.rusty_hook_enabled_teams.includes(request.teamId)) {
+            await this.rustyHook.enqueueForHog(request)
+            return
         }
+
+        status.info('🦔', `[HogExecutor] Webhook not sent via rustyhook, sending directly instead`)
 
         const asyncFunctionResponse: HogFunctionInvocationAsyncResponse['asyncFunctionResponse'] = {
             timings: [],
@@ -88,15 +85,15 @@ export class AsyncFunctionExecutor {
         try {
             const start = performance.now()
             const fetchResponse = await trackedFetch(url, {
-                method: webhook.method,
-                body: webhook.body,
-                headers: webhook.headers,
+                method,
+                body,
+                headers,
                 timeout: this.serverConfig.EXTERNAL_REQUEST_TIMEOUT_MS,
             })
 
-            let body = await fetchResponse.text()
+            let responseBody = await fetchResponse.text()
             try {
-                body = JSON.parse(body)
+                responseBody = JSON.parse(body)
             } catch (err) {
                 // Ignore
             }
@@ -110,7 +107,7 @@ export class AsyncFunctionExecutor {
 
             asyncFunctionResponse.vmResponse = {
                 status: fetchResponse.status,
-                body: body,
+                body: responseBody,
             }
         } catch (err) {
             status.error('🦔', `[HogExecutor] Error during fetch`, { ...request, error: String(err) })

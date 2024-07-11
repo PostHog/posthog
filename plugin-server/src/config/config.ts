@@ -181,6 +181,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_WATCHER_MIN_OBSERVATIONS: 3,
         CDP_WATCHER_OVERFLOW_RATING_THRESHOLD: 0.8,
         CDP_WATCHER_DISABLED_RATING_THRESHOLD: 0.5,
+        CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS: '',
     }
 }
 
