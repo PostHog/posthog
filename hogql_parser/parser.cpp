@@ -585,16 +585,6 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     return ret;
   }
 
-  // def visitForInStmt(self, ctx:HogQLParser.ForInStmtContext):
-  //     first_identifier = ctx.identifier(0).getText()
-  //     second_identifier = ctx.identifier(1).getText() if ctx.identifier(1) else None
-  //     return ast.ForInStatement(
-  //         valueVar=second_identifier if second_identifier is not None else first_identifier,
-  //         keyVar=first_identifier if second_identifier is not None else None,
-  //         expr=self.visit(ctx.expression()),
-  //         body=self.visit(ctx.statement()),
-  //     )
-
   VISIT(ForInStmt) {
     string first_identifier = visitAsString(ctx->identifier(0));
     string second_identifier;
