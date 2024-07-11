@@ -6,7 +6,7 @@ import django.db.models.deletion
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0435_alter_action_slack_message_format"),
+        ("posthog", "0436_alter_proxyrecord_status"),
     ]
 
     operations = [
