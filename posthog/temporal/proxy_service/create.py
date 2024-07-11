@@ -11,7 +11,7 @@ from django.db import connection
 
 from temporalio import activity, workflow
 import temporalio.common
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ActivityError, ApplicationError, RetryState
 
 from posthog.models import ProxyRecord
 from posthog.temporal.batch_exports.base import PostHogWorkflow
@@ -20,6 +20,7 @@ from posthog.temporal.common.logger import bind_temporal_org_worker_logger
 from posthog.temporal.proxy_service.common import (
     get_grpc_client,
     NonRetriableException,
+    RecordDeletedException,
     update_proxy_record,
     UpdateProxyRecordInputs,
 )
@@ -77,7 +78,7 @@ async def wait_for_dns_records(inputs: WaitForDNSRecordsInputs):
         pr.save()
 
     if not await record_exists(inputs.proxy_record_id):
-        raise NonRetriableException("proxy record was deleted while waiting for DNS records")
+        raise RecordDeletedException("proxy record was deleted while waiting for DNS records")
 
     try:
         cnames = dns.resolver.query(inputs.domain, "CNAME")
@@ -107,7 +108,7 @@ async def wait_for_dns_records(inputs: WaitForDNSRecordsInputs):
                 message="The DNS record appears to have Cloudflare proxying enabled - please disable this. For more information see [the docs](https://posthog.com/docs/advanced/proxy/managed-reverse-proxy)",
             )
         raise
-    except (dns.resolver.NXDOMAIN, ApplicationError):
+    except (dns.resolver.NXDOMAIN, dns.resolver.Timeout, ApplicationError):
         # retriable
         raise
     except Exception as e:
@@ -133,7 +134,7 @@ async def create_managed_proxy(inputs: CreateManagedProxyInputs):
         return len(pr) > 0
 
     if not await record_exists(inputs.proxy_record_id):
-        raise NonRetriableException("proxy record was deleted while waiting for certificate to be provisioned")
+        raise RecordDeletedException("proxy record was deleted while waiting for certificate to be provisioned")
 
     client = await get_grpc_client()
 
@@ -200,29 +201,57 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self, inputs: CreateManagedProxyInputs) -> None:
         """Workflow implementation to create a Managed reverse Proxy."""
-
+        logger = await bind_temporal_org_worker_logger(organization_id=inputs.organization_id)
         try:
-            # Wait for DNS record to be created.
-            # This will fail and retry infinitely until the expected resolution is found.
-            # Timeout after 7 days - users will need to delete and recreate after this time.
-            await temporalio.workflow.execute_activity(
-                wait_for_dns_records,
-                WaitForDNSRecordsInputs(
-                    organization_id=inputs.organization_id,
-                    proxy_record_id=inputs.proxy_record_id,
-                    domain=inputs.domain,
-                    target_cname=inputs.target_cname,
-                ),
-                schedule_to_close_timeout=dt.timedelta(days=7),
-                start_to_close_timeout=dt.timedelta(seconds=2),
-                retry_policy=temporalio.common.RetryPolicy(
-                    backoff_coefficient=1.1,
-                    initial_interval=dt.timedelta(seconds=3),
-                    maximum_interval=dt.timedelta(seconds=3600),
-                    maximum_attempts=0,
-                    non_retryable_error_types=["NonRetriableException"],
-                ),
-            )
+            try:
+                # Wait for DNS record to be created.
+                # This will fail and retry infinitely until the expected resolution is found.
+                # Timeout after 7 days - users will need to delete and recreate after this time.
+                await temporalio.workflow.execute_activity(
+                    wait_for_dns_records,
+                    WaitForDNSRecordsInputs(
+                        organization_id=inputs.organization_id,
+                        proxy_record_id=inputs.proxy_record_id,
+                        domain=inputs.domain,
+                        target_cname=inputs.target_cname,
+                    ),
+                    schedule_to_close_timeout=dt.timedelta(days=7),
+                    start_to_close_timeout=dt.timedelta(seconds=10),
+                    retry_policy=temporalio.common.RetryPolicy(
+                        backoff_coefficient=1.1,
+                        initial_interval=dt.timedelta(seconds=3),
+                        maximum_interval=dt.timedelta(seconds=300),
+                        maximum_attempts=0,
+                        non_retryable_error_types=["NonRetriableException", "RecordDeletedException"],
+                    ),
+                )
+            except ActivityError as e:
+                if e.retry_state != RetryState.TIMEOUT:
+                    raise
+
+                # If we time out waiting for DNS records set to TIMED_OUT status
+                # This is not really an "error", as it's on the customer to set the DNS
+                # records and we have no control over it.
+                logger.info(
+                    "Timed out waiting for DNS records for domain %s",
+                    inputs.domain,
+                )
+
+                # Handle schedule-to-close timeout specifically
+                await temporalio.workflow.execute_activity(
+                    update_proxy_record,
+                    UpdateProxyRecordInputs(
+                        organization_id=inputs.organization_id,
+                        proxy_record_id=inputs.proxy_record_id,
+                        status=ProxyRecord.Status.TIMED_OUT.value,
+                    ),
+                    start_to_close_timeout=dt.timedelta(seconds=60),
+                    retry_policy=temporalio.common.RetryPolicy(
+                        maximum_attempts=10,
+                        non_retryable_error_types=["NonRetriableException", "RecordDeletedException"],
+                    ),
+                )
+                return
 
             # We've found the correct DNS record - update record to the ISSUING state
             await temporalio.workflow.execute_activity(
@@ -235,6 +264,7 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
                 start_to_close_timeout=dt.timedelta(seconds=10),
                 retry_policy=temporalio.common.RetryPolicy(
                     maximum_attempts=2,
+                    non_retryable_error_types=["NonRetriableException", "RecordDeletedException"],
                 ),
             )
 
@@ -247,7 +277,7 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
                 retry_policy=temporalio.common.RetryPolicy(
                     initial_interval=dt.timedelta(seconds=10),
                     maximum_attempts=5,
-                    non_retryable_error_types=["NonRetriableException"],
+                    non_retryable_error_types=["NonRetriableException", "RecordDeletedException"],
                 ),
             )
 
@@ -266,7 +296,7 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
                     initial_interval=dt.timedelta(seconds=1),
                     maximum_interval=dt.timedelta(seconds=10),
                     maximum_attempts=0,
-                    non_retryable_error_types=["NonRetriableException"],
+                    non_retryable_error_types=["NonRetriableException", "RecordDeletedException"],
                 ),
             )
 
@@ -281,10 +311,36 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
                 start_to_close_timeout=dt.timedelta(seconds=10),
                 retry_policy=temporalio.common.RetryPolicy(
                     maximum_attempts=2,
+                    non_retryable_error_types=["NonRetriableException", "RecordDeletedException"],
                 ),
             )
 
-        except Exception:
+        except RecordDeletedException:
+            logger.info(
+                "Record was deleted before completing provisioning for id %s (%s)",
+                inputs.proxy_record_id,
+                inputs.domain,
+            )
+
+            # if the record has been deleted don't error the workflow, just ignore
+            return
+
+        except Exception as e:
+            logger.info(
+                "Exception caught during workflow run: %s (%s)",
+                e,
+                type(e),
+            )
+
+            if hasattr(e, "cause") and e.cause.type == "RecordDeletedException":
+                logger.info(
+                    "Record was deleted before completing provisioning for id %s (%s)",
+                    inputs.proxy_record_id,
+                    inputs.domain,
+                )
+
+                # if the record has been deleted don't error the workflow, just ignore
+                return
             # Something went wrong - set the record to error state
             await temporalio.workflow.execute_activity(
                 update_proxy_record,
@@ -296,6 +352,7 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
                 start_to_close_timeout=dt.timedelta(seconds=60),
                 retry_policy=temporalio.common.RetryPolicy(
                     maximum_attempts=10,
+                    non_retryable_error_types=["NonRetriableException", "RecordDeletedException"],
                 ),
             )
             raise

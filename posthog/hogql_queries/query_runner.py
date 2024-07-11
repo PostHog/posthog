@@ -53,6 +53,7 @@ from posthog.schema import (
     QueryStatusResponse,
     GenericCachedQueryResponse,
     QueryStatus,
+    SessionAttributionExplorerQuery,
 )
 from posthog.schema_helpers import to_dict, to_json
 from posthog.utils import generate_cache_key, get_from_dict_or_attr, get_safe_cache
@@ -137,6 +138,7 @@ RunnableQueryNode = Union[
     WebOverviewQuery,
     WebStatsTableQuery,
     WebTopClicksQuery,
+    SessionAttributionExplorerQuery,
 ]
 
 
@@ -310,6 +312,17 @@ def get_query_runner(
         from .web_analytics.stats_table import WebStatsTableQueryRunner
 
         return WebStatsTableQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == "SessionAttributionExplorerQuery":
+        from .web_analytics.session_attribution_explorer_query_runner import SessionAttributionExplorerQueryRunner
+
+        return SessionAttributionExplorerQueryRunner(
             query=query,
             team=team,
             timings=timings,
