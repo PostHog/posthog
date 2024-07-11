@@ -297,13 +297,17 @@ def property_to_Q(
         if cohorts_cache is not None:
             if cohorts_cache.get(cohort_id) is None:
                 queried_cohort = (
-                    Cohort.objects.using(using_database).filter(pk=cohort_id, team_id=team_id, deleted=False).first()
+                    Cohort.objects.db_manager(using_database)
+                    .filter(pk=cohort_id, team_id=team_id, deleted=False)
+                    .first()
                 )
                 cohorts_cache[cohort_id] = queried_cohort or ""
 
             cohort = cohorts_cache[cohort_id]
         else:
-            cohort = Cohort.objects.using(using_database).filter(pk=cohort_id, team_id=team_id, deleted=False).first()
+            cohort = (
+                Cohort.objects.db_manager(using_database).filter(pk=cohort_id, team_id=team_id, deleted=False).first()
+            )
 
         if not cohort:
             # Don't match anything if cohort doesn't exist
@@ -312,7 +316,7 @@ def property_to_Q(
         if cohort.is_static:
             return Q(
                 Exists(
-                    CohortPeople.objects.using(using_database)
+                    CohortPeople.objects.db_manager(using_database)
                     .filter(
                         cohort_id=cohort_id,
                         person_id=OuterRef("id"),

@@ -157,7 +157,6 @@ export const FEATURE_FLAGS = {
     // owner: #team-replay, only to be enabled for PostHog team testing
     EXCEPTION_AUTOCAPTURE: 'exception-autocapture',
     WEB_VITALS_AUTOCAPTURE: 'web-vitals-autocapture', // owner: @team-replay
-    DATA_WAREHOUSE: 'data-warehouse', // owner: @EDsCODE
     FF_DASHBOARD_TEMPLATES: 'ff-dashboard-templates', // owner: @EDsCODE
     ARTIFICIAL_HOG: 'artificial-hog', // owner: @Twixes
     CS_DASHBOARDS: 'cs-dashboards', // owner: @pauldambra
@@ -207,7 +206,6 @@ export const FEATURE_FLAGS = {
     ALERTS: 'alerts', // owner: github.com/nikitaevg
     ERROR_TRACKING: 'error-tracking', // owner: #team-replay
     SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE: 'settings-bounce-rate-page-view-mode', // owner: @robbie-c
-    SURVEYS_BRANCHING_LOGIC: 'surveys-branching-logic', // owner: @jurajmajerik #team-feature-success
     MULTIPLE_BREAKDOWNS: 'multiple-breakdowns', // owner: @skoob13 #team-product-analytics
     WEB_ANALYTICS_LIVE_USER_COUNT: 'web-analytics-live-user-count', // owner: @robbie-c
     SETTINGS_SESSION_TABLE_VERSION: 'settings-session-table-version', // owner: @robbie-c
