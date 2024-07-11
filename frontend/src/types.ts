@@ -2598,6 +2598,7 @@ export interface Survey {
         urlMatchType?: SurveyUrlMatchType
         actions: {
             values: {
+                id: number
                 name: string
             }[]
         } | null

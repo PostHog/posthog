@@ -29,7 +29,14 @@ import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagL
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 
-import { LinkSurveyQuestion, RatingSurveyQuestion, SurveyQuestion, SurveyType, SurveyUrlMatchType } from '~/types'
+import {
+    ActionType,
+    LinkSurveyQuestion,
+    RatingSurveyQuestion,
+    SurveyQuestion,
+    SurveyType,
+    SurveyUrlMatchType,
+} from '~/types'
 
 import { defaultSurveyAppearance, defaultSurveyFieldValues, SurveyUrlMatchTypeLabels } from './constants'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
@@ -787,16 +794,22 @@ export default function SurveyEdit(): JSX.Element {
                                                     <EventSelect
                                                         filterGroupTypes={[TaxonomicFilterGroupType.Actions]}
                                                         itemProperty="name"
-                                                        onChange={(includedActions) => {
+                                                        onItemChange={(items: ActionType[]) => {
                                                             setSurveyValue('conditions', {
                                                                 ...survey.conditions,
                                                                 actions: {
-                                                                    values: includedActions.map((e) => {
-                                                                        return { name: e }
+                                                                    values: items.map((e) => {
+                                                                        return { id: e.id, name: e.name }
                                                                     }),
                                                                 },
                                                             })
                                                         }}
+                                                        selectedItems={
+                                                            survey.conditions?.actions?.values &&
+                                                            survey.conditions?.actions?.values.length > 0
+                                                                ? survey.conditions?.actions?.values
+                                                                : []
+                                                        }
                                                         selectedEvents={
                                                             survey.conditions?.actions?.values &&
                                                             survey.conditions?.actions?.values.length > 0
