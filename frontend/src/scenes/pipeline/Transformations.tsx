@@ -19,25 +19,23 @@ import { Transformation } from './types'
 import { appColumn, nameColumn, pipelinePluginBackedNodeMenuCommonItems } from './utils'
 
 export function Transformations(): JSX.Element {
-    const { sortedEnabledTransformations, shouldShowProductIntroduction } = useValues(pipelineTransformationsLogic)
+    const { sortedEnabledTransformations, sortedTransformations, loading } = useValues(pipelineTransformationsLogic)
     const { canConfigurePlugins } = useValues(pipelineAccessLogic)
     const { openReorderModal } = useActions(pipelineTransformationsLogic)
 
-    const shouldShowEmptyState = sortedEnabledTransformations.length === 0
+    const shouldShowEmptyState = sortedTransformations.length === 0 && !loading
 
     return (
         <>
-            {(shouldShowEmptyState || shouldShowProductIntroduction) && (
-                <ProductIntroduction
-                    productName="Pipeline transformations"
-                    thingName="transformation"
-                    productKey={ProductKey.PIPELINE_TRANSFORMATIONS}
-                    description="Pipeline transformations allow you to enrich your data with additional information, such as geolocation."
-                    docsURL="https://posthog.com/docs/cdp"
-                    actionElementOverride={<NewButton stage={PipelineStage.Transformation} />}
-                    isEmpty={true}
-                />
-            )}
+            <ProductIntroduction
+                productName="Pipeline transformations"
+                thingName="transformation"
+                productKey={ProductKey.PIPELINE_TRANSFORMATIONS}
+                description="Pipeline transformations allow you to enrich your data with additional information, such as geolocation."
+                docsURL="https://posthog.com/docs/cdp"
+                actionElementOverride={<NewButton stage={PipelineStage.Transformation} />}
+                isEmpty={shouldShowEmptyState}
+            />
             {sortedEnabledTransformations.length > 1 && ( // Only show rearranging if there's more then 1 sortable app
                 <>
                     <ReorderModal />

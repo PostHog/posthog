@@ -247,6 +247,9 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                                                     onChange={onChange}
                                                     disabled={!slackEnabled || !action.post_to_slack}
                                                     data-attr="edit-slack-message-format"
+                                                    maxLength={
+                                                        1200 /** Must be same as in posthog/models/action/action.py */
+                                                    }
                                                 />
                                                 <small>
                                                     <Link

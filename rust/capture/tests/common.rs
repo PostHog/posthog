@@ -45,6 +45,9 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
         kafka_hosts: "kafka:9092".to_string(),
         kafka_topic: "events_plugin_ingestion".to_string(),
         kafka_historical_topic: "events_plugin_ingestion_historical".to_string(),
+        kafka_client_ingestion_warning_topic: "events_plugin_ingestion".to_string(),
+        kafka_exceptions_topic: "events_plugin_ingestion".to_string(),
+        kafka_heatmaps_topic: "events_plugin_ingestion".to_string(),
         kafka_tls: false,
     },
     otel_url: None,
@@ -177,6 +180,15 @@ impl EphemeralTopic {
             Some(Err(err)) => bail!("kafka read error: {}", err),
             None => bail!("kafka read timeout"),
         }
+    }
+
+    pub(crate) fn assert_empty(&self) {
+        assert!(
+            self.consumer
+                .poll(Timeout::After(Duration::from_secs(1)))
+                .is_none(),
+            "topic holds more messages"
+        )
     }
 
     pub fn topic_name(&self) -> &str {

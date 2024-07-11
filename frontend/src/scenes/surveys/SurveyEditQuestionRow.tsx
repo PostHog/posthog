@@ -229,6 +229,10 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                         const newQuestions = [...survey.questions]
                                         newQuestions[index] = newQuestion
                                         setSurveyValue('questions', newQuestions)
+                                        setSurveyValue(
+                                            'appearance.ratingButtonColor',
+                                            val === 'emoji' ? '#939393' : 'white'
+                                        )
                                         resetBranchingForQuestion(index)
                                     }}
                                 />

@@ -273,7 +273,7 @@ const propertyFilterMapping: Partial<Record<PropertyFilterType, TaxonomicFilterG
     [PropertyFilterType.HogQL]: TaxonomicFilterGroupType.HogQLExpression,
 }
 
-const filterToTaxonomicFilterType = (
+export const filterToTaxonomicFilterType = (
     type?: string | null,
     group_type_index?: number | null,
     value?: (string | number)[] | string | number | null

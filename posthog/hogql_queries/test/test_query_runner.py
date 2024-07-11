@@ -47,7 +47,9 @@ class TestQueryRunner(BaseTest):
             def _refresh_frequency(self) -> timedelta:
                 return timedelta(minutes=4)
 
-            def _is_stale(self, cached_result_package, *args, **kwargs) -> bool:
+            def _is_stale(self, cached_result_package, lazy: bool = False, *args, **kwargs) -> bool:
+                if lazy:
+                    return cached_result_package.last_refresh + timedelta(days=1) <= datetime.now(tz=ZoneInfo("UTC"))
                 return cached_result_package.last_refresh + timedelta(minutes=10) <= datetime.now(tz=ZoneInfo("UTC"))
 
         TestQueryRunner.__abstractmethods__ = frozenset()
@@ -169,20 +171,21 @@ class TestQueryRunner(BaseTest):
             response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
             self.assertIsInstance(response, TestCachedBasicQueryResponse)
             self.assertEqual(response.is_cached, False)
+            mock_on_commit.assert_not_called()
 
-        with freeze_time(datetime(2023, 2, 5, 13, 37 + 11, 42)):
+        with freeze_time(datetime(2023, 2, 4, 13, 37 + 11 + 5, 42)):
+            # returns cached response - does not kick off calculation in the background
+            response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE)
+            self.assertIsInstance(response, TestCachedBasicQueryResponse)
+            self.assertEqual(response.is_cached, True)
+            mock_on_commit.assert_not_called()
+
+        with freeze_time(datetime(2023, 2, 4, 13, 37 + 11 + 11, 42)):
             # returns cached response but kicks off calculation in the background
             response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE)
             self.assertIsInstance(response, TestCachedBasicQueryResponse)
             self.assertEqual(response.is_cached, True)
             mock_on_commit.assert_called_once()
-
-        with freeze_time(datetime(2023, 2, 5, 13, 37 + 20, 42)):
-            # returns cached response - does not kick off calculation in the background
-            response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE)
-            self.assertIsInstance(response, TestCachedBasicQueryResponse)
-            self.assertEqual(response.is_cached, True)
-            mock_on_commit.assert_called_once()  # still once
 
         with freeze_time(datetime(2023, 2, 4, 23, 55, 42)):
             # returns cached response for extended time

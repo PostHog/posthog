@@ -1,8 +1,9 @@
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+
 import {
     AnyPersonScopeFilter,
     AnyPropertyFilter,
     BaseMathType,
-    Breakdown,
     BreakdownKeyType,
     BreakdownType,
     ChartDisplayCategory,
@@ -62,6 +63,7 @@ export enum NodeKind {
     FunnelsActorsQuery = 'FunnelsActorsQuery',
     FunnelCorrelationActorsQuery = 'FunnelCorrelationActorsQuery',
     SessionsTimelineQuery = 'SessionsTimelineQuery',
+    SessionAttributionExplorerQuery = 'SessionAttributionExplorerQuery',
 
     // Interface nodes
     DataTableNode = 'DataTableNode',
@@ -104,6 +106,7 @@ export type AnyDataNode =
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebTopClicksQuery
+    | SessionAttributionExplorerQuery
 
 /**
  * @discriminator kind
@@ -126,6 +129,7 @@ export type QuerySchema =
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebTopClicksQuery
+    | SessionAttributionExplorerQuery
 
     // Interface nodes
     | DataVisualizationNode
@@ -511,6 +515,7 @@ export interface DataTableNode
                     | WebOverviewQuery
                     | WebStatsTableQuery
                     | WebTopClicksQuery
+                    | SessionAttributionExplorerQuery
                 )['response']
             >
         >,
@@ -526,6 +531,7 @@ export interface DataTableNode
         | WebOverviewQuery
         | WebStatsTableQuery
         | WebTopClicksQuery
+        | SessionAttributionExplorerQuery
 
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
@@ -562,7 +568,7 @@ interface DataTableNodeViewProps {
     /** Include a free text search field (PersonsNode only) */
     showSearch?: boolean
     /** Include a property filter above the table */
-    showPropertyFilter?: boolean
+    showPropertyFilter?: boolean | TaxonomicFilterGroupType[]
     /** Show filter to exclude test accounts */
     showTestAccountFilters?: boolean
     /** Include a HogQL query editor above HogQL tables */
@@ -1007,10 +1013,14 @@ interface CachedQueryResponseMixin {
     last_refresh: string
     /**  @format date-time */
     next_allowed_client_refresh: string
+    /**  @format date-time */
+    cache_target_age?: string
     cache_key: string
     timezone: string
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatus
+    /** What triggered the calculation of the query, leave empty if user/immediate */
+    calculation_trigger?: string
 }
 
 type CachedQueryResponse<T> = T & CachedQueryResponseMixin
@@ -1183,7 +1193,7 @@ export interface WebTopClicksQueryResponse extends AnalyticsQueryResponseBase<un
 
 export type CachedWebTopClicksQueryResponse = CachedQueryResponse<WebTopClicksQueryResponse>
 
-export type ErrorTrackingOrder = 'last_seen' | 'first_seen' | 'unique_occurrences' | 'unique_users' | 'unique_sessions'
+export type ErrorTrackingOrder = 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
 
 export enum WebStatsBreakdown {
     Page = 'Page',
@@ -1223,6 +1233,35 @@ export interface WebStatsTableQueryResponse extends AnalyticsQueryResponseBase<u
 }
 
 export type CachedWebStatsTableQueryResponse = CachedQueryResponse<WebStatsTableQueryResponse>
+
+export enum SessionAttributionGroupBy {
+    ChannelType = 'ChannelType',
+    Medium = 'Medium',
+    Source = 'Source',
+    Campaign = 'Campaign',
+    AdIds = 'AdIds',
+    ReferringDomain = 'ReferringDomain',
+    InitialURL = 'InitialURL',
+}
+export interface SessionAttributionExplorerQuery extends DataNode<SessionAttributionExplorerQueryResponse> {
+    kind: NodeKind.SessionAttributionExplorerQuery
+    groupBy: SessionAttributionGroupBy[]
+    filters?: {
+        properties?: SessionPropertyFilter[]
+        dateRange?: DateRange
+    }
+    limit?: integer
+    offset?: integer
+}
+
+export interface SessionAttributionExplorerQueryResponse extends AnalyticsQueryResponseBase<unknown> {
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+    types?: unknown[]
+    columns?: unknown[]
+}
+export type CachedSessionAttributionExplorerQueryResponse = CachedQueryResponse<SessionAttributionExplorerQueryResponse>
 
 export type InsightQueryNode =
     | TrendsQuery
@@ -1268,7 +1307,7 @@ export interface InsightActorsQuery<S extends InsightsQueryBase<AnalyticsQueryRe
     /** An interval selected out of available intervals in source query. */
     interval?: integer
     series?: integer
-    breakdown?: string | BreakdownValueInt
+    breakdown?: string | BreakdownValueInt | string[]
     compare?: 'current' | 'previous'
 }
 
@@ -1351,6 +1390,14 @@ export interface FunnelCorrelationQuery extends Node<FunnelCorrelationResponse> 
 export type DatetimeDay = string
 
 export type BreakdownValueInt = integer
+export interface BreakdownItem {
+    label: string
+    value: string | BreakdownValueInt
+}
+export interface MultipleBreakdownOptions {
+    values: BreakdownItem[]
+}
+
 export interface InsightActorsQueryOptionsResponse {
     // eslint-disable-next-line @typescript-eslint/no-duplicate-type-constituents
     day?: { label: string; value: string | DatetimeDay | Day }[]
@@ -1363,10 +1410,8 @@ export interface InsightActorsQueryOptionsResponse {
          */
         value: integer
     }[]
-    breakdown?: {
-        label: string
-        value: string | BreakdownValueInt
-    }[]
+    breakdown?: BreakdownItem[]
+    breakdowns?: MultipleBreakdownOptions[]
     series?: {
         label: string
         value: integer
@@ -1381,6 +1426,7 @@ export const insightActorsQueryOptionsResponseKeys: string[] = [
     'status',
     'interval',
     'breakdown',
+    'breakdowns',
     'series',
     'compare',
 ]
@@ -1501,14 +1547,27 @@ export interface InsightDateRange {
     explicitDate?: boolean | null
 }
 
+export type MultipleBreakdownType = Extract<BreakdownType, 'person' | 'event' | 'group' | 'session' | 'hogql'>
+
+export interface Breakdown {
+    type?: MultipleBreakdownType | null
+    value: string
+    normalize_url?: boolean
+    group_type_index?: integer | null
+    histogram_bin_count?: integer // trends breakdown histogram bin
+}
+
 export interface BreakdownFilter {
     // TODO: unclutter
     /** @default event */
     breakdown_type?: BreakdownType | null
     breakdown_limit?: integer
-    breakdown?: BreakdownKeyType
+    breakdown?: string | integer | (string | integer)[] | null
     breakdown_normalize_url?: boolean
-    breakdowns?: Breakdown[]
+    /**
+     * @maxLength 3
+     */
+    breakdowns?: Breakdown[] // We want to limit maximum count of breakdowns avoiding overloading.
     breakdown_group_type_index?: integer | null
     breakdown_histogram_bin_count?: integer // trends breakdown histogram bin
     breakdown_hide_other_aggregation?: boolean | null // hides the "other" field for trends

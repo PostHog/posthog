@@ -148,6 +148,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL: undefined,
         SESSION_RECORDING_KAFKA_BATCH_SIZE: 500,
         SESSION_RECORDING_KAFKA_QUEUE_SIZE: 1500,
+        // if not set we'll use the plugin server default value
+        SESSION_RECORDING_KAFKA_QUEUE_SIZE_KB: undefined,
 
         SESSION_RECORDING_LOCAL_DIRECTORY: '.tmp/sessions',
         // NOTE: 10 minutes
@@ -170,7 +172,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_OVERFLOW_BUCKET_REPLENISH_RATE: 5_000_000, // 5MB/second uncompressed, sustained
         SESSION_RECORDING_OVERFLOW_BUCKET_CAPACITY: 200_000_000, // 200MB burst
         SESSION_RECORDING_OVERFLOW_MIN_PER_BATCH: 1_000_000, // All sessions consume at least 1MB/batch, to penalise poor batching
-
+        SESSION_RECORDING_KAFKA_CONSUMPTION_STATISTICS_EVENT_INTERVAL_MS: 0, // 0 disables stats collection
+        SESSION_RECORDING_KAFKA_FETCH_MIN_BYTES: 1_048_576, // 1MB
         // CDP
         CDP_WATCHER_OBSERVATION_PERIOD: 10000,
         CDP_WATCHER_DISABLED_PERIOD: 1000 * 60 * 10,
