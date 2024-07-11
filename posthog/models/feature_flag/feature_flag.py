@@ -372,7 +372,7 @@ class FeatureFlagHashKeyOverride(models.Model):
 
     # Can't use a foreign key to feature_flag_key directly, since
     # the unique constraint is on (team_id+key), and not just key.
-    # A standard id foreign key leads to INNER JOINs everytime we want to get the key
+    # A standard id foreign key leads to INNER JOINs every time we want to get the key
     # and we only ever want to get the key.
     feature_flag_key: models.CharField = models.CharField(max_length=400)
     person: models.ForeignKey = models.ForeignKey("Person", on_delete=models.CASCADE)

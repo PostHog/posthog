@@ -1159,114 +1159,149 @@ class TestSurvey(APIBaseTest):
         self.team.refresh_from_db()
         assert self.team.surveys_opt_in is False
 
-    # @freeze_time("2023-05-01 12:00:00")
-    # def test_create_survey_records_activity(self):
-    #     response = self.client.post(
-    #         f"/api/projects/{self.team.id}/surveys/",
-    #         data={
-    #             "name": "New Survey",
-    #             "type": "popover",
-    #             "questions": [{"type": "open", "question": "What's your favorite feature?"}],
-    #         },
-    #     )
-    #     self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-    #     survey_id = response.json()["id"]
+    @freeze_time("2023-05-01 12:00:00")
+    def test_create_survey_records_activity(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "New Survey",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "What's your favorite feature?"}],
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        survey_id = response.json()["id"]
 
-    #     self._assert_person_activity(
-    #         survey_id,
-    #         [
-    #             {
-    #                 "user": {"first_name": self.user.first_name, "email": self.user.email},
-    #                 "activity": "created",
-    #                 "scope": "Survey",
-    #                 "item_id": survey_id,
-    #                 "detail": {
-    #                     "name": "New Survey",
-    #                     "type": "popover",
-    #                     "questions": [{"type": "open", "question": "What's your favorite feature?"}],
-    #                 },
-    #                 "created_at": "2023-05-01T12:00:00Z",
-    #             }
-    #         ],
-    #     )
+        self._assert_person_activity(
+            survey_id,
+            [
+                {
+                    "user": {"first_name": self.user.first_name, "email": self.user.email},
+                    "activity": "created",
+                    "scope": "Survey",
+                    "item_id": survey_id,
+                    "detail": {
+                        "changes": None,
+                        "trigger": None,
+                        "name": "New Survey",
+                        "short_id": None,
+                        "type": None,
+                    },
+                    "created_at": "2023-05-01T12:00:00Z",
+                }
+            ],
+        )
 
-    # # @freeze_time("2023-05-01 12:00:00")
-    # def test_update_survey_records_activity(self):
-    #     survey = Survey.objects.create(
-    #         team=self.team,
-    #         name="Original Survey",
-    #         type="popover",
-    #         questions=[{"type": "open", "question": "Initial question?"}],
-    #     )
+    @freeze_time("2023-05-01 12:00:00")
+    def test_update_survey_records_activity(self):
+        self.maxDiff = None
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Original Survey",
+            type="popover",
+            questions=[{"type": "open", "question": "Initial question?"}],
+        )
 
-    #     response = self.client.patch(
-    #         f"/api/projects/{self.team.id}/surveys/{survey.id}/",
-    #         data={"name": "Updated Survey", "questions": [{"type": "open", "question": "Updated question?"}]},
-    #     )
-    #     self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"name": "Updated Survey", "questions": [{"type": "open", "question": "Updated question?"}]},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    #     self._assert_person_activity(
-    #         survey.id,
-    #         [
-    #             {
-    #                 "user": {"first_name": self.user.first_name, "email": self.user.email},
-    #                 "activity": "updated",
-    #                 "scope": "Survey",
-    #                 "item_id": str(survey.id),
-    #                 "detail": {
-    #                     "changes": [
-    #                         {
-    #                             "type": "Survey",
-    #                             "action": "changed",
-    #                             "field": "name",
-    #                             "before": "Original Survey",
-    #                             "after": "Updated Survey",
-    #                         },
-    #                         {
-    #                             "type": "Survey",
-    #                             "action": "changed",
-    #                             "field": "questions",
-    #                             "before": [{"type": "open", "question": "Initial question?"}],
-    #                             "after": [{"type": "open", "question": "Updated question?"}],
-    #                         },
-    #                     ],
-    #                 },
-    #                 "created_at": "2023-05-01T12:00:00Z",
-    #             }
-    #         ],
-    #     )
+        self._assert_person_activity(
+            survey.id,
+            [
+                {
+                    "user": {"first_name": self.user.first_name, "email": self.user.email},
+                    "activity": "updated",
+                    "scope": "Survey",
+                    "item_id": str(survey.id),
+                    "detail": {
+                        "changes": [
+                            {
+                                "type": "Survey",
+                                "action": "changed",
+                                "field": "name",
+                                "before": "Original Survey",
+                                "after": "Updated Survey",
+                            },
+                            {
+                                "type": "Survey",
+                                "action": "changed",
+                                "field": "questions",
+                                "before": [{"type": "open", "question": "Initial question?"}],
+                                "after": [{"type": "open", "question": "Updated question?"}],
+                            },
+                        ],
+                        "trigger": None,
+                        "name": "Updated Survey",
+                        "short_id": None,
+                        "type": None,
+                    },
+                    "created_at": "2023-05-01T12:00:00Z",
+                }
+            ],
+        )
 
-    # # @freeze_time("2023-05-01 12:00:00")
-    # def test_delete_survey_records_activity(self):
-    #     survey = Survey.objects.create(
-    #         team=self.team,
-    #         name="Survey to Delete",
-    #         type="popover",
-    #         questions=[{"type": "open", "question": "Question?"}],
-    #     )
+    @freeze_time("2023-05-01 12:00:00")
+    def test_delete_survey_records_activity(self):
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Survey to Delete",
+            type="popover",
+            questions=[{"type": "open", "question": "Question?"}],
+        )
 
-    #     response = self.client.delete(f"/api/projects/{self.team.id}/surveys/{survey.id}/")
-    #     self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        response = self.client.delete(f"/api/projects/{self.team.id}/surveys/{survey.id}/")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
-    #     self._assert_person_activity(
-    #         None,  # can't query directly for deleted survey
-    #         [
-    #             {
-    #                 "user": {"first_name": self.user.first_name, "email": self.user.email},
-    #                 "activity": "deleted",
-    #                 "scope": "Survey",
-    #                 "item_id": str(survey.id),
-    #                 "detail": {
-    #                     "name": "Survey to Delete",
-    #                 },
-    #                 "created_at": "2023-05-01T12:00:00Z",
-    #             }
-    #         ],
-    #     )
+        self._assert_person_activity(
+            None,  # can't query directly for deleted survey
+            [
+                {
+                    "user": {"first_name": self.user.first_name, "email": self.user.email},
+                    "activity": "deleted",
+                    "scope": "Survey",
+                    "item_id": str(survey.id),
+                    "detail": {
+                        "changes": None,
+                        "trigger": None,
+                        "name": "Survey to Delete",
+                        "short_id": None,
+                        "type": None,
+                    },
+                    "created_at": "2023-05-01T12:00:00Z",
+                }
+            ],
+        )
 
-    # def _assert_person_activity(self, survey_id, expected):
-    #     activity = self.client.get(f"/api/projects/{self.team.id}/surveys/{survey_id}/activity").json()
-    #     self.assertEqual(activity["results"], expected)
+    def _assert_person_activity(self, survey_id, expected):
+        activity = self.client.get(f"/api/projects/{self.team.id}/surveys/{survey_id}/activity").json()
+        self.assertEqual(len(activity["results"]), len(expected))
+        for actual, expected_item in zip(activity["results"], expected):
+            self._assert_dict_equal(actual, expected_item)
+
+    def _assert_dict_equal(self, actual, expected, path=""):
+        self.assertEqual(set(actual.keys()), set(expected.keys()), f"Keys don't match at {path}")
+        for key in actual.keys():
+            actual_value = actual[key]
+            expected_value = expected[key]
+            new_path = f"{path}.{key}" if path else key
+
+            if isinstance(actual_value, dict) and isinstance(expected_value, dict):
+                self._assert_dict_equal(actual_value, expected_value, new_path)
+            elif isinstance(actual_value, list) and isinstance(expected_value, list):
+                self._assert_list_equal(actual_value, expected_value, new_path)
+            else:
+                self.assertEqual(actual_value, expected_value, f"Values don't match at {new_path}")
+
+    def _assert_list_equal(self, actual, expected, path):
+        self.assertEqual(len(actual), len(expected), f"List lengths don't match at {path}")
+        if all(isinstance(item, dict) for item in actual + expected):
+            for actual_item, expected_item in zip(actual, expected):
+                self._assert_dict_equal(actual_item, expected_item, path)
+        else:
+            self.assertCountEqual(actual, expected, f"List contents don't match at {path}")
 
 
 class TestMultipleChoiceQuestions(APIBaseTest):
@@ -2136,6 +2171,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
 
     @snapshot_postgres_queries
     def test_list_surveys(self):
+        self.maxDiff = None
         basic_survey = Survey.objects.create(
             team=self.team,
             created_by=self.user,
@@ -2165,38 +2201,42 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
             response = self._get_surveys()
             assert response.status_code == status.HTTP_200_OK
             assert response.get("access-control-allow-origin") == "http://127.0.0.1:8000"
-            self.assertListEqual(
-                response.json()["surveys"],
-                [
-                    {
-                        "id": str(basic_survey.id),
-                        "name": "Survey 1",
-                        "type": "popover",
-                        "questions": [{"type": "open", "question": "What's a survey?"}],
-                        "conditions": None,
-                        "appearance": None,
-                        "start_date": None,
-                        "end_date": None,
-                        "current_iteration": None,
-                        "current_iteration_start_date": None,
-                    },
-                    {
-                        "id": str(survey_with_flags.id),
-                        "name": "Survey 2",
-                        "type": "popover",
-                        "conditions": None,
-                        "appearance": None,
-                        "questions": [{"type": "open", "question": "What's a hedgehog?"}],
-                        "linked_flag_key": "linked-flag",
-                        "targeting_flag_key": "targeting-flag",
-                        "current_iteration": None,
-                        "current_iteration_start_date": None,
-                        "internal_targeting_flag_key": "custom-targeting-flag",
-                        "start_date": None,
-                        "end_date": None,
-                    },
-                ],
-            )
+
+            response_data = response.json()["surveys"]
+            response_data.sort(key=lambda x: x["id"])
+
+            expected_data = [
+                {
+                    "id": str(basic_survey.id),
+                    "name": "Survey 1",
+                    "type": "popover",
+                    "questions": [{"type": "open", "question": "What's a survey?"}],
+                    "conditions": None,
+                    "appearance": None,
+                    "start_date": None,
+                    "end_date": None,
+                    "current_iteration": None,
+                    "current_iteration_start_date": None,
+                },
+                {
+                    "id": str(survey_with_flags.id),
+                    "name": "Survey 2",
+                    "type": "popover",
+                    "conditions": None,
+                    "appearance": None,
+                    "questions": [{"type": "open", "question": "What's a hedgehog?"}],
+                    "linked_flag_key": "linked-flag",
+                    "targeting_flag_key": "targeting-flag",
+                    "current_iteration": None,
+                    "current_iteration_start_date": None,
+                    "internal_targeting_flag_key": "custom-targeting-flag",
+                    "start_date": None,
+                    "end_date": None,
+                },
+            ]
+            expected_data.sort(key=lambda x: x["id"])
+
+            self.assertListEqual(response_data, expected_data)
 
     def test_list_surveys_excludes_description(self):
         Survey.objects.create(

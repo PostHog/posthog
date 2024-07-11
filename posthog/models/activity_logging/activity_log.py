@@ -12,8 +12,10 @@ from django.conf import settings
 
 from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_tile import DashboardTile
+from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.user import User
 from posthog.models.utils import UUIDT, UUIDModel
+
 
 logger = structlog.get_logger(__name__)
 
@@ -70,7 +72,7 @@ class Detail:
 class ActivityDetailEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, Detail | Change | Trigger):
-            return obj.__dict__
+            return {k: v for k, v in obj.__dict__.items() if self.is_serializable(v)}
         if isinstance(obj, datetime):
             return obj.isoformat()
         if isinstance(obj, UUIDT):
@@ -78,13 +80,29 @@ class ActivityDetailEncoder(json.JSONEncoder):
         if isinstance(obj, User):
             return {"first_name": obj.first_name, "email": obj.email}
         if isinstance(obj, float):
-            # more precision than we'll need but avoids rounding too unnecessarily
             return format(obj, ".6f").rstrip("0").rstrip(".")
         if isinstance(obj, Decimal):
-            # more precision than we'll need but avoids rounding too unnecessarily
             return format(obj, ".6f").rstrip("0").rstrip(".")
+        if isinstance(obj, FeatureFlag):
+            return {k: v for k, v in obj.__dict__.items() if self.is_serializable(v)}
+        if isinstance(obj, models.Model):
+            return {k: v for k, v in obj.__dict__.items() if self.is_serializable(v)}
 
-        return json.JSONEncoder.default(self, obj)
+        # For any other type, try to convert to a dict if possible
+        try:
+            return {k: v for k, v in obj.__dict__.items() if self.is_serializable(v)}
+        except AttributeError:
+            # If conversion to dict is not possible, return None
+            # This will effectively skip this field in the JSON output
+            return None
+
+    def is_serializable(self, value):
+        """Check if a value is JSON serializable."""
+        try:
+            json.dumps(value)
+            return True
+        except (TypeError, OverflowError):
+            return False
 
 
 class ActivityLog(UUIDModel):
@@ -204,7 +222,6 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "post_to_slack",
         "property_type_format",
     ],
-    # TODO: add a field exclusion for "Survey"
     "Team": ["uuid", "updated_at", "api_token", "created_at", "id"],
 }
 
@@ -247,45 +264,49 @@ def changes_between(
         # there are no changes between two things that don't exist
         return changes
 
-    if previous is not None:
-        fields = current._meta.get_fields() if current is not None else []
+    if previous is not None and current is not None:
+        fields = current._meta.get_fields()
         excluded_fields = field_exclusions.get(model_type, []) + common_field_exclusions
         filtered_fields = [f.name for f in fields if f.name not in excluded_fields]
 
         for field in filtered_fields:
-            left = getattr(previous, field, None)
-            if isinstance(left, models.Manager):
-                left = _read_through_relation(left)
+            try:
+                left = getattr(previous, field, None)
+                if isinstance(left, models.Manager):
+                    left = _read_through_relation(left)
 
-            right = getattr(current, field, None)
-            if isinstance(right, models.Manager):
-                right = _read_through_relation(right)
+                right = getattr(current, field, None)
+                if isinstance(right, models.Manager):
+                    right = _read_through_relation(right)
 
-            if field == "tagged_items":
-                field = "tags"  # or the UI needs to be coupled to this internal backend naming
+                if field == "tagged_items":
+                    field = "tags"  # or the UI needs to be coupled to this internal backend naming
 
-            if field == "dashboards" and "dashboard_tiles" in filtered_fields:
-                # only process dashboard_tiles when it is present. It supersedes dashboards
-                continue
+                if field == "dashboards" and "dashboard_tiles" in filtered_fields:
+                    # only process dashboard_tiles when it is present. It supersedes dashboards
+                    continue
 
-            if model_type == "Insight" and field == "dashboard_tiles":
-                # the api exposes this as dashboards and that's what the activity describers expect
-                field = "dashboards"
+                if model_type == "Insight" and field == "dashboard_tiles":
+                    # the api exposes this as dashboards and that's what the activity describers expect
+                    field = "dashboards"
 
-            if left is None and right is not None:
-                changes.append(Change(type=model_type, field=field, action="created", after=right))
-            elif right is None and left is not None:
-                changes.append(Change(type=model_type, field=field, action="deleted", before=left))
-            elif left != right:
-                changes.append(
-                    Change(
-                        type=model_type,
-                        field=field,
-                        action="changed",
-                        before=left,
-                        after=right,
+                if left is None and right is not None:
+                    changes.append(Change(type=model_type, field=field, action="created", after=right))
+                elif right is None and left is not None:
+                    changes.append(Change(type=model_type, field=field, action="deleted", before=left))
+                elif left != right:
+                    changes.append(
+                        Change(
+                            type=model_type,
+                            field=field,
+                            action="changed",
+                            before=left,
+                            after=right,
+                        )
                     )
-                )
+            except models.ObjectDoesNotExist:
+                # If a related object doesn't exist, we'll skip this field
+                continue
 
     return changes
 
