@@ -167,6 +167,52 @@ class Command(BaseCommand):
         for push_medium in ("push", "mobile", "notification"):
             entries[push_medium, EntryKind.medium] = SourceEntry(None, None, "Push")
 
+        # add some well-known mobile apps
+        for app in (
+            # linkedin
+            "com.linkedin.android",
+            "com.linkedin.LinkedIn",
+            # reddit
+            "com.reddit.frontpage",
+            "com.reddit.reddit",
+            # tiktok
+            "com.zhiliaoapp.musically",
+            # facebook
+            "com.facebook.katana",
+            "com.facebook.facebook",
+            "com.facebook.messenger",
+            # instagram
+            "com.instagram.android",
+            "com.burbn.instagram",
+            # snapchat
+            "com.snapchat.android",
+            "com.toyopagroup.picaboo",
+            # bluesky
+            "xyz.blueskyweb.app",
+            # twitter
+            "com.twitter.android",
+            "com.atebits.tweetie2",
+            # mastodon
+            "org.joinmastodon.android",
+            # discord
+            "com.hammerandchisel.discord",
+            "com.discord",
+        ):
+            entries[app, EntryKind.source] = SourceEntry("Social", "Paid Social", "Organic Social")
+        for app in (
+            # twitch
+            "tv.twitch",
+            "tv.twitch.android.app",
+            # youtube
+            "com.google.android.youtube",
+            "com.google.ios.youtube",
+            "com.google.ios.youtubekids",
+            "com.google.android.apps.youtube.kids",
+            "com.google.ios.youtubeunplugged",
+            "com.google.android.youtube.tv",
+        ):
+            entries[app, EntryKind.source] = SourceEntry("Video", "Paid Video", "Organic Social")
+
         # add without www. for all entries
         without_www = {
             (hostname[4:], kind): entry for ((hostname, kind), entry) in entries.items() if hostname.startswith("www.")
@@ -174,7 +220,7 @@ class Command(BaseCommand):
         entries.update(without_www)
 
         rows = [
-            [hostname, kind, entry.hostname_type, entry.type_if_paid, entry.type_if_organic]
+            [hostname.lower(), kind, entry.hostname_type, entry.type_if_paid, entry.type_if_organic]
             for (hostname, kind), entry in entries.items()
         ]
 
@@ -186,7 +232,10 @@ class Command(BaseCommand):
 
         def sort_key(row):
             name, kind, hostname_type, type_if_paid, type_if_organic = row
-            source_fld = get_fld(name, fail_silently=True, fix_protocol=True)
+            if name and any(name.startswith(s) for s in ("com.", "xyz.", "org.")):
+                source_fld = get_fld(str.join(".", reversed(name.split("."))), fail_silently=True, fix_protocol=True)
+            else:
+                source_fld = get_fld(name, fail_silently=True, fix_protocol=True)
             return [kind, source_fld or name, name]
 
         rows = sorted(rows, key=sort_key)
