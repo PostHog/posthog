@@ -4178,7 +4178,11 @@ export type AvailableOnboardingProducts = Pick<
     {
         [key in ProductKey]: OnboardingProduct
     },
-    ProductKey.PRODUCT_ANALYTICS | ProductKey.SESSION_REPLAY | ProductKey.FEATURE_FLAGS | ProductKey.SURVEYS
+    | ProductKey.PRODUCT_ANALYTICS
+    | ProductKey.SESSION_REPLAY
+    | ProductKey.FEATURE_FLAGS
+    | ProductKey.SURVEYS
+    | ProductKey.DATA_WAREHOUSE
 >
 
 export type OnboardingProduct = {
@@ -4204,6 +4208,12 @@ export type HogFunctionInputSchemaType = {
     integration_field?: 'slack_channel'
 }
 
+export type HogFunctionInputType = {
+    value: any
+    secret?: boolean
+    bytecode?: any
+}
+
 export type HogFunctionType = {
     id: string
     icon_url?: string
@@ -4216,13 +4226,7 @@ export type HogFunctionType = {
     hog: string
 
     inputs_schema?: HogFunctionInputSchemaType[]
-    inputs?: Record<
-        string,
-        {
-            value: any
-            bytecode?: any
-        }
-    >
+    inputs?: Record<string, HogFunctionInputType>
     filters?: PluginConfigFilters | null
     template?: HogFunctionTemplateType
     status?: HogFunctionStatus

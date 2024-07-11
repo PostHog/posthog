@@ -491,8 +491,8 @@ export default function SurveyEdit(): JSX.Element {
                               ]
                             : []),
                         {
-                            key: SurveyEditSection.Targeting,
-                            header: 'Targeting',
+                            key: SurveyEditSection.DisplayConditions,
+                            header: 'Display conditions',
                             content: (
                                 <LemonField.Pure>
                                     <LemonSelect
