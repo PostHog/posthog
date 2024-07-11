@@ -345,11 +345,11 @@ class BytecodeBuilder(Visitor):
         value_var = node.valueVar
 
         # set up a bunch of temporary variables
-        expr_local = self._declare_local("__expr")  # the obj/array itself
-        expr_keys_local = self._declare_local("__expr_keys")  # keys
-        expr_values_local = self._declare_local("__expr_values")  # values
-        loop_index_local = self._declare_local("__loop_index")  # 0
-        loop_limit_local = self._declare_local("__loop_limit")  # length of keys
+        expr_local = self._declare_local("__H_expr_H__")  # the obj/array itself
+        expr_keys_local = self._declare_local("__H_keys_H__")  # keys
+        expr_values_local = self._declare_local("__H_values_H__")  # values
+        loop_index_local = self._declare_local("__H_index_H__")  # 0
+        loop_limit_local = self._declare_local("__H_limit_H__")  # length of keys
         key_var_local = self._declare_local(key_var) if key_var is not None else -1  # loop key
         value_var_local = self._declare_local(value_var)  # loop value
         response.extend([Operation.NULL] * (7 if key_var is not None else 6))
