@@ -928,7 +928,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         )
         # Fails since the plugin already exists
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(Plugin.objects.count(), 2)
+        self.assertEqual(Plugin.objects.count(), 1)
 
     def test_cannot_access_others_orgs_plugins(self, mock_get, mock_reload):
         other_org = Organization.objects.create(
