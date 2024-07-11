@@ -71,7 +71,7 @@ class OrganizationManager(models.Manager):
         """Instead of doing the legwork of creating an organization yourself, delegate the details with bootstrap."""
         from .project import Project  # Avoiding circular import
 
-        with transaction.atomic():
+        with transaction.atomic(using=self.db):
             organization = Organization.objects.create(**kwargs)
             _, team = Project.objects.create_with_team(organization=organization, team_fields=team_fields)
             organization_membership: Optional[OrganizationMembership] = None

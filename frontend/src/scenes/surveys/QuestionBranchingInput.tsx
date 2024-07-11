@@ -192,7 +192,7 @@ function QuestionResponseBasedBranchingInput({
                                     value: SurveyQuestionBranchingType.End,
                                 },
                                 ...availableNextQuestions.map((question) => ({
-                                    label: truncate(`${question.questionIndex + 1}. ${question.question}`, 20),
+                                    label: truncate(`${question.questionIndex + 1}. ${question.question}`, 28),
                                     value: `${SurveyQuestionBranchingType.SpecificQuestion}:${question.questionIndex}`,
                                 })),
                             ]}

@@ -1,4 +1,5 @@
 import { urls } from 'scenes/urls'
+
 import { createInsight, insight, savedInsights } from '../productAnalytics'
 import { randomString } from '../support/random'
 

@@ -76,6 +76,21 @@ export const addLog = (result: HogFunctionInvocationResult, level: HogFunctionLo
     })
 }
 
+const sanitizeLogMessage = (args: any[], sensitiveValues?: string[]): string => {
+    let message = args.map((arg) => (typeof arg !== 'string' ? JSON.stringify(arg) : arg)).join(', ')
+
+    // Find and replace any sensitive values
+    sensitiveValues?.forEach((sensitiveValue) => {
+        message = message.replaceAll(sensitiveValue, '***REDACTED***')
+    })
+
+    if (message.length > MAX_LOG_LENGTH) {
+        message = message.slice(0, MAX_LOG_LENGTH) + '... (truncated)'
+    }
+
+    return message
+}
+
 export class HogExecutor {
     constructor(private hogFunctionManager: HogFunctionManager) {}
 
@@ -259,6 +274,8 @@ export class HogExecutor {
                 throw e
             }
 
+            const sensitiveValues = this.getSensitiveValues(hogFunction, globals.inputs)
+
             try {
                 let hogLogs = 0
                 execRes = exec(state ?? hogFunction.bytecode, {
@@ -284,14 +301,7 @@ export class HogExecutor {
                                 return
                             }
 
-                            let message = args
-                                .map((arg) => (typeof arg !== 'string' ? JSON.stringify(arg) : arg))
-                                .join(', ')
-
-                            if (message.length > MAX_LOG_LENGTH) {
-                                message = message.slice(0, MAX_LOG_LENGTH) + '... (truncated)'
-                            }
-                            addLog(result, 'info', message)
+                            addLog(result, 'info', sanitizeLogMessage(args, sensitiveValues))
                         },
                     },
                 })
@@ -356,5 +366,25 @@ export class HogExecutor {
             ...invocation.globals,
             inputs: builtInputs,
         }
+    }
+
+    getSensitiveValues(hogFunction: HogFunctionType, inputs: Record<string, any>): string[] {
+        const values: string[] = []
+
+        hogFunction.inputs_schema?.forEach((schema) => {
+            if (schema.secret) {
+                const value = inputs[schema.key]
+                if (typeof value === 'string') {
+                    values.push(value)
+                } else if (schema.type === 'dictionary' && typeof value === 'object') {
+                    // Assume the values are the sensitive parts
+                    Object.values(value).forEach((val: any) => {
+                        values.push(val)
+                    })
+                }
+            }
+        })
+
+        return values
     }
 }

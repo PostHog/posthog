@@ -32,12 +32,8 @@ import {
     PersonsNode,
     RetentionQuery,
     SavedInsightNode,
+    SessionAttributionExplorerQuery,
     StickinessQuery,
-    TimeToSeeDataJSONNode,
-    TimeToSeeDataNode,
-    TimeToSeeDataQuery,
-    TimeToSeeDataSessionsQuery,
-    TimeToSeeDataWaterfallNode,
     TrendsQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
@@ -45,14 +41,11 @@ import {
 } from '~/queries/schema'
 import { ChartDisplayType, IntervalType } from '~/types'
 
-export function isDataNode(
-    node?: Record<string, any> | null
-): node is EventsQuery | PersonsNode | TimeToSeeDataSessionsQuery {
+export function isDataNode(node?: Record<string, any> | null): node is EventsQuery | PersonsNode {
     return (
         isEventsNode(node) ||
         isActionsNode(node) ||
         isPersonsNode(node) ||
-        isTimeToSeeDataSessionsQuery(node) ||
         isEventsQuery(node) ||
         isActorsQuery(node) ||
         isHogQLQuery(node) ||
@@ -60,28 +53,12 @@ export function isDataNode(
     )
 }
 
-function isTimeToSeeDataJSONNode(node?: Record<string, any> | null): node is TimeToSeeDataJSONNode {
-    return node?.kind === NodeKind.TimeToSeeDataSessionsJSONNode
-}
-
-function isTimeToSeeDataWaterfallNode(node?: Record<string, any> | null): node is TimeToSeeDataWaterfallNode {
-    return node?.kind === NodeKind.TimeToSeeDataSessionsWaterfallNode
-}
-
-export function isNodeWithSource(
-    node?: Record<string, any> | null
-): node is DataTableNode | InsightVizNode | TimeToSeeDataWaterfallNode | TimeToSeeDataJSONNode {
+export function isNodeWithSource(node?: Record<string, any> | null): node is DataTableNode | InsightVizNode {
     if (!node) {
         return false
     }
 
-    return (
-        isDataTableNode(node) ||
-        isDataVisualizationNode(node) ||
-        isInsightVizNode(node) ||
-        isTimeToSeeDataWaterfallNode(node) ||
-        isTimeToSeeDataJSONNode(node)
-    )
+    return isDataTableNode(node) || isDataVisualizationNode(node) || isInsightVizNode(node)
 }
 
 export function isEventsNode(node?: Record<string, any> | null): node is EventsNode {
@@ -150,6 +127,12 @@ export function isWebStatsTableQuery(node?: Record<string, any> | null): node is
 
 export function isWebTopClicksQuery(node?: Record<string, any> | null): node is WebTopClicksQuery {
     return node?.kind === NodeKind.WebTopClicksQuery
+}
+
+export function isSessionAttributionExplorerQuery(
+    node?: Record<string, any> | null
+): node is SessionAttributionExplorerQuery {
+    return node?.kind === NodeKind.SessionAttributionExplorerQuery
 }
 
 export function containsHogQLQuery(node?: Record<string, any> | null): boolean {
@@ -229,32 +212,10 @@ export function isInsightQueryNode(node?: Record<string, any> | null): node is I
     )
 }
 
-export function isTimeToSeeDataSessionsQuery(node?: Record<string, any> | null): node is TimeToSeeDataSessionsQuery {
-    return node?.kind === NodeKind.TimeToSeeDataSessionsQuery
-}
-
-export function isTimeToSeeDataQuery(node?: Record<string, any> | null): node is TimeToSeeDataQuery {
-    return node?.kind === NodeKind.TimeToSeeDataQuery
-}
-
-export function isTimeToSeeDataSessionsNode(node?: Record<string, any> | null): node is TimeToSeeDataNode {
-    return (
-        !!node?.kind &&
-        [NodeKind.TimeToSeeDataSessionsWaterfallNode, NodeKind.TimeToSeeDataSessionsJSONNode].includes(node?.kind)
-    )
-}
-
 export function dateRangeFor(node?: Node): DateRange | undefined {
     if (isInsightVizNode(node)) {
         return node.source.dateRange
     } else if (isInsightQueryNode(node)) {
-        return node.dateRange
-    } else if (isTimeToSeeDataQuery(node)) {
-        return {
-            date_from: node.sessionStart,
-            date_to: node.sessionEnd,
-        }
-    } else if (isTimeToSeeDataSessionsQuery(node)) {
         return node.dateRange
     } else if (isActionsNode(node)) {
         return undefined
