@@ -74,7 +74,7 @@ def validate_migration_sql(sql) -> bool:
             )  # Ignore for brand-new tables
         ):
             print(
-                f"\n\n\033[91mFound a CONSTRAINT command. This locks tables which causes downtime. Please add this constraint using `AddConstraintNotValid()` of `django.contrib.postgres.operations` instead. See https://docs.djangoproject.com/en/4.2/ref/contrib/postgres/operations/#adding-constraints-without-enforcing-validation.\nSource: `{operation_sql}`"
+                f"\n\n\033[91mFound a CONSTRAINT command without NOT VALID. This locks tables which causes downtime. Please add this constraint using `AddConstraintNotValid()` of `django.contrib.postgres.operations` instead. See https://docs.djangoproject.com/en/4.2/ref/contrib/postgres/operations/#adding-constraints-without-enforcing-validation.\nSource: `{operation_sql}`"
             )
             return True
         if (
