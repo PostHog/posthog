@@ -193,7 +193,10 @@ impl KafkaSink {
                     (&self.main_topic, Some(event_key.as_str()))
                 }
             }
-            DataType::ClientIngestionWarning => (&self.client_ingestion_warning_topic, Some(event_key.as_str())),
+            DataType::ClientIngestionWarning => (
+                &self.client_ingestion_warning_topic,
+                Some(event_key.as_str()),
+            ),
             DataType::HeatmapMain => (&self.heatmaps_topic, Some(event_key.as_str())),
             DataType::ExceptionMain => (&self.exceptions_topic, Some(event_key.as_str())),
         };
@@ -334,6 +337,7 @@ mod tests {
             kafka_hosts: cluster.bootstrap_servers(),
             kafka_topic: "events_plugin_ingestion".to_string(),
             kafka_historical_topic: "events_plugin_ingestion_historical".to_string(),
+            kafka_client_ingestion_warning_topic: "events_plugin_ingestion".to_string(),
             kafka_exceptions_topic: "events_plugin_ingestion".to_string(),
             kafka_heatmaps_topic: "events_plugin_ingestion".to_string(),
             kafka_tls: false,

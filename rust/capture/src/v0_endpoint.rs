@@ -187,7 +187,7 @@ pub fn process_single_event(
         ("$exception", _) => DataType::ExceptionMain,
         ("$$heatmap", _) => DataType::HeatmapMain,
         (_, true) => DataType::AnalyticsHistorical,
-        (_, false) => DataType::AnalyticsMain
+        (_, false) => DataType::AnalyticsMain,
     };
 
     let data = serde_json::to_string(&event).map_err(|e| {
