@@ -86,9 +86,9 @@ EVENTS_TABLE_PROXY_MATERIALIZED_COLUMNS = """
     , $group_4 VARCHAR COMMENT 'column_materializer::$group_4'
     , $window_id VARCHAR COMMENT 'column_materializer::$window_id'
     , $session_id VARCHAR COMMENT 'column_materializer::$session_id'
-    , elements_chain_href String COMMENT 'column_materializer::elements_chain::href',
-    , elements_chain_texts Array(String) COMMENT 'column_materializer::elements_chain::texts',
-    , elements_chain_ids Array(String) COMMENT 'column_materializer::elements_chain::ids',
+    , elements_chain_href String COMMENT 'column_materializer::elements_chain::href'
+    , elements_chain_texts Array(String) COMMENT 'column_materializer::elements_chain::texts'
+    , elements_chain_ids Array(String) COMMENT 'column_materializer::elements_chain::ids'
     , elements_chain_elements Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label')) COMMENT 'column_materializer::elements_chain::elements'
 """
 

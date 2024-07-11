@@ -25,13 +25,23 @@ from posthog.models.property import PropertyGroup, ValueT
 from posthog.models.property.util import build_selector_regex
 from posthog.models.property_definition import PropertyType
 from posthog.schema import (
-    EmptyPropertyFilter,
     FilterLogicalOperator,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
     PropertyOperator,
     RetentionEntity,
-    AllPropertyFilterTypes,
+    EventPropertyFilter,
+    PersonPropertyFilter,
+    ElementPropertyFilter,
+    SessionPropertyFilter,
+    CohortPropertyFilter,
+    RecordingPropertyFilter,
+    GroupPropertyFilter,
+    FeaturePropertyFilter,
+    HogQLPropertyFilter,
+    EmptyPropertyFilter,
+    DataWarehousePropertyFilter,
+    DataWarehousePersonPropertyFilter,
 )
 from posthog.warehouse.models import DataWarehouseJoin, DataWarehouseSavedQuery, DataWarehouseTable
 from posthog.utils import get_from_dict_or_attr
@@ -243,7 +253,18 @@ def property_to_expr(
     | PropertyGroupFilterValue
     | Property
     | ast.Expr
-    | AllPropertyFilterTypes,
+    | EventPropertyFilter
+    | PersonPropertyFilter
+    | ElementPropertyFilter
+    | SessionPropertyFilter
+    | CohortPropertyFilter
+    | RecordingPropertyFilter
+    | GroupPropertyFilter
+    | FeaturePropertyFilter
+    | HogQLPropertyFilter
+    | EmptyPropertyFilter
+    | DataWarehousePropertyFilter
+    | DataWarehousePersonPropertyFilter,
     team: Team,
     scope: Literal["event", "person", "session", "replay", "replay_entity", "replay_pdi"] = "event",
 ) -> ast.Expr:
