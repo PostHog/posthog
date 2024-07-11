@@ -81,7 +81,6 @@ export enum PluginServerMode {
     analytics_ingestion = 'analytics-ingestion',
     recordings_blob_ingestion = 'recordings-blob-ingestion',
     recordings_blob_ingestion_overflow = 'recordings-blob-ingestion-overflow',
-    person_overrides = 'person-overrides',
     cdp_processed_events = 'cdp-processed-events',
     cdp_function_callbacks = 'cdp-function-callbacks',
     cdp_function_overflow = 'cdp-function-overflow',
@@ -216,9 +215,6 @@ export interface PluginsServerConfig extends CdpConfig {
     EXTERNAL_REQUEST_TIMEOUT_MS: number
     DROP_EVENTS_BY_TOKEN_DISTINCT_ID: string
     DROP_EVENTS_BY_TOKEN: string
-    POE_EMBRACE_JOIN_FOR_TEAMS: string
-    POE_WRITES_ENABLED_MAX_TEAM_ID: number
-    POE_WRITES_EXCLUDE_TEAMS: string
     RELOAD_PLUGIN_JITTER_MAX_MS: number
     RUSTY_HOOK_FOR_TEAMS: string
     RUSTY_HOOK_ROLLOUT_PERCENTAGE: number
@@ -316,8 +312,6 @@ export interface Hub extends PluginsServerConfig {
     enqueuePluginJob: (job: EnqueuedPluginJob) => Promise<void>
     // ValueMatchers used for various opt-in/out features
     pluginConfigsToSkipElementsParsing: ValueMatcher<number>
-    poeEmbraceJoinForTeams: ValueMatcher<number>
-    poeWritesExcludeTeams: ValueMatcher<number>
     // lookups
     eventsToDropByToken: Map<string, string[]>
 }
@@ -337,7 +331,6 @@ export interface PluginServerCapabilities {
     cdpProcessedEvents?: boolean
     cdpFunctionCallbacks?: boolean
     cdpFunctionOverflow?: boolean
-    personOverrides?: boolean
     appManagementSingleton?: boolean
     preflightSchedules?: boolean // Used for instance health checks on hobby deploy, not useful on cloud
     http?: boolean
