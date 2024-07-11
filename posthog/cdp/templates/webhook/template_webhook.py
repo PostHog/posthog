@@ -37,6 +37,10 @@ fetch(inputs.url, {
                     "value": "PUT",
                 },
                 {
+                    "label": "PATCH",
+                    "value": "PATCH",
+                },
+                {
                     "label": "GET",
                     "value": "GET",
                 },

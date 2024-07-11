@@ -3,13 +3,12 @@ import Fuse from 'fuse.js'
 import { actions, connect, events, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { Experiment, ExperimentsTabs, ProductKey, ProgressStatus } from '~/types'
+import { Experiment, ExperimentsTabs, ProgressStatus } from '~/types'
 
 import type { experimentsLogicType } from './experimentsLogicType'
 
@@ -141,15 +140,6 @@ export const experimentsLogic = kea<experimentsLogicType>([
             (s) => [s.experimentsLoading, s.experiments],
             (experimentsLoading, experiments): boolean => {
                 return experiments.length === 0 && !experimentsLoading && !values.searchTerm && !values.searchStatus
-            },
-        ],
-        shouldShowProductIntroduction: [
-            (s) => [s.user, s.featureFlags],
-            (user, featureFlags): boolean => {
-                return (
-                    !user?.has_seen_product_intro_for?.[ProductKey.EXPERIMENTS] &&
-                    !!featureFlags[FEATURE_FLAGS.SHOW_PRODUCT_INTRO_EXISTING_PRODUCTS]
-                )
             },
         ],
     })),

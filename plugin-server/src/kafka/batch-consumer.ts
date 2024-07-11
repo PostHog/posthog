@@ -172,7 +172,6 @@ export const startBatchConsumer = async ({
         'partition.assignment.strategy': 'cooperative-sticky',
         rebalance_cb: true,
         offset_commit_cb: true,
-        'statistics.interval.ms': kafkaStatisticIntervalMs,
     }
 
     // undefined is valid but things get unhappy if you provide that explicitly
@@ -180,8 +179,12 @@ export const startBatchConsumer = async ({
         consumerConfig['fetch.min.bytes'] = fetchMinBytes
     }
 
+    if (kafkaStatisticIntervalMs) {
+        consumerConfig['statistics.interval.ms'] = kafkaStatisticIntervalMs
+    }
+
     if (debug) {
-        // NOTE: If the key exists with value undefined the consumer will throw which is annoying so we define it here instead
+        // NOTE: If the key exists with value undefined the consumer will throw which is annoying, so we define it here instead
         consumerConfig.debug = debug
     }
 

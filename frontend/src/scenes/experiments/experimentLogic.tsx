@@ -581,6 +581,10 @@ export const experimentLogic = kea<experimentLogicType>([
             if (values.changingSecondaryMetrics) {
                 actions.loadSecondaryMetricResults()
             }
+
+            if (values.experiment?.start_date) {
+                actions.loadExperimentResults()
+            }
         },
         setExperiment: async ({ experiment }) => {
             const experimentEntitiesChanged =

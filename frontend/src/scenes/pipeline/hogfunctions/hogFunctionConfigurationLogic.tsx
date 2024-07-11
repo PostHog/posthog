@@ -13,6 +13,7 @@ import { urls } from 'scenes/urls'
 import {
     FilterType,
     HogFunctionConfigurationType,
+    HogFunctionInputType,
     HogFunctionTemplateType,
     HogFunctionType,
     PipelineNodeTab,
@@ -72,10 +73,19 @@ function sanitizeFilters(filters?: FilterType): PluginConfigTypeNew['filters'] {
 }
 
 export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFunctionConfigurationType {
-    const sanitizedInputs = {}
+    const sanitizedInputs: Record<string, HogFunctionInputType> = {}
 
     data.inputs_schema?.forEach((input) => {
         const value = data.inputs?.[input.key]?.value
+        const secret = data.inputs?.[input.key]?.secret
+
+        if (secret) {
+            sanitizedInputs[input.key] = {
+                value: '********', // Don't send the actual value
+                secret: true,
+            }
+            return
+        }
 
         if (input.type === 'json' && typeof value === 'string') {
             try {
@@ -85,10 +95,10 @@ export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFu
             } catch (e) {
                 // Ignore
             }
-        } else {
-            sanitizedInputs[input.key] = {
-                value: value,
-            }
+            return
+        }
+        sanitizedInputs[input.key] = {
+            value: value,
         }
     })
 
@@ -180,7 +190,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             errors: (data) => {
                 return {
                     name: !data.name ? 'Name is required' : undefined,
-                    ...values.inputFormErrors,
+                    ...(values.inputFormErrors as any),
                 }
             },
             submit: async (data) => {
@@ -201,7 +211,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             (template, hogFunction): HogFunctionConfigurationType => {
                 if (template) {
                     // Fill defaults from template
-                    const inputs = {}
+                    const inputs: Record<string, HogFunctionInputType> = {}
 
                     template.inputs_schema?.forEach((schema) => {
                         if (schema.default) {
@@ -230,11 +240,16 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             (s) => [s.configuration],
             (configuration) => {
                 const inputs = configuration.inputs ?? {}
-                const inputErrors = {}
+                const inputErrors: Record<string, string> = {}
 
                 configuration.inputs_schema?.forEach((input) => {
                     const key = input.key
                     const value = inputs[key]?.value
+                    if (inputs[key]?.secret) {
+                        // We leave unmodified secret values alone
+                        return
+                    }
+
                     if (input.required && !value) {
                         inputErrors[key] = 'This field is required'
                     }
@@ -262,8 +277,20 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 return configuration?.enabled && (hogFunction?.status?.state ?? 0) >= 3
             },
         ],
-        // TODO: connect to the actual globals
-        globalVars: [(s) => [s.hogFunction], (): Record<string, any> => createExampleEvent()],
+        inputGlobals: [(s) => [s.configuration], (): Record<string, any> => createExampleEvent()],
+        invocationGlobals: [
+            (s) => [s.inputGlobals, s.configuration],
+            (inputGlobals, configuration): Record<string, any> => {
+                const event = {
+                    ...inputGlobals,
+                    inputs: {},
+                }
+                for (const input of configuration?.inputs_schema || []) {
+                    event.inputs[input.key] = input.type
+                }
+                return event
+            },
+        ],
     })),
 
     listeners(({ actions, values, cache }) => ({
@@ -336,7 +363,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             if (values.hogFunction?.template) {
                 const template = values.hogFunction.template
                 // Fill defaults from template
-                const inputs = {}
+                const inputs: Record<string, HogFunctionInputType> = {}
 
                 template.inputs_schema?.forEach((schema) => {
                     if (schema.default) {
