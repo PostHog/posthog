@@ -160,7 +160,7 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
             },
         ],
     }),
-    selectors(({ actions }) => ({
+    selectors(({ actions, values }) => ({
         leadingEntry: [
             (s) => [s.logs, s.backgroundLogs],
             (logs: LogEntry[], backgroundLogs: LogEntry[]): LogEntry | null => {
@@ -213,7 +213,11 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                                     <Link
                                         subtle
                                         onClick={() => {
-                                            actions.setInstanceId(instanceId)
+                                            if (values.instanceId === instanceId) {
+                                                actions.setInstanceId(null)
+                                            } else {
+                                                actions.setInstanceId(instanceId)
+                                            }
                                         }}
                                     >
                                         {instanceId}
