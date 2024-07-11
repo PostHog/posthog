@@ -133,8 +133,6 @@ export class RustyHook {
         // API differs. It will likely be replaced with a Kafka topic soon.
 
         const body = JSON.stringify(payload)
-        // TODO remove
-        console.log('🦔', 'Enqueueing Hog webhook', { len: body.length, url: this.serverConfig.HOG_HOOK_URL, body })
 
         // We attempt to enqueue into the rusty-hook service until we succeed. This is deliberatly
         // designed to block up the consumer if rusty-hook is down or if we deploy code that

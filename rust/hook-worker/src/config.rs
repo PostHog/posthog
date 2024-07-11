@@ -46,6 +46,9 @@ pub struct Config {
     #[envconfig(default = "false")]
     pub hog_mode: bool,
 
+    #[envconfig(default = "cdp_function_callbacks")]
+    pub cdp_function_callbacks_topic: String,
+
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,
 }

@@ -62,6 +62,7 @@ async fn main() -> Result<(), WorkerError> {
         retry_policy_builder.provide(),
         config.allow_internal_ips,
         kafka_producer,
+        config.cdp_function_callbacks_topic.to_owned(),
         config.hog_mode,
         worker_liveness,
     );

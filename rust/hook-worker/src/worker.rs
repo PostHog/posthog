@@ -8,8 +8,9 @@ use health::HealthHandle;
 use http::StatusCode;
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use reqwest::{header, Client};
-use serde_json::Value;
+use serde_json::{Map, Number, Value};
 use tokio::sync;
+use tokio::time::{sleep, Duration};
 use tracing::error;
 
 use hook_common::kafka_producer::KafkaContext;
@@ -29,7 +30,7 @@ use crate::util::first_n_bytes_of_response;
 /// A WebhookJob is any `PgQueueJob` with `WebhookJobParameters` and `Value`.
 trait WebhookJob: PgQueueJob + std::marker::Send {
     fn parameters(&self) -> &WebhookJobParameters;
-    fn metadata(&self) -> &Value;
+    fn take_metadata(&mut self) -> Value;
     fn job(&self) -> &Job<WebhookJobParameters, Value>;
 
     fn attempt(&self) -> i32 {
@@ -51,8 +52,8 @@ impl WebhookJob for PgTransactionJob<'_, WebhookJobParameters, Value> {
         &self.job.parameters
     }
 
-    fn metadata(&self) -> &Value {
-        &self.job.metadata
+    fn take_metadata(&mut self) -> Value {
+        self.job.metadata.take()
     }
 
     fn job(&self) -> &Job<WebhookJobParameters, Value> {
@@ -78,6 +79,8 @@ pub struct WebhookWorker<'p> {
     retry_policy: RetryPolicy,
     /// Kafka producer used to send results when in Hog mode
     kafka_producer: FutureProducer<KafkaContext>,
+    /// The topic to send results to when in Hog mode
+    cdp_function_callbacks_topic: String,
     /// Whether we are running in Hog mode or not
     hog_mode: bool,
     /// The liveness check handle, to call on a schedule to report healthy
@@ -115,6 +118,7 @@ impl<'p> WebhookWorker<'p> {
         retry_policy: RetryPolicy,
         allow_internal_ips: bool,
         kafka_producer: FutureProducer<KafkaContext>,
+        cdp_function_callbacks_topic: String,
         hog_mode: bool,
         liveness: HealthHandle,
     ) -> Self {
@@ -130,6 +134,7 @@ impl<'p> WebhookWorker<'p> {
             max_concurrent_jobs,
             retry_policy,
             kafka_producer,
+            cdp_function_callbacks_topic,
             hog_mode,
             liveness,
         }
@@ -187,20 +192,23 @@ impl<'p> WebhookWorker<'p> {
             let client = self.client.clone();
             let retry_policy = self.retry_policy.clone();
             let kafka_producer = self.kafka_producer.clone();
+            let cdp_function_callbacks_topic = self.cdp_function_callbacks_topic.clone();
             let hog_mode = self.hog_mode;
 
             tokio::spawn(async move {
+                // Move `permits` into the closure so they will be dropped when the scope ends.
+                let _permits = permits;
+
                 let mut futures = Vec::with_capacity(batch.jobs.len());
                 let mut metadatas = Vec::with_capacity(batch.jobs.len());
 
                 // We have to `take` the Vec of jobs from the batch to avoid a borrow checker
                 // error below when we commit.
-                for job in std::mem::take(&mut batch.jobs) {
+                for mut job in std::mem::take(&mut batch.jobs) {
                     let client = client.clone();
                     let retry_policy = retry_policy.clone();
 
-                    // TODO: Remove the clone by taking ownership of the metadata
-                    metadatas.push(job.metadata().clone());
+                    metadatas.push(job.take_metadata());
 
                     let future =
                         async move { process_webhook_job(client, job, &retry_policy).await };
@@ -217,23 +225,45 @@ impl<'p> WebhookWorker<'p> {
                     } else if hog_mode {
                         if let Value::Object(ref mut object) = metadata {
                             if let Ok(result) = result {
+                                // Add the response or error in the `asyncFunctionResponse` field.
                                 match result {
                                     WebhookResult::Success(response) => {
+                                        // TODO: Add timing info
+                                        let mut map = Map::new();
+                                        map.insert(
+                                            "status".to_owned(),
+                                            Value::Number(Number::from(response.status().as_u16())),
+                                        );
+                                        // TODO: Get body in `process_webhook_job` (?) and add timeout
+                                        match response.text().await {
+                                            Ok(body) => {
+                                                map.insert("body".to_owned(), Value::String(body));
+                                            }
+                                            Err(_) => {
+                                                // TODO: Handle error
+                                                continue;
+                                            }
+                                        }
                                         object.insert(
                                             "asyncFunctionResponse".to_owned(),
-                                            serde_json::Value::String(
-                                                response.status().to_string(),
-                                            ),
+                                            Value::Object(map),
                                         );
                                     }
                                     WebhookResult::Failed(error) => {
+                                        let mut map = Map::new();
+                                        map.insert(
+                                            "error".to_owned(),
+                                            Value::String(error.to_string()),
+                                        );
                                         object.insert(
                                             "asyncFunctionResponse".to_owned(),
-                                            serde_json::Value::String(error.to_string()),
+                                            Value::Object(map),
                                         );
                                     }
                                     WebhookResult::WillRetry => {
-                                        // Nothing to do
+                                        // Nothing to do, and we don't want to produce anything
+                                        // to Kafka.
+                                        continue;
                                     }
                                 }
                             }
@@ -242,7 +272,7 @@ impl<'p> WebhookWorker<'p> {
                         let payload = serde_json::to_string(&metadata).unwrap();
 
                         match kafka_producer.send_result(FutureRecord {
-                            topic: "cdp_function_callbacks", // TODO: Config
+                            topic: &cdp_function_callbacks_topic,
                             payload: Some(&payload),
                             partition: None,
                             key: None::<&str>,
@@ -251,8 +281,9 @@ impl<'p> WebhookWorker<'p> {
                         }) {
                             Ok(future) => kafka_ack_futures.push(future),
                             Err((error, _)) => {
-                                // TODO
                                 error!("error producing kafka message: {}", error);
+                                sleep(Duration::from_secs(30)).await;
+                                return; // Return early to avoid committing the batch.
                             }
                         };
                     }
@@ -262,13 +293,15 @@ impl<'p> WebhookWorker<'p> {
                     match result {
                         Ok(Ok(_)) => {}
                         Ok(Err((error, _))) => {
-                            // TODO
-                            error!("error producing kafka message: {}", error);
+                            error!("error awaiting kafka ack: {}", error);
+                            sleep(Duration::from_secs(30)).await;
+                            return; // Return early to avoid committing the batch.
                         }
                         Err(_) => {
                             // Cancelled due to timeout while retrying
-                            // TODO
                             error!("error producing kafka message: timed out");
+                            sleep(Duration::from_secs(30)).await;
+                            return; // Return early to avoid committing the batch.
                         }
                     }
                 }
@@ -276,8 +309,6 @@ impl<'p> WebhookWorker<'p> {
                 let _ = batch.commit().await.map_err(|e| {
                     error!("error committing transactional batch: {}", e);
                 });
-
-                drop(permits);
             });
         }
     }
@@ -678,6 +709,7 @@ mod tests {
             RetryPolicy::default(),
             false,
             mock_producer,
+            "cdp_function_callbacks".to_string(),
             hog_mode,
             liveness,
         );
