@@ -4,7 +4,7 @@ import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { PipelineStage, PluginConfigTypeNew, PluginConfigWithPluginInfoNew, PluginType, ProductKey } from '~/types'
+import { PipelineStage, PluginConfigTypeNew, PluginConfigWithPluginInfoNew, PluginType } from '~/types'
 
 import type { pipelineTransformationsLogicType } from './transformationsLogicType'
 import { convertToPipelineNode, Transformation } from './types'
@@ -147,12 +147,6 @@ export const pipelineTransformationsLogic = kea<pipelineTransformationsLogicType
                 return sortedEnabledTransformations.concat(
                     transformations.filter((t) => !t.enabled).sort((a, b) => a.id - b.id)
                 )
-            },
-        ],
-        shouldShowProductIntroduction: [
-            (s) => [s.user],
-            (user): boolean => {
-                return !user?.has_seen_product_intro_for?.[ProductKey.PIPELINE_TRANSFORMATIONS]
             },
         ],
         nextAvailableOrder: [

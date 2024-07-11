@@ -496,6 +496,7 @@ export class SessionRecordingIngester {
             // we only use 9 or 10MB but there's no reason to limit this 🤷️
             consumerMaxBytes: this.config.KAFKA_CONSUMPTION_MAX_BYTES,
             consumerMaxBytesPerPartition: this.config.KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION,
+            fetchMinBytes: this.config.SESSION_RECORDING_KAFKA_FETCH_MIN_BYTES,
             // our messages are very big, so we don't want to queue too many
             queuedMinMessages: this.config.SESSION_RECORDING_KAFKA_QUEUE_SIZE,
             // we'll anyway never queue more than the value set here
@@ -514,6 +515,7 @@ export class SessionRecordingIngester {
             callEachBatchWhenEmpty: true, // Useful as we will still want to account for flushing sessions
             debug: this.config.SESSION_RECORDING_KAFKA_DEBUG,
             kafkaStatisticIntervalMs: this.config.SESSION_RECORDING_KAFKA_CONSUMPTION_STATISTICS_EVENT_INTERVAL_MS,
+            maxHealthHeartbeatIntervalMs: KAFKA_CONSUMER_SESSION_TIMEOUT_MS * 2, // we don't want to proactively declare healthy - we'll let the broker do it
         })
 
         this.totalNumPartitions = (await getPartitionsForTopic(this.connectedBatchConsumer, this.topic)).length

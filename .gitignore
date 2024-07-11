@@ -63,5 +63,4 @@ plugin-transpiler/dist
 *-esbuild-meta.json
 *-esbuild-bundle-visualization.html
 .dlt
-redbeat.RedBeatScheduler.db
-celerybeat-schedule.db
+*.db

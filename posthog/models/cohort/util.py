@@ -496,7 +496,7 @@ def get_dependent_cohorts(
                 if not current_cohort:
                     continue
             else:
-                current_cohort = Cohort.objects.using(using_database).get(
+                current_cohort = Cohort.objects.db_manager(using_database).get(
                     pk=cohort_id, team_id=cohort.team_id, deleted=False
                 )
                 seen_cohorts_cache[cohort_id] = current_cohort
