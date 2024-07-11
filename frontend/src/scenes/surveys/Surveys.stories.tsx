@@ -287,9 +287,9 @@ export const NewSurveyPresentationSection: StoryFn = () => {
 
 export const NewSurveyTargetingSection: StoryFn = () => {
     useEffect(() => {
-        router.actions.push(urls.survey('new'))
+        router.actions.push(urls.survey('new?edit=true'))
         surveyLogic({ id: 'new' }).mount()
-        surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Targeting)
+        surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.DisplayConditions)
         surveyLogic({ id: 'new' }).actions.setSurveyValue('conditions', { url: 'kiki' })
         surveyLogic({ id: 'new' }).actions.setSurveyValue('targeting_flag_filters', {
             groups: [
@@ -310,7 +310,7 @@ NewSurveyTargetingSection.parameters = {
 
 export const NewSurveyAppearanceSection: StoryFn = () => {
     useEffect(() => {
-        router.actions.push(urls.survey('new'))
+        router.actions.push(urls.survey('new?edit=true'))
         surveyLogic({ id: 'new' }).mount()
         surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Appearance)
     }, [])
@@ -340,7 +340,7 @@ export const NewSurveyWithHTMLQuestionDescription: StoryFn = () => {
         },
     })
     useEffect(() => {
-        router.actions.push(urls.survey('new'))
+        router.actions.push(urls.survey('new?edit=true'))
         surveyLogic({ id: 'new' }).mount()
         surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Steps)
         surveyLogic({ id: 'new' }).actions.setSurveyValue('questions', [
@@ -364,7 +364,7 @@ NewSurveyWithHTMLQuestionDescription.parameters = {
 
 export const NewSurveyWithTextQuestionDescriptionThatDoesNotRenderHTML: StoryFn = () => {
     useEffect(() => {
-        router.actions.push(urls.survey('new'))
+        router.actions.push(urls.survey('new?edit=true'))
         surveyLogic({ id: 'new' }).mount()
         surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Steps)
         surveyLogic({ id: 'new' }).actions.setSurveyValue('questions', [

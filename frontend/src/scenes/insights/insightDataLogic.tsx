@@ -43,7 +43,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
     connect((props: InsightLogicProps) => ({
         values: [
             insightLogic,
-            ['filters', 'legacyInsight', 'queryBasedInsight', 'savedInsight'],
+            ['legacyInsight', 'queryBasedInsight', 'savedInsight'],
             dataNodeLogic({
                 key: insightVizDataNodeKey(props),
                 loadPriority: props.loadPriority,
@@ -105,16 +105,15 @@ export const insightDataLogic = kea<insightDataLogicType>([
     selectors({
         useQueryDashboardCards: [
             (s) => [s.featureFlags],
-            (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_DASHBOARD_CARDS],
+            (featureFlags) => !!featureFlags[FEATURE_FLAGS.QUERY_BASED_DASHBOARD_CARDS],
         ],
 
         query: [
-            (s) => [s.propsQuery, s.filters, s.legacyInsight, s.internalQuery, s.filterTestAccountsDefault],
-            (propsQuery, filters, insight, internalQuery, filterTestAccountsDefault) =>
+            (s) => [s.propsQuery, s.queryBasedInsight, s.internalQuery, s.filterTestAccountsDefault],
+            (propsQuery, insight, internalQuery, filterTestAccountsDefault) =>
                 propsQuery ||
                 internalQuery ||
                 insight.query ||
-                (filters && filters.insight ? queryFromFilters(filters) : undefined) ||
                 queryFromKind(NodeKind.TrendsQuery, filterTestAccountsDefault),
         ],
 

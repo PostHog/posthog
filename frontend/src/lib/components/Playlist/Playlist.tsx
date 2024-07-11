@@ -38,6 +38,8 @@ export type PlaylistProps<T> = {
     loading?: boolean
     headerActions?: PlaylistHeaderAction[]
     onScrollListEdge?: (edge: 'top' | 'bottom') => void
+    // Optionally select the first item in the list. Only works in controlled mode
+    selectInitialItem?: boolean
     onSelect?: (item: T) => void
     'data-attr'?: string
     activeItemId?: string
@@ -63,10 +65,13 @@ export function Playlist<
     headerActions = [],
     onScrollListEdge,
     listEmptyState,
+    selectInitialItem,
     onSelect,
     'data-attr': dataAttr,
 }: PlaylistProps<T>): JSX.Element {
-    const [controlledActiveItemId, setControlledActiveItemId] = useState<T['id'] | null>(null)
+    const [controlledActiveItemId, setControlledActiveItemId] = useState<T['id'] | null>(
+        selectInitialItem ? sections[0].items[0].id : null
+    )
     const [listCollapsed, setListCollapsed] = useState<boolean>(false)
     const playlistListRef = useRef<HTMLDivElement>(null)
     const { ref: playlistRef, size } = useResizeBreakpoints({

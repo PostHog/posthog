@@ -82,6 +82,8 @@ export type SettingId =
     | 'hedgehog-mode'
     | 'persons-join-mode'
     | 'bounce-rate-page-view-mode'
+    | 'session-table-version'
+    | 'web-vitals-autocapture'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 

@@ -13,7 +13,7 @@ MAX_LIMIT_DISTINCT_IDS = 2500
 
 class PersonManager(models.Manager):
     def create(self, *args: Any, **kwargs: Any):
-        with transaction.atomic():
+        with transaction.atomic(using=self.db):
             if not kwargs.get("distinct_ids"):
                 return super().create(*args, **kwargs)
             distinct_ids = kwargs.pop("distinct_ids")
@@ -126,6 +126,19 @@ class PersonDistinctId(models.Model):
 
     # current version of the id, used to sync with ClickHouse and collapse rows correctly for new clickhouse table
     version: models.BigIntegerField = models.BigIntegerField(null=True, blank=True)
+
+
+class PersonlessDistinctId(models.Model):
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["team", "distinct_id"], name="unique personless distinct_id for team")
+        ]
+
+    id: models.BigAutoField = models.BigAutoField(primary_key=True)
+    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE, db_index=False)
+    distinct_id: models.CharField = models.CharField(max_length=400)
+    is_merged: models.BooleanField = models.BooleanField(default=False)
+    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
 
 
 class PersonOverrideMapping(models.Model):

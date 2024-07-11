@@ -251,6 +251,11 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         name: 'Data warehouse settings',
         defaultDocsPath: '/docs/data-warehouse',
     },
+    [Scene.dataWarehouseSourceSettings]: {
+        projectBased: true,
+        name: 'Data warehouse source settings',
+        defaultDocsPath: '/docs/data-warehouse',
+    },
     [Scene.DataWarehouseRedirect]: {
         name: 'Data warehouse redirect',
     },
@@ -417,6 +422,10 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         projectBased: true,
         name: 'Heatmaps',
     },
+    [Scene.SessionAttributionExplorer]: {
+        projectBased: true,
+        name: 'Session attribution explorer (beta)',
+    },
 }
 
 const preserveParams = (url: string) => (_params: Params, searchParams: Params, hashParams: Params) => {
@@ -557,6 +566,7 @@ export const routes: Record<string, Scene> = {
     [urls.dataWarehouseTable()]: Scene.DataWarehouseTable,
     [urls.dataWarehouseSettings(':tab')]: Scene.DataWarehouseSettings,
     [urls.dataWarehouseRedirect(':kind')]: Scene.DataWarehouseRedirect,
+    [urls.dataWarehouseSourceSettings(':id', ':tab')]: Scene.dataWarehouseSourceSettings,
     [urls.featureFlags()]: Scene.FeatureFlags,
     [urls.featureFlag(':id')]: Scene.FeatureFlag,
     [urls.annotations()]: Scene.DataManagement,
@@ -608,4 +618,5 @@ export const routes: Record<string, Scene> = {
     [urls.settings(':section' as any)]: Scene.Settings,
     [urls.moveToPostHogCloud()]: Scene.MoveToPostHogCloud,
     [urls.heatmaps()]: Scene.Heatmaps,
+    [urls.sessionAttributionExplorer()]: Scene.SessionAttributionExplorer,
 }

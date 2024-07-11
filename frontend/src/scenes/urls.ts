@@ -115,6 +115,7 @@ export const urls = {
     replaySingle: (id: string, filters?: Partial<FilterType>): string =>
         combineUrl(`/replay/${id}`, filters ? { filters } : {}).url,
     replayFilePlayback: (): string => combineUrl('/replay/file-playback').url,
+
     personByDistinctId: (id: string, encode: boolean = true): string =>
         encode ? `/person/${encodeURIComponent(id)}` : `/person/${id}`,
     personByUUID: (uuid: string, encode: boolean = true): string =>
@@ -163,6 +164,8 @@ export const urls = {
     dataWarehouseSettings: (tab?: DataWarehouseSettingsTab | ':tab'): string =>
         `/data-warehouse/settings/${tab ? tab : DataWarehouseSettingsTab.Managed}`,
     dataWarehouseRedirect: (kind: string): string => `/data-warehouse/${kind}/redirect`,
+    dataWarehouseSourceSettings: (id: string, tab?: DataWarehouseSettingsTab | ':tab'): string =>
+        `/data-warehouse/settings/${tab ? tab : DataWarehouseSettingsTab.Managed}/${id}`,
     annotations: (): string => '/data-management/annotations',
     annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,
     projectApps: (tab?: PluginTab): string => `/apps${tab ? `?tab=${tab}` : ''}`,
@@ -244,4 +247,5 @@ export const urls = {
         `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
     alert: (id: InsightShortId, alertId: string): string => `/insights/${id}/alerts/${alertId}`,
     alerts: (id: InsightShortId): string => `/insights/${id}/alerts`,
+    sessionAttributionExplorer: (): string => '/web/session-attribution-explorer',
 }

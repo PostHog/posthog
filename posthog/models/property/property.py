@@ -1,5 +1,5 @@
 import json
-from enum import Enum
+from enum import StrEnum
 from typing import (
     Any,
     Literal,
@@ -14,7 +14,7 @@ from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_ind
 from posthog.utils import str_to_bool
 
 
-class BehavioralPropertyType(str, Enum):
+class BehavioralPropertyType(StrEnum):
     PERFORMED_EVENT = "performed_event"
     PERFORMED_EVENT_MULTIPLE = "performed_event_multiple"
     PERFORMED_EVENT_FIRST_TIME = "performed_event_first_time"
@@ -49,11 +49,6 @@ TableColumn = Literal[
     "group_properties",  # for groups table
     # all below are for person&groups on events table
     "person_properties",
-    "group0_properties",
-    "group1_properties",
-    "group2_properties",
-    "group3_properties",
-    "group4_properties",
 ]
 OperatorType = Literal[
     "exact",

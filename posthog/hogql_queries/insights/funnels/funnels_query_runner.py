@@ -8,7 +8,6 @@ from posthog.caching.insights_api import (
     BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL,
     REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
 )
-from posthog.caching.utils import is_stale
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
@@ -54,11 +53,6 @@ class FunnelsQueryRunner(QueryRunner):
         )
         self.kwargs = kwargs
 
-    def _is_stale(self, cached_result_package):
-        date_to = self.query_date_range.date_to()
-        interval = self.query_date_range.interval_name
-        return is_stale(self.team, date_to, interval, cached_result_package)
-
     def _refresh_frequency(self):
         date_to = self.query_date_range.date_to()
         date_from = self.query_date_range.date_from()
@@ -97,8 +91,10 @@ class FunnelsQueryRunner(QueryRunner):
             modifiers=self.modifiers,
             limit_context=self.limit_context,
             settings=HogQLGlobalSettings(
-                max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY
-            ),  # Make sure funnel queries never OOM
+                # Make sure funnel queries never OOM
+                max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY,
+                allow_experimental_analyzer=True,
+            ),
         )
 
         results = self.funnel_class._format_results(response.results)

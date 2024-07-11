@@ -17,7 +17,6 @@ import { Kafka } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { Job } from 'node-schedule'
 import { VM } from 'vm2'
-import { RustyHook } from 'worker/rusty-hook'
 
 import { ObjectStorage } from './main/services/object_storage'
 import { DB } from './utils/db/db'
@@ -27,9 +26,11 @@ import { UUID } from './utils/utils'
 import { ActionManager } from './worker/ingestion/action-manager'
 import { ActionMatcher } from './worker/ingestion/action-matcher'
 import { AppMetrics } from './worker/ingestion/app-metrics'
+import { GroupTypeManager } from './worker/ingestion/group-type-manager'
 import { OrganizationManager } from './worker/ingestion/organization-manager'
 import { EventsProcessor } from './worker/ingestion/process-event'
 import { TeamManager } from './worker/ingestion/team-manager'
+import { RustyHook } from './worker/rusty-hook'
 import { PluginsApiKeyManager } from './worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './worker/vm/extensions/helpers/root-acess-manager'
 import { LazyPluginVM } from './worker/vm/lazy'
@@ -80,9 +81,9 @@ export enum PluginServerMode {
     analytics_ingestion = 'analytics-ingestion',
     recordings_blob_ingestion = 'recordings-blob-ingestion',
     recordings_blob_ingestion_overflow = 'recordings-blob-ingestion-overflow',
-    person_overrides = 'person-overrides',
     cdp_processed_events = 'cdp-processed-events',
     cdp_function_callbacks = 'cdp-function-callbacks',
+    cdp_function_overflow = 'cdp-function-overflow',
 }
 
 export const stringToPluginServerMode = Object.fromEntries(
@@ -92,7 +93,18 @@ export const stringToPluginServerMode = Object.fromEntries(
     ])
 ) as Record<string, PluginServerMode>
 
-export interface PluginsServerConfig {
+export type CdpConfig = {
+    CDP_WATCHER_OBSERVATION_PERIOD: number
+    CDP_WATCHER_DISABLED_PERIOD: number
+    CDP_WATCHER_MAX_RECORDED_STATES: number
+    CDP_WATCHER_MAX_RECORDED_RATINGS: number
+    CDP_WATCHER_MAX_ALLOWED_TEMPORARY_DISABLED: number
+    CDP_WATCHER_MIN_OBSERVATIONS: number
+    CDP_WATCHER_OVERFLOW_RATING_THRESHOLD: number
+    CDP_WATCHER_DISABLED_RATING_THRESHOLD: number
+}
+
+export interface PluginsServerConfig extends CdpConfig {
     WORKER_CONCURRENCY: number // number of concurrent worker threads
     TASKS_PER_WORKER: number // number of parallel tasks per worker thread
     INGESTION_CONCURRENCY: number // number of parallel event ingestion queues per batch
@@ -203,9 +215,6 @@ export interface PluginsServerConfig {
     EXTERNAL_REQUEST_TIMEOUT_MS: number
     DROP_EVENTS_BY_TOKEN_DISTINCT_ID: string
     DROP_EVENTS_BY_TOKEN: string
-    POE_EMBRACE_JOIN_FOR_TEAMS: string
-    POE_WRITES_ENABLED_MAX_TEAM_ID: number
-    POE_WRITES_EXCLUDE_TEAMS: string
     RELOAD_PLUGIN_JITTER_MAX_MS: number
     RUSTY_HOOK_FOR_TEAMS: string
     RUSTY_HOOK_ROLLOUT_PERCENTAGE: number
@@ -235,6 +244,7 @@ export interface PluginsServerConfig {
     SESSION_RECORDING_REPLAY_EVENTS_INGESTION_ENABLED: boolean
     // a single partition which will output many more log messages to the console
     // useful when that partition is lagging unexpectedly
+    // allows comma separated list of partition numbers or '*' for all
     SESSION_RECORDING_DEBUG_PARTITION: string | undefined
     // overflow detection, updating Redis for capture to move the traffic away
     SESSION_RECORDING_OVERFLOW_ENABLED: boolean
@@ -247,11 +257,16 @@ export interface PluginsServerConfig {
     SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL: KafkaSecurityProtocol | undefined
     SESSION_RECORDING_KAFKA_BATCH_SIZE: number
     SESSION_RECORDING_KAFKA_QUEUE_SIZE: number
+    SESSION_RECORDING_KAFKA_QUEUE_SIZE_KB: number | undefined
     SESSION_RECORDING_KAFKA_DEBUG: string | undefined
     SESSION_RECORDING_MAX_PARALLEL_FLUSHES: number
+    SESSION_RECORDING_KAFKA_FETCH_MIN_BYTES: number
 
     POSTHOG_SESSION_RECORDING_REDIS_HOST: string | undefined
     POSTHOG_SESSION_RECORDING_REDIS_PORT: number | undefined
+
+    // kafka debug stats interval
+    SESSION_RECORDING_KAFKA_CONSUMPTION_STATISTICS_EVENT_INTERVAL_MS: number
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -286,6 +301,7 @@ export interface Hub extends PluginsServerConfig {
     actionMatcher: ActionMatcher
     appMetrics: AppMetrics
     rustyHook: RustyHook
+    groupTypeManager: GroupTypeManager
     // geoip database, setup in workers
     mmdb?: ReaderModel
     // diagnostics
@@ -297,8 +313,6 @@ export interface Hub extends PluginsServerConfig {
     enqueuePluginJob: (job: EnqueuedPluginJob) => Promise<void>
     // ValueMatchers used for various opt-in/out features
     pluginConfigsToSkipElementsParsing: ValueMatcher<number>
-    poeEmbraceJoinForTeams: ValueMatcher<number>
-    poeWritesExcludeTeams: ValueMatcher<number>
     // lookups
     eventsToDropByToken: Map<string, string[]>
 }
@@ -317,7 +331,7 @@ export interface PluginServerCapabilities {
     sessionRecordingBlobOverflowIngestion?: boolean
     cdpProcessedEvents?: boolean
     cdpFunctionCallbacks?: boolean
-    personOverrides?: boolean
+    cdpFunctionOverflow?: boolean
     appManagementSingleton?: boolean
     preflightSchedules?: boolean // Used for instance health checks on hobby deploy, not useful on cloud
     http?: boolean
@@ -585,6 +599,7 @@ export interface Team {
     api_token: string
     slack_incoming_webhook: string | null
     session_recording_opt_in: boolean
+    heatmaps_opt_in: boolean | null
     ingested_event: boolean
     person_display_name_properties: string[] | null
     test_account_filters:

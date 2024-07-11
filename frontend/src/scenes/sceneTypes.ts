@@ -50,6 +50,7 @@ export enum Scene {
     DataWarehouseExternal = 'DataWarehouseExternal',
     DataWarehouseTable = 'DataWarehouseTable',
     DataWarehouseSettings = 'DataWarehouseSettings',
+    dataWarehouseSourceSettings = 'DataWarehouseSourceSettings',
     DataWarehouseRedirect = 'DataWarehouseRedirect',
     OrganizationCreateFirst = 'OrganizationCreate',
     ProjectHomepage = 'ProjectHomepage',
@@ -85,6 +86,7 @@ export enum Scene {
     Settings = 'Settings',
     MoveToPostHogCloud = 'MoveToPostHogCloud',
     Heatmaps = 'Heatmaps',
+    SessionAttributionExplorer = 'SessionAttributionExplorer',
 }
 
 export type SceneProps = Record<string, any>

@@ -28,6 +28,8 @@ import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollec
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
 import { QuerySchema } from '~/queries/schema'
 
+import { WebAnalyticsLiveUserCount } from './WebAnalyticsLiveUserCount'
+
 const Filters = (): JSX.Element => {
     const {
         webAnalyticsFilters,
@@ -194,7 +196,7 @@ export const WebTabs = ({
             | {
                   docsUrl: PostHogComDocsURL
                   title: string
-                  description: string
+                  description: string | JSX.Element
               }
             | undefined
     }[]
@@ -271,7 +273,7 @@ export const WebTabs = ({
 export interface LearnMorePopoverProps {
     docsURL: PostHogComDocsURL
     title: string
-    description: string
+    description: string | JSX.Element
 }
 
 export const LearnMorePopover = ({ docsURL, title, description }: LearnMorePopoverProps): JSX.Element => {
@@ -293,7 +295,7 @@ export const LearnMorePopover = ({ docsURL, title, description }: LearnMorePopov
                             icon={<IconX />}
                         />
                     </div>
-                    <p className="text-sm text-gray-700">{description}</p>
+                    <div className="text-sm text-gray-700">{description}</div>
                     <div className="flex justify-end mt-4">
                         <LemonButton
                             to={docsURL}
@@ -319,6 +321,7 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                 <WebAnalyticsModal />
                 <WebAnalyticsNotice />
                 <div className="WebAnalyticsDashboard w-full flex flex-col">
+                    <WebAnalyticsLiveUserCount />
                     <Filters />
                     <WebAnalyticsHealthCheck />
                     <Tiles />

@@ -4,9 +4,12 @@ import socket
 import urllib.parse
 from enum import Enum, auto
 from ipaddress import ip_address
-from requests.adapters import HTTPAdapter
-from typing import Literal, Optional, Union
+from urllib.parse import urlparse
 
+from requests.adapters import HTTPAdapter
+from typing import Literal, Optional, Union, Any
+
+from rest_framework.fields import Field
 from urllib3 import HTTPSConnectionPool, HTTPConnectionPool, PoolManager
 from uuid import UUID
 
@@ -14,7 +17,7 @@ import structlog
 from django.core.exceptions import RequestDataTooBig
 from django.db.models import QuerySet
 from prometheus_client import Counter
-from rest_framework import request, status
+from rest_framework import request, status, serializers
 from rest_framework.exceptions import ValidationError
 from statshog.defaults.django import statsd
 
@@ -33,6 +36,14 @@ logger = structlog.get_logger(__name__)
 class PaginationMode(Enum):
     next = auto()
     previous = auto()
+
+
+# This overrides a change in DRF 3.15 that alters our behavior. If the user passes an empty argument,
+# the new version keeps it as null vs coalescing it to the default.
+# Don't add this to new classes
+class ClassicBehaviorBooleanFieldSerializer(serializers.BooleanField):
+    def __init__(self, **kwargs):
+        Field.__init__(self, allow_null=True, required=False, **kwargs)
 
 
 def get_target_entity(filter: Union[Filter, StickinessFilter]) -> Entity:
@@ -375,3 +386,35 @@ class PublicIPOnlyHttpAdapter(HTTPAdapter):
             "http": PublicIPOnlyHTTPConnectionPool,
             "https": PublicIPOnlyHTTPSConnectionPool,
         }
+
+
+def unparsed_hostname_in_allowed_url_list(allowed_url_list: Optional[list[str]], hostname: Optional[str]) -> bool:
+    # if the browser url encodes the hostname, we need to decode it first
+    hostname = urlparse(urllib.parse.unquote(hostname)).hostname if hostname else hostname
+    return hostname_in_allowed_url_list(allowed_url_list, hostname)
+
+
+def hostname_in_allowed_url_list(allowed_url_list: Optional[list[str]], hostname: Optional[str]) -> bool:
+    if not hostname:
+        return False
+
+    permitted_domains = []
+    if allowed_url_list:
+        for url in allowed_url_list:
+            host = parse_domain(url)
+            if host:
+                permitted_domains.append(host)
+
+    for permitted_domain in permitted_domains:
+        if "*" in permitted_domain:
+            pattern = "^{}$".format(re.escape(permitted_domain).replace("\\*", "(.*)"))
+            if re.search(pattern, hostname):
+                return True
+        elif permitted_domain == hostname:
+            return True
+
+    return False
+
+
+def parse_domain(url: Any) -> Optional[str]:
+    return urlparse(url).hostname

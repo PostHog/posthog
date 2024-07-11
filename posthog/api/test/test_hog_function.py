@@ -4,6 +4,7 @@ from unittest.mock import ANY, patch
 from rest_framework import status
 
 from posthog.models.action.action import Action
+from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from posthog.cdp.templates.webhook.template_webhook import template as template_webhook
 
@@ -95,6 +96,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "filters": {"bytecode": ["_h", 29]},
             "icon_url": None,
             "template": None,
+            "status": {"ratings": [], "state": 0, "states": []},
         }
 
     @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
@@ -193,6 +195,80 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "attr": f"inputs__{key}",
             }, f"Did not get error for {key}, got {res.json()}"
             assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+
+    @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
+    def test_secret_inputs_not_returned(self, *args):
+        payload = {
+            "name": "Fetch URL",
+            "hog": "fetch(inputs.url);",
+            "inputs_schema": [
+                {"key": "url", "type": "string", "label": "Webhook URL", "secret": True, "required": True},
+            ],
+            "inputs": {
+                "url": {
+                    "value": "I AM SECRET",
+                },
+            },
+        }
+        expectation = {
+            "url": {
+                "secret": True,
+            }
+        }
+        # Check not returned
+        res = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data={**payload})
+        assert res.status_code == status.HTTP_201_CREATED, res.json()
+        assert res.json()["inputs"] == expectation
+        res = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{res.json()['id']}")
+        assert res.json()["inputs"] == expectation
+
+        # Finally check the DB has the real value
+        obj = HogFunction.objects.get(id=res.json()["id"])
+        assert obj.inputs["url"]["value"] == "I AM SECRET"
+
+    @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
+    def test_secret_inputs_not_updated_if_not_changed(self, *args):
+        payload = {
+            "name": "Fetch URL",
+            "hog": "fetch(inputs.url);",
+            "inputs_schema": [
+                {"key": "url", "type": "string", "label": "Webhook URL", "secret": True, "required": True},
+            ],
+            "inputs": {
+                "url": {
+                    "value": "I AM SECRET",
+                },
+            },
+        }
+        expectation = {"url": {"secret": True}}
+        res = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data={**payload})
+        assert res.json()["inputs"] == expectation, res.json()
+        res = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{res.json()['id']}",
+            data={
+                "inputs": {
+                    "url": {
+                        "secret": True,
+                    },
+                },
+            },
+        )
+        assert res.json()["inputs"] == expectation
+
+        # Finally check the DB has the real value
+        obj = HogFunction.objects.get(id=res.json()["id"])
+        assert obj.inputs["url"]["value"] == "I AM SECRET"
+
+        # And check we can still update it
+        res = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{res.json()['id']}",
+            data={"inputs": {"url": {"value": "I AM A NEW SECRET"}}},
+        )
+        assert res.json()["inputs"] == expectation
+
+        # Finally check the DB has the real value
+        obj = HogFunction.objects.get(id=res.json()["id"])
+        assert obj.inputs["url"]["value"] == "I AM A NEW SECRET"
 
     @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
     def test_generates_hog_bytecode(self, *args):
@@ -332,3 +408,76 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 2,
             ],
         }
+
+    @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
+    def test_loads_status_when_enabled_and_available(self, *args):
+        with patch("posthog.plugins.plugin_server_api.requests.get") as mock_get:
+            mock_get.return_value.status_code = status.HTTP_200_OK
+            mock_get.return_value.json.return_value = {"state": 1, "states": [], "ratings": []}
+
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    "name": "Fetch URL",
+                    "description": "Test description",
+                    "hog": "fetch(inputs.url);",
+                    "template_id": template_webhook.id,
+                    "enabled": True,
+                },
+            )
+            assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+            response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{response.json()['id']}")
+            assert response.json()["status"] == {"state": 1, "states": [], "ratings": []}
+
+    @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
+    def test_does_not_crash_when_status_not_available(self, *args):
+        with patch("posthog.plugins.plugin_server_api.requests.get") as mock_get:
+            # Mock the api actually throwing fully
+            mock_get.side_effect = lambda x: Exception("oh no")
+
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    "name": "Fetch URL",
+                    "description": "Test description",
+                    "hog": "fetch(inputs.url);",
+                    "template_id": template_webhook.id,
+                    "enabled": True,
+                },
+            )
+            assert response.status_code == status.HTTP_201_CREATED, response.json()
+            response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{response.json()['id']}")
+            assert response.json()["status"] == {"ratings": [], "state": 0, "states": []}
+
+    @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
+    def test_patches_status_on_enabled_update(self, *args):
+        with patch("posthog.plugins.plugin_server_api.requests.get") as mock_get:
+            with patch("posthog.plugins.plugin_server_api.requests.patch") as mock_patch:
+                mock_get.return_value.status_code = status.HTTP_200_OK
+                mock_get.return_value.json.return_value = {"state": 4, "states": [], "ratings": []}
+
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/hog_functions/",
+                    data={"name": "Fetch URL", "hog": "fetch(inputs.url);", "enabled": True},
+                )
+
+                assert response.json()["status"]["state"] == 4
+
+                self.client.patch(
+                    f"/api/projects/{self.team.id}/hog_functions/{response.json()['id']}/",
+                    data={"enabled": False},
+                )
+
+                assert mock_patch.call_count == 0
+
+                self.client.patch(
+                    f"/api/projects/{self.team.id}/hog_functions/{response.json()['id']}/",
+                    data={"enabled": True},
+                )
+
+                assert mock_patch.call_count == 1
+                mock_patch.assert_called_once_with(
+                    f"http://localhost:6738/api/projects/{self.team.id}/hog_functions/{response.json()['id']}/status",
+                    json={"state": 2},
+                )

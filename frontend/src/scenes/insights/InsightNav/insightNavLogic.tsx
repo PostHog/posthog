@@ -5,7 +5,6 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman } from 'lib/utils'
 import { insightDataLogic, queryFromKind } from 'scenes/insights/insightDataLogic'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
 
@@ -109,8 +108,6 @@ export const insightNavLogic = kea<insightNavLogicType>([
     path((key) => ['scenes', 'insights', 'InsightNav', 'insightNavLogic', key]),
     connect((props: InsightLogicProps) => ({
         values: [
-            insightLogic(props),
-            ['filters'],
             featureFlagLogic,
             ['featureFlags'],
             insightDataLogic(props),
@@ -134,37 +131,19 @@ export const insightNavLogic = kea<insightNavLogicType>([
                 }),
             },
         ],
-        userSelectedView: [
-            null as InsightType | null,
-            {
-                setActiveView: (_, { view }) => view,
-            },
-        ],
     }),
     selectors({
         activeView: [
-            (s) => [s.filters, s.query, s.userSelectedView],
-            (filters, query, userSelectedView) => {
-                // if userSelectedView is null then we must be loading an insight
-                // and, we can prefer a present query over a present filter
-                // otherwise we can have both a filter and a query and without userSelectedView we don't know which to use
-                // so, if there is a user selected view, we use that
-                // this gets much simpler once everything is using queries
-
-                if (userSelectedView === null) {
-                    if (query) {
-                        if (containsHogQLQuery(query)) {
-                            return InsightType.SQL
-                        } else if (isHogQuery(query)) {
-                            return InsightType.HOG
-                        } else if (isInsightVizNode(query)) {
-                            return insightMap[query.source.kind] || InsightType.TRENDS
-                        }
-                        return InsightType.JSON
-                    }
-                    return filters.insight || InsightType.TRENDS
+            (s) => [s.query],
+            (query) => {
+                if (containsHogQLQuery(query)) {
+                    return InsightType.SQL
+                } else if (isHogQuery(query)) {
+                    return InsightType.HOG
+                } else if (isInsightVizNode(query)) {
+                    return insightMap[query.source.kind] || InsightType.TRENDS
                 }
-                return userSelectedView
+                return InsightType.JSON
             },
         ],
         tabs: [

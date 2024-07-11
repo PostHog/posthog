@@ -280,7 +280,7 @@ class TestBillingAPI(APILicensedTest):
 
         res = self.client.get("/api/billing")
         assert res.status_code == 404
-        assert res.json()["detail"] == "Billing V2 is not supported for this license type"
+        assert res.json()["detail"] == "Billing is not supported for this license type"
 
     @patch("ee.api.billing.requests.get")
     @freeze_time("2022-01-01")
@@ -359,7 +359,7 @@ class TestBillingAPI(APILicensedTest):
             "available_product_features": [],
             "custom_limits_usd": {},
             "has_active_subscription": True,
-            "stripe_portal_url": "https://billing.stripe.com/p/session/test_1234",
+            "stripe_portal_url": "http://localhost:8000/api/billing/portal",
             "current_total_amount_usd": "100.00",
             "deactivated": False,
             "products": [
@@ -562,7 +562,7 @@ class TestBillingAPI(APILicensedTest):
             "free_trial_until": None,
             "current_total_amount_usd": "0.00",
             "deactivated": False,
-            "stripe_portal_url": "https://billing.stripe.com/p/session/test_1234",
+            "stripe_portal_url": "http://localhost:8000/api/billing/portal",
         }
 
     @patch("ee.api.billing.requests.get")
@@ -839,9 +839,21 @@ class TestBillingAPI(APILicensedTest):
         assert self.organization.customer_trust_scores == {"recordings": 0, "events": 15, "rows_synced": 0}
 
 
+class TestPortalBillingAPI(APILicensedTest):
+    @patch("ee.api.billing.requests.get")
+    def test_portal_success(self, mock_request):
+        mock_request.return_value.status_code = 200
+        mock_request.return_value.json.return_value = {"url": "https://billing.stripe.com/p/session/test_1234"}
+
+        response = self.client.get("/api/billing/portal")
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertIn("https://billing.stripe.com/p/session/test_1234", response.url)
+
+
 class TestActivateBillingAPI(APILicensedTest):
     def test_activate_success(self):
-        url = "/api/billing-v2/activate"
+        url = "/api/billing/activate"
         data = {"products": "product_1:plan_1,product_2:plan_2", "redirect_path": "custom/path"}
 
         response = self.client.get(url, data=data)
@@ -853,7 +865,7 @@ class TestActivateBillingAPI(APILicensedTest):
         self.assertRegex(response.url, url_pattern)
 
     def test_deprecated_activation_success(self):
-        url = "/api/billing-v2/activate"
+        url = "/api/billing/activate"
         data = {"products": "product_1:plan_1,product_2:plan_2", "redirect_path": "custom/path"}
 
         response = self.client.get(url, data=data)
@@ -865,7 +877,7 @@ class TestActivateBillingAPI(APILicensedTest):
         self.assertRegex(response.url, url_pattern)
 
     def test_activate_with_default_redirect_path(self):
-        url = "/api/billing-v2/activate"
+        url = "/api/billing/activate"
         data = {
             "products": "product_1:plan_1,product_2:plan_2",
         }
@@ -878,7 +890,7 @@ class TestActivateBillingAPI(APILicensedTest):
         self.assertRegex(response.url, url_pattern)
 
     def test_activate_failure(self):
-        url = "/api/billing-v2/activate"
+        url = "/api/billing/activate"
         data = {"none": "nothing"}
 
         response = self.client.get(url, data)
@@ -886,7 +898,7 @@ class TestActivateBillingAPI(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_activate_with_plan_error(self):
-        url = "/api/billing-v2/activate"
+        url = "/api/billing/activate"
         data = {"plan": "plan"}
 
         response = self.client.get(url, data)
@@ -911,7 +923,7 @@ class TestActivateBillingAPI(APILicensedTest):
             "products": [],
         }
 
-        url = "/api/billing-v2/deactivate"
+        url = "/api/billing/deactivate"
         data = {"products": "product_1"}
 
         response = self.client.get(url, data)
@@ -921,7 +933,7 @@ class TestActivateBillingAPI(APILicensedTest):
         mock_get_billing.assert_called_once_with(self.organization, None)
 
     def test_deactivate_failure(self):
-        url = "/api/billing-v2/deactivate"
+        url = "/api/billing/deactivate"
         data = {"none": "nothing"}
 
         response = self.client.get(url, data)

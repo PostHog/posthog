@@ -28,7 +28,6 @@ import { LogLevel } from 'rrweb'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
-import { PipelineLogLevel } from 'scenes/pipeline/pipelineNodeLogsLogic'
 import { Scene } from 'scenes/sceneTypes'
 
 import { QueryContext } from '~/queries/types'
@@ -43,6 +42,10 @@ import type {
     QueryStatus,
 } from './queries/schema'
 import { NodeKind } from './queries/schema'
+
+// Type alias for number to be reflected as integer in json-schema.
+/** @asType integer */
+type integer = number
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -341,7 +344,7 @@ export interface OrganizationType extends OrganizationBasicType {
     updated_at: string
     plugins_access_level: PluginsAccessLevel
     teams: TeamBasicType[]
-    available_product_features: BillingV2FeatureType[]
+    available_product_features: BillingFeatureType[]
     is_member_join_email_enabled: boolean
     customer_id: string | null
     enforce_2fa: boolean | null
@@ -482,6 +485,7 @@ export interface TeamType extends TeamBasicType {
         | null
     session_replay_config: { record_canvas?: boolean; ai_config?: SessionRecordingAIConfig } | undefined | null
     autocapture_exceptions_opt_in: boolean
+    autocapture_web_vitals_opt_in?: boolean
     surveys_opt_in?: boolean
     heatmaps_opt_in?: boolean
     autocapture_exceptions_errors_to_ignore: string[]
@@ -751,7 +755,7 @@ export interface CohortPropertyFilter extends BasePropertyFilter {
 
 export interface GroupPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Group
-    group_type_index?: number | null
+    group_type_index?: integer | null
     operator: PropertyOperator
 }
 
@@ -963,10 +967,6 @@ export type DurationType = 'duration' | 'active_seconds' | 'inactive_seconds'
 export type FilterableLogLevel = 'info' | 'warn' | 'error'
 
 export interface RecordingFilters {
-    /**
-     * live mode is front end only, sets date_from and date_to to the last hour
-     */
-    live_mode?: boolean
     date_from?: string | null
     date_to?: string | null
     events?: FilterType['events']
@@ -982,10 +982,6 @@ export interface RecordingFilters {
 }
 
 export interface RecordingUniversalFilters {
-    /**
-     * live mode is front end only, sets date_from and date_to to the last hour
-     */
-    live_mode?: boolean
     date_from?: string | null
     date_to?: string | null
     duration: RecordingDurationFilter[]
@@ -1037,7 +1033,7 @@ export type EntityFilter = {
 export interface ActionFilter extends EntityFilter {
     math?: string
     math_property?: string
-    math_group_type_index?: number | null
+    math_group_type_index?: integer | null
     math_hogql?: string
     properties?: AnyPropertyFilter[]
     type: EntityType
@@ -1139,7 +1135,7 @@ export interface GroupActorType extends CommonActorType {
     /** Group key. */
     id: string
     group_key: string
-    group_type_index: number
+    group_type_index: integer
 }
 
 export type ActorType = PersonActorType | GroupActorType
@@ -1164,7 +1160,7 @@ export interface CohortCriteriaType {
     value: BehavioralFilterType
     type: BehavioralFilterKey
     operator?: PropertyOperator | null
-    group_type_index?: number | null
+    group_type_index?: integer | null
     event_type?: TaxonomicFilterGroupType | null
     operator_value?: PropertyFilterValue
     time_value?: number | string | null
@@ -1462,6 +1458,7 @@ export interface PerformanceEvent {
     first_contentful_paint?: number // https://web.dev/fcp/
     time_to_interactive?: number // https://web.dev/tti/
     total_blocking_time?: number // https://web.dev/tbt/
+    web_vitals?: Set<RecordingEventType>
 
     // request/response capture - merged in from rrweb/network@1 payloads
     request_headers?: Record<string, string>
@@ -1485,7 +1482,7 @@ export interface CurrentBillCycleType {
     current_period_end: number
 }
 
-export type BillingV2FeatureType = {
+export type BillingFeatureType = {
     key: AvailableFeatureUnion
     name: string
     description?: string | null
@@ -1501,7 +1498,7 @@ export type BillingV2FeatureType = {
     type?: 'primary' | 'secondary' | null
 }
 
-export interface BillingV2TierType {
+export interface BillingTierType {
     flat_amount_usd: string
     unit_amount_usd: string
     current_amount_usd: string | null
@@ -1524,7 +1521,7 @@ export interface BillingProductV2Type {
     docs_url: string
     free_allocation?: number | null
     subscribed: boolean | null
-    tiers?: BillingV2TierType[] | null
+    tiers?: BillingTierType[] | null
     tiered: boolean
     current_usage?: number
     projected_amount_usd?: string | null
@@ -1536,10 +1533,10 @@ export interface BillingProductV2Type {
     has_exceeded_limit: boolean
     unit: string | null
     unit_amount_usd: string | null
-    plans: BillingV2PlanType[]
+    plans: BillingPlanType[]
     contact_support: boolean | null
     inclusion_only: any
-    features: BillingV2FeatureType[]
+    features: BillingFeatureType[]
     addons: BillingProductV2AddonType[]
     // addons-only: if this addon is included with the base product and not subscribed individually. for backwards compatibility.
     included_with_main_product?: boolean
@@ -1553,7 +1550,7 @@ export interface BillingProductV2AddonType {
     icon_key?: string
     docs_url: string | null
     type: string
-    tiers: BillingV2TierType[] | null
+    tiers: BillingTierType[] | null
     tiered: boolean
     subscribed: boolean
     // sometimes addons are included with the base product, but they aren't subscribed individually
@@ -1566,15 +1563,15 @@ export interface BillingProductV2AddonType {
     current_usage: number
     projected_usage: number | null
     projected_amount_usd: string | null
-    plans: BillingV2PlanType[]
+    plans: BillingPlanType[]
     usage_key?: string
     free_allocation?: number | null
     percentage_usage?: number
-    features: BillingV2FeatureType[]
+    features: BillingFeatureType[]
     included_if?: 'no_active_subscription' | 'has_subscription' | null
     usage_limit?: number | null
 }
-export interface BillingV2Type {
+export interface BillingType {
     customer_id: string
     has_active_subscription: boolean
     subscription_level: 'free' | 'paid' | 'custom'
@@ -1596,15 +1593,15 @@ export interface BillingV2Type {
     license?: {
         plan: LicensePlan
     }
-    available_plans?: BillingV2PlanType[]
+    available_plans?: BillingPlanType[]
     discount_percent?: number
     discount_amount_usd?: string
     amount_off_expires_at?: Dayjs
 }
 
-export interface BillingV2PlanType {
+export interface BillingPlanType {
     free_allocation?: number | null
-    features: BillingV2FeatureType[]
+    features: BillingFeatureType[]
     name: string
     description: string
     is_free?: boolean
@@ -1616,10 +1613,10 @@ export interface BillingV2PlanType {
     flat_rate: boolean
     product_key: ProductKeyUnion
     current_plan?: boolean | null
-    tiers?: BillingV2TierType[] | null
+    tiers?: BillingTierType[] | null
     unit_amount_usd: string | null
     included_if?: 'no_active_subscription' | 'has_subscription' | null
-    initial_billing_limit?: number
+    initial_billing_limit?: number | null
     contact_support: boolean | null
 }
 
@@ -1648,6 +1645,7 @@ export enum InsightColor {
 export interface Cacheable {
     last_refresh: string | null
     next_allowed_client_refresh?: string | null
+    cache_target_age?: string | null
 }
 
 export interface TileLayout extends Omit<Layout, 'i'> {
@@ -1942,21 +1940,25 @@ export interface PluginErrorType {
     event?: Record<string, any>
 }
 
+export type LogEntryLevel = 'DEBUG' | 'LOG' | 'INFO' | 'WARN' | 'WARNING' | 'ERROR'
+
 // The general log entry format that eventually everything should match
 export type LogEntry = {
     log_source_id: string
     instance_id: string
     timestamp: string
-    level: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
+    level: LogEntryLevel
     message: string
 }
 
-export enum PluginLogEntryType {
-    Debug = 'DEBUG',
-    Log = 'LOG',
-    Info = 'INFO',
-    Warn = 'WARN',
-    Error = 'ERROR',
+export type LogEntryRequestParams = {
+    limit?: number
+    after?: string
+    before?: string
+    // Comma separated list of log levels
+    level?: string
+    search?: string
+    instance_id?: string
 }
 
 export interface PluginLogEntry {
@@ -1965,19 +1967,11 @@ export interface PluginLogEntry {
     plugin_id: number
     plugin_config_id: number
     timestamp: string
-    type: PluginLogEntryType
+    source: string
+    type: LogEntryLevel
     is_system: boolean
     message: string
     instance_id: string
-}
-
-export interface BatchExportLogEntry {
-    team_id: number
-    batch_export_id: number
-    run_id: number
-    timestamp: string
-    level: PipelineLogLevel
-    message: string
 }
 
 export enum AnnotationScope {
@@ -2120,11 +2114,10 @@ export interface FilterType {
     breakdown?: BreakdownKeyType
     breakdown_normalize_url?: boolean
     breakdowns?: Breakdown[]
-    breakdown_group_type_index?: number | null
+    breakdown_group_type_index?: integer | null
     breakdown_hide_other_aggregation?: boolean | null
-    /** @asType integer */
-    breakdown_limit?: number | null
-    aggregation_group_type_index?: number // Groups aggregation
+    breakdown_limit?: integer | null
+    aggregation_group_type_index?: integer // Groups aggregation
 }
 
 export interface PropertiesTimelineFilterType {
@@ -2163,6 +2156,7 @@ export interface TrendsFilterType extends FilterType {
     show_values_on_series?: boolean
     show_labels_on_series?: boolean
     show_percent_stack_view?: boolean
+    y_axis_scale_type?: 'log10' | 'linear'
 }
 
 export interface StickinessFilterType extends FilterType {
@@ -2392,7 +2386,7 @@ export interface TrendResult {
     dates?: string[]
     label: string
     labels: string[]
-    breakdown_value?: string | number
+    breakdown_value?: string | number | string[]
     aggregated_value: number
     status?: string
     compare_label?: CompareLabelType
@@ -2597,12 +2591,13 @@ export interface Survey {
         seenSurveyWaitPeriodInDays?: number
         urlMatchType?: SurveyUrlMatchType
         events: {
+            repeatedActivation?: boolean
             values: {
                 name: string
             }[]
         } | null
     } | null
-    appearance: SurveyAppearance
+    appearance: SurveyAppearance | null
     questions: (BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion)[]
     created_at: string
     created_by: UserBasicType | null
@@ -2651,6 +2646,7 @@ export interface SurveyAppearance {
     thankYouMessageHeader?: string
     thankYouMessageDescription?: string
     thankYouMessageDescriptionContentType?: SurveyQuestionDescriptionContentType
+    thankYouMessageCloseButtonText?: string
     autoDisappear?: boolean
     position?: string
     shuffleQuestions?: boolean
@@ -2764,7 +2760,7 @@ export interface MultivariateFlagOptions {
 export interface FeatureFlagFilters {
     groups: FeatureFlagGroupType[]
     multivariate: MultivariateFlagOptions | null
-    aggregation_group_type_index?: number | null
+    aggregation_group_type_index?: integer | null
     payloads: Record<string, JsonType>
     super_groups?: FeatureFlagGroupType[]
 }
@@ -3117,7 +3113,7 @@ export interface Experiment {
         recommended_sample_size?: number
         feature_flag_variants: MultivariateFlagVariant[]
         custom_exposure_filter?: FilterType
-        aggregation_group_type_index?: number
+        aggregation_group_type_index?: integer
     }
     start_date?: string | null
     end_date?: string | null
@@ -3350,7 +3346,7 @@ export type GraphDataset = ChartDataset<ChartType> &
         /** Toggled on to draw incompleteness lines in LineGraph.tsx */
         dotted?: boolean
         /** Array of breakdown values used only in ActionsHorizontalBar/ActionsPie.tsx data */
-        breakdownValues?: (string | number | undefined)[]
+        breakdownValues?: (string | number | string[] | undefined)[]
         /** Array of breakdown labels used only in ActionsHorizontalBar/ActionsPie.tsx data */
         breakdownLabels?: (string | number | undefined)[]
         /** Array of compare labels used only in ActionsHorizontalBar/ActionsPie.tsx data */
@@ -3867,6 +3863,16 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     status?: string
     incremental_field: string | null
     incremental_field_type: string | null
+    sync_frequency: DataWarehouseSyncInterval
+}
+
+export interface ExternalDataJob {
+    id: string
+    created_at: string
+    status: 'Running' | 'Failed' | 'Completed' | 'Cancelled'
+    schema: SimpleExternalDataSourceSchema
+    rows_synced: number
+    latest_error: string
 }
 
 export interface SimpleDataWarehouseTable {
@@ -4183,7 +4189,11 @@ export type AvailableOnboardingProducts = Pick<
     {
         [key in ProductKey]: OnboardingProduct
     },
-    ProductKey.PRODUCT_ANALYTICS | ProductKey.SESSION_REPLAY | ProductKey.FEATURE_FLAGS | ProductKey.SURVEYS
+    | ProductKey.PRODUCT_ANALYTICS
+    | ProductKey.SESSION_REPLAY
+    | ProductKey.FEATURE_FLAGS
+    | ProductKey.SURVEYS
+    | ProductKey.DATA_WAREHOUSE
 >
 
 export type OnboardingProduct = {
@@ -4209,6 +4219,12 @@ export type HogFunctionInputSchemaType = {
     integration_field?: 'slack_channel'
 }
 
+export type HogFunctionInputType = {
+    value: any
+    secret?: boolean
+    bytecode?: any
+}
+
 export type HogFunctionType = {
     id: string
     icon_url?: string
@@ -4221,18 +4237,13 @@ export type HogFunctionType = {
     hog: string
 
     inputs_schema?: HogFunctionInputSchemaType[]
-    inputs?: Record<
-        string,
-        {
-            value: any
-            bytecode?: any
-        }
-    >
+    inputs?: Record<string, HogFunctionInputType>
     filters?: PluginConfigFilters | null
     template?: HogFunctionTemplateType
+    status?: HogFunctionStatus
 }
 
-export type HogFunctionConfigurationType = Omit<HogFunctionType, 'created_at' | 'created_by' | 'updated_at'>
+export type HogFunctionConfigurationType = Omit<HogFunctionType, 'created_at' | 'created_by' | 'updated_at' | 'status'>
 
 export type HogFunctionTemplateType = Pick<
     HogFunctionType,
@@ -4245,6 +4256,25 @@ export type HogFunctionIconResponse = {
     id: string
     name: string
     url: string
+}
+
+export enum HogWatcherState {
+    healthy = 1,
+    overflowed = 2,
+    disabledForPeriod = 3,
+    disabledIndefinitely = 4,
+}
+
+export type HogFunctionStatus = {
+    state: HogWatcherState
+    states: {
+        timestamp: number
+        state: HogWatcherState
+    }[]
+    ratings: {
+        timestamp: number
+        rating: number
+    }[]
 }
 
 export interface AnomalyCondition {

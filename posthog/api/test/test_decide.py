@@ -192,7 +192,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self._update_team({"capture_performance_opt_in": True})
 
         response = self._post_decide().json()
-        self.assertEqual(response["capturePerformance"], True)
+        self.assertEqual(response["capturePerformance"], {"network_timing": True, "web_vitals": False})
 
     def test_session_recording_sample_rate(self, *args):
         # :TRICKY: Test for regression around caching
@@ -370,6 +370,18 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.assertEqual(
             response["autocaptureExceptions"],
             {"endpoint": "/e/"},
+        )
+
+    def test_web_vitals_autocapture_opt_in(self, *args):
+        response = self._post_decide().json()
+        self.assertEqual(response["capturePerformance"], False)
+
+        self._update_team({"autocapture_web_vitals_opt_in": True})
+
+        response = self._post_decide().json()
+        self.assertEqual(
+            response["capturePerformance"],
+            {"web_vitals": True, "network_timing": False},
         )
 
     def test_user_session_recording_opt_in_wildcard_domain(self, *args):
@@ -2200,6 +2212,149 @@ class TestDecide(BaseTest, QueryMatchingTest):
             self.assertEqual(response.json()["featureFlags"], {"cohort-flag": False})
             self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
 
+    def test_flag_with_invalid_cohort_filter_condition(self, *args):
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        self.client.logout()
+
+        person1_distinct_id = "example_id"
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=[person1_distinct_id],
+            properties={"registration_ts": 1716447600},
+        )
+
+        # Create a cohort with an invalid filter condition (tis broken filter came from this issue: https://github.com/PostHog/posthog/issues/23213)
+        # The invalid condition is that the registration_ts property is compared against a list of values
+        # Since this filter must match everything, the flag should evaluate to False
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                # This is the valid condition
+                                {
+                                    "key": "registration_ts",
+                                    "type": "person",
+                                    "value": "1716274800",
+                                    "operator": "gte",
+                                },
+                                # This is the invalid condition (lte operator comparing against a list of values)
+                                {
+                                    "key": "registration_ts",
+                                    "type": "person",
+                                    "value": ["1716447600"],
+                                    "operator": "lte",
+                                },
+                            ],
+                        }
+                    ],
+                }
+            },
+            name="Test cohort",
+        )
+
+        # Create a feature flag that uses the cohort
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "id",
+                                "type": "cohort",
+                                "value": cohort.pk,
+                            }
+                        ],
+                    }
+                ]
+            },
+            name="This is a cohort-based flag",
+            key="cohort-flag",
+            created_by=self.user,
+        )
+
+        with self.assertNumQueries(5):
+            response = self._post_decide(api_version=3, distinct_id=person1_distinct_id)
+            self.assertEqual(response.json()["featureFlags"], {"cohort-flag": False})
+            self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
+
+    def test_flag_with_invalid_but_safe_cohort_filter_condition(self, *args):
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        self.client.logout()
+
+        person1_distinct_id = "example_id"
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=[person1_distinct_id],
+            properties={"registration_ts": 1716447600},
+        )
+
+        # Create a cohort with a safe OR filter that contains an invalid condition
+        # it should still evaluate the FeatureFlag to True
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                # This is the valid condition
+                                {
+                                    "key": "registration_ts",
+                                    "type": "person",
+                                    "value": "1716274800",
+                                    "operator": "gte",
+                                },
+                                # This is the invalid condition (lte operator comparing against a list of values)
+                                {
+                                    "key": "registration_ts",
+                                    "type": "person",
+                                    "value": ["1716447600"],
+                                    "operator": "lte",
+                                },
+                            ],
+                        }
+                    ],
+                }
+            },
+            name="Test cohort",
+        )
+
+        # Create a feature flag that uses the cohort
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "id",
+                                "type": "cohort",
+                                "value": cohort.pk,
+                            }
+                        ],
+                    }
+                ]
+            },
+            name="This is a cohort-based flag",
+            key="cohort-flag",
+            created_by=self.user,
+        )
+
+        with self.assertNumQueries(5):
+            response = self._post_decide(api_version=3, distinct_id=person1_distinct_id)
+            self.assertEqual(response.json()["featureFlags"], {"cohort-flag": True})
+            self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
+
     def test_flag_with_unknown_cohort(self, *args):
         self.team.app_urls = ["https://example.com"]
         self.team.save()
@@ -2691,7 +2846,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
         self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
         self.assertEqual(response["siteApps"], [])
-        self.assertEqual(response["capturePerformance"], True)
+        self.assertEqual(response["capturePerformance"], {"network_timing": True, "web_vitals": False})
         self.assertEqual(response["featureFlags"], {})
         self.assertEqual(
             response["autocaptureExceptions"],
@@ -2716,7 +2871,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             )
             self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
             self.assertEqual(response["siteApps"], [])
-            self.assertEqual(response["capturePerformance"], True)
+            self.assertEqual(response["capturePerformance"], {"network_timing": True, "web_vitals": False})
             self.assertEqual(
                 response["autocaptureExceptions"],
                 {"endpoint": "/e/"},
@@ -3466,7 +3621,7 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
             )
             self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
             self.assertEqual(response["siteApps"], [])
-            self.assertEqual(response["capturePerformance"], True)
+            self.assertEqual(response["capturePerformance"], {"network_timing": True, "web_vitals": False})
             self.assertEqual(response["featureFlags"], {"no-props": True})
             self.assertEqual(response["errorsWhileComputingFlags"], True)
 
@@ -3505,16 +3660,16 @@ class TestDecideUsesReadReplica(TransactionTestCase):
     databases = {"default", "replica"}
 
     def setup_user_and_team_in_db(self, dbname: str = "default"):
-        organization = Organization.objects.using(dbname).create(
+        organization = Organization.objects.db_manager(dbname).create(
             name="Org 1", slug=f"org-{dbname}-{random.randint(1, 1000000)}"
         )
-        team = Team.objects.using(dbname).create(organization=organization, name="Team 1 org 1")
-        user = User.objects.using(dbname).create(
+        team = Team.objects.db_manager(dbname).create(organization=organization, name="Team 1 org 1")
+        user = User.objects.db_manager(dbname).create(
             email=f"test-{random.randint(1, 100000)}@posthog.com",
             password="password",
             first_name="first_name",
         )
-        OrganizationMembership.objects.using(dbname).create(
+        OrganizationMembership.objects.db_manager(dbname).create(
             user=user,
             organization=organization,
             level=OrganizationMembership.Level.OWNER,
@@ -3526,7 +3681,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         created_flags = []
         created_persons = []
         for flag in flags:
-            f = FeatureFlag.objects.using(dbname).create(
+            f = FeatureFlag.objects.db_manager(dbname).create(
                 team=team,
                 rollout_percentage=flag.get("rollout_percentage") or None,
                 filters=flag.get("filters") or {},
@@ -3537,13 +3692,13 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             )
             created_flags.append(f)
         for person in persons:
-            p = Person.objects.using(dbname).create(
+            p = Person.objects.db_manager(dbname).create(
                 team=team,
                 properties=person["properties"],
             )
             created_persons.append(p)
             for distinct_id in person["distinct_ids"]:
-                PersonDistinctId.objects.using(dbname).create(person=p, distinct_id=distinct_id, team=team)
+                PersonDistinctId.objects.db_manager(dbname).create(person=p, distinct_id=distinct_id, team=team)
 
         return created_flags, created_persons
 
@@ -3977,15 +4132,15 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             )  # assigned by distinct_id hash
 
         # new person, merged from old distinct ID
-        PersonDistinctId.objects.using("default").create(person=person, distinct_id="other_id", team=self.team)
+        PersonDistinctId.objects.db_manager("default").create(person=person, distinct_id="other_id", team=self.team)
         # hash key override already exists
-        FeatureFlagHashKeyOverride.objects.using("default").create(
+        FeatureFlagHashKeyOverride.objects.db_manager("default").create(
             team=self.team,
             person=person,
             hash_key="example_id",
             feature_flag_key="beta-feature",
         )
-        FeatureFlagHashKeyOverride.objects.using("default").create(
+        FeatureFlagHashKeyOverride.objects.db_manager("default").create(
             team=self.team,
             person=person,
             hash_key="example_id",
@@ -4150,7 +4305,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             )  # assigned by distinct_id hash
 
         # new person, merged from old distinct ID
-        PersonDistinctId.objects.using("default").create(person=person, distinct_id="other_id", team=self.team)
+        PersonDistinctId.objects.db_manager("default").create(person=person, distinct_id="other_id", team=self.team)
 
         # request with hash key overrides and _new_ writes should go to main database
         with self.assertNumQueries(8, using="replica"), self.assertNumQueries(9, using="default"):
@@ -4233,10 +4388,12 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         ]
         self.setup_flags_in_db("replica", team, user, flags, persons)
 
-        GroupTypeMapping.objects.using("replica").create(team=self.team, group_type="organization", group_type_index=0)
-        GroupTypeMapping.objects.using("default").create(team=self.team, group_type="project", group_type_index=1)
+        GroupTypeMapping.objects.db_manager("replica").create(
+            team=self.team, group_type="organization", group_type_index=0
+        )
+        GroupTypeMapping.objects.db_manager("default").create(team=self.team, group_type="project", group_type_index=1)
 
-        Group.objects.using("replica").create(
+        Group.objects.db_manager("replica").create(
             team_id=self.team.pk,
             group_type_index=0,
             group_key="foo",

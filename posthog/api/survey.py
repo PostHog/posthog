@@ -4,7 +4,7 @@ from urllib.parse import urlparse
 
 import nh3
 from django.db.models import Min
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
 from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
 from nanoid import generate
@@ -447,7 +447,11 @@ class SurveyAPISerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "name",
-            "description",
+            # NB: The "description" field is serialized on Create/Update request, and used to be serialized on the next line,
+            # But we had a user write in complaining that we were exposing the description in the API
+            # (https://posthoghelp.zendesk.com/agent/tickets/15210), which was a problem for them
+            # since they were using it as a way to store sensitive information. Given that we don't ever use
+            # that field to render the survey, we can safely remove it from the API response.
             "type",
             "linked_flag_key",
             "targeting_flag_key",
@@ -466,6 +470,9 @@ class SurveyAPISerializer(serializers.ModelSerializer):
 @csrf_exempt
 def surveys(request: Request):
     token = get_token(None, request)
+
+    if request.method == "OPTIONS":
+        return cors_response(request, HttpResponse(""))
 
     if not token:
         return cors_response(
@@ -521,7 +528,7 @@ def create_flag_with_survey_errors():
                 detail=original_detail.replace("feature flags", "surveys"),
                 code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
             )
-        raise e
+        raise
 
 
 def nh3_clean_with_allow_list(to_clean: str):
