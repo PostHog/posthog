@@ -230,20 +230,6 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
                 {
                     "properties": [
                         {
-                            "key": "group_prop",
-                            "value": ["value"],
-                            "operator": "exact",
-                            "type": "group",
-                            "group_type_index": 2,
-                        },
-                        {
-                            "key": "group_prop",
-                            "value": ["value"],
-                            "operator": "exact",
-                            "type": "group",
-                            "group_type_index": 0,
-                        },
-                        {
                             "key": "person_prop",
                             "value": ["value"],
                             "operator": "exact",
@@ -256,35 +242,15 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(optimizer().person_on_event_columns_to_query, {"person_properties"})
-        self.assertEqual(
-            optimizer().group_on_event_columns_to_query,
-            {"group0_properties", "group2_properties"},
-        )
 
-        # materialising the props on `person` or `group` table should make no difference
+        # materialising the props on `person` table should make no difference
         materialize("person", "person_prop")
-        materialize("groups", "group_prop", table_column="group_properties")
 
         self.assertEqual(optimizer().person_on_event_columns_to_query, {"person_properties"})
-        self.assertEqual(
-            optimizer().group_on_event_columns_to_query,
-            {"group0_properties", "group2_properties"},
-        )
 
         materialize("events", "person_prop", table_column="person_properties")
-        materialize("events", "group_prop", table_column="group0_properties")
 
         self.assertEqual(optimizer().person_on_event_columns_to_query, {"mat_pp_person_prop"})
-        self.assertEqual(
-            optimizer().group_on_event_columns_to_query,
-            {"mat_gp0_group_prop", "group2_properties"},
-        )
-
-        materialize("events", "group_prop", table_column="group2_properties")
-        self.assertEqual(
-            optimizer().group_on_event_columns_to_query,
-            {"mat_gp0_group_prop", "mat_gp2_group_prop"},
-        )
 
     def test_group_types_to_query(self):
         group_types_to_query = lambda filter: EnterpriseColumnOptimizer(filter, self.team.id).group_types_to_query
