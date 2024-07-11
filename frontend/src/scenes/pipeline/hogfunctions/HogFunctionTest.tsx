@@ -6,10 +6,8 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
-import { useEffect } from 'react'
 
 import { hogFunctionTestLogic, HogFunctionTestLogicProps } from './hogFunctionTestLogic'
-import { useExampleHogGlobals } from './utils/event-conversion'
 
 const HogFunctionTestEditor = ({
     value,
@@ -58,13 +56,7 @@ export function HogFunctionTestPlaceholder(): JSX.Element {
 
 export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
     const { isTestInvocationSubmitting, testResult, expanded } = useValues(hogFunctionTestLogic(props))
-    const { submitTestInvocation, setTestResult, toggleExpanded, setTestInvocationValue } = useActions(
-        hogFunctionTestLogic(props)
-    )
-    const exampleGlobals = useExampleHogGlobals()
-    useEffect(() => {
-        setTestInvocationValue('globals', JSON.stringify(exampleGlobals, null, 2))
-    }, [exampleGlobals])
+    const { submitTestInvocation, setTestResult, toggleExpanded } = useActions(hogFunctionTestLogic(props))
 
     return (
         <Form logic={hogFunctionTestLogic} props={props} formKey="testInvocation" enableFormOnSubmit>

@@ -1,5 +1,5 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { actions, connect, kea, key, path, props, reducers } from 'kea'
+import { actions, afterMount, connect, kea, key, path, props, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import api from 'lib/api'
 import { tryJsonParse } from 'lib/utils'
@@ -28,7 +28,10 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
     key((props) => props.id),
     path((id) => ['scenes', 'pipeline', 'hogfunctions', 'hogFunctionTestLogic', id]),
     connect((props: HogFunctionTestLogicProps) => ({
-        values: [hogFunctionConfigurationLogic({ id: props.id }), ['configuration', 'configurationHasErrors']],
+        values: [
+            hogFunctionConfigurationLogic({ id: props.id }),
+            ['configuration', 'configurationHasErrors', 'exampleInvocationGlobals'],
+        ],
         actions: [hogFunctionConfigurationLogic({ id: props.id }), ['touchConfigurationField']],
     })),
     actions({
@@ -88,4 +91,8 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
             },
         },
     })),
+
+    afterMount(({ actions, values }) => {
+        actions.setTestInvocationValue('globals', JSON.stringify(values.exampleInvocationGlobals, null, 2))
+    }),
 ])
