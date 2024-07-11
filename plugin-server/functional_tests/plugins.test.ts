@@ -1,7 +1,7 @@
 import { v4 as uuid4 } from 'uuid'
 
 import { ONE_HOUR } from '../src/config/constants'
-import { LogEntryType } from '../src/types'
+import { PluginLogEntryType } from '../src/types'
 import { UUIDT } from '../src/utils/utils'
 import { getCacheKey } from '../src/worker/vm/extensions/cache'
 import {
@@ -142,7 +142,7 @@ test.concurrent(
 
         const errorLogEntry = await waitForExpect(async () => {
             const errorLogEntries = (await fetchPluginLogEntries(pluginConfig.id)).filter(
-                (entry) => entry.type == 'error'
+                (entry) => entry.type == PluginLogEntryType.Error
             )
             expect(errorLogEntries.length).toBe(1)
             return errorLogEntries[0]
