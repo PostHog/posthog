@@ -96,7 +96,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
     def validate(self, attrs):
         team = self.context["get_team"]()
         attrs["team"] = team
-        instance = cast(Optional[HogFunction], self.instance)
+        instance = cast(Optional[HogFunction], self.context.get("instance", self.instance))
 
         if self.context["view"].action == "create":
             # Ensure we have sensible defaults when created
@@ -198,7 +198,9 @@ class HogFunctionViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, ForbidDestroyMod
     @action(detail=True, methods=["POST"])
     def invocations(self, request: Request, *args, **kwargs):
         hog_function = self.get_object()
-        serializer = HogFunctionInvocationSerializer(data=request.data, context=self.get_serializer_context())
+        serializer = HogFunctionInvocationSerializer(
+            data=request.data, context={**self.get_serializer_context(), "instance": hog_function}
+        )
         if not serializer.is_valid():
             return Response(serializer.errors, status=400)
 
