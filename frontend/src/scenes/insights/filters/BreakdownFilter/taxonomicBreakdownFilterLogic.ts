@@ -9,15 +9,17 @@ import {
     TaxonomicFilterGroupType,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
+import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
+import { FEATURE_FLAGS } from '~/lib/constants'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { BreakdownFilter } from '~/queries/schema'
+import { Breakdown, BreakdownFilter } from '~/queries/schema'
 import { BreakdownType, ChartDisplayType, InsightLogicProps } from '~/types'
 
 import type { taxonomicBreakdownFilterLogicType } from './taxonomicBreakdownFilterLogicType'
-import { isCohortBreakdown, isURLNormalizeable } from './taxonomicBreakdownFilterUtils'
+import { isCohortBreakdown, isMultipleBreakdownType, isURLNormalizeable } from './taxonomicBreakdownFilterUtils'
 
 export type TaxonomicBreakdownFilterLogicProps = {
     insightProps: InsightLogicProps
@@ -39,9 +41,11 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
     connect((props: TaxonomicBreakdownFilterLogicProps) => ({
         values: [
             insightVizDataLogic(props.insightProps),
-            ['currentDataWarehouseSchemaColumns'],
+            ['currentDataWarehouseSchemaColumns', 'isDataWarehouseSeries'],
             propertyDefinitionsModel,
             ['getPropertyDefinition'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
     })),
     actions({
@@ -49,12 +53,51 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             breakdown,
             taxonomicGroup,
         }),
-        removeBreakdown: (breakdown: string | number) => ({ breakdown }),
+        replaceBreakdown: (
+            previousBreakdown: {
+                value: string | number
+                type: string
+            },
+            newBreakdown: {
+                value: TaxonomicFilterValue
+                group: TaxonomicFilterGroup
+            }
+        ) => ({
+            previousBreakdown,
+            newBreakdown,
+        }),
+        removeBreakdown: (breakdown: string | number, breakdownType: string) => ({ breakdown, breakdownType }),
         setBreakdownLimit: (value: number | undefined) => ({ value }),
-        setHistogramBinsUsed: (value: boolean) => ({ value }),
-        setHistogramBinCount: (count: number | undefined) => ({ count }),
-        setNormalizeBreakdownURL: (normalizeBreakdownURL: boolean) => ({
+        setHistogramBinsUsed: (
+            breakdown: string | number,
+            breakdownType: string,
+            binsUsed: boolean,
+            binCount?: number
+        ) => ({
+            binsUsed,
+            binCount,
+            breakdown,
+            breakdownType,
+        }),
+        setHistogramBinCount: (breakdown: string | number, breakdownType: string, count: number | undefined) => ({
+            breakdown,
+            breakdownType,
+            count,
+        }),
+        setNormalizeBreakdownURL: (
+            breakdown: string | number,
+            breakdownType: string,
+            normalizeBreakdownURL: boolean
+        ) => ({
+            breakdown,
+            breakdownType,
             normalizeBreakdownURL,
+        }),
+        toggleBreakdownOptions: (opened: boolean) => ({
+            opened,
+        }),
+        setBreakdownHideOtherAggregation: (hidden: boolean) => ({
+            hidden,
         }),
     }),
     reducers({
@@ -70,13 +113,41 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                 setBreakdownLimit: (_, { value }) => value,
             },
         ],
+        localNormalizeBreakdownURL: [
+            true as boolean,
+            {
+                setNormalizeBreakdownURL: (_, { normalizeBreakdownURL }) => normalizeBreakdownURL,
+            },
+        ],
+        localBreakdownHideOtherAggregation: [
+            undefined as boolean | undefined,
+            {
+                setBreakdownHideOtherAggregation: (_, { hidden }) => hidden,
+            },
+        ],
+        breakdownOptionsOpened: [
+            false as boolean,
+            {
+                toggleBreakdownOptions: (_, { opened }) => opened,
+            },
+        ],
     }),
     selectors({
+        isMultipleBreakdownsEnabled: [
+            (s, p) => [s.featureFlags, p.isTrends],
+            (flags, isTrends) => isTrends && multipleBreakdownsEnabled(flags),
+        ],
         breakdownFilter: [(_, p) => [p.breakdownFilter], (breakdownFilter) => breakdownFilter],
         includeSessions: [(_, p) => [p.isTrends], (isTrends) => isTrends],
-        hasNonCohortBreakdown: [
-            (s) => [s.breakdownFilter],
-            ({ breakdown }) => breakdown && typeof breakdown === 'string',
+        maxBreakdownsSelected: [
+            (s) => [s.breakdownFilter, s.isMultipleBreakdownsEnabled, s.isDataWarehouseSeries],
+            ({ breakdown, breakdowns }, isMultipleBreakdownsEnabled, isDataWarehouseSeries) => {
+                if (isMultipleBreakdownsEnabled && !isDataWarehouseSeries) {
+                    return Array.isArray(breakdowns) && breakdowns.length >= 3
+                }
+
+                return !Array.isArray(breakdown) && breakdown != null
+            },
         ],
         taxonomicBreakdownType: [
             (s) => [s.breakdownFilter],
@@ -89,9 +160,14 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             },
         ],
         breakdownArray: [
-            (s) => [s.breakdownFilter],
-            ({ breakdown }) =>
-                (Array.isArray(breakdown) ? breakdown : [breakdown]).filter((b): b is string | number => !!b),
+            (s) => [s.breakdownFilter, s.isMultipleBreakdownsEnabled],
+            ({ breakdown, breakdowns }, isMultipleBreakdownsEnabled): (string | number)[] | Breakdown[] => {
+                if (isMultipleBreakdownsEnabled && breakdowns) {
+                    return breakdowns
+                }
+
+                return (Array.isArray(breakdown) ? breakdown : [breakdown]).filter((b): b is string | number => !!b)
+            },
         ],
         breakdownCohortArray: [
             (s) => [s.breakdownArray],
@@ -110,8 +186,18 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             (s) => [s.breakdownFilter, s.localBreakdownLimit],
             (breakdownFilter, localBreakdownLimit) => localBreakdownLimit || breakdownFilter?.breakdown_limit || 25,
         ],
+        normalizeBreakdownUrl: [
+            (s) => [s.breakdownFilter, s.localNormalizeBreakdownURL],
+            (breakdownFilter, localNormalizeBreakdownURL) =>
+                localNormalizeBreakdownURL ?? breakdownFilter.breakdown_normalize_url ?? true,
+        ],
+        breakdownHideOtherAggregation: [
+            (s) => [s.breakdownFilter, s.localBreakdownHideOtherAggregation],
+            (breakdownFilter, localBreakdownHideOtherAggregation) =>
+                localBreakdownHideOtherAggregation ?? breakdownFilter.breakdown_hide_other_aggregation,
+        ],
     }),
-    listeners(({ props, values }) => ({
+    listeners(({ props, values, actions }) => ({
         addBreakdown: ({ breakdown, taxonomicGroup }) => {
             const breakdownType = taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type) as BreakdownType
             const propertyDefinitionType = propertyFilterTypeToPropertyDefinitionType(breakdownType)
@@ -135,22 +221,48 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                     ? (Array.from(new Set([...values.breakdownCohortArray, breakdown])) as (string | number)[])
                     : ([breakdown] as (string | number)[])
 
-            props.updateBreakdownFilter({
-                breakdown_type: breakdownType,
-                breakdown:
-                    taxonomicGroup.type === TaxonomicFilterGroupType.CohortsWithAllUsers ? cohortBreakdown : breakdown,
-                breakdown_group_type_index: taxonomicGroup.groupTypeIndex,
-                breakdown_histogram_bin_count: isHistogramable ? 10 : undefined,
-                breakdown_normalize_url: isNormalizeable ? true : undefined,
-            })
+            if (values.isMultipleBreakdownsEnabled && isMultipleBreakdownType(breakdownType)) {
+                if (checkBreakdownExists(values.breakdownFilter.breakdowns, breakdown, breakdownType)) {
+                    return
+                }
+
+                const newBreakdown = {
+                    value: breakdown as string,
+                    type: breakdownType,
+                    group_type_index: taxonomicGroup.groupTypeIndex,
+                    histogram_bin_count: isHistogramable ? 10 : undefined,
+                    normalize_url: isNormalizeable ? true : undefined,
+                }
+
+                props.updateBreakdownFilter({
+                    breakdowns: values.breakdownFilter.breakdowns
+                        ? [...values.breakdownFilter.breakdowns, newBreakdown]
+                        : [newBreakdown],
+                })
+            } else {
+                props.updateBreakdownFilter({
+                    breakdowns: undefined,
+                    breakdown_type: breakdownType,
+                    breakdown:
+                        taxonomicGroup.type === TaxonomicFilterGroupType.CohortsWithAllUsers
+                            ? cohortBreakdown
+                            : breakdown,
+                    breakdown_group_type_index: taxonomicGroup.groupTypeIndex,
+                    breakdown_histogram_bin_count: isHistogramable ? 10 : undefined,
+                    breakdown_normalize_url: isNormalizeable ? true : undefined,
+                })
+            }
         },
-        removeBreakdown: ({ breakdown }) => {
+        removeBreakdown: ({ breakdown, breakdownType }) => {
             if (!props.updateBreakdownFilter) {
                 return
             }
 
             if (isCohortBreakdown(breakdown)) {
-                const newParts = values.breakdownCohortArray.filter((cohort) => cohort !== breakdown)
+                const newParts = values.breakdownCohortArray.filter(
+                    (cohort): cohort is string | number => cohort !== breakdown && typeof cohort !== 'object'
+                )
+
                 if (newParts.length === 0) {
                     props.updateBreakdownFilter({ ...props.breakdownFilter, breakdown: null, breakdown_type: null })
                 } else {
@@ -160,9 +272,31 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                         breakdown_type: 'cohort',
                     })
                 }
+            } else if (values.isMultipleBreakdownsEnabled) {
+                const breakdowns = props.breakdownFilter.breakdowns?.filter(
+                    (savedBreakdown) => !(savedBreakdown.value === breakdown && savedBreakdown.type === breakdownType)
+                )
+
+                props.updateBreakdownFilter({
+                    ...props.breakdownFilter,
+                    breakdown: undefined,
+                    breakdown_type: undefined,
+                    breakdown_histogram_bin_count: undefined,
+                    breakdowns: breakdowns && breakdowns.length === 0 ? undefined : breakdowns,
+                })
+
+                // Make sure we are no longer in map view after removing the Country Code breakdown
+                if (
+                    (!breakdowns || breakdowns.length === 0) &&
+                    props.isTrends &&
+                    props.display === ChartDisplayType.WorldMap
+                ) {
+                    props.updateDisplay?.(undefined)
+                }
             } else {
                 props.updateBreakdownFilter({
                     ...props.breakdownFilter,
+                    breakdowns: undefined,
                     breakdown: undefined,
                     breakdown_type: undefined,
                     breakdown_histogram_bin_count: undefined,
@@ -174,6 +308,61 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                 }
             }
         },
+        replaceBreakdown: ({ previousBreakdown, newBreakdown }) => {
+            const breakdownType = taxonomicFilterTypeToPropertyFilterType(newBreakdown.group.type) as
+                | BreakdownType
+                | undefined
+            const breakdownValue = newBreakdown.value
+
+            const propertyDefinitionType = propertyFilterTypeToPropertyDefinitionType(breakdownType)
+            const isHistogramable =
+                !!values.getPropertyDefinition(breakdownValue, propertyDefinitionType)?.is_numerical && props.isTrends
+
+            if (
+                !props.updateBreakdownFilter ||
+                !breakdownType ||
+                (breakdownType === previousBreakdown.type && breakdownValue === previousBreakdown.value) ||
+                checkBreakdownExists(values.breakdownFilter.breakdowns, breakdownValue, breakdownType)
+            ) {
+                return
+            }
+
+            // If property definitions are not loaded when this runs then a normalizeable URL will not be normalized.
+            // For now, it is safe to fall back to `breakdown` instead of the property definition.
+            const isNormalizeable = isURLNormalizeable(
+                values.getPropertyDefinition(breakdownValue, propertyDefinitionType)?.name || (breakdownValue as string)
+            )
+
+            if (
+                values.isMultipleBreakdownsEnabled &&
+                isMultipleBreakdownType(breakdownType) &&
+                typeof breakdownValue === 'string'
+            ) {
+                props.updateBreakdownFilter?.({
+                    breakdowns: values.breakdownFilter.breakdowns?.map((savedBreakdown) => {
+                        if (
+                            savedBreakdown.value === previousBreakdown.value &&
+                            savedBreakdown.type === previousBreakdown.type
+                        ) {
+                            return {
+                                ...savedBreakdown,
+                                value: breakdownValue,
+                                type: breakdownType,
+                                group_type_index: newBreakdown.group.groupTypeIndex,
+                                histogram_bin_count: isHistogramable
+                                    ? savedBreakdown.histogram_bin_count || 10
+                                    : undefined,
+                                normalize_url: isNormalizeable ? savedBreakdown.normalize_url ?? true : undefined,
+                            }
+                        }
+
+                        return savedBreakdown
+                    }),
+                })
+            } else {
+                actions.addBreakdown(newBreakdown.value, newBreakdown.group)
+            }
+        },
         setBreakdownLimit: async ({ value }, breakpoint) => {
             await breakpoint(300)
 
@@ -181,21 +370,100 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                 breakdown_limit: value,
             })
         },
-        setNormalizeBreakdownURL: ({ normalizeBreakdownURL }) => {
-            props.updateBreakdownFilter?.({
-                breakdown_normalize_url: normalizeBreakdownURL,
-            })
+        setNormalizeBreakdownURL: ({ normalizeBreakdownURL, breakdown, breakdownType }) => {
+            if (values.isMultipleBreakdownsEnabled) {
+                props.updateBreakdownFilter?.({
+                    breakdown_normalize_url: undefined,
+                    breakdowns: updateNestedBreakdown(
+                        values.breakdownFilter.breakdowns,
+                        {
+                            normalize_url: normalizeBreakdownURL,
+                        },
+                        breakdown,
+                        breakdownType
+                    ),
+                })
+            } else {
+                props.updateBreakdownFilter?.({
+                    breakdown_normalize_url: normalizeBreakdownURL,
+                })
+            }
         },
-        setHistogramBinsUsed: ({ value }) => {
-            props.updateBreakdownFilter?.({
-                breakdown_histogram_bin_count: value ? values.histogramBinCount : undefined,
-            })
+        setHistogramBinsUsed: ({ binsUsed, binCount, breakdown, breakdownType }) => {
+            if (values.isMultipleBreakdownsEnabled) {
+                props.updateBreakdownFilter?.({
+                    breakdown_histogram_bin_count: undefined,
+                    breakdowns: updateNestedBreakdown(
+                        values.breakdownFilter.breakdowns,
+                        {
+                            histogram_bin_count: binsUsed ? binCount : undefined,
+                        },
+                        breakdown,
+                        breakdownType
+                    ),
+                })
+            } else {
+                props.updateBreakdownFilter?.({
+                    breakdown_histogram_bin_count: binsUsed ? values.histogramBinCount : undefined,
+                })
+            }
         },
-        setHistogramBinCount: async ({ count }, breakpoint) => {
+        setHistogramBinCount: async ({ count, breakdown, breakdownType }, breakpoint) => {
             await breakpoint(1000)
+
+            if (values.isMultipleBreakdownsEnabled) {
+                props.updateBreakdownFilter?.({
+                    breakdown_histogram_bin_count: undefined,
+                    breakdowns: updateNestedBreakdown(
+                        values.breakdownFilter.breakdowns,
+                        {
+                            histogram_bin_count: count,
+                        },
+                        breakdown,
+                        breakdownType
+                    ),
+                })
+            } else {
+                props.updateBreakdownFilter?.({
+                    breakdown_histogram_bin_count: values.histogramBinsUsed ? count : undefined,
+                })
+            }
+        },
+        setBreakdownHideOtherAggregation: async ({ hidden }, breakpoint) => {
+            await breakpoint(300)
             props.updateBreakdownFilter?.({
-                breakdown_histogram_bin_count: values.histogramBinsUsed ? count : undefined,
+                breakdown_hide_other_aggregation: hidden,
             })
         },
     })),
 ])
+
+function updateNestedBreakdown(
+    breakdowns: Breakdown[] | undefined,
+    breakdownUpdate: Partial<Breakdown>,
+    lookupValue: string | number,
+    lookupType: string
+): Breakdown[] | undefined {
+    return breakdowns?.map((savedBreakdown) =>
+        savedBreakdown.value === lookupValue && savedBreakdown.type === lookupType
+            ? {
+                  ...savedBreakdown,
+                  ...breakdownUpdate,
+              }
+            : savedBreakdown
+    )
+}
+
+function checkBreakdownExists(
+    breakdowns: Breakdown[] | undefined,
+    lookupValue: string | number | null,
+    lookupType: string
+): boolean {
+    return !!breakdowns?.find(
+        (savedBreakdown) => savedBreakdown.value === lookupValue && savedBreakdown.type === lookupType
+    )
+}
+
+export function multipleBreakdownsEnabled(flags: FeatureFlagsSet): boolean {
+    return !!flags[FEATURE_FLAGS.MULTIPLE_BREAKDOWNS]
+}

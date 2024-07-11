@@ -252,68 +252,6 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(optimizer().person_on_event_columns_to_query, {"mat_pp_person_prop"})
 
-    def test_should_query_element_chain_column(self):
-        should_query_elements_chain_column = lambda filter: EnterpriseColumnOptimizer(
-            filter, self.team.id
-        ).should_query_elements_chain_column
-
-        self.assertEqual(should_query_elements_chain_column(BASE_FILTER), False)
-        self.assertEqual(should_query_elements_chain_column(FILTER_WITH_PROPERTIES), True)
-        self.assertEqual(should_query_elements_chain_column(FILTER_WITH_GROUPS), True)
-
-        filter = Filter(
-            data={
-                "events": [
-                    {
-                        "id": "$pageview",
-                        "type": "events",
-                        "order": 0,
-                        "properties": PROPERTIES_OF_ALL_TYPES,
-                    }
-                ]
-            }
-        )
-        self.assertEqual(should_query_elements_chain_column(filter), True)
-
-    def test_should_query_element_chain_column_with_actions(self):
-        action = Action.objects.create(
-            team=self.team,
-            steps_json=[
-                {
-                    "event": "$autocapture",
-                    "url": "https://example.com/donate",
-                    "url_matching": "exact",
-                }
-            ],
-        )
-
-        filter = Filter(data={"actions": [{"id": action.id, "math": "dau"}]})
-        self.assertEqual(
-            EnterpriseColumnOptimizer(filter, self.team.id).should_query_elements_chain_column,
-            False,
-        )
-
-        action.steps = [
-            {
-                "event": "$autocapture",
-                "url": "https://example.com/donate",
-                "url_matching": "exact",
-            },
-            {"event": "$autocapture", "tag_name": "button", "text": "Pay $10"},
-        ]
-        action.save()
-
-        self.assertEqual(
-            EnterpriseColumnOptimizer(filter, self.team.id).should_query_elements_chain_column,
-            True,
-        )
-
-        filter = BASE_FILTER.shallow_clone({"exclusions": [{"id": action.id, "type": "actions"}]})
-        self.assertEqual(
-            EnterpriseColumnOptimizer(filter, self.team.id).should_query_elements_chain_column,
-            True,
-        )
-
     def test_group_types_to_query(self):
         group_types_to_query = lambda filter: EnterpriseColumnOptimizer(filter, self.team.id).group_types_to_query
 

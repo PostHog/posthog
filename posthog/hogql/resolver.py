@@ -282,7 +282,7 @@ class Resolver(CloningVisitor):
 
         # If selecting from a CTE, expand and visit the new node
         if isinstance(node.table, ast.Field) and len(node.table.chain) == 1:
-            table_name = node.table.chain[0]
+            table_name = str(node.table.chain[0])
             cte = lookup_cte_by_name(self.scopes, table_name)
             if cte:
                 node = cast(ast.JoinExpr, clone_expr(node))
@@ -296,7 +296,7 @@ class Resolver(CloningVisitor):
                 return response
 
         if isinstance(node.table, ast.Field):
-            table_name = node.table.chain[0]
+            table_name = str(node.table.chain[0])
             table_alias = node.alias or table_name
             if table_alias in scope.tables:
                 raise QueryError(f'Already have joined a table called "{table_alias}". Can\'t redefine.')
@@ -590,6 +590,29 @@ class Resolver(CloningVisitor):
                 return response
 
         if not type:
+            if self.context.globals is not None and name in self.context.globals:
+                parsed_chain: list[str] = []
+                value = self.context.globals
+                for link in node.chain:
+                    parsed_chain.append(str(link))
+                    if isinstance(value, dict):
+                        value = value.get(str(link), None)
+                    elif isinstance(value, list):
+                        try:
+                            value = value[int(link)]
+                        except (ValueError, IndexError):
+                            raise QueryError(f"Cannot resolve field: {'.'.join(parsed_chain)}")
+                    else:
+                        raise QueryError(f"Cannot resolve field: {'.'.join(parsed_chain)}")
+                global_type = resolve_constant_data_type(value)
+                if global_type:
+                    self.context.add_notice(
+                        start=node.start,
+                        end=node.end,
+                        message=f"Field '{'.'.join([str(c) for c in node.chain])}' is of type '{global_type.print_type()}'",
+                    )
+                return ast.Constant(value=value, type=global_type)
+
             if self.dialect == "clickhouse":
                 raise QueryError(f"Unable to resolve field: {name}")
             else:
@@ -630,7 +653,14 @@ class Resolver(CloningVisitor):
             if self.dialect == "clickhouse":
                 new_expr = clone_expr(node.type.expr)
                 new_node: ast.Expr = ast.Alias(alias=node.type.name, expr=new_expr, hidden=True)
+
+                if node.type.isolate_scope:
+                    self.scopes.append(ast.SelectQueryType(tables={node.type.name: node.type.table_type}))
+
                 new_node = self.visit(new_node)
+
+                if node.type.isolate_scope:
+                    self.scopes.pop()
                 return new_node
 
         if isinstance(node.type, ast.FieldType) and node.start is not None and node.end is not None:

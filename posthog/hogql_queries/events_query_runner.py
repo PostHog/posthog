@@ -247,7 +247,7 @@ class EventsQueryRunner(QueryRunner):
 
         return EventsQueryResponse(
             results=self.paginator.results,
-            columns=self.select_input_raw(),
+            columns=self.columns(query_result.columns),
             types=[t for _, t in query_result.types] if query_result.types else None,
             timings=self.timings.to_list(),
             hogql=query_result.hogql,
@@ -262,6 +262,13 @@ class EventsQueryRunner(QueryRunner):
 
         if dashboard_filter.properties:
             self.query.properties = (self.query.properties or []) + dashboard_filter.properties
+
+    def columns(self, result_columns: list | None) -> list[str]:
+        columns = result_columns or []
+        return [
+            columns[idx] if len(columns) > idx and " as " in col else col
+            for idx, col in enumerate(self.select_input_raw())
+        ]
 
     def select_input_raw(self) -> list[str]:
         return ["*"] if len(self.query.select) == 0 else self.query.select

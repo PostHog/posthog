@@ -43,6 +43,7 @@ from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
 from posthog.models.event.sql import (
     DISTRIBUTED_EVENTS_TABLE_SQL,
     DROP_EVENTS_TABLE_SQL,
+    DROP_DISTRIBUTED_EVENTS_TABLE_SQL,
     EVENTS_TABLE_SQL,
 )
 from posthog.models.event.util import bulk_create_events
@@ -951,6 +952,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
         super().setUp()
         run_clickhouse_statement_in_parallel(
             [
+                DROP_DISTRIBUTED_EVENTS_TABLE_SQL,
                 DROP_EVENTS_TABLE_SQL(),
                 DROP_PERSON_TABLE_SQL,
                 TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
@@ -1004,6 +1006,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
 
         run_clickhouse_statement_in_parallel(
             [
+                DROP_DISTRIBUTED_EVENTS_TABLE_SQL,
                 DROP_EVENTS_TABLE_SQL(),
                 DROP_PERSON_TABLE_SQL,
                 TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,

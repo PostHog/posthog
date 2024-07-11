@@ -27,7 +27,6 @@ import zendeskLogo from 'public/zendesk-logo.svg'
 import { useEffect } from 'react'
 import { urls } from 'scenes/urls'
 
-import { DataTableNode, NodeKind } from '~/queries/schema'
 import {
     DataWarehouseSyncInterval,
     ExternalDataSourceSchema,
@@ -37,6 +36,7 @@ import {
 } from '~/types'
 
 import { SyncMethodForm } from '../external/forms/SyncMethodForm'
+import { defaultQuery } from '../utils'
 import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
 import { dataWarehouseSourcesTableSyncMethodModalLogic } from './dataWarehouseSourcesTableSyncMethodModalLogic'
 
@@ -141,7 +141,9 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
                     key: 'rows_synced',
                     tooltip: 'Total number of rows synced across all schemas in this source',
                     render: function RenderRowsSynced(_, source) {
-                        return source.schemas.reduce((acc, schema) => acc + (schema.table?.row_count ?? 0), 0)
+                        return source.schemas
+                            .reduce((acc, schema) => acc + (schema.table?.row_count ?? 0), 0)
+                            .toLocaleString()
                     },
                 },
                 {
@@ -348,22 +350,7 @@ const SchemaTable = ({ schemas }: SchemaTableProps): JSX.Element => {
                         key: 'table',
                         render: function RenderTable(_, schema) {
                             if (schema.table) {
-                                const query: DataTableNode = {
-                                    kind: NodeKind.DataTableNode,
-                                    full: true,
-                                    source: {
-                                        kind: NodeKind.HogQLQuery,
-                                        // TODO: Use `hogql` tag?
-                                        query: `SELECT ${schema.table.columns
-                                            .filter(
-                                                ({ table, fields, chain, schema_valid }) =>
-                                                    !table && !fields && !chain && schema_valid
-                                            )
-                                            .map(({ name }) => name)} FROM ${
-                                            schema.table.name === 'numbers' ? 'numbers(0, 10)' : schema.table.name
-                                        } LIMIT 100`,
-                                    },
-                                }
+                                const query = defaultQuery(schema.table.name, schema.table.columns)
                                 return (
                                     <Link to={urls.dataWarehouse(JSON.stringify(query))}>
                                         <code>{schema.table.name}</code>
@@ -392,7 +379,7 @@ const SchemaTable = ({ schemas }: SchemaTableProps): JSX.Element => {
                         title: 'Rows Synced',
                         key: 'rows_synced',
                         render: function Render(_, schema) {
-                            return schema.table?.row_count ?? ''
+                            return (schema.table?.row_count ?? 0).toLocaleString()
                         },
                     },
                     {

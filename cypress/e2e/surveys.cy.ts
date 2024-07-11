@@ -21,7 +21,7 @@ describe('Surveys', () => {
 
         // save
         //get 2nd element matching the selector
-        cy.get('[data-attr="save-survey"]').eq(1).click()
+        cy.get('[data-attr="save-survey"]').eq(0).click()
         cy.get('[data-attr=success-toast]').contains('created').should('exist')
 
         // back to surveys
@@ -35,8 +35,12 @@ describe('Surveys', () => {
         // delete survey
         cy.get('[data-attr="more-button"]').click()
         cy.get('.Popover__content').contains('Delete').click()
-        cy.clickNavMenu('surveys')
+        // Handle the confirmation dialog
+        cy.get('.LemonModal__footer').should('be.visible')
+        cy.contains('Delete this survey?').should('be.visible')
+        cy.get('.LemonModal__footer').contains('button', 'Delete').click()
 
+        cy.clickNavMenu('surveys')
         cy.get('tbody').should('not.exist')
     })
 
@@ -85,7 +89,7 @@ describe('Surveys', () => {
         cy.get('[class="survey-form"]').find('.ratings-number').should('have.length', 5)
 
         // add targeting filters
-        cy.get('.LemonCollapsePanel').contains('Targeting').click()
+        cy.get('.LemonCollapsePanel').contains('Display conditions').click()
         cy.contains('All users').click()
         cy.get('.Popover__content').contains('Users who match').click()
         cy.contains('Add user targeting').click()
@@ -104,20 +108,28 @@ describe('Surveys', () => {
         cy.get('[data-attr=success-toast]').contains('created').should('exist')
 
         // check preview release conditions
-        cy.contains('Release conditions summary').should('exist')
+        cy.contains('Display conditions summary').should('exist')
         cy.get('.FeatureConditionCard').should('exist').should('contain.text', 'is_demo equals true')
         cy.get('.FeatureConditionCard').should('contain.text', 'Rolled out to 100% of users in this set.')
 
         // launch survey
         cy.get('[data-attr="launch-survey"]').click()
+        // Handle the confirmation dialog
+        cy.get('.LemonModal__layout').should('be.visible')
+        cy.contains('Launch this survey?').should('be.visible')
+        cy.get('.LemonModal__footer').contains('button', 'Launch').click()
 
         // refresh, see survey show up on page
         cy.reload()
 
         cy.contains('Unique users shown').should('exist')
 
-        // stop survey
+        // Update the stop survey part
         cy.contains('Stop').click()
+        // Handle the confirmation dialog
+        cy.get('.LemonModal__layout').should('be.visible')
+        cy.contains('Stop this survey?').should('be.visible')
+        cy.get('.LemonModal__footer').contains('button', 'Stop').click()
 
         // back to surveys
         cy.clickNavMenu('surveys')
@@ -131,20 +143,24 @@ describe('Surveys', () => {
         cy.get('.Popover__content').contains('Edit').click()
 
         // remove user targeting properties
-        cy.get('.LemonCollapsePanel').contains('Targeting').click()
+        cy.get('.LemonCollapsePanel').contains('Display conditions').click()
         cy.contains('Remove all user properties').click()
 
         // save
-        cy.get('[data-attr="save-survey"]').eq(1).click()
+        cy.get('[data-attr="save-survey"]').eq(0).click()
 
         // check preview release conditions
         cy.get('.LemonTabs').contains('Overview').click()
-        cy.contains('Release conditions summary').should('exist')
+        cy.contains('Display conditions summary').should('exist')
         cy.get('.FeatureConditionCard').should('not.exist')
 
         // delete survey
         cy.get('[data-attr="more-button"]').click()
         cy.get('.Popover__content').contains('Delete').click()
+        // handle confirmation dialog
+        cy.get('.LemonModal__layout').should('be.visible')
+        cy.contains('Delete this survey?').should('be.visible')
+        cy.get('.LemonModal__footer').contains('button', 'Delete').click()
         cy.clickNavMenu('surveys')
         cy.get('tbody').should('not.exist')
     })
@@ -164,6 +180,10 @@ describe('Surveys', () => {
         cy.get(`[data-row-key=${name}]`).contains(name).click()
         cy.get('[data-attr=more-button]').click()
         cy.get('[data-attr=delete-survey]').click()
+        // Handle the confirmation dialog
+        cy.get('.LemonModal__layout').should('be.visible')
+        cy.contains('Delete this survey?').should('be.visible')
+        cy.get('.LemonModal__footer').contains('button', 'Delete').click()
         cy.get('.Toastify__toast-body').contains('Survey deleted').should('be.visible')
     })
 
@@ -174,7 +194,7 @@ describe('Surveys', () => {
         cy.get('[data-attr=survey-name]').focus().type(name).should('have.value', name)
 
         // Add user targetting criteria
-        cy.get('.LemonCollapsePanel').contains('Targeting').click()
+        cy.get('.LemonCollapsePanel').contains('Display conditions').click()
         cy.contains('All users').click()
         cy.get('.Popover__content').contains('Users who match').click()
         cy.contains('Add user targeting').click()
@@ -188,6 +208,10 @@ describe('Surveys', () => {
 
         // Launch the survey first, the duplicated one should be in draft
         cy.get('[data-attr="launch-survey"]').click()
+        // Handle the confirmation dialog
+        cy.get('.LemonModal__footer').should('be.visible')
+        cy.contains('Launch this survey?').should('be.visible')
+        cy.get('.LemonModal__footer').contains('button', 'Launch').click()
 
         // try to duplicate survey
         cy.get('[data-attr=more-button]').click()
@@ -201,20 +225,29 @@ describe('Surveys', () => {
         cy.get('button[data-attr="launch-survey"]').should('have.text', 'Launch')
 
         // check if targetting criteria is copied
-        cy.contains('Release conditions summary').should('exist')
+        cy.contains('Display conditions summary').should('exist')
         cy.get('.FeatureConditionCard').should('exist').should('contain.text', 'is_demo equals true')
         cy.get('.FeatureConditionCard').should('contain.text', 'Rolled out to 100% of users in this set.')
 
         // delete the duplicated survey
         cy.get('[data-attr=more-button]').click()
         cy.get('[data-attr=delete-survey]').click()
+        cy.get('.LemonModal__footer').should('be.visible')
+        cy.contains('Delete this survey?').should('be.visible')
+        cy.get('.LemonModal__footer').contains('button', 'Delete').click()
 
         // Archive the original survey
         cy.clickNavMenu('surveys')
         cy.get('[data-attr=surveys-table]').find(`[data-row-key="${name}"]`).find('a').click()
         cy.get('[data-attr=stop-survey]').click()
+        cy.get('.LemonModal__footer').should('be.visible')
+        cy.contains('Stop this survey?').should('be.visible')
+        cy.get('.LemonModal__footer').contains('button', 'Stop').click()
         cy.get('[data-attr=more-button]').click()
         cy.get('[data-attr=archive-survey]').click()
+        cy.get('.LemonModal__footer').should('be.visible')
+        cy.contains('Archive this survey?').should('be.visible')
+        cy.get('.LemonModal__footer').contains('button', 'Archive').click()
 
         // check if the duplicated survey is created with draft state
         cy.get('[data-attr=more-button]').click()
@@ -227,7 +260,7 @@ describe('Surveys', () => {
             .should('exist')
     })
 
-    it.only('can set responses limit', () => {
+    it('can set responses limit', () => {
         cy.get('h1').should('contain', 'Surveys')
         cy.get('[data-attr=new-survey]').click()
         cy.get('[data-attr=new-blank-survey]').click()

@@ -19,7 +19,7 @@ export const SearchResultPreview = (): JSX.Element | null => {
             <div className="text-text-3000 font-bold text-lg">
                 <ResultName result={result} />
             </div>
-            <span className="text-trace-3000 text-xs">
+            <span className="text-[var(--trace-3000)] text-xs">
                 {location.host}
                 <span className="text-muted-3000">{urlForResult(result)}</span>
             </span>

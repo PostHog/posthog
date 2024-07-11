@@ -52,8 +52,8 @@ def set_default_modifier_values(modifiers: HogQLQueryModifiers, team: "Team"):
     if modifiers.bounceRatePageViewMode is None:
         modifiers.bounceRatePageViewMode = BounceRatePageViewMode.COUNT_PAGEVIEWS
 
-    if modifiers.sessionTableVersion is None or modifiers.sessionTableVersion == SessionTableVersion.AUTO:
-        modifiers.sessionTableVersion = SessionTableVersion.V1
+    if modifiers.sessionTableVersion is None:
+        modifiers.sessionTableVersion = SessionTableVersion.AUTO
 
 
 def set_default_in_cohort_via(modifiers: HogQLQueryModifiers) -> HogQLQueryModifiers:
