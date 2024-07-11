@@ -4184,7 +4184,11 @@ export type AvailableOnboardingProducts = Pick<
     {
         [key in ProductKey]: OnboardingProduct
     },
-    ProductKey.PRODUCT_ANALYTICS | ProductKey.SESSION_REPLAY | ProductKey.FEATURE_FLAGS | ProductKey.SURVEYS
+    | ProductKey.PRODUCT_ANALYTICS
+    | ProductKey.SESSION_REPLAY
+    | ProductKey.FEATURE_FLAGS
+    | ProductKey.SURVEYS
+    | ProductKey.DATA_WAREHOUSE
 >
 
 export type OnboardingProduct = {
