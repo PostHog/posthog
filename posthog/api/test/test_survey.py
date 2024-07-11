@@ -1819,7 +1819,7 @@ class TestSurveyQuestionValidationWithEnterpriseFeatures(APIBaseTest):
 
 class TestSurveyWithActions(APIBaseTest):
     def test_cannot_use_actions_with_properties(self):
-        Action.objects.create(
+        action = Action.objects.create(
             team=self.team,
             name="person subscribed",
             steps_json=[
@@ -1838,7 +1838,7 @@ class TestSurveyWithActions(APIBaseTest):
                 "description": "Get feedback on the new notebooks feature",
                 "type": "popover",
                 "conditions": {
-                    "actions": {"values": [{"name": "person subscribed"}]},
+                    "actions": {"values": [{"name": "person subscribed", "id": action.id}]},
                 },
                 "questions": [
                     {
@@ -1858,13 +1858,13 @@ class TestSurveyWithActions(APIBaseTest):
         )
 
     def test_can_set_associated_actions(self):
-        Action.objects.create(
+        user_subscribed_action = Action.objects.create(
             team=self.team,
             name="user subscribed",
             steps_json=[{"event": "$pageview", "url": "docs", "url_matching": "contains"}],
         )
 
-        Action.objects.create(
+        user_unsubscribed_action = Action.objects.create(
             team=self.team,
             name="user unsubscribed",
             steps_json=[{"event": "$pageview", "url": "docs", "url_matching": "contains"}],
@@ -1876,7 +1876,12 @@ class TestSurveyWithActions(APIBaseTest):
                 "description": "Get feedback on the new notebooks feature",
                 "type": "popover",
                 "conditions": {
-                    "actions": {"values": [{"name": "user subscribed"}, {"name": "user unsubscribed"}]},
+                    "actions": {
+                        "values": [
+                            {"name": "user subscribed", "id": user_subscribed_action.id},
+                            {"name": "user unsubscribed", "id": user_unsubscribed_action.id},
+                        ]
+                    },
                 },
                 "questions": [
                     {
@@ -1898,7 +1903,7 @@ class TestSurveyWithActions(APIBaseTest):
         assert survey.actions.filter(name="user unsubscribed").exists()
 
     def test_can_remove_associated_actions(self):
-        Action.objects.create(
+        user_subscribed_action = Action.objects.create(
             team=self.team,
             name="user subscribed",
             steps_json=[{"event": "$pageview", "url": "docs", "url_matching": "contains"}],
@@ -1927,7 +1932,7 @@ class TestSurveyWithActions(APIBaseTest):
                 "description": "Get feedback on the new notebooks feature",
                 "type": "popover",
                 "conditions": {
-                    "actions": {"values": [{"name": "user subscribed"}]},
+                    "actions": {"values": [{"name": "user subscribed", "id": user_subscribed_action.id}]},
                 },
                 "questions": [
                     {

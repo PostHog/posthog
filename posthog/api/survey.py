@@ -168,8 +168,8 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         if values is None or len(values) == 0:
             return value
 
-        action_names = (value.get("name") for value in values)
-        project_actions = Action.objects.filter(team_id=self.context["team_id"], name__in=action_names)
+        action_ids = (value.get("id") for value in values)
+        project_actions = Action.objects.filter(team_id=self.context["team_id"], id__in=action_ids)
 
         for project_action in project_actions:
             for step in project_action.steps:
@@ -362,9 +362,9 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             instance.actions.clear()
             return
 
-        action_names = (value.get("name") for value in values)
+        action_ids = (value.get("id") for value in values)
 
-        instance.actions.set(Action.objects.filter(team_id=self.context["team_id"], name__in=action_names))
+        instance.actions.set(Action.objects.filter(team_id=self.context["team_id"], id__in=action_ids))
         instance.save()
 
     def _add_user_survey_interacted_filters(self, instance: Survey, end_date=None):
