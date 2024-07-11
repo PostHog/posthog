@@ -12,11 +12,13 @@ from sentry_sdk import capture_exception
 from posthog.api.services.query import process_query_dict
 from posthog.caching.utils import largest_teams
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.hogql_queries.query_cache import QueryCacheManager
 from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import conversion_to_query_based
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team, Insight, DashboardTile
 from posthog.schema import GenericCachedQueryResponse
+from posthog.tasks.utils import CeleryQueue
 
 logger = structlog.get_logger(__name__)
 
@@ -96,7 +98,15 @@ def schedule_warming_for_teams_task():
         task_groups.apply_async()
 
 
-@shared_task(ignore_result=True, expires=60 * 60)
+@shared_task(
+    queue=CeleryQueue.LONG_RUNNING.value,
+    ignore_result=True,
+    expires=60 * 60,
+    autoretry_for=(CHQueryErrorTooManySimultaneousQueries,),
+    retry_backoff=1,
+    retry_backoff_max=3,
+    max_retries=3,
+)
 def warm_insight_cache_task(insight_id: int, dashboard_id: int):
     insight = Insight.objects.get(pk=insight_id)
     dashboard = None
