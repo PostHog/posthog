@@ -1,9 +1,12 @@
+import { IconCollapse, IconExpand } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { IconFeedback } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import React from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -23,13 +26,53 @@ export const scene: SceneExport = {
     logic: sessionAttributionExplorerLogic,
 }
 
-const ExampleUrlsCell: QueryContextColumnComponent = ({ value }: { value: unknown }): JSX.Element => {
-    const values = Array.isArray(value) ? value : [value]
+const ExpandableDataCell: QueryContextColumnComponent = ({ value }: { value: unknown }): JSX.Element => {
+    const [isExpanded, setIsExpanded] = React.useState(false)
+
+    if (value == null || (Array.isArray(value) && value.length === 0)) {
+        return (
+            <Tooltip title="NULL">
+                <span aria-hidden={true} className="cursor-default">
+                    —
+                </span>
+            </Tooltip>
+        )
+    }
+
+    if (!Array.isArray(value)) {
+        return <div>{value}</div>
+    }
+
     return (
-        <div>
-            {values.map((url) => (
-                <div key={url}>{url}</div>
-            ))}
+        <div className="flex flex-row">
+            <div>
+                <span>
+                    <LemonButton
+                        active={isExpanded}
+                        onClick={() => {
+                            setIsExpanded(!isExpanded)
+                        }}
+                        icon={isExpanded ? <IconCollapse /> : <IconExpand />}
+                        title={isExpanded ? 'Show less' : 'Show more'}
+                        size="small"
+                    />
+                </span>
+            </div>
+            <div className="flex flex-col items-center justify-center">
+                <div className="flex flex-1">
+                    {isExpanded ? (
+                        <ul className="flex-1 flex flex-col">
+                            {value.map((url) => (
+                                <li className="flex-1 mb-1 break-all" key={url}>
+                                    {url}
+                                </li>
+                            ))}
+                        </ul>
+                    ) : (
+                        value[0]
+                    )}
+                </div>
+            </div>
         </div>
     )
 }
@@ -38,6 +81,7 @@ const queryContext: QueryContext = {
     columns: {
         channel_type: {
             title: 'Channel type',
+            render: ExpandableDataCell,
         },
         count: {
             title: 'Session count',
@@ -45,22 +89,27 @@ const queryContext: QueryContext = {
         },
         referring_domain: {
             title: 'Referring domain',
+            render: ExpandableDataCell,
         },
         utm_source: {
             title: 'UTM source',
+            render: ExpandableDataCell,
         },
         utm_medium: {
             title: 'UTM medium',
+            render: ExpandableDataCell,
         },
         utm_campaign: {
             title: 'UTM campaign',
+            render: ExpandableDataCell,
         },
         has_ad_id: {
-            title: 'Has ad ID',
+            title: 'Ad IDs',
+            render: ExpandableDataCell,
         },
         example_entry_urls: {
             title: 'Example entry URLs',
-            render: ExampleUrlsCell,
+            render: ExpandableDataCell,
         },
     },
 }

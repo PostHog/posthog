@@ -107,9 +107,28 @@ def jsonParse(name: str, args: list[Any], team: Optional["Team"], stdout: Option
 
 
 def jsonStringify(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int) -> str:
+    marked = set()
+
+    def json_safe(obj):
+        if isinstance(obj, dict) or isinstance(obj, list) or isinstance(obj, tuple):
+            if id(obj) in marked:
+                return None
+            else:
+                marked.add(id(obj))
+                try:
+                    if isinstance(obj, dict):
+                        return {json_safe(k): json_safe(v) for k, v in obj.items()}
+                    elif isinstance(obj, list):
+                        return [json_safe(v) for v in obj]
+                    elif isinstance(obj, tuple):
+                        return tuple(json_safe(v) for v in obj)
+                finally:
+                    marked.remove(id(obj))
+        return obj
+
     if len(args) > 1 and isinstance(args[1], int) and args[1] > 0:
-        return json.dumps(args[0], indent=args[1])
-    return json.dumps(args[0])
+        return json.dumps(json_safe(args[0]), indent=args[1])
+    return json.dumps(json_safe(args[0]))
 
 
 def base64Encode(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int) -> str:

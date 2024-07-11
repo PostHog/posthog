@@ -36,6 +36,7 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
     path((id) => ['scenes', 'pipeline', 'pipelineNodeLogic', id]),
     actions({
         setCurrentTab: (tab: PipelineNodeTab = PipelineNodeTab.Configuration) => ({ tab }),
+        setBreadcrumbTitle: (title: string) => ({ title }),
     }),
     reducers(() => ({
         currentTab: [
@@ -44,11 +45,17 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
                 setCurrentTab: (_, { tab }) => tab,
             },
         ],
+        breadcrumbTitle: [
+            '',
+            {
+                setBreadcrumbTitle: (_, { title }) => title,
+            },
+        ],
     })),
     selectors(() => ({
         breadcrumbs: [
-            (_, p) => [p.id, p.stage],
-            (id, stage): Breadcrumb[] => [
+            (s, p) => [p.id, p.stage, s.breadcrumbTitle],
+            (id, stage, breadcrumbTitle): Breadcrumb[] => [
                 {
                     key: Scene.Pipeline,
                     name: 'Data pipeline',
@@ -61,7 +68,7 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
                 },
                 {
                     key: [Scene.PipelineNode, id],
-                    name: '',
+                    name: breadcrumbTitle,
                 },
             ],
         ],

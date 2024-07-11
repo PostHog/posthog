@@ -10,10 +10,12 @@ from hogvm.python.operation import Operation, HOGQL_BYTECODE_IDENTIFIER
 from hogvm.python.stl import STL
 from dataclasses import dataclass
 
-from hogvm.python.utils import HogVMException, get_nested_value, like, set_nested_value
+from hogvm.python.utils import HogVMException, get_nested_value, like, set_nested_value, calculate_cost
 
 if TYPE_CHECKING:
     from posthog.models import Team
+
+MAX_MEMORY = 64 * 1024 * 1024  # 64 MB
 
 
 @dataclass
@@ -35,8 +37,11 @@ def execute_bytecode(
     start_time = time.time()
     last_op = len(bytecode) - 1
     stack: list = []
+    mem_stack: list = []
     call_stack: list[tuple[int, int, int]] = []  # (ip, stack_start, arg_len)
     declared_functions: dict[str, tuple[int, int]] = {}
+    mem_used = 0
+    max_mem_used = 0
     ip = -1
     ops = 0
     stdout: list[str] = []
@@ -52,7 +57,19 @@ def execute_bytecode(
     def pop_stack():
         if not stack:
             raise HogVMException("Stack underflow")
+        nonlocal mem_used
+        mem_used -= mem_stack.pop()
         return stack.pop()
+
+    def push_stack(value):
+        stack.append(value)
+        mem_stack.append(calculate_cost(value))
+        nonlocal mem_used
+        mem_used += mem_stack[-1]
+        nonlocal max_mem_used
+        max_mem_used = max(mem_used, max_mem_used)
+        if mem_used > MAX_MEMORY:
+            raise HogVMException(f"Memory limit of {MAX_MEMORY} bytes exceeded. Tried to allocate {mem_used} bytes.")
 
     if next_token() != HOGQL_BYTECODE_IDENTIFIER:
         raise HogVMException(f"Invalid bytecode. Must start with '{HOGQL_BYTECODE_IDENTIFIER}'")
@@ -75,72 +92,74 @@ def execute_bytecode(
             case None:
                 break
             case Operation.STRING:
-                stack.append(next_token())
+                push_stack(next_token())
             case Operation.INTEGER:
-                stack.append(next_token())
+                push_stack(next_token())
             case Operation.FLOAT:
-                stack.append(next_token())
+                push_stack(next_token())
             case Operation.TRUE:
-                stack.append(True)
+                push_stack(True)
             case Operation.FALSE:
-                stack.append(False)
+                push_stack(False)
             case Operation.NULL:
-                stack.append(None)
+                push_stack(None)
             case Operation.NOT:
-                stack.append(not pop_stack())
+                push_stack(not pop_stack())
             case Operation.AND:
-                stack.append(all([pop_stack() for _ in range(next_token())]))  # noqa: C419
+                push_stack(all([pop_stack() for _ in range(next_token())]))  # noqa: C419
             case Operation.OR:
-                stack.append(any([pop_stack() for _ in range(next_token())]))  # noqa: C419
+                push_stack(any([pop_stack() for _ in range(next_token())]))  # noqa: C419
             case Operation.PLUS:
-                stack.append(pop_stack() + pop_stack())
+                push_stack(pop_stack() + pop_stack())
             case Operation.MINUS:
-                stack.append(pop_stack() - pop_stack())
+                push_stack(pop_stack() - pop_stack())
             case Operation.DIVIDE:
-                stack.append(pop_stack() / pop_stack())
+                push_stack(pop_stack() / pop_stack())
             case Operation.MULTIPLY:
-                stack.append(pop_stack() * pop_stack())
+                push_stack(pop_stack() * pop_stack())
             case Operation.MOD:
-                stack.append(pop_stack() % pop_stack())
+                push_stack(pop_stack() % pop_stack())
             case Operation.EQ:
-                stack.append(pop_stack() == pop_stack())
+                push_stack(pop_stack() == pop_stack())
             case Operation.NOT_EQ:
-                stack.append(pop_stack() != pop_stack())
+                push_stack(pop_stack() != pop_stack())
             case Operation.GT:
-                stack.append(pop_stack() > pop_stack())
+                push_stack(pop_stack() > pop_stack())
             case Operation.GT_EQ:
-                stack.append(pop_stack() >= pop_stack())
+                push_stack(pop_stack() >= pop_stack())
             case Operation.LT:
-                stack.append(pop_stack() < pop_stack())
+                push_stack(pop_stack() < pop_stack())
             case Operation.LT_EQ:
-                stack.append(pop_stack() <= pop_stack())
+                push_stack(pop_stack() <= pop_stack())
             case Operation.LIKE:
-                stack.append(like(pop_stack(), pop_stack()))
+                push_stack(like(pop_stack(), pop_stack()))
             case Operation.ILIKE:
-                stack.append(like(pop_stack(), pop_stack(), re.IGNORECASE))
+                push_stack(like(pop_stack(), pop_stack(), re.IGNORECASE))
             case Operation.NOT_LIKE:
-                stack.append(not like(pop_stack(), pop_stack()))
+                push_stack(not like(pop_stack(), pop_stack()))
             case Operation.NOT_ILIKE:
-                stack.append(not like(pop_stack(), pop_stack(), re.IGNORECASE))
+                push_stack(not like(pop_stack(), pop_stack(), re.IGNORECASE))
             case Operation.IN:
-                stack.append(pop_stack() in pop_stack())
+                push_stack(pop_stack() in pop_stack())
             case Operation.NOT_IN:
-                stack.append(pop_stack() not in pop_stack())
+                push_stack(pop_stack() not in pop_stack())
             case Operation.REGEX:
                 args = [pop_stack(), pop_stack()]
-                stack.append(bool(re.search(re.compile(args[1]), args[0])))
+                # TODO: swap this for re2, as used in HogQL/ClickHouse and in the NodeJS VM
+                push_stack(bool(re.search(re.compile(args[1]), args[0])))
             case Operation.NOT_REGEX:
                 args = [pop_stack(), pop_stack()]
-                stack.append(not bool(re.search(re.compile(args[1]), args[0])))
+                # TODO: swap this for re2, as used in HogQL/ClickHouse and in the NodeJS VM
+                push_stack(not bool(re.search(re.compile(args[1]), args[0])))
             case Operation.IREGEX:
                 args = [pop_stack(), pop_stack()]
-                stack.append(bool(re.search(re.compile(args[1], re.RegexFlag.IGNORECASE), args[0])))
+                push_stack(bool(re.search(re.compile(args[1], re.RegexFlag.IGNORECASE), args[0])))
             case Operation.NOT_IREGEX:
                 args = [pop_stack(), pop_stack()]
-                stack.append(not bool(re.search(re.compile(args[1], re.RegexFlag.IGNORECASE), args[0])))
+                push_stack(not bool(re.search(re.compile(args[1], re.RegexFlag.IGNORECASE), args[0])))
             case Operation.GET_GLOBAL:
                 chain = [pop_stack() for _ in range(next_token())]
-                stack.append(deepcopy(get_nested_value(globals, chain)))
+                push_stack(deepcopy(get_nested_value(globals, chain)))
             case Operation.POP:
                 pop_stack()
             case Operation.RETURN:
@@ -148,19 +167,29 @@ def execute_bytecode(
                     ip, stack_start, arg_len = call_stack.pop()
                     response = pop_stack()
                     stack = stack[0:stack_start]
-                    stack.append(response)
+                    mem_used -= sum(mem_stack[stack_start:])
+                    mem_stack = mem_stack[0:stack_start]
+                    push_stack(response)
                 else:
                     return BytecodeResult(result=pop_stack(), stdout=stdout, bytecode=bytecode)
             case Operation.GET_LOCAL:
                 stack_start = 0 if not call_stack else call_stack[-1][1]
-                stack.append(stack[next_token() + stack_start])
+                push_stack(stack[next_token() + stack_start])
             case Operation.SET_LOCAL:
                 stack_start = 0 if not call_stack else call_stack[-1][1]
                 value = pop_stack()
-                stack[next_token() + stack_start] = value
+                index = next_token() + stack_start
+                stack[index] = value
+                last_cost = mem_stack[index]
+                mem_stack[index] = calculate_cost(value)
+                mem_used += mem_stack[index] - last_cost
+                max_mem_used = max(mem_used, max_mem_used)
             case Operation.GET_PROPERTY:
                 property = pop_stack()
-                stack.append(get_nested_value(pop_stack(), [property]))
+                push_stack(get_nested_value(pop_stack(), [property]))
+            case Operation.GET_PROPERTY_NULLISH:
+                property = pop_stack()
+                push_stack(get_nested_value(pop_stack(), [property], nullish=True))
             case Operation.SET_PROPERTY:
                 value = pop_stack()
                 field = pop_stack()
@@ -170,19 +199,25 @@ def execute_bytecode(
                 if count > 0:
                     elems = stack[-(count * 2) :]
                     stack = stack[: -(count * 2)]
-                    stack.append({elems[i]: elems[i + 1] for i in range(0, len(elems), 2)})
+                    mem_used -= sum(mem_stack[-(count * 2) :])
+                    mem_stack = mem_stack[: -(count * 2)]
+                    push_stack({elems[i]: elems[i + 1] for i in range(0, len(elems), 2)})
                 else:
-                    stack.append({})
+                    push_stack({})
             case Operation.ARRAY:
                 count = next_token()
                 elems = stack[-count:]
                 stack = stack[:-count]
-                stack.append(elems)
+                mem_used -= sum(mem_stack[-count:])
+                mem_stack = mem_stack[:-count]
+                push_stack(elems)
             case Operation.TUPLE:
                 count = next_token()
                 elems = stack[-count:]
                 stack = stack[:-count]
-                stack.append(tuple(elems))
+                mem_used -= sum(mem_stack[-count:])
+                mem_stack = mem_stack[:-count]
+                push_stack(tuple(elems))
             case Operation.JUMP:
                 count = next_token()
                 ip += count
@@ -211,13 +246,13 @@ def execute_bytecode(
                     args = [pop_stack() for _ in range(next_token())]
 
                     if functions is not None and name in functions:
-                        stack.append(functions[name](*args))
+                        push_stack(functions[name](*args))
                         continue
 
                     if name not in STL:
                         raise HogVMException(f"Unsupported function call: {name}")
 
-                    stack.append(STL[name](name, args, team, stdout, timeout))
+                    push_stack(STL[name](name, args, team, stdout, timeout))
         if ip == last_op:
             break
     if debug:
