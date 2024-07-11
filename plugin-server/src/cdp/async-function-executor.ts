@@ -9,10 +9,11 @@ export type AsyncFunctionExecutorOptions = {
 }
 
 export class AsyncFunctionExecutor {
-    rusty_hook_enabled_teams: number[]
+    rusty_hook_enabled_teams: number[] | '*'
 
     constructor(private serverConfig: PluginsServerConfig, private rustyHook: RustyHook) {
-        this.rusty_hook_enabled_teams = this.serverConfig.CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS.split(',').map(parseInt)
+        const teams = this.serverConfig.CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS
+        this.rusty_hook_enabled_teams = teams === '*' ? teams : teams.split(',').map(parseInt)
     }
 
     async execute(
@@ -69,7 +70,10 @@ export class AsyncFunctionExecutor {
         // Finally overwrite the args with the sanitized ones
         request.asyncFunctionRequest.args = [url, { method, headers, body }]
 
-        if (!options?.sync === false && this.rusty_hook_enabled_teams.includes(request.teamId)) {
+        if (
+            !options?.sync === false &&
+            (this.rusty_hook_enabled_teams === '*' || this.rusty_hook_enabled_teams.includes(request.teamId))
+        ) {
             await this.rustyHook.enqueueForHog(request)
             return
         }
