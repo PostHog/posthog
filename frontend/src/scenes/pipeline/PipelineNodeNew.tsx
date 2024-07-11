@@ -12,7 +12,6 @@ import { urls } from 'scenes/urls'
 
 import { AvailableFeature, BatchExportService, HogFunctionTemplateType, PipelineStage, PluginType } from '~/types'
 
-import { pipelineDestinationsLogic } from './destinationsLogic'
 import { frontendAppsLogic } from './frontendAppsLogic'
 import { HogFunctionConfiguration } from './hogfunctions/HogFunctionConfiguration'
 import { HogFunctionIcon } from './hogfunctions/HogFunctionIcon'
@@ -147,8 +146,7 @@ function TransformationOptionsTable(): JSX.Element {
 
 function DestinationOptionsTable(): JSX.Element {
     const hogFunctionsEnabled = !!useFeatureFlag('HOG_FUNCTIONS')
-    const { batchExportServiceNames } = useValues(pipelineNodeNewLogic)
-    const { plugins, loading, hogFunctionTemplates } = useValues(pipelineDestinationsLogic)
+    const { batchExportServiceNames, plugins, loading, hogFunctionTemplates } = useValues(pipelineNodeNewLogic)
     const pluginTargets = Object.values(plugins).map(convertPluginToTableEntry)
     const batchExportTargets = Object.values(batchExportServiceNames).map(convertBatchExportToTableEntry)
     const hogFunctionTargets = hogFunctionsEnabled

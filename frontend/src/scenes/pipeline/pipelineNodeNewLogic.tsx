@@ -1,12 +1,23 @@
-import { connect, kea, path, props, selectors } from 'kea'
+import { afterMount, connect, kea, path, props, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import api from 'lib/api'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { BATCH_EXPORT_SERVICE_NAMES, BatchExportService, Breadcrumb, PipelineStage, PipelineTab } from '~/types'
+import {
+    BATCH_EXPORT_SERVICE_NAMES,
+    BatchExportService,
+    Breadcrumb,
+    HogFunctionTemplateType,
+    PipelineStage,
+    PipelineTab,
+    PluginType,
+} from '~/types'
 
 import type { pipelineNodeNewLogicType } from './pipelineNodeNewLogicType'
+import { loadPluginsFromUrl } from './utils'
 
 export const NODE_STAGE_TO_PIPELINE_TAB: Partial<Record<PipelineStage, PipelineTab>> = {
     [PipelineStage.Transformation]: PipelineTab.Transformations,
@@ -28,7 +39,34 @@ export const pipelineNodeNewLogic = kea<pipelineNodeNewLogicType>([
     }),
     path((id) => ['scenes', 'pipeline', 'pipelineNodeNewLogic', id]),
 
+    loaders({
+        plugins: [
+            {} as Record<number, PluginType>,
+            {
+                loadPlugins: async () => {
+                    return loadPluginsFromUrl('api/organizations/@current/pipeline_destinations')
+                },
+            },
+        ],
+        hogFunctionTemplates: [
+            {} as Record<string, HogFunctionTemplateType>,
+            {
+                loadHogFunctionTemplates: async () => {
+                    const templates = await api.hogFunctions.listTemplates()
+                    return templates.results.reduce((acc, template) => {
+                        acc[template.id] = template
+                        return acc
+                    }, {} as Record<string, HogFunctionTemplateType>)
+                },
+            },
+        ],
+    }),
+
     selectors(() => ({
+        loading: [
+            (s) => [s.pluginsLoading, s.hogFunctionTemplatesLoading],
+            (pluginsLoading, hogFunctionTemplatesLoading) => pluginsLoading || hogFunctionTemplatesLoading,
+        ],
         breadcrumbs: [
             (_, p) => [p.stage, p.pluginId, p.batchExportDestination],
             (stage, pluginId, batchDestination): Breadcrumb[] => [
@@ -62,4 +100,8 @@ export const pipelineNodeNewLogic = kea<pipelineNodeNewLogicType>([
             },
         ],
     })),
+    afterMount(({ actions }) => {
+        actions.loadPlugins()
+        actions.loadHogFunctionTemplates()
+    }),
 ])
