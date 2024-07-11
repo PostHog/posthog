@@ -2254,4 +2254,45 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 self._select("select } from events")
             self.assertEqual(str(e.exception), "Unmatched curly bracket")
 
+        def test_for_in_loops(self):
+            code = """
+                for (let i in [1, 2, 3]) {
+                    print(a);
+                }
+            """
+            program = self._program(code)
+            expected = ast.Program(
+                declarations=[
+                    ast.ForInStatement(
+                        keyVar=None,
+                        valueVar="i",
+                        expr=ast.Array(exprs=[Constant(value=1), Constant(value=2), Constant(value=3)]),
+                        body=ast.Block(
+                            declarations=[ast.ExprStatement(expr=Call(name="print", args=[Field(chain=["a"])]))]
+                        ),
+                    )
+                ]
+            )
+            self.assertEqual(program, expected)
+
+            code = """
+                for (let key, value in [1, 2, 3]) {
+                    print(a);
+                }
+            """
+            program = self._program(code)
+            expected = ast.Program(
+                declarations=[
+                    ast.ForInStatement(
+                        keyVar="key",
+                        valueVar="value",
+                        expr=ast.Array(exprs=[Constant(value=1), Constant(value=2), Constant(value=3)]),
+                        body=ast.Block(
+                            declarations=[ast.ExprStatement(expr=Call(name="print", args=[Field(chain=["a"])]))]
+                        ),
+                    )
+                ]
+            )
+            self.assertEqual(program, expected)
+
     return TestParser

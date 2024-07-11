@@ -388,6 +388,11 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       return visit(for_stmt_ctx);
     }
 
+    auto for_in_stmt_ctx = ctx->forInStmt();
+    if (for_in_stmt_ctx) {
+      return visit(for_in_stmt_ctx);
+    }
+
     auto func_stmt_ctx = ctx->funcStmt();
     if (func_stmt_ctx) {
       return visit(func_stmt_ctx);
@@ -413,8 +418,8 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       return visit(empty_stmt_ctx);
     }
 
-    throw ParsingError("Statement must be one of returnStmt, ifStmt, whileStmt, forStmt, funcStmt, varAssignment, "
-                       "block, exprStmt, or emptyStmt");
+    throw ParsingError("Statement must be one of returnStmt, ifStmt, whileStmt, forStmt, forInStmt, funcStmt, "
+                       "varAssignment, block, exprStmt, or emptyStmt");
   }
 
   VISIT(ExprStmt) {
@@ -574,6 +579,53 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       Py_DECREF(initializer);
       Py_DECREF(condition);
       Py_DECREF(increment);
+      Py_DECREF(body);
+      throw PyInternalError();
+    }
+    return ret;
+  }
+
+  // def visitForInStmt(self, ctx:HogQLParser.ForInStmtContext):
+  //     first_identifier = ctx.identifier(0).getText()
+  //     second_identifier = ctx.identifier(1).getText() if ctx.identifier(1) else None
+  //     return ast.ForInStatement(
+  //         valueVar=second_identifier if second_identifier is not None else first_identifier,
+  //         keyVar=first_identifier if second_identifier is not None else None,
+  //         expr=self.visit(ctx.expression()),
+  //         body=self.visit(ctx.statement()),
+  //     )
+
+  VISIT(ForInStmt) {
+    string first_identifier = visitAsString(ctx->identifier(0));
+    string second_identifier;
+    if (ctx->identifier(1)) {
+      second_identifier = visitAsString(ctx->identifier(1));
+    }
+    PyObject* expr = visitAsPyObject(ctx->expression());
+    PyObject* body;
+    try {
+      body = visitAsPyObject(ctx->statement());
+    } catch (...) {
+      Py_DECREF(expr);
+      throw;
+    }
+    PyObject* ret = second_identifier.empty()
+        ? build_ast_node(
+            "ForInStatement", "{s:O,s:s#,s:N,s:N}",
+            "keyVar", Py_None,
+            "valueVar", first_identifier.data(), first_identifier.size(),
+            "expr", expr,
+            "body", body
+        )
+        : build_ast_node(
+            "ForInStatement", "{s:s#,s:s#,s:N,s:N}",
+            "keyVar", first_identifier.data(), first_identifier.size(),
+            "valueVar", second_identifier.data(), second_identifier.size(),
+            "expr", expr,
+            "body", body
+        );
+    if (!ret) {
+      Py_DECREF(expr);
       Py_DECREF(body);
       throw PyInternalError();
     }
