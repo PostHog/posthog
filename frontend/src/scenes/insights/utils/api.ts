@@ -4,14 +4,14 @@ import { getInsightFilterOrQueryForPersistance } from '~/queries/nodes/InsightQu
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { InsightModel, QueryBasedInsightModel } from '~/types'
 
-type InsightsApiOptions<Flag> = {
+export type InsightsApiOptions<Flag> = {
     writeAsQuery: boolean
     readAsQuery: Flag
 }
 
 type ReturnedInsightModelByFlag<Flag extends boolean> = Flag extends true ? QueryBasedInsightModel : InsightModel
 
-function getInsightModel<Flag extends boolean>(
+export function getInsightModel<Flag extends boolean>(
     insight: QueryBasedInsightModel,
     asQuery: Flag
 ): ReturnedInsightModelByFlag<Flag> {

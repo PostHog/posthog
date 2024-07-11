@@ -14,7 +14,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
-import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { useState } from 'react'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { insightCommandLogic } from 'scenes/insights/insightCommandLogic'
@@ -41,7 +41,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         insightProps,
         canEditInsight,
         queryBasedInsight: insight,
-        legacyInsight,
+        queryBasedInsightSaving,
         insightChanged,
         insightSaving,
         hasDashboardItemId,
@@ -216,12 +216,16 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                             <LemonButton
                                                 status="danger"
                                                 onClick={() =>
-                                                    void deleteWithUndo({
-                                                        object: legacyInsight,
+                                                    void deleteInsightWithUndo({
+                                                        object: insight,
                                                         endpoint: `projects/${currentTeamId}/insights`,
                                                         callback: () => {
                                                             loadInsights()
                                                             push(urls.savedInsights())
+                                                        },
+                                                        options: {
+                                                            writeAsQuery: queryBasedInsightSaving,
+                                                            readAsQuery: true,
                                                         },
                                                     })
                                                 }
