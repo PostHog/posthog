@@ -270,11 +270,8 @@ export class SessionRecordingIngester {
         const { team_id, session_id } = event
         const key = `${team_id}-${session_id}`
 
-        const {
-            // partition,
-            highOffset,
-        } = event.metadata
-        const isDebug = true // this.debugPartition === partition
+        const { partition, highOffset } = event.metadata
+        const isDebug = this.isDebugLoggingEnabled(partition)
         if (isDebug) {
             status.info('🔁', '[blob_ingester_consumer] - [PARTITION DEBUG] - consuming event', {
                 ...event.metadata,
@@ -323,7 +320,7 @@ export class SessionRecordingIngester {
                 session_id,
                 partition,
                 topic,
-                this.debugPartition === partition
+                this.isDebugLoggingEnabled(partition)
             )
         }
 
@@ -810,7 +807,7 @@ export class SessionRecordingIngester {
                     : metrics.lastMessageOffset // Or the last message we have seen as it is no longer blocked
 
                 if (!highestOffsetToCommit) {
-                    const partitionDebug = true //this.debugPartition === partition
+                    const partitionDebug = this.isDebugLoggingEnabled(partition)
                     const logMethod = partitionDebug ? status.info : status.debug
                     logMethod(
                         '🤔',
@@ -845,6 +842,10 @@ export class SessionRecordingIngester {
                 gaugeOffsetCommitted.set({ partition }, highestOffsetToCommit)
             })
         )
+    }
+
+    private isDebugLoggingEnabled(partition: number) {
+        return this.debugPartition === partition || this.config.SESSION_RECORDING_DEBUG_ALL
     }
 
     public async destroySessions(sessionsToDestroy: [string, SessionManager][]): Promise<void> {

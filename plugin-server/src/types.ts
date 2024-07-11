@@ -249,6 +249,8 @@ export interface PluginsServerConfig extends CdpConfig {
     // a single partition which will output many more log messages to the console
     // useful when that partition is lagging unexpectedly
     SESSION_RECORDING_DEBUG_PARTITION: string | undefined
+    // if lag is on all partitions or an issue is not understood turn on all debug logs
+    SESSION_RECORDING_DEBUG_ALL: boolean
     // overflow detection, updating Redis for capture to move the traffic away
     SESSION_RECORDING_OVERFLOW_ENABLED: boolean
     SESSION_RECORDING_OVERFLOW_BUCKET_CAPACITY: number
