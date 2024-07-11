@@ -621,7 +621,7 @@ def selector_to_expr(selector_string: str):
     regex = build_selector_regex(selector)
     exprs.append(parse_expr("elements_chain =~ {regex}", {"regex": ast.Constant(value=regex)}))
 
-    useful_elements: list[ast.Constant] = []
+    useful_elements: list[ast.Expr] = []
     for part in selector.parts:
         if "tag_name" in part.data:
             if part.data["tag_name"] in Element.USEFUL_ELEMENTS:
