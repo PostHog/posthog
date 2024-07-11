@@ -28,7 +28,6 @@ import { LogLevel } from 'rrweb'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
-import { PipelineLogLevel } from 'scenes/pipeline/pipelineNodeLogsLogic'
 import { Scene } from 'scenes/sceneTypes'
 
 import { QueryContext } from '~/queries/types'
@@ -1941,21 +1940,25 @@ export interface PluginErrorType {
     event?: Record<string, any>
 }
 
+export type LogEntryLevel = 'DEBUG' | 'LOG' | 'INFO' | 'WARN' | 'WARNING' | 'ERROR'
+
 // The general log entry format that eventually everything should match
 export type LogEntry = {
     log_source_id: string
     instance_id: string
     timestamp: string
-    level: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
+    level: LogEntryLevel
     message: string
 }
 
-export enum PluginLogEntryType {
-    Debug = 'DEBUG',
-    Log = 'LOG',
-    Info = 'INFO',
-    Warn = 'WARN',
-    Error = 'ERROR',
+export type LogEntryRequestParams = {
+    limit?: number
+    after?: string
+    before?: string
+    // Comma separated list of log levels
+    level?: string
+    search?: string
+    instance_id?: string
 }
 
 export interface PluginLogEntry {
@@ -1964,19 +1967,11 @@ export interface PluginLogEntry {
     plugin_id: number
     plugin_config_id: number
     timestamp: string
-    type: PluginLogEntryType
+    source: string
+    type: LogEntryLevel
     is_system: boolean
     message: string
     instance_id: string
-}
-
-export interface BatchExportLogEntry {
-    team_id: number
-    batch_export_id: number
-    run_id: number
-    timestamp: string
-    level: PipelineLogLevel
-    message: string
 }
 
 export enum AnnotationScope {
@@ -3868,6 +3863,16 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     status?: string
     incremental_field: string | null
     incremental_field_type: string | null
+    sync_frequency: DataWarehouseSyncInterval
+}
+
+export interface ExternalDataJob {
+    id: string
+    created_at: string
+    status: 'Running' | 'Failed' | 'Completed' | 'Cancelled'
+    schema: SimpleExternalDataSourceSchema
+    rows_synced: number
+    latest_error: string
 }
 
 export interface SimpleDataWarehouseTable {

@@ -14,15 +14,10 @@ from rest_framework.exceptions import (
     ValidationError,
 )
 from rest_framework.pagination import CursorPagination
-from rest_framework_dataclasses.serializers import DataclassSerializer
 
+from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.batch_exports.models import (
-    BATCH_EXPORT_INTERVALS,
-    BatchExportLogEntry,
-    BatchExportLogEntryLevel,
-    fetch_batch_export_log_entries,
-)
+from posthog.batch_exports.models import BATCH_EXPORT_INTERVALS
 from posthog.batch_exports.service import (
     BatchExportIdError,
     BatchExportSchema,
@@ -99,7 +94,7 @@ class RunsCursorPagination(CursorPagination):
     page_size = 100
 
 
-class BatchExportRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
+class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ReadOnlyModelViewSet):
     scope_object = "batch_export"
     queryset = BatchExportRun.objects.all()
     serializer_class = BatchExportRunSerializer
@@ -108,6 +103,10 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSe
     filter_backends = [filters.OrderingFilter]
     ordering_fields = ["created_at", "data_interval_start"]
     ordering = "-created_at"
+    log_source = "batch_exports"
+
+    def get_log_entry_instance_id(self) -> str:
+        return self.parents_query_dict.get("run_id", None)
 
     def safely_get_queryset(self, queryset):
         after = self.request.GET.get("after", None)
@@ -350,14 +349,13 @@ class BatchExportSerializer(serializers.ModelSerializer):
         return batch_export
 
 
-class BatchExportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelViewSet):
     scope_object = "batch_export"
     queryset = BatchExport.objects.exclude(deleted=True).order_by("-created_at").prefetch_related("destination").all()
     serializer_class = BatchExportSerializer
-    scope_object_read_actions: list[str] = ["retrieve", "list"]
-    scope_object_write_actions: list[str] = ["destroy", "create", "backfill", "pause", "unpause"]
+    log_source = "batch_exports"
 
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def backfill(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Trigger a backfill for a BatchExport."""
         if not isinstance(request.user, User) or request.user.current_team is None:
@@ -386,7 +384,7 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return response.Response({"backfill_id": backfill_id})
 
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def pause(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Pause a BatchExport."""
         if not isinstance(request.user, User):
@@ -410,7 +408,7 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return response.Response({"paused": True})
 
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def unpause(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Unpause a BatchExport."""
         if not isinstance(request.user, User) or request.user.current_team is None:
@@ -448,54 +446,3 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
 class BatchExportOrganizationViewSet(BatchExportViewSet):
     filter_rewrite_rules = {"organization_id": "team__organization_id"}
-
-
-class BatchExportLogEntrySerializer(DataclassSerializer):
-    class Meta:
-        dataclass = BatchExportLogEntry
-
-
-class BatchExportLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    scope_object = "batch_export"
-    serializer_class = BatchExportLogEntrySerializer
-
-    def list(self, request: request.Request, *args, **kwargs):
-        limit_raw = request.GET.get("limit")
-        limit: int | None
-        if limit_raw:
-            try:
-                limit = int(limit_raw)
-            except ValueError:
-                raise ValidationError("Query param limit must be omitted or an integer!")
-        else:
-            limit = None
-
-        after_raw: str | None = request.GET.get("after")
-        after: dt.datetime | None = None
-        if after_raw is not None:
-            after = dt.datetime.fromisoformat(after_raw.replace("Z", "+00:00"))
-
-        before_raw: str | None = request.GET.get("before")
-        before: dt.datetime | None = None
-        if before_raw is not None:
-            before = dt.datetime.fromisoformat(before_raw.replace("Z", "+00:00"))
-
-        level_filter = [BatchExportLogEntryLevel[t.upper()] for t in (request.GET.getlist("level_filter", []))]
-        data = fetch_batch_export_log_entries(
-            team_id=self.team_id,
-            batch_export_id=self.parents_query_dict["batch_export_id"],
-            run_id=self.parents_query_dict.get("run_id", None),
-            after=after,
-            before=before,
-            search=request.GET.get("search"),
-            limit=limit,
-            level_filter=level_filter,
-        )
-
-        page = self.paginate_queryset(data)
-        if page is not None:
-            serializer = self.get_serializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
-
-        serializer = self.get_serializer(data, many=True)
-        return response.Response(serializer.data)

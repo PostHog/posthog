@@ -7,7 +7,7 @@ import django.db.models.deletion
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0434_add_web_vitals_opt_in"),
+        ("posthog", "0437_externaldataschema_sync_frequency"),
     ]
 
     operations = [
@@ -15,7 +15,7 @@ class Migration(migrations.Migration):
             # No database operations here - this is only for setting null=True on the `Team.project` field.
             # Due to a mishap in posthog/migrations/0397_projects_backfill.py, the `project` field was non-nullable
             # in Django's state, BUT in fact still nullable in the database. This state update fixes the discrepancy.
-            # (We'll be using check constraint instead of `null=False` to avoid locking the table, see below.)
+            # (We'll be using a `CheckConstraint()` instead of `null=False` to avoid locking the table - see below.)
             state_operations=[
                 migrations.AlterField(
                     model_name="team",
@@ -31,8 +31,8 @@ class Migration(migrations.Migration):
             ]
         ),
         AddConstraintNotValid(
-            # To be validated with `ValidateConstraint()` in a separate later migration,
-            # see: https://docs.djangoproject.com/en/4.2/ref/contrib/postgres/operations/#adding-constraints-without-enforcing-validation
+            # To be validated with `ValidateConstraint()` in a separate later migration. See Django docs:
+            # https://docs.djangoproject.com/en/4.2/ref/contrib/postgres/operations/#adding-constraints-without-enforcing-validation
             model_name="team",
             constraint=models.CheckConstraint(
                 check=models.Q(("project_id__isnull", False)), name="project_id_is_not_null"
