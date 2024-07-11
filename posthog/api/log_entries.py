@@ -29,7 +29,7 @@ class LogEntryRequestSerializer(serializers.Serializer):
     limit = serializers.IntegerField(required=False, default=50, max_value=500, min_value=1)
     after = serializers.DateTimeField(required=False)
     before = serializers.DateTimeField(required=False)
-    level = serializers.ListField(child=serializers.CharField(), required=False)
+    level = serializers.CharField(required=False)
     search = serializers.CharField(required=False)
     instance_id = serializers.CharField(required=False)
 
@@ -121,7 +121,7 @@ class LogEntryMixin(viewsets.GenericViewSet):
             after=params.get("after"),
             before=params.get("before"),
             search=params.get("search"),
-            level=params.get("level"),
+            level=params["level"].split(",") if params.get("level") else None,
         )
 
         page = self.paginate_queryset(data)

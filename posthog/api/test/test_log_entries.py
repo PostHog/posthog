@@ -92,7 +92,7 @@ class TestLogEntries(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.create_log_for_function(level="info")
         self.create_log_for_function(level="warn")
 
-        results = self.get_log_entries({"level": ["info", "warn"]}).json()["results"]
+        results = self.get_log_entries({"level": "info,WARN"}).json()["results"]
 
         assert len(results) == 3
         assert results[0]["level"] == "WARN"

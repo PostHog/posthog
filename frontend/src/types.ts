@@ -1946,8 +1946,18 @@ export type LogEntry = {
     log_source_id: string
     instance_id: string
     timestamp: string
-    level: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
+    level: 'DEBUG' | 'LOG' | 'INFO' | 'WARN' | 'ERROR'
     message: string
+}
+
+export type LogEntryRequestParams = {
+    limit?: number
+    after?: string
+    before?: string
+    // Comma separated list of log levels
+    level?: string
+    search?: string
+    instance_id?: string
 }
 
 export enum PluginLogEntryType {

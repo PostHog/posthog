@@ -51,6 +51,7 @@ import {
     IntegrationType,
     ListOrganizationMembersParams,
     LogEntry,
+    LogEntryRequestParams,
     MediaUploadResponse,
     NewEarlyAccessFeatureType,
     NotebookListItemType,
@@ -1669,9 +1670,9 @@ const api = {
         async update(id: HogFunctionType['id'], data: Partial<HogFunctionType>): Promise<HogFunctionType> {
             return await new ApiRequest().hogFunction(id).update({ data })
         },
-        async searchLogs(
+        async logs(
             id: HogFunctionType['id'],
-            params: Record<string, any> = {}
+            params: LogEntryRequestParams = {}
         ): Promise<PaginatedResponse<LogEntry>> {
             return await new ApiRequest().hogFunction(id).withAction('logs').withQueryString(params).get()
         },
@@ -1941,6 +1942,12 @@ const api = {
             data: Pick<BatchExportConfiguration, 'start_at' | 'end_at'>
         ): Promise<BatchExportRun> {
             return await new ApiRequest().batchExport(id).withAction('backfill').create({ data })
+        },
+        async logs(
+            id: BatchExportConfiguration['id'],
+            params: LogEntryRequestParams = {}
+        ): Promise<PaginatedResponse<LogEntry>> {
+            return await new ApiRequest().batchExport(id).withAction('logs').withQueryString(params).get()
         },
     },
 
