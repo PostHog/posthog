@@ -90,7 +90,7 @@ multiIf(
     ),
     coalesce(
         hogql_lookupPaidSourceType({source}),
-        hogql_lookupPaidDomainType({referring_domain}),
+        hogql_lookupPaidSourceType({referring_domain}),
         if(
             match({campaign}, '^(.*(([^a-df-z]|^)shop|shopping).*)$'),
             'Paid Shopping',
@@ -117,7 +117,7 @@ multiIf(
 
     coalesce(
         hogql_lookupOrganicSourceType({source}),
-        hogql_lookupOrganicDomainType({referring_domain}),
+        hogql_lookupOrganicSourceType({referring_domain}),
         if(
             match({campaign}, '^(.*(([^a-df-z]|^)shop|shopping).*)$'),
             'Organic Shopping',
