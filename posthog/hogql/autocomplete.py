@@ -437,7 +437,7 @@ def get_hogql_autocomplete(
                         if loop_globals != query.globals:
                             break
 
-            if query.language == HogLanguage.HOG:
+            if query.language in (HogLanguage.HOG, HogLanguage.HOG_TEMPLATE):
                 # For Hog, first add all local variables in scope
                 hog_vars = gather_hog_variables_in_scope(root_node, node)
                 extend_responses(
@@ -453,12 +453,13 @@ def get_hogql_autocomplete(
                 )
 
             if isinstance(query.globals, dict):
+                # Override globals if a local variable has the same name
                 existing_values = {item.label for item in response.suggestions}
                 filtered_globals = {key: value for key, value in query.globals.items() if key not in existing_values}
                 add_globals_to_suggestions(filtered_globals, response)
 
-            if query.language == HogLanguage.HOG:
-                # For Hog, break after the remaining globals wre added
+            if query.language in (HogLanguage.HOG, HogLanguage.HOG_TEMPLATE):
+                # For Hog, break after the remaining globals are added
                 break
 
             if query.filters:
