@@ -12,6 +12,31 @@ from django.core.management.base import BaseCommand
 
 OUTPUT_FILE = "posthog/models/channel_type/channel_definitions.json"
 
+VALID_ENTRY_RE = re.compile(r"^[ a-z0-9.+_-]+$")
+
+# when we search for apps we use .well-known files, but companies usually include their dev apps in that list, so use this list to try to filter them out
+DEV_APP_STRINGS = [
+    "dev",
+    "staging",
+    "stage",
+    "qa",
+    "internal",
+    "feedback",
+    "inhouse",
+    "debug",
+    "beta",
+    "alpha",
+    "gamma",
+    "dogfood",
+    "fishfood",
+    "teamfood",
+    "sample",
+    "canary",
+    "test",
+    "prototype",
+    "preview",
+]
+
 
 class EntryKind(StrEnum):
     source = "source"
@@ -197,15 +222,66 @@ class Command(BaseCommand):
         for record in apple_apps + android_apps:
             if not record:
                 continue
-            app_id, entry = record
-            entries[app_id, EntryKind.source] = SourceEntry(
-                hostname_type=entry.hostname_type,
-                type_if_organic=entry.type_if_organic,
-                type_if_paid=entry.type_if_paid,
-                is_reverse_dns=True,
-            )
+            app_ids, entry = record
+            for app_id in app_ids:
+                # try to filter dev apps, if we exclude something that we want to keep, we can explictly add it below
+                if any(
+                    s in app_id
+                    for s in [
+                        "dev",
+                        "staging",
+                        "qa",
+                        "internal",
+                        "feedback",
+                        "inhouse",
+                        "debug",
+                        "beta",
+                        "alpha",
+                        "dogfood",
+                        "sample",
+                        "canary",
+                        "test",
+                    ]
+                ):
+                    continue
+
+                # google apps are a bit tricky so we have some special code to handle them
+                if app_id.startswith("com.google."):
+                    if "youtube" in app_id:
+                        entries[app_id, EntryKind.source] = SourceEntry(
+                            hostname_type="Video",
+                            type_if_organic="Organic Video",
+                            type_if_paid="Paid Video",
+                            is_reverse_dns=True,
+                        )
+                    elif any(x in app_id for x in ("spaces", "photos")):
+                        entries[app_id, EntryKind.source] = SourceEntry(
+                            hostname_type="Social",
+                            type_if_organic="Organic Social",
+                            type_if_paid="Paid Social",
+                            is_reverse_dns=True,
+                        )
+                    else:
+                        continue
+                # facebook have a ton of apps, many are not relevant
+                elif app_id.startswith("com.facebook."):
+                    if any(s in app_id for s in ("appmanager", "admin", "pageadminapp")):
+                        continue
+                elif app_id.startswith("com.microsoft.bing"):
+                    # there's a ton of bing variants, only keep the original
+                    if app_id != "com.microsoft.bing":
+                        continue
+
+                entries[app_id, EntryKind.source] = SourceEntry(
+                    hostname_type=entry.hostname_type,
+                    type_if_organic=entry.type_if_organic,
+                    type_if_paid=entry.type_if_paid,
+                    is_reverse_dns=True,
+                )
 
         # add some well-known mobile apps
+        # - google play: find package ids with the play store search
+        # - ios: find bundle ids with offcornerdev.com/bundleid.html
         for app in (
             # linkedin
             "com.linkedin.android",
@@ -235,6 +311,9 @@ class Command(BaseCommand):
             # discord
             "com.hammerandchisel.discord",
             "com.discord",
+            # deviant art - contains the "dev" string so excluded by our search above
+            "com.deviantart.android.damobile",
+            "com.deviantart.deviantart",
         ):
             entries[app.lower(), EntryKind.source] = SourceEntry(
                 "Social", "Paid Social", "Organic Social", is_reverse_dns=True
@@ -270,7 +349,7 @@ class Command(BaseCommand):
 
         rows = [
             (
-                hostname.lower(),
+                hostname,
                 kind,
                 entry.hostname_type,
                 entry.type_if_paid,
@@ -278,6 +357,7 @@ class Command(BaseCommand):
                 entry.is_reverse_dns,
             )
             for (hostname, kind), entry in entries.items()
+            if (VALID_ENTRY_RE.match(hostname))
         ]
 
         # sort entries by fld where possible
@@ -309,11 +389,14 @@ async def get_apple(domain_entry, session):
         async with session.get(url=url) as response:
             text = await response.read()
             body = json.loads(text)
+            app_ids = []
             for app in body.get("applinks", {}).get("details"):
                 app_id = app.get("appID")
                 if app_id:
                     bundle_id = app_id.split(".", 1)[1].lower()
-                    return bundle_id, entry
+                    if VALID_ENTRY_RE.match(bundle_id):
+                        app_ids.append(bundle_id)
+            return app_ids, entry
     except:
         pass
 
@@ -325,11 +408,13 @@ async def get_android(domain_entry, session):
         async with session.get(url=url) as response:
             text = await response.read()
             body = json.loads(text)
+            app_ids = []
             for app in body:
                 package_name = app.get("target", {}).get("package_name")
                 if package_name:
                     package_name = package_name.lower()
-                    return package_name, entry
+                    app_ids.append(package_name)
+            return app_ids, entry
     except:
         pass
 
