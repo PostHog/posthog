@@ -335,10 +335,10 @@ async def get_android(domain_entry, session):
 
 
 async def parallel_lookup_up_apple_apps(url_entries):
-    async with aiohttp.ClientSession(read_timeout=30) as session:
+    async with aiohttp.ClientSession(read_timeout=60, conn_timeout=60) as session:
         return await asyncio.gather(*(get_apple(url_entry, session) for url_entry in url_entries))
 
 
 async def parallel_lookup_up_android_apps(url_entries):
-    async with aiohttp.ClientSession(read_timeout=30) as session:
+    async with aiohttp.ClientSession(read_timeout=60, conn_timeout=60) as session:
         return await asyncio.gather(*(get_android(url_entry, session) for url_entry in url_entries))
