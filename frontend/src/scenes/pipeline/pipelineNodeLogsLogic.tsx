@@ -128,7 +128,7 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                     let results: LogEntry[]
                     const logParams: LogEntryRequestParams = {
                         search: values.searchTerm,
-                        level: values.selectedLogLevels,
+                        level: values.selectedLogLevels.join(','),
                         limit: LOGS_PORTION_LIMIT,
                         after: values.leadingEntry?.timestamp,
                         instance_id: values.instanceId ?? undefined,
@@ -241,22 +241,11 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                                 : node.backend == PipelineBackend.BatchExport
                                 ? 'Run Id'
                                 : 'Source',
-                        dataIndex:
-                            node.backend == PipelineBackend.HogFunction
-                                ? 'instance_id'
-                                : node.backend == PipelineBackend.BatchExport
-                                ? 'run_id'
-                                : 'source',
-                        key:
-                            node.backend == PipelineBackend.HogFunction
-                                ? 'instance_id'
-                                : node.backend == PipelineBackend.BatchExport
-                                ? 'run_id'
-                                : 'source',
-
+                        dataIndex: 'instance_id',
+                        key: 'instance_id',
                         render: (instanceId: string) => (
                             <code className="whitespace-nowrap">
-                                {node.backend === PipelineBackend.HogFunction ? (
+                                {node.backend !== PipelineBackend.Plugin ? (
                                     <Link
                                         subtle
                                         onClick={() => {

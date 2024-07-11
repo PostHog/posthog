@@ -66,7 +66,7 @@ export function PipelineNodeLogs({ id, stage }: PipelineNodeLogicProps): JSX.Ele
                 columns={columns}
                 loading={logsLoading}
                 className="ph-no-capture"
-                rowKey="timestamp"
+                rowKey={(record) => `${record.log_source_id}:${record.instance_id}:${record.timestamp}`}
                 pagination={{ pageSize: 200, hideOnSinglePage: true }}
             />
             {!!logs.length && (
