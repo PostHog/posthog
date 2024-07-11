@@ -4,25 +4,39 @@
         margin-top: 0.5rem;
 
         > :nth-child(1) {
+            margin-right: 8px;
+            font-weight: bold;
+            color: var(--primary-alt);
+        }
+
+        > :nth-child(2):not(:empty) {
             margin-right: 6px;
             font-weight: bold;
             color: var(--primary-alt);
         }
 
-        > :nth-child(2) {
+        > :nth-child(3) {
             flex-grow: 1;
             margin-right: 16px;
-            font-style: italic;
             color: var(--muted);
         }
 
-        > :nth-child(3) {
+        > :nth-child(4) {
             min-width: 10rem;
             text-align: right;
 
             .TZLabelPopover--seconds & {
                 min-width: 12rem;
             }
+        }
+    }
+
+    .TZLabelPopover__row--muted {
+        color: var(--muted);
+
+        > :nth-child(1),
+        > :nth-child(2):not(:empty) {
+            color: var(--muted);
         }
     }
 }
