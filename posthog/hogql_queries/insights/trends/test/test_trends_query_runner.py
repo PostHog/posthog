@@ -2625,7 +2625,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.breakdowns[1].values == [
             BreakdownItem(label="[10,25]", value="[10,25]"),
             BreakdownItem(label="[25,40.01]", value="[25,40.01]"),
-            BreakdownItem(label="[" "," "]", value="[" "," "]"),
+            BreakdownItem(label='["",""]', value='["",""]'),
         ]
         assert response.breakdowns[2].values == [
             BreakdownItem(label="true", value="true"),
