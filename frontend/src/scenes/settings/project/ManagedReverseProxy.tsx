@@ -26,8 +26,8 @@ import { proxyLogic, ProxyRecord } from './proxyLogic'
 const MAX_PROXY_RECORDS = 3
 
 const statusText = {
-    'valid': 'live',
-    'timed_out': 'timed out'
+    valid: 'live',
+    timed_out: 'timed out',
 }
 
 export function ManagedReverseProxy(): JSX.Element {

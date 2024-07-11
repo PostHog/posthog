@@ -108,7 +108,7 @@ async def wait_for_dns_records(inputs: WaitForDNSRecordsInputs):
                 message="The DNS record appears to have Cloudflare proxying enabled - please disable this. For more information see [the docs](https://posthog.com/docs/advanced/proxy/managed-reverse-proxy)",
             )
         raise
-    except (dns.resolver.NXDOMAIN, dns.resolver.LifetimeTimeout, ApplicationError):
+    except (dns.resolver.NXDOMAIN, dns.resolver.Timeout, ApplicationError):
         # retriable
         raise
     except Exception as e:
