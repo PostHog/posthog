@@ -121,7 +121,6 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
                     taxonomicGroup,
                     values.describeProperty
                 )
-
                 newValues.push(newPropertyFilter)
             } else {
                 const entityType = taxonomicFilterGroupTypeToEntityType(taxonomicGroup.type)

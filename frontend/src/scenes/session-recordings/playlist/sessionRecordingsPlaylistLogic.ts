@@ -17,6 +17,7 @@ import posthog from 'posthog-js'
 import {
     AnyPropertyFilter,
     DurationType,
+    EntityTypes,
     FilterableLogLevel,
     FilterLogicalOperator,
     FilterType,
@@ -153,6 +154,20 @@ export function convertUniversalFiltersToLegacyFilters(universalFilters: Recordi
                     if (value) {
                         snapshot_source = f
                     }
+                } else if (f.key === 'visited_page') {
+                    events.push({
+                        id: '$pageview',
+                        name: '$pageview',
+                        type: EntityTypes.EVENTS,
+                        properties: [
+                            {
+                                type: PropertyFilterType.Event,
+                                key: '$current_url',
+                                value: f.value,
+                                operator: f.operator,
+                            },
+                        ],
+                    })
                 }
             } else {
                 properties.push(f)

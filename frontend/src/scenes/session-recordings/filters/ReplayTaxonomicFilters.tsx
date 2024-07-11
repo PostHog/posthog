@@ -24,7 +24,11 @@ export function ReplayTaxonomicFilters({ onChange }: ReplayTaxonomicFiltersProps
         return !!filters.find((f) => f.type === PropertyFilterType.Recording && f.key === key)
     }
 
-    const sessionProperties = [
+    const recordingProperties = [
+        {
+            label: 'Visited page',
+            key: 'visited_page',
+        },
         {
             label: 'Platform',
             key: 'snapshot_source',
@@ -44,7 +48,7 @@ export function ReplayTaxonomicFilters({ onChange }: ReplayTaxonomicFiltersProps
             <section>
                 <h5 className="mx-2 my-1">Session properties</h5>
                 <ul className="space-y-px">
-                    {sessionProperties.map(({ key, label }) => (
+                    {recordingProperties.map(({ key, label }) => (
                         <LemonButton
                             key={key}
                             size="small"

@@ -1145,6 +1145,10 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'Console log',
             description: 'Text of console logs captured',
         },
+        visited_page: {
+            label: 'Visited page',
+            description: 'URL a user visited during their session',
+        },
     },
 } satisfies Partial<Record<TaxonomicFilterGroupType, Record<string, CoreFilterDefinition>>>
 

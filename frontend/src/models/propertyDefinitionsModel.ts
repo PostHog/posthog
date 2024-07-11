@@ -128,6 +128,14 @@ const getEndpoint = (
     }
 
     if (type === PropertyDefinitionType.Session) {
+        if (propertyKey === 'visited_page') {
+            return (
+                'api/event/values?key=' +
+                encodeURIComponent('$current_url') +
+                (newInput ? '&value=' + encodeURIComponent(newInput) : '')
+            )
+        }
+
         return (
             `api/projects/${teamId}/${type}s/values/?key=` +
             encodeURIComponent(propertyKey) +
