@@ -1123,15 +1123,33 @@ export const surveyLogic = kea<surveyLogicType>([
                 // NOTE: When more validation errors are added, the submitSurveyFailure listener should be updated
                 // to scroll to the right error section
                 name: !name && 'Please enter a name.',
-                questions: questions.map((question) => ({
-                    question: !question.question && 'Please enter a question.',
-                    ...(question.type === SurveyQuestionType.Rating
-                        ? {
-                              display: !question.display && 'Please choose a display type.',
-                              scale: !question.scale && 'Please choose a scale.',
-                          }
-                        : {}),
-                })),
+                questions: questions.map((question) => {
+                    const baseErrors = {
+                        question: !question.question && 'Please enter a question label.',
+                    }
+
+                    if (question.type === SurveyQuestionType.Rating) {
+                        return {
+                            ...baseErrors,
+                            display: !question.display && 'Please choose a display type.',
+                            scale: !question.scale && 'Please choose a scale.',
+                            lowerBoundLabel: !question.lowerBoundLabel && 'Please enter a lower bound label.',
+                            upperBoundLabel: !question.upperBoundLabel && 'Please enter an upper bound label.',
+                        }
+                    } else if (
+                        question.type === SurveyQuestionType.SingleChoice ||
+                        question.type === SurveyQuestionType.MultipleChoice
+                    ) {
+                        return {
+                            ...baseErrors,
+                            choices: question.choices.some((choice) => !choice.trim())
+                                ? 'Please ensure all choices are non-empty.'
+                                : undefined,
+                        }
+                    }
+
+                    return baseErrors
+                }),
                 // release conditions controlled using a PureField in the form
                 targeting_flag_filters: values.flagPropertyErrors,
                 // controlled using a PureField in the form
