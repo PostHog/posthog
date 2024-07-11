@@ -15,8 +15,7 @@ import {
     PluginType,
 } from '~/types'
 
-import type { pipelineDestinationsLogicType } from './destinationsLogicType'
-import { pipelineAccessLogic } from './pipelineAccessLogic'
+import { pipelineAccessLogic } from '../pipelineAccessLogic'
 import {
     BatchExportDestination,
     convertToPipelineNode,
@@ -24,8 +23,9 @@ import {
     FunctionDestination,
     PipelineBackend,
     WebhookDestination,
-} from './types'
-import { captureBatchExportEvent, capturePluginEvent, loadPluginsFromUrl } from './utils'
+} from '../types'
+import { captureBatchExportEvent, capturePluginEvent, loadPluginsFromUrl } from '../utils'
+import type { pipelineDestinationsLogicType } from './destinationsLogicType'
 
 export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
     path(['scenes', 'pipeline', 'destinationsLogic']),

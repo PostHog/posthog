@@ -10,13 +10,13 @@ import { urls } from 'scenes/urls'
 
 import { AvailableFeature, PipelineNodeTab, PipelineStage, ProductKey } from '~/types'
 
-import { AppMetricSparkLine } from './AppMetricSparkLine'
+import { AppMetricSparkLine } from '../AppMetricSparkLine'
+import { HogFunctionIcon } from '../hogfunctions/HogFunctionIcon'
+import { NewButton } from '../NewButton'
+import { pipelineAccessLogic } from '../pipelineAccessLogic'
+import { Destination } from '../types'
+import { pipelineNodeMenuCommonItems, RenderApp, RenderBatchExportIcon } from '../utils'
 import { pipelineDestinationsLogic } from './destinationsLogic'
-import { HogFunctionIcon } from './hogfunctions/HogFunctionIcon'
-import { NewButton } from './NewButton'
-import { pipelineAccessLogic } from './pipelineAccessLogic'
-import { Destination } from './types'
-import { pipelineNodeMenuCommonItems, RenderApp, RenderBatchExportIcon } from './utils'
 
 export function Destinations(): JSX.Element {
     const { destinations, loading } = useValues(pipelineDestinationsLogic)
@@ -69,6 +69,9 @@ export function DestinationsTable({ inOverview = false }: { inOverview?: boolean
                     {
                         title: 'Name',
                         sticky: true,
+                        sorter: true,
+                        key: 'name',
+                        dataIndex: 'name',
                         render: function RenderPluginName(_, destination) {
                             return (
                                 <LemonTableLink
@@ -91,6 +94,7 @@ export function DestinationsTable({ inOverview = false }: { inOverview?: boolean
                     },
                     {
                         title: 'Frequency',
+                        key: 'interval',
                         render: function RenderFrequency(_, destination) {
                             return destination.interval
                         },
@@ -114,6 +118,9 @@ export function DestinationsTable({ inOverview = false }: { inOverview?: boolean
                     updatedAtColumn() as LemonTableColumn<Destination, any>,
                     {
                         title: 'Status',
+                        key: 'enabled',
+                        sorter: (a) => (a.enabled ? 1 : -1),
+                        width: 0,
                         render: function RenderStatus(_, destination) {
                             return (
                                 <>

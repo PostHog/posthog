@@ -25,7 +25,7 @@ import {
     determineRequiredFields,
     getPluginConfigFormData,
 } from './configUtils'
-import { pipelineDestinationsLogic } from './destinationsLogic'
+import { pipelineDestinationsLogic } from './destinations/destinationsLogic'
 import { frontendAppsLogic } from './frontendAppsLogic'
 import { importAppsLogic } from './importAppsLogic'
 import { pipelineAccessLogic } from './pipelineAccessLogic'
