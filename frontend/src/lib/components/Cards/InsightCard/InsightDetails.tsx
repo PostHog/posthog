@@ -341,15 +341,13 @@ export function BreakdownSummary({ query }: { query: InsightQueryNode }): JSX.El
     if (
         !isInsightQueryWithBreakdown(query) ||
         !query.breakdownFilter ||
-        query.breakdownFilter.breakdown_type == null ||
-        query.breakdownFilter.breakdown == null ||
-        !query.breakdownFilter.breakdowns?.length
+        ((query.breakdownFilter.breakdown == null || query.breakdownFilter.breakdown_type == null) &&
+            !query.breakdownFilter.breakdowns?.length)
     ) {
         return null
     }
 
     const { breakdown_type, breakdown, breakdowns } = query.breakdownFilter
-    const breakdownArray = Array.isArray(breakdown) ? breakdown : [breakdown]
 
     return (
         <>
@@ -359,7 +357,12 @@ export function BreakdownSummary({ query }: { query: InsightQueryNode }): JSX.El
                     ? breakdowns.map((b) => (
                           <BreakdownTag key={b.type + b.value} breakdown={b.value} breakdownType={b.type} />
                       ))
-                    : breakdownArray.map((b) => <BreakdownTag key={b} breakdown={b} breakdownType={breakdown_type} />)}
+                    : breakdown &&
+                      (Array.isArray(breakdown)
+                          ? breakdown
+                          : [breakdown].map((b) => (
+                                <BreakdownTag key={b} breakdown={b} breakdownType={breakdown_type} />
+                            )))}
             </section>
         </>
     )
