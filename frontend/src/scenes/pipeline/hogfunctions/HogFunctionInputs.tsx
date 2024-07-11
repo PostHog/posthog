@@ -28,6 +28,7 @@ import { HogFunctionInputSchemaType, HogFunctionInputType } from '~/types'
 import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
 import { HogFunctionInputIntegration } from './integrations/HogFunctionInputIntegration'
 import { HogFunctionInputIntegrationField } from './integrations/HogFunctionInputIntegrationField'
+import { useExampleHogGlobals } from './utils/event-conversion'
 
 export type HogFunctionInputProps = {
     schema: HogFunctionInputSchemaType
@@ -180,8 +181,8 @@ function JsonConfigField(props: {
 }
 
 function HogFunctionTemplateInput(props: Omit<CodeEditorInlineProps, 'globals'>): JSX.Element {
-    const { globalVars } = useValues(hogFunctionConfigurationLogic)
-    return <CodeEditorInline {...props} globals={globalVars} />
+    const exampleHogInvocationGlobals = useExampleHogGlobals()
+    return <CodeEditorInline {...props} globals={exampleHogInvocationGlobals} />
 }
 
 function DictionaryField({ onChange, value }: { onChange?: (value: any) => void; value: any }): JSX.Element {

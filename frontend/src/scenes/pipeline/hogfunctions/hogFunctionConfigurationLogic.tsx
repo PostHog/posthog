@@ -6,7 +6,6 @@ import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import { createExampleEvent } from 'scenes/pipeline/hogfunctions/utils/event-conversion'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -277,8 +276,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 return configuration?.enabled && (hogFunction?.status?.state ?? 0) >= 3
             },
         ],
-        // TODO: connect to the actual globals
-        globalVars: [(s) => [s.hogFunction], (): Record<string, any> => createExampleEvent()],
     })),
 
     listeners(({ actions, values, cache }) => ({
