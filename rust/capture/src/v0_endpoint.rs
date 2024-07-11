@@ -183,6 +183,7 @@ pub fn process_single_event(
     }
 
     let data_type = match event.event.as_str() {
+        "$$client_ingestion_warning" => DataType::ClientIngestionWarning,
         "$exception" => DataType::ExceptionMain,
         "$$heatmap" => DataType::HeatmapMain,
         _ => match context.historical_migration {

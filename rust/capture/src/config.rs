@@ -55,6 +55,8 @@ pub struct KafkaConfig {
     #[envconfig(default = "events_plugin_ingestion_historical")]
     pub kafka_historical_topic: String,
     #[envconfig(default = "events_plugin_ingestion")]
+    pub kafka_client_ingestion_warning_topic: String,
+    #[envconfig(default = "events_plugin_ingestion")]
     pub kafka_exceptions_topic: String,
     #[envconfig(default = "events_plugin_ingestion")]
     pub kafka_heatmaps_topic: String,

@@ -418,20 +418,27 @@ async fn it_routes_exceptions_and_heapmaps_to_separate_topics() -> Result<()> {
 
     let token = random_string("token", 16);
     let distinct_id = random_string("id", 16);
-    let uuids: [Uuid; 4] = core::array::from_fn(|_| Uuid::new_v4());
+    let uuids: [Uuid; 5] = core::array::from_fn(|_| Uuid::now_v7());
 
     let main_topic = EphemeralTopic::new().await;
+    let warnings_topic = EphemeralTopic::new().await;
     let exceptions_topic = EphemeralTopic::new().await;
     let heatmaps_topic = EphemeralTopic::new().await;
 
     let mut config = DEFAULT_CONFIG.clone();
     config.kafka.kafka_topic = main_topic.topic_name().to_string();
+    config.kafka.kafka_client_ingestion_warning_topic = warnings_topic.topic_name().to_string();
     config.kafka.kafka_exceptions_topic = exceptions_topic.topic_name().to_string();
     config.kafka.kafka_heatmaps_topic = heatmaps_topic.topic_name().to_string();
 
     let server = ServerHandle::for_config(config).await;
 
     let event = json!([{
+        "token": token,
+        "event": "$$client_ingestion_warning",
+        "uuid": uuids[4],
+        "distinct_id": distinct_id
+    },{
         "token": token,
         "event": "event1",
         "uuid": uuids[0],
@@ -494,6 +501,14 @@ async fn it_routes_exceptions_and_heapmaps_to_separate_topics() -> Result<()> {
         })
     );
     heatmaps_topic.assert_empty();
-
+    assert_json_include!(
+        actual: warnings_topic.next_event()?,
+        expected: json!({
+            "token": token,
+        "uuid": uuids[4],
+            "distinct_id": distinct_id
+        })
+    );
+    warnings_topic.assert_empty();
     Ok(())
 }

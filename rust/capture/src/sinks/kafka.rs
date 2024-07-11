@@ -110,6 +110,7 @@ pub struct KafkaSink {
     partition: Option<OverflowLimiter>,
     main_topic: String,
     historical_topic: String,
+    client_ingestion_warning_topic: String,
     exceptions_topic: String,
     heatmaps_topic: String,
 }
@@ -160,6 +161,7 @@ impl KafkaSink {
             partition,
             main_topic: config.kafka_topic,
             historical_topic: config.kafka_historical_topic,
+            client_ingestion_warning_topic: config.kafka_client_ingestion_warning_topic,
             exceptions_topic: config.kafka_exceptions_topic,
             heatmaps_topic: config.kafka_heatmaps_topic,
         })
@@ -191,6 +193,7 @@ impl KafkaSink {
                     (&self.main_topic, Some(event_key.as_str()))
                 }
             }
+            DataType::ClientIngestionWarning => (&self.client_ingestion_warning_topic, Some(event_key.as_str())),
             DataType::HeatmapMain => (&self.heatmaps_topic, Some(event_key.as_str())),
             DataType::ExceptionMain => (&self.exceptions_topic, Some(event_key.as_str())),
         };
