@@ -1,3 +1,4 @@
+import asyncio
 import json
 import re
 import subprocess
@@ -6,6 +7,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Optional
 
+import aiohttp
 from django.core.management.base import BaseCommand
 
 OUTPUT_FILE = "posthog/models/channel_type/channel_definitions.json"
@@ -21,6 +23,7 @@ class SourceEntry:
     hostname_type: Optional[str]
     type_if_paid: Optional[str]
     type_if_organic: Optional[str]
+    is_reverse_dns: Optional[bool] = False
 
 
 class Command(BaseCommand):
@@ -36,6 +39,23 @@ class Command(BaseCommand):
         parser.add_argument("ga_sources", type=str, help="GA Sources Input file")
 
     def handle(self, *args, **options):
+        # start with previous channel definitions file:
+        with open(OUTPUT_FILE) as output_file:
+            existing_channel_definitions_json = json.loads(output_file.read())
+
+        entries: OrderedDict[tuple[str, str], SourceEntry] = OrderedDict(
+            (
+                (existing_channel_definition[0], EntryKind(existing_channel_definition[1])),
+                SourceEntry(
+                    hostname_type=existing_channel_definition[2],
+                    type_if_paid=existing_channel_definition[3],
+                    type_if_organic=existing_channel_definition[4],
+                    is_reverse_dns=existing_channel_definition[5],
+                ),
+            )
+            for existing_channel_definition in existing_channel_definitions_json
+        )
+
         input_arg = options.get("ga_sources")
         if not input_arg:
             raise ValueError("No input file specified")
@@ -50,15 +70,13 @@ class Command(BaseCommand):
             "SOURCE_CATEGORY_VIDEO": ("Video", "Paid Video", "Organic Video"),
         }
 
-        def handle_entry(entry):
+        for entry in split_items:
             items = re.findall(r"\S+", entry.strip())
             if len(items) != 2:
                 return None
             domain, raw_type = items
             base_type, type_if_paid, type_if_organic = types[raw_type]
-            return (domain, EntryKind.source), SourceEntry(base_type, type_if_paid, type_if_organic)
-
-        entries: OrderedDict[tuple[str, str], SourceEntry] = OrderedDict(map(handle_entry, split_items))
+            entries[(domain, EntryKind.source)] = SourceEntry(base_type, type_if_paid, type_if_organic)
 
         # add google domains to this, from https://www.google.com/supported_domains
         for google_domain in [
@@ -167,6 +185,26 @@ class Command(BaseCommand):
         for push_medium in ("push", "mobile", "notification"):
             entries[push_medium, EntryKind.medium] = SourceEntry(None, None, "Push")
 
+        # find mobile apps and add their bundle / app ids by looking for .well-known files on those domains
+        potential_app_domains = [
+            (domain, entry)
+            for ((domain, kind), entry) in entries.items()
+            if domain and kind == EntryKind.source and entry.hostname_type and "google" not in domain
+        ]
+        apple_apps = asyncio.run(parallel_lookup_up_apple_apps(potential_app_domains))
+        android_apps = asyncio.run(parallel_lookup_up_android_apps(potential_app_domains))
+
+        for record in apple_apps + android_apps:
+            if not record:
+                continue
+            app_id, entry = record
+            entries[app_id, EntryKind.source] = SourceEntry(
+                hostname_type=entry.hostname_type,
+                type_if_organic=entry.type_if_organic,
+                type_if_paid=entry.type_if_paid,
+                is_reverse_dns=True,
+            )
+
         # add some well-known mobile apps
         for app in (
             # linkedin
@@ -198,7 +236,9 @@ class Command(BaseCommand):
             "com.hammerandchisel.discord",
             "com.discord",
         ):
-            entries[app, EntryKind.source] = SourceEntry("Social", "Paid Social", "Organic Social")
+            entries[app.lower(), EntryKind.source] = SourceEntry(
+                "Social", "Paid Social", "Organic Social", is_reverse_dns=True
+            )
         for app in (
             # twitch
             "tv.twitch",
@@ -211,12 +251,16 @@ class Command(BaseCommand):
             "com.google.ios.youtubeunplugged",
             "com.google.android.youtube.tv",
         ):
-            entries[app, EntryKind.source] = SourceEntry("Video", "Paid Video", "Organic Video")
+            entries[app.lower(), EntryKind.source] = SourceEntry(
+                "Video", "Paid Video", "Organic Video", is_reverse_dns=True
+            )
         for app in (
             # android search widget
             "com.google.android.googlequicksearchbox",
         ):
-            entries[app, EntryKind.source] = SourceEntry("Search", "Paid Search", "Organic Search")
+            entries[app.lower(), EntryKind.source] = SourceEntry(
+                "Search", "Paid Search", "Organic Search", is_reverse_dns=True
+            )
 
         # add without www. for all entries
         without_www = {
@@ -225,7 +269,14 @@ class Command(BaseCommand):
         entries.update(without_www)
 
         rows = [
-            [hostname.lower(), kind, entry.hostname_type, entry.type_if_paid, entry.type_if_organic]
+            (
+                hostname.lower(),
+                kind,
+                entry.hostname_type,
+                entry.type_if_paid,
+                entry.type_if_organic,
+                entry.is_reverse_dns,
+            )
             for (hostname, kind), entry in entries.items()
         ]
 
@@ -236,8 +287,8 @@ class Command(BaseCommand):
         update_tld_names()
 
         def sort_key(row):
-            name, kind, hostname_type, type_if_paid, type_if_organic = row
-            if name and any(name.startswith(s) for s in ("com.", "xyz.", "org.")):
+            name, kind, hostname_type, type_if_paid, type_if_organic, is_reverse_dns = row
+            if name and is_reverse_dns:
                 source_fld = get_fld(str.join(".", reversed(name.split("."))), fail_silently=True, fix_protocol=True)
             else:
                 source_fld = get_fld(name, fail_silently=True, fix_protocol=True)
@@ -249,3 +300,45 @@ class Command(BaseCommand):
         with open(OUTPUT_FILE, "w") as output_file:
             output_file.write(json.dumps(rows))
         subprocess.run(["npx", "--no-install", "prettier", "--write", OUTPUT_FILE])
+
+
+async def get_apple(domain_entry, session):
+    (domain, entry) = domain_entry
+    url = f"https://{domain}/.well-known/apple-app-site-association"
+    try:
+        async with session.get(url=url) as response:
+            text = await response.read()
+            body = json.loads(text)
+            for app in body.get("applinks", {}).get("details"):
+                app_id = app.get("appID")
+                if app_id:
+                    bundle_id = app_id.split(".", 1)[1].lower()
+                    return bundle_id, entry
+    except:
+        pass
+
+
+async def get_android(domain_entry, session):
+    (domain, entry) = domain_entry
+    url = f"https://{domain}/.well-known/assetlinks.json"
+    try:
+        async with session.get(url=url) as response:
+            text = await response.read()
+            body = json.loads(text)
+            for app in body:
+                package_name = app.get("target", {}).get("package_name")
+                if package_name:
+                    package_name = package_name.lower()
+                    return package_name, entry
+    except:
+        pass
+
+
+async def parallel_lookup_up_apple_apps(url_entries):
+    async with aiohttp.ClientSession(read_timeout=30) as session:
+        return await asyncio.gather(*(get_apple(url_entry, session) for url_entry in url_entries))
+
+
+async def parallel_lookup_up_android_apps(url_entries):
+    async with aiohttp.ClientSession(read_timeout=30) as session:
+        return await asyncio.gather(*(get_android(url_entry, session) for url_entry in url_entries))
