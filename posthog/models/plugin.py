@@ -38,15 +38,11 @@ except ImportError:
     pass
 
 
-def raise_if_plugin_installed(url: str, organization_id: str):
+def raise_if_plugin_installed(url: str):
     url_without_private_key = url.split("?")[0]
-    if (
-        Plugin.objects.filter(
-            models.Q(url=url_without_private_key) | models.Q(url__startswith=f"{url_without_private_key}?")
-        )
-        .filter(organization_id=organization_id)
-        .exists()
-    ):
+    if Plugin.objects.filter(
+        models.Q(url=url_without_private_key) | models.Q(url__startswith=f"{url_without_private_key}?")
+    ).exists():
         raise ValidationError(f'Plugin from URL "{url_without_private_key}" already installed!')
 
 
@@ -125,7 +121,7 @@ class PluginManager(models.Manager):
         plugin_json: Optional[dict[str, Any]] = None
         if kwargs.get("plugin_type", None) != Plugin.PluginType.SOURCE:
             plugin_json = update_validated_data_from_url(kwargs, kwargs["url"])
-            raise_if_plugin_installed(kwargs["url"], kwargs["organization_id"])
+            raise_if_plugin_installed(kwargs["url"])
         plugin = Plugin.objects.create(**kwargs)
         if plugin_json:
             PluginSourceFile.objects.sync_from_plugin_archive(plugin, plugin_json)
