@@ -64,6 +64,8 @@ export function InfiniteSelectResults({
     const { setActiveTab, selectItem } = useActions(taxonomicFilterLogic)
     const RenderComponent = activeTaxonomicGroup?.render
 
+    const openTab = activeTab || taxonomicGroups[0].type
+
     const listComponent = RenderComponent ? (
         <RenderComponent
             {...(activeTaxonomicGroup?.componentProps ?? {})}
@@ -71,7 +73,12 @@ export function InfiniteSelectResults({
             onChange={(newValue) => selectItem(activeTaxonomicGroup, newValue, newValue)}
         />
     ) : (
-        <InfiniteList popupAnchorElement={popupAnchorElement} />
+        <>
+            <div className="taxonomic-group-title pb-2">
+                {taxonomicGroups.find((g) => g.type === openTab)?.name || openTab}
+            </div>
+            <InfiniteList popupAnchorElement={popupAnchorElement} />
+        </>
     )
 
     if (taxonomicGroupTypes.length === 1) {
@@ -85,7 +92,6 @@ export function InfiniteSelectResults({
         )
     }
 
-    const openTab = activeTab || taxonomicGroups[0].type
     return (
         <>
             <div className="taxonomic-group-title">Categories</div>
@@ -105,12 +111,12 @@ export function InfiniteSelectResults({
                     )
                 })}
             </div>
-            <div className="taxonomic-group-title with-border">
-                {taxonomicGroups.find((g) => g.type === openTab)?.name || openTab}
-            </div>
             {taxonomicGroupTypes.map((groupType) => {
                 return (
-                    <div key={groupType} className={clsx('mt-2', groupType === openTab ? 'block' : 'hidden')}>
+                    <div
+                        key={groupType}
+                        className={clsx('border-t border-border-light', groupType === openTab ? 'block' : 'hidden')}
+                    >
                         <BindLogic
                             logic={infiniteListLogic}
                             props={{ ...taxonomicFilterLogicProps, listGroupType: groupType }}
