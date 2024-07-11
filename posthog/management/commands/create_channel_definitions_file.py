@@ -211,7 +211,12 @@ class Command(BaseCommand):
             "com.google.ios.youtubeunplugged",
             "com.google.android.youtube.tv",
         ):
-            entries[app, EntryKind.source] = SourceEntry("Video", "Paid Video", "Organic Social")
+            entries[app, EntryKind.source] = SourceEntry("Video", "Paid Video", "Organic Video")
+        for app in (
+            # android search widget
+            "com.google.android.googlequicksearchbox",
+        ):
+            entries[app, EntryKind.source] = SourceEntry("Search", "Paid Search", "Organic Search")
 
         # add without www. for all entries
         without_www = {
