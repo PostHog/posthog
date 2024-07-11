@@ -471,7 +471,14 @@ class TestProperty(BaseTest):
         self.assertEqual(
             self._selector_to_expr("a[href='boo']"),
             clear_locations(
-                elements_chain_match('(^|;)a.*?href="boo".*?([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))')
+                parse_expr(
+                    "{regex} and has(elements_chain_elements, ['a'])",
+                    {
+                        "regex": elements_chain_match(
+                            '(^|;)a.*?href="boo".*?([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
+                        )
+                    },
+                )
             ),
         )
         self.assertEqual(

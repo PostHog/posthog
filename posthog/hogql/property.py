@@ -21,6 +21,7 @@ from posthog.models import (
     Team,
 )
 from posthog.models.event import Selector
+from posthog.models.element import Element
 from posthog.models.property import PropertyGroup, ValueT
 from posthog.models.property.util import build_selector_regex
 from posthog.models.property_definition import PropertyType
@@ -620,13 +621,20 @@ def selector_to_expr(selector_string: str):
     regex = build_selector_regex(selector)
     exprs.append(parse_expr("elements_chain =~ {regex}", {"regex": ast.Constant(value=regex)}))
 
+    useful_elements = []
     for part in selector.parts:
+        if "tag_name" in part.data:
+            if part.data["tag_name"] in Element.USEFUL_ELEMENTS:
+                useful_elements.append(ast.Constant(value=part.data["tag_name"]))
+
         if "attr_id" in part.data:
             exprs.append(
                 parse_expr(
                     "indexOf(elements_chain_ids, {value}) > 0", {"value": ast.Constant(value=part.data["attr_id"])}
                 )
             )
+    if len(useful_elements) > 0:
+        exprs.append(parse_expr("has(elements_chain_elements, {value})", {"value": ast.Array(exprs=useful_elements)}))
 
     if len(exprs) == 1:
         return exprs[0]

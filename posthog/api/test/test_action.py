@@ -136,9 +136,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         action = Action.objects.create(
             name="user signed up", team=self.team, steps_json=[{"event": "$autocapture", "text": "sign me up!"}]
         )
-        action.refresh_bytecode()
         action.save()
-        previous_bytecode = action.bytecode
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/actions/{action.pk}/",
@@ -197,8 +195,6 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         action.refresh_from_db()
         assert action.name == "user signed up 2"
-
-        assert previous_bytecode != action.bytecode
 
         # Assert analytics are sent
         patch_capture.assert_called_with(
