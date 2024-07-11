@@ -244,6 +244,7 @@ export interface PluginsServerConfig extends CdpConfig {
     SESSION_RECORDING_REPLAY_EVENTS_INGESTION_ENABLED: boolean
     // a single partition which will output many more log messages to the console
     // useful when that partition is lagging unexpectedly
+    // allows comma separated list of partition numbers or '*' for all
     SESSION_RECORDING_DEBUG_PARTITION: string | undefined
     // overflow detection, updating Redis for capture to move the traffic away
     SESSION_RECORDING_OVERFLOW_ENABLED: boolean
