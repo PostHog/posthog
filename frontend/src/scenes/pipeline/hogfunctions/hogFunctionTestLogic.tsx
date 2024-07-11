@@ -8,7 +8,6 @@ import { LogEntry } from '~/types'
 
 import { hogFunctionConfigurationLogic, sanitizeConfiguration } from './hogFunctionConfigurationLogic'
 import type { hogFunctionTestLogicType } from './hogFunctionTestLogicType'
-import { createExampleEvent } from './utils/event-conversion'
 
 export interface HogFunctionTestLogicProps {
     id: string
@@ -29,7 +28,10 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
     key((props) => props.id),
     path((id) => ['scenes', 'pipeline', 'hogfunctions', 'hogFunctionTestLogic', id]),
     connect((props: HogFunctionTestLogicProps) => ({
-        values: [hogFunctionConfigurationLogic({ id: props.id }), ['configuration', 'configurationHasErrors']],
+        values: [
+            hogFunctionConfigurationLogic({ id: props.id }),
+            ['configuration', 'configurationHasErrors', 'invocationGlobals'],
+        ],
         actions: [hogFunctionConfigurationLogic({ id: props.id }), ['touchConfigurationField']],
     })),
     actions({
@@ -89,7 +91,7 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
             },
         },
     })),
-    afterMount(({ actions }) => {
-        actions.setTestInvocationValue('globals', JSON.stringify(createExampleEvent(), null, 2))
+    afterMount(({ actions, values }) => {
+        actions.setTestInvocationValue('globals', JSON.stringify(values.invocationGlobals, null, 2))
     }),
 ])

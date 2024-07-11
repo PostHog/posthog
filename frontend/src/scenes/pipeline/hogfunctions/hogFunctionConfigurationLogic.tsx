@@ -277,8 +277,20 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 return configuration?.enabled && (hogFunction?.status?.state ?? 0) >= 3
             },
         ],
-        // TODO: connect to the actual globals
-        globalVars: [(s) => [s.hogFunction], (): Record<string, any> => createExampleEvent()],
+        inputGlobals: [(s) => [s.configuration], (): Record<string, any> => createExampleEvent()],
+        invocationGlobals: [
+            (s) => [s.inputGlobals, s.configuration],
+            (inputGlobals, configuration): Record<string, any> => {
+                const event = {
+                    ...inputGlobals,
+                    inputs: {},
+                }
+                for (const input of configuration?.inputs_schema || []) {
+                    event.inputs[input.key] = input.type
+                }
+                return event
+            },
+        ],
     })),
 
     listeners(({ actions, values, cache }) => ({
