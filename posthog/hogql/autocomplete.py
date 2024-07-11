@@ -458,7 +458,7 @@ def get_hogql_autocomplete(
                 filtered_globals = {key: value for key, value in query.globals.items() if key not in existing_values}
                 add_globals_to_suggestions(filtered_globals, response)
 
-            if query.language in (HogLanguage.HOG, HogLanguage.HOG_TEMPLATE):
+            if query.language in (HogLanguage.HOG, HogLanguage.HOG_TEMPLATE) and query.sourceQuery is None:
                 # For Hog, break after the remaining globals are added
                 break
 
