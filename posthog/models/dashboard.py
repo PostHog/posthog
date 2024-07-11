@@ -13,9 +13,6 @@ class DashboardManager(models.Manager):
 
 
 class Dashboard(models.Model):
-    objects = DashboardManager()
-    objects_including_soft_deleted = models.Manager()
-
     class CreationMode(models.TextChoices):
         DEFAULT = "default", "Default"
         TEMPLATE = (
@@ -78,10 +75,10 @@ class Dashboard(models.Model):
     # DEPRECATED: using the new "is_sharing_enabled" relation instead
     is_shared: models.BooleanField = models.BooleanField(default=False)
 
-    __repr__ = sane_repr("team_id", "id", "name")
+    objects_including_soft_deleted = models.Manager()
+    objects = DashboardManager()
 
-    def __str__(self):
-        return self.name or str(self.id)
+    __repr__ = sane_repr("team_id", "id", "name")
 
     class Meta:
         indexes = [
@@ -91,6 +88,9 @@ class Dashboard(models.Model):
                 condition=models.Q(deleted=False),
             ),
         ]
+
+    def __str__(self):
+        return self.name or str(self.id)
 
     @property
     def is_sharing_enabled(self):

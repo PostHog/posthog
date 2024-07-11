@@ -29,6 +29,27 @@ class PersonManager(models.Manager):
 class Person(models.Model):
     _distinct_ids: Optional[list[str]]
 
+    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
+
+    # used to prevent race conditions with set and set_once
+    properties_last_updated_at: models.JSONField = models.JSONField(default=dict, null=True, blank=True)
+
+    # used for evaluating if we need to override the value or not (value: set or set_once)
+    properties_last_operation: models.JSONField = models.JSONField(null=True, blank=True)
+
+    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
+    properties: models.JSONField = models.JSONField(default=dict)
+    is_user: models.ForeignKey = models.ForeignKey("User", on_delete=models.CASCADE, null=True, blank=True)
+    is_identified: models.BooleanField = models.BooleanField(default=False)
+    uuid = models.UUIDField(db_index=True, default=UUIDT, editable=False)
+
+    # current version of the person, used to sync with ClickHouse and collapse rows correctly
+    version: models.BigIntegerField = models.BigIntegerField(null=True, blank=True)
+
+    # Has an index on properties -> email from migration 0121, (team_id, id DESC) from migration 0164
+
+    objects = PersonManager()
+
     @property
     def distinct_ids(self) -> list[str]:
         if hasattr(self, "distinct_ids_cache"):
@@ -95,26 +116,6 @@ class Person(models.Model):
                     team_id=self.team_id, uuid=str(person.uuid), version=person.version, created_at=person.created_at
                 )
 
-    objects = PersonManager()
-    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
-
-    # used to prevent race conditions with set and set_once
-    properties_last_updated_at: models.JSONField = models.JSONField(default=dict, null=True, blank=True)
-
-    # used for evaluating if we need to override the value or not (value: set or set_once)
-    properties_last_operation: models.JSONField = models.JSONField(null=True, blank=True)
-
-    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
-    properties: models.JSONField = models.JSONField(default=dict)
-    is_user: models.ForeignKey = models.ForeignKey("User", on_delete=models.CASCADE, null=True, blank=True)
-    is_identified: models.BooleanField = models.BooleanField(default=False)
-    uuid = models.UUIDField(db_index=True, default=UUIDT, editable=False)
-
-    # current version of the person, used to sync with ClickHouse and collapse rows correctly
-    version: models.BigIntegerField = models.BigIntegerField(null=True, blank=True)
-
-    # Has an index on properties -> email from migration 0121, (team_id, id DESC) from migration 0164
-
 
 class PersonDistinctId(models.Model):
     class Meta:
@@ -144,14 +145,14 @@ class PersonlessDistinctId(models.Model):
 class PersonOverrideMapping(models.Model):
     """A model of persons to be overriden in merge or merge-like events."""
 
+    id = models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
+    team_id = models.BigIntegerField()
+    uuid = models.UUIDField()
+
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=["team_id", "uuid"], name="unique_uuid"),
         ]
-
-    id = models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
-    team_id = models.BigIntegerField()
-    uuid = models.UUIDField()
 
 
 class PersonOverride(models.Model):
@@ -166,18 +167,6 @@ class PersonOverride(models.Model):
         out the ultimate override_person_id required for old_person_id=123).
         To accomplish this we use a series of constraints.
     """
-
-    class Meta:
-        constraints = [
-            models.UniqueConstraint(
-                fields=["team", "old_person_id"],
-                name="unique override per old_person_id",
-            ),
-            models.CheckConstraint(
-                check=~Q(old_person_id__exact=F("override_person_id")),
-                name="old_person_id_different_from_override_person_id",
-            ),
-        ]
 
     id = models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
@@ -197,6 +186,18 @@ class PersonOverride(models.Model):
 
     oldest_event: models.DateTimeField = models.DateTimeField()
     version: models.BigIntegerField = models.BigIntegerField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "old_person_id"],
+                name="unique override per old_person_id",
+            ),
+            models.CheckConstraint(
+                check=~Q(old_person_id__exact=F("override_person_id")),
+                name="old_person_id_different_from_override_person_id",
+            ),
+        ]
 
 
 class PendingPersonOverride(models.Model):

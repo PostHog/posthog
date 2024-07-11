@@ -54,6 +54,10 @@ class Action(models.Model):
     def __str__(self):
         return self.name
 
+    def save(self, *args, **kwargs):
+        self.refresh_bytecode()
+        super().save(*args, **kwargs)
+
     def get_analytics_metadata(self):
         return {
             "post_to_slack": self.post_to_slack,
@@ -96,10 +100,6 @@ class Action(models.Model):
             if self.bytecode is not None or self.bytecode_error != str(e):
                 self.bytecode = None
                 self.bytecode_error = str(e)
-
-    def save(self, *args, **kwargs):
-        self.refresh_bytecode()
-        super().save(*args, **kwargs)
 
 
 @receiver(post_save, sender=Action)
