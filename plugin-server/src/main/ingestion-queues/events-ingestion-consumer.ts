@@ -14,12 +14,16 @@ export type PipelineType = {
 
 export const PIPELINES: { [key: string]: PipelineType } = {
     ingestion_warnings: {
-        topic: 'events_ingestion_warnings',
-        consumer_group: 'events_ingestion_warnings',
+        topic: 'client_iwarnings_ingestion',
+        consumer_group: 'client_iwarnings_ingestion',
     },
     heatmaps: {
-        topic: 'events_ingestion_heatmaps',
-        consumer_group: 'events_ingestion_heatmaps',
+        topic: 'heatmaps_ingestion',
+        consumer_group: 'heatmaps_ingestion',
+    },
+    exceptions: {
+        topic: 'exceptions_ingestion',
+        consumer_group: 'exceptions_ingestion',
     },
 }
 
