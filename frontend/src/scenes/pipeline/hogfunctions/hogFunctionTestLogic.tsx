@@ -71,12 +71,12 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                     return
                 }
 
-                const event = tryJsonParse(data.globals)
+                const globals = tryJsonParse(data.globals)
                 const configuration = sanitizeConfiguration(values.configuration)
 
                 try {
                     const res = await api.hogFunctions.createTestInvocation(props.id, {
-                        event,
+                        globals,
                         mock_async_functions: data.mock_async_functions,
                         configuration,
                     })

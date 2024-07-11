@@ -150,7 +150,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
 class HogFunctionInvocationSerializer(serializers.Serializer):
     configuration = HogFunctionSerializer(write_only=True)
-    event = serializers.DictField(write_only=True)
+    globals = serializers.DictField(write_only=True)
     mock_async_functions = serializers.BooleanField(default=True, write_only=True)
     status = serializers.CharField(read_only=True)
     logs = serializers.ListField(read_only=True)
@@ -208,13 +208,13 @@ class HogFunctionViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, ForbidDestroyMod
         # Remove the team from the config
         configuration.pop("team")
 
-        event = serializer.validated_data["event"]
+        globals = serializer.validated_data["globals"]
         mock_async_functions = serializer.validated_data["mock_async_functions"]
 
         res = create_hog_invocation_test(
             team_id=hog_function.team_id,
             hog_function_id=hog_function.id,
-            event=event,
+            globals=globals,
             configuration=configuration,
             mock_async_functions=mock_async_functions,
         )

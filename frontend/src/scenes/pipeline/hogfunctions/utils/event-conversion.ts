@@ -53,9 +53,12 @@ export function useExampleHogGlobals(hogFunction?: Partial<HogFunctionType>): Ho
                 uuid: uuid(),
                 distinct_id: uuid(),
                 name: '$pageview',
-                properties: {},
                 timestamp: dayjs().toISOString(),
                 url: `${window.location.origin}/project/${currentTeam?.id}/events/`,
+                properties: {
+                    $current_url: window.location,
+                    $browser: 'Chrome',
+                },
             },
             person: {
                 uuid: uuid(),
