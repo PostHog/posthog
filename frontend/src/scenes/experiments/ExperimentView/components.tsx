@@ -173,7 +173,7 @@ export function NoResultsEmptyState(): JSX.Element {
 
     function ChecklistItem({ failureReason, checked }: { failureReason: string; checked: boolean }): JSX.Element {
         const failureReasonToText = {
-            'no-events': 'Events have been received',
+            'no-events': 'Experiment events have been received',
             'no-flag-info': 'Feature flag information is present on the events',
             'no-control-variant': 'Events with the control variant received',
             'no-test-variant': 'Events with at least one test variant received',

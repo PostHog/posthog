@@ -84,6 +84,9 @@ impl IntoResponse for CaptureError {
 pub enum DataType {
     AnalyticsMain,
     AnalyticsHistorical,
+    ClientIngestionWarning,
+    HeatmapMain,
+    ExceptionMain,
 }
 #[derive(Clone, Debug, Serialize, Eq, PartialEq)]
 pub struct ProcessedEvent {
