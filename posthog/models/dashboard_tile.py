@@ -57,8 +57,8 @@ class DashboardTile(models.Model):
 
     deleted: models.BooleanField = models.BooleanField(null=True, blank=True)
 
-    objects_including_soft_deleted = models.Manager()
     objects = DashboardTileManager()
+    objects_including_soft_deleted: models.Manager["DashboardTile"] = models.Manager()
 
     class Meta:
         indexes = [models.Index(fields=["filters_hash"], name="query_by_filters_hash_idx")]

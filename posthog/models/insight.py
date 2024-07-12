@@ -95,8 +95,8 @@ class Insight(models.Model):
 
     __repr__ = sane_repr("team_id", "id", "short_id", "name")
 
-    objects_including_soft_deleted = models.Manager()
     objects = InsightManager()
+    objects_including_soft_deleted: models.Manager["Insight"] = models.Manager()
 
     class Meta:
         db_table = "posthog_dashboarditem"

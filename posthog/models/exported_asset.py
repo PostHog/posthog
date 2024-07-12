@@ -73,9 +73,9 @@ class ExportedAsset(models.Model):
         max_length=400, null=True, blank=True, default=get_default_access_token
     )
 
-    objects_including_ttl_deleted = models.Manager()
     # replace the default manager with one that filters out TTL deleted objects (before their deletion is processed)
     objects = ExportedAssetManager()
+    objects_including_ttl_deleted: models.Manager["ExportedAsset"] = models.Manager()
 
     @property
     def has_content(self):
