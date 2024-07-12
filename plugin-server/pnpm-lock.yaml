@@ -44,8 +44,8 @@ dependencies:
     specifier: ^1.7.0
     version: 1.7.0
   '@posthog/hogvm':
-    specifier: ^1.0.21
-    version: 1.0.21(re2@1.20.3)
+    specifier: ^1.0.22
+    version: 1.0.22(re2@1.20.3)
   '@posthog/plugin-scaffold':
     specifier: 1.4.4
     version: 1.4.4
@@ -3110,8 +3110,8 @@ packages:
     engines: {node: '>=12'}
     dev: false
 
-  /@posthog/hogvm@1.0.21(re2@1.20.3):
-    resolution: {integrity: sha512-bCXsjUJfB4kekX3mb6CkzuxfBRjFy/t2sKK8hznf8pdUTl6Hc8fahPUY/Zd+8fAPbQZhtkzHJATqUqHSYcyjgA==}
+  /@posthog/hogvm@1.0.22(re2@1.20.3):
+    resolution: {integrity: sha512-nTNz7RXmOMAbsTPSpejE7eAsjoLbn8RJv/db//r/k+FwwnYwKcKkw4ix/8vhsiT7V8dXdGm7I8U2kMRd74dbeQ==}
     peerDependencies:
       re2: ^1.21.3
     dependencies:

@@ -1967,6 +1967,7 @@ export interface PluginLogEntry {
     plugin_id: number
     plugin_config_id: number
     timestamp: string
+    source: string
     type: LogEntryLevel
     is_system: boolean
     message: string
@@ -3862,6 +3863,16 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     status?: string
     incremental_field: string | null
     incremental_field_type: string | null
+    sync_frequency: DataWarehouseSyncInterval
+}
+
+export interface ExternalDataJob {
+    id: string
+    created_at: string
+    status: 'Running' | 'Failed' | 'Completed' | 'Cancelled'
+    schema: SimpleExternalDataSourceSchema
+    rows_synced: number
+    latest_error: string
 }
 
 export interface SimpleDataWarehouseTable {
@@ -4264,6 +4275,42 @@ export type HogFunctionStatus = {
         timestamp: number
         rating: number
     }[]
+}
+
+export type HogFunctionInvocationGlobals = {
+    project: {
+        id: number
+        name: string
+        url: string
+    }
+    source?: {
+        name: string
+        url: string
+    }
+    event: {
+        uuid: string
+        name: string
+        distinct_id: string
+        properties: Record<string, any>
+        timestamp: string
+        url: string
+    }
+    person?: {
+        uuid: string
+        name: string
+        url: string
+        properties: Record<string, any>
+    }
+    groups?: Record<
+        string,
+        {
+            id: string // the "key" of the group
+            type: string
+            index: number
+            url: string
+            properties: Record<string, any>
+        }
+    >
 }
 
 export interface AnomalyCondition {

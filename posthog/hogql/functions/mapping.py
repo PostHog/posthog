@@ -394,9 +394,8 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "toDate": HogQLFunctionMeta(
         "toDateOrNull",
         1,
-        2,
+        1,
         overloads=[((ast.DateTimeType, ast.DateType), "toDate")],
-        tz_aware=True,
     ),
     "toDateTime": HogQLFunctionMeta(
         "parseDateTime64BestEffortOrNull",
