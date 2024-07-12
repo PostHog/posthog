@@ -104,6 +104,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             [
                 'snapshotsLoaded',
                 'snapshotsLoading',
+                'isRealtimePolling',
                 'sessionPlayerData',
                 'sessionPlayerMetaData',
                 'sessionPlayerMetaDataLoading',
@@ -778,10 +779,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.setCurrentSegment(segment)
             }
 
-            if (!values.snapshotsLoaded) {
-                // We haven't started properly loading yet so nothing to do
+            if (!values.snapshotsLoaded || values.isRealtimePolling) {
+                // We haven't started properly loading, or we're still polling so nothing to do
             } else if (!values.snapshotsLoading && segment?.kind === 'buffer') {
-                // If not currently loading anything and part of the recording hasn't loaded, set error state
+                // If not currently loading anything,
+                // and part of the recording hasn't loaded, set error state
                 values.player?.replayer?.pause()
                 actions.endBuffer()
                 console.error("Error: Player tried to seek to a position that hasn't loaded yet")
