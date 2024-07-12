@@ -811,7 +811,9 @@ export default function SurveyEdit(): JSX.Element {
                                                                 ? survey.conditions?.actions?.values
                                                                 : []
                                                         }
-                                                        selectedEvents={survey.conditions?.actions?.values?.map(v => v.name) ?? []}
+                                                        selectedEvents={
+                                                            survey.conditions?.actions?.values?.map((v) => v.name) ?? []
+                                                        }
                                                         addElement={
                                                             <LemonButton
                                                                 size="small"
