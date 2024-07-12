@@ -105,7 +105,7 @@ class BytecodeBuilder(Visitor):
             response.append(Operation.POP)
         return response
 
-    def _declare_local(self, name: str):
+    def _declare_local(self, name: str) -> int:
         for local in reversed(self.locals):
             if local.depth < self.scope_depth:
                 break
@@ -113,6 +113,7 @@ class BytecodeBuilder(Visitor):
                 raise QueryError(f"Variable `{name}` already declared in this scope")
 
         self.locals.append(Local(name, self.scope_depth))
+        return len(self.locals) - 1
 
     def visit_and(self, node: ast.And):
         response = []
@@ -334,6 +335,90 @@ class BytecodeBuilder(Visitor):
 
         if node.initializer:
             response.extend(self._end_scope())
+        return response
+
+    def visit_for_in_statement(self, node: ast.ForInStatement):
+        response: list = []
+        self._start_scope()
+
+        key_var = node.keyVar
+        value_var = node.valueVar
+
+        # set up a bunch of temporary variables
+        expr_local = self._declare_local("__H_expr_H__")  # the obj/array itself
+        expr_keys_local = self._declare_local("__H_keys_H__")  # keys
+        expr_values_local = self._declare_local("__H_values_H__")  # values
+        loop_index_local = self._declare_local("__H_index_H__")  # 0
+        loop_limit_local = self._declare_local("__H_limit_H__")  # length of keys
+        key_var_local = self._declare_local(key_var) if key_var is not None else -1  # loop key
+        value_var_local = self._declare_local(value_var)  # loop value
+        response.extend([Operation.NULL] * (7 if key_var is not None else 6))
+        response.extend([*self.visit(node.expr), Operation.SET_LOCAL, expr_local])
+
+        # populate keys, value, loop index and max loop index
+        if key_var is not None:
+            response.extend(
+                [Operation.GET_LOCAL, expr_local, Operation.CALL, "keys", 1, Operation.SET_LOCAL, expr_keys_local]
+            )
+        response.extend(
+            [Operation.GET_LOCAL, expr_local, Operation.CALL, "values", 1, Operation.SET_LOCAL, expr_values_local]
+        )
+        response.extend([Operation.INTEGER, 0, Operation.SET_LOCAL, loop_index_local])
+        response.extend(
+            [Operation.GET_LOCAL, expr_values_local, Operation.CALL, "length", 1, Operation.SET_LOCAL, loop_limit_local]
+        )
+
+        # check if loop_index < loop_limit
+        condition = [Operation.GET_LOCAL, loop_limit_local, Operation.GET_LOCAL, loop_index_local, Operation.LT]
+
+        # set key_var and value_var
+        body: list = []
+        if key_var is not None:
+            body.extend(
+                [
+                    Operation.GET_LOCAL,
+                    expr_keys_local,
+                    Operation.GET_LOCAL,
+                    loop_index_local,
+                    Operation.GET_PROPERTY,
+                    Operation.SET_LOCAL,
+                    key_var_local,
+                ]
+            )
+        body.extend(
+            [
+                Operation.GET_LOCAL,
+                expr_values_local,
+                Operation.GET_LOCAL,
+                loop_index_local,
+                Operation.GET_PROPERTY,
+                Operation.SET_LOCAL,
+                value_var_local,
+            ]
+        )
+
+        # the actual body
+        body.extend(self.visit(node.body))
+
+        # i += 1 at the end
+        increment = [
+            Operation.GET_LOCAL,
+            loop_index_local,
+            Operation.INTEGER,
+            1,
+            Operation.PLUS,
+            Operation.SET_LOCAL,
+            loop_index_local,
+        ]
+
+        # add to response
+        response.extend(condition)
+        response.extend([Operation.JUMP_IF_FALSE, len(body) + len(increment) + 2])
+        response.extend(body)
+        response.extend(increment)
+        response.extend([Operation.JUMP, -len(increment) - len(body) - 2 - len(condition) - 2])
+
+        response.extend(self._end_scope())
         return response
 
     def visit_variable_declaration(self, node: ast.VariableDeclaration):

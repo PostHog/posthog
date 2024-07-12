@@ -17,6 +17,7 @@ identifierList: identifier (COMMA identifier)* COMMA?;
 statement      : returnStmt
                | ifStmt
                | whileStmt
+               | forInStmt
                | forStmt
                | funcStmt
                | varAssignment
@@ -33,6 +34,7 @@ forStmt        : FOR LPAREN
                  condition=expression? SEMICOLON
                  (incrementVarDeclr=varDecl | incrementVarAssignment=varAssignment | incrementExpression=expression)?
                  RPAREN statement SEMICOLON?;
+forInStmt      : FOR LPAREN LET identifier (COMMA identifier)? IN expression RPAREN statement SEMICOLON?;
 funcStmt       : FN identifier LPAREN identifierList? RPAREN block;
 varAssignment  : expression COLON EQ_SINGLE expression ;
 exprStmt       : expression SEMICOLON?;

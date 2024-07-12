@@ -27,6 +27,7 @@ class ExternalDataSource(CreatedMetaFields, UUIDModel):
         COMPLETED = "Completed", "Completed"
         CANCELLED = "Cancelled", "Cancelled"
 
+    # Deprecated, use `ExternalDataSchema.SyncFrequency`
     class SyncFrequency(models.TextChoices):
         DAILY = "day", "Daily"
         WEEKLY = "week", "Weekly"
@@ -38,6 +39,7 @@ class ExternalDataSource(CreatedMetaFields, UUIDModel):
     destination_id: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
 
+    # Deprecated, use `ExternalDataSchema.sync_frequency`
     sync_frequency: models.CharField = models.CharField(
         max_length=128, choices=SyncFrequency.choices, default=SyncFrequency.DAILY, blank=True
     )
@@ -68,15 +70,6 @@ class ExternalDataSource(CreatedMetaFields, UUIDModel):
 
             except Exception as e:
                 logger.exception(f"Could not trigger external data job for schema {schema.name}", exc_info=e)
-
-    def update_schemas(self):
-        from posthog.warehouse.models.external_data_schema import ExternalDataSchema
-        from posthog.warehouse.data_load.service import sync_external_data_job_workflow
-
-        for schema in ExternalDataSchema.objects.filter(
-            team_id=self.team.pk, source_id=self.id, should_sync=True
-        ).all():
-            sync_external_data_job_workflow(schema, create=False)
 
 
 @database_sync_to_async

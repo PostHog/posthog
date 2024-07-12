@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0435_alter_action_slack_message_format"),
+        ("posthog", "0438_errortrackinggroup"),
     ]
 
     operations = [

@@ -5,7 +5,7 @@ import { mkdirSync, rmSync } from 'node:fs'
 import { CODES, features, KafkaConsumer, librdkafkaVersion, Message, TopicPartition } from 'node-rdkafka'
 import { Counter, Gauge, Histogram, Summary } from 'prom-client'
 
-import { sessionRecordingConsumerConfig } from '../../../config/config'
+import { buildIntegerMatcher, sessionRecordingConsumerConfig } from '../../../config/config'
 import {
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
@@ -13,7 +13,7 @@ import {
 import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars, createRdProducerConfigFromEnvVars } from '../../../kafka/config'
 import { createKafkaProducer } from '../../../kafka/producer'
-import { PluginsServerConfig, RedisPool, TeamId } from '../../../types'
+import { PluginsServerConfig, RedisPool, TeamId, ValueMatcher } from '../../../types'
 import { BackgroundRefresher } from '../../../utils/background-refresher'
 import { KafkaProducerWrapper } from '../../../utils/db/kafka-producer-wrapper'
 import { PostgresRouter } from '../../../utils/db/postgres'
@@ -155,6 +155,7 @@ export class SessionRecordingIngester {
     private debugPartition: number | undefined = undefined
 
     private sharedClusterProducerWrapper: KafkaProducerWrapper | undefined = undefined
+    private isDebugLoggingEnabled: ValueMatcher<number>
 
     constructor(
         private globalServerConfig: PluginsServerConfig,
@@ -163,9 +164,8 @@ export class SessionRecordingIngester {
         private consumeOverflow: boolean,
         captureRedis: Redis | undefined
     ) {
-        this.debugPartition = globalServerConfig.SESSION_RECORDING_DEBUG_PARTITION
-            ? parseInt(globalServerConfig.SESSION_RECORDING_DEBUG_PARTITION)
-            : undefined
+        this.isDebugLoggingEnabled = buildIntegerMatcher(globalServerConfig.SESSION_RECORDING_DEBUG_PARTITION, true)
+
         this.topic = consumeOverflow
             ? KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW
             : KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
@@ -270,11 +270,8 @@ export class SessionRecordingIngester {
         const { team_id, session_id } = event
         const key = `${team_id}-${session_id}`
 
-        const {
-            // partition,
-            highOffset,
-        } = event.metadata
-        const isDebug = true // this.debugPartition === partition
+        const { partition, highOffset } = event.metadata
+        const isDebug = this.isDebugLoggingEnabled(partition)
         if (isDebug) {
             status.info('🔁', '[blob_ingester_consumer] - [PARTITION DEBUG] - consuming event', {
                 ...event.metadata,
@@ -323,7 +320,7 @@ export class SessionRecordingIngester {
                 session_id,
                 partition,
                 topic,
-                this.debugPartition === partition
+                this.isDebugLoggingEnabled(partition)
             )
         }
 
@@ -810,7 +807,7 @@ export class SessionRecordingIngester {
                     : metrics.lastMessageOffset // Or the last message we have seen as it is no longer blocked
 
                 if (!highestOffsetToCommit) {
-                    const partitionDebug = true //this.debugPartition === partition
+                    const partitionDebug = this.isDebugLoggingEnabled(partition)
                     const logMethod = partitionDebug ? status.info : status.debug
                     logMethod(
                         '🤔',
