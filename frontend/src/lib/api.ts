@@ -1626,7 +1626,7 @@ const api = {
             data: {
                 configuration: Partial<HogFunctionType>
                 mock_async_functions: boolean
-                event: any
+                globals: any
             }
         ): Promise<any> {
             return await new ApiRequest().hogFunction(id).withAction('invocations').create({ data })
