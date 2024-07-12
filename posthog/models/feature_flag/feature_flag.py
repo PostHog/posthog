@@ -59,6 +59,9 @@ class FeatureFlag(models.Model):
     # whether a feature is sending us rich analytics, like views & interactions.
     has_enriched_analytics: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
 
+    def __str__(self):
+        return f"{self.key} ({self.pk})"
+
     def get_analytics_metadata(self) -> dict:
         filter_count = sum(len(condition.get("properties", [])) for condition in self.conditions)
         variants_count = len(self.variants)
@@ -346,9 +349,6 @@ class FeatureFlag(models.Model):
                 if prop.get("type") == "cohort":
                     return True
         return False
-
-    def __str__(self):
-        return f"{self.key} ({self.pk})"
 
 
 @mutable_receiver(pre_delete, sender=Experiment)

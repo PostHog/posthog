@@ -30,9 +30,6 @@ class DashboardTileManager(models.Manager):
 
 
 class DashboardTile(models.Model):
-    objects = DashboardTileManager()
-    objects_including_soft_deleted = models.Manager()
-
     # Relations
     dashboard = models.ForeignKey("posthog.Dashboard", on_delete=models.CASCADE, related_name="tiles")
     insight = models.ForeignKey(
@@ -60,6 +57,9 @@ class DashboardTile(models.Model):
 
     deleted: models.BooleanField = models.BooleanField(null=True, blank=True)
 
+    objects = DashboardTileManager()
+    objects_including_soft_deleted: models.Manager["DashboardTile"] = models.Manager()
+
     class Meta:
         indexes = [models.Index(fields=["filters_hash"], name="query_by_filters_hash_idx")]
         constraints = [
@@ -78,6 +78,17 @@ class DashboardTile(models.Model):
                 name="dash_tile_exactly_one_related_object",
             ),
         ]
+
+    def save(self, *args, **kwargs) -> None:
+        if self.insight is not None:
+            has_no_filters_hash = self.filters_hash is None
+            if has_no_filters_hash and self.insight.filters != {}:
+                self.filters_hash = generate_insight_filters_hash(self.insight, self.dashboard)
+
+                if "update_fields" in kwargs:
+                    kwargs["update_fields"].append("filters_hash")
+
+        super().save(*args, **kwargs)
 
     @property
     def caching_state(self):
@@ -100,17 +111,6 @@ class DashboardTile(models.Model):
             or self.last_refresh is not None
         ):
             raise ValidationError("Fields to do with refreshing are only applicable when this is an insight tile")
-
-    def save(self, *args, **kwargs) -> None:
-        if self.insight is not None:
-            has_no_filters_hash = self.filters_hash is None
-            if has_no_filters_hash and self.insight.filters != {}:
-                self.filters_hash = generate_insight_filters_hash(self.insight, self.dashboard)
-
-                if "update_fields" in kwargs:
-                    kwargs["update_fields"].append("filters_hash")
-
-        super().save(*args, **kwargs)
 
     def copy_to_dashboard(self, dashboard: Dashboard) -> None:
         DashboardTile.objects.create(

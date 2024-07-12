@@ -73,10 +73,6 @@ class Subscription(models.Model):
         SATURDAY = "saturday"
         SUNDAY = "sunday"
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._rrule = self.rrule
-
     # Relations - i.e. WHAT are we exporting?
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     dashboard = models.ForeignKey("posthog.Dashboard", on_delete=models.CASCADE, null=True)
@@ -109,6 +105,18 @@ class Subscription(models.Model):
     created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     deleted: models.BooleanField = models.BooleanField(default=False)
 
+    def save(self, *args, **kwargs) -> None:
+        # Only if the schedule has changed do we update the next delivery date
+        if not self.id or str(self._rrule) != str(self.rrule):
+            self.set_next_delivery_date()
+            if "update_fields" in kwargs:
+                kwargs["update_fields"].append("next_delivery_date")
+        super().save(*args, **kwargs)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._rrule = self.rrule
+
     @property
     def rrule(self):
         freq = FREQNAMES.index(self.frequency.upper())
@@ -127,14 +135,6 @@ class Subscription(models.Model):
         # We never want next_delivery_date to be in the past
         now = timezone.now() + timedelta(minutes=15)  # Buffer of 15 minutes since we might run a bit early
         self.next_delivery_date = self.rrule.after(dt=max(from_dt or now, now), inc=False)
-
-    def save(self, *args, **kwargs) -> None:
-        # Only if the schedule has changed do we update the next delivery date
-        if not self.id or str(self._rrule) != str(self.rrule):
-            self.set_next_delivery_date()
-            if "update_fields" in kwargs:
-                kwargs["update_fields"].append("next_delivery_date")
-        super().save(*args, **kwargs)
 
     @property
     def url(self):
