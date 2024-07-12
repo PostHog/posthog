@@ -30,7 +30,7 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
     connect((props: HogFunctionTestLogicProps) => ({
         values: [
             hogFunctionConfigurationLogic({ id: props.id }),
-            ['configuration', 'configurationHasErrors', 'invocationGlobals'],
+            ['configuration', 'configurationHasErrors', 'exampleInvocationGlobals'],
         ],
         actions: [hogFunctionConfigurationLogic({ id: props.id }), ['touchConfigurationField']],
     })),
@@ -74,12 +74,12 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                     return
                 }
 
-                const event = tryJsonParse(data.globals)
+                const globals = tryJsonParse(data.globals)
                 const configuration = sanitizeConfiguration(values.configuration)
 
                 try {
                     const res = await api.hogFunctions.createTestInvocation(props.id, {
-                        event,
+                        globals,
                         mock_async_functions: data.mock_async_functions,
                         configuration,
                     })
@@ -91,7 +91,8 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
             },
         },
     })),
+
     afterMount(({ actions, values }) => {
-        actions.setTestInvocationValue('globals', JSON.stringify(values.invocationGlobals, null, 2))
+        actions.setTestInvocationValue('globals', JSON.stringify(values.exampleInvocationGlobals, null, 2))
     }),
 ])
