@@ -1,5 +1,3 @@
-import { Webhook } from '@posthog/plugin-scaffold'
-
 import { PluginsServerConfig } from '../types'
 import { trackedFetch } from '../utils/fetch'
 import { status } from '../utils/status'
