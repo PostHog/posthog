@@ -36,10 +36,6 @@ class ExportedAssetManager(models.Manager):
 
 
 class ExportedAsset(models.Model):
-    # replace the default manager with one that filters out TTL deleted objects (before their deletion is processed)
-    objects = ExportedAssetManager()
-    objects_including_ttl_deleted = models.Manager()
-
     class ExportFormat(models.TextChoices):
         PNG = "image/png", "image/png"
         PDF = "application/pdf", "application/pdf"
@@ -76,6 +72,10 @@ class ExportedAsset(models.Model):
     access_token: models.CharField = models.CharField(
         max_length=400, null=True, blank=True, default=get_default_access_token
     )
+
+    # replace the default manager with one that filters out TTL deleted objects (before their deletion is processed)
+    objects = ExportedAssetManager()
+    objects_including_ttl_deleted: models.Manager["ExportedAsset"] = models.Manager()
 
     @property
     def has_content(self):
