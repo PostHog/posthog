@@ -218,7 +218,10 @@ describe('CDP Processed Events Consuner', () => {
                 },
             })
 
-            expect(decodeKafkaMessage(mockProducer.produce.mock.calls[2][0])).toEqual({
+            const msg = decodeKafkaMessage(mockProducer.produce.mock.calls[2][0])
+            // Parse body so it can match by object equality rather than exact string equality
+            msg.value.asyncFunctionRequest.args[1].body = JSON.parse(msg.value.asyncFunctionRequest.args[1].body)
+            expect(msg).toEqual({
                 key: expect.any(String),
                 topic: 'cdp_function_callbacks_test',
                 value: {
