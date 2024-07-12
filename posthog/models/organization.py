@@ -1,4 +1,5 @@
 import sys
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Optional, TypedDict, Union
 
 import structlog
@@ -218,7 +219,7 @@ class Organization(UUIDModel):
 
     @property
     def active_invites(self) -> QuerySet:
-        return self.invites.filter(created_at__gte=timezone.now() - timezone.timedelta(days=INVITE_DAYS_VALIDITY))
+        return self.invites.filter(created_at__gte=timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY))
 
     def get_analytics_metadata(self):
         return {
