@@ -291,7 +291,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         timestamp: dayjs().toISOString(),
                         url: `${window.location.origin}/project/${currentTeam?.id}/events/`,
                         properties: {
-                            $current_url: window.location,
+                            $current_url: window.location.href,
                             $browser: 'Chrome',
                         },
                     },
