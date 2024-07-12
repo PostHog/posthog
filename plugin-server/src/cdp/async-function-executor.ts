@@ -61,7 +61,7 @@ export class AsyncFunctionExecutor {
         }
         let body = fetchOptions.body
         // Modify the body to ensure it is a string (we allow Hog to send an object to keep things simple)
-        body = body ? (typeof body === 'string' ? body : JSON.stringify(body, undefined, 4)) : body
+        body = body ? (typeof body === 'string' ? body : JSON.stringify(body)) : body
 
         // Finally overwrite the args with the sanitized ones
         request.asyncFunctionRequest.args = [url, { method, headers, body }]

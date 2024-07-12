@@ -137,25 +137,7 @@ describe('CDP Processed Events Consuner', () => {
                 Array [
                   "https://example.com/posthog-webhook",
                   Object {
-                    "body": "{
-                    \\"event\\": {
-                        \\"uuid\\": \\"b3a1fe86-b10c-43cc-acaf-d208977608d0\\",
-                        \\"name\\": \\"$pageview\\",
-                        \\"distinct_id\\": \\"distinct_id_1\\",
-                        \\"properties\\": {
-                            \\"$lib_version\\": \\"1.0.0\\",
-                            \\"$elements_chain\\": \\"[]\\"
-                        },
-                        \\"timestamp\\": null,
-                        \\"url\\": \\"http://localhost:8000/project/2/events/b3a1fe86-b10c-43cc-acaf-d208977608d0/null\\"
-                    },
-                    \\"groups\\": null,
-                    \\"nested\\": {
-                        \\"foo\\": \\"http://localhost:8000/project/2/events/b3a1fe86-b10c-43cc-acaf-d208977608d0/null\\"
-                    },
-                    \\"person\\": null,
-                    \\"event_url\\": \\"http://localhost:8000/project/2/events/b3a1fe86-b10c-43cc-acaf-d208977608d0/null-test\\"
-                }",
+                    "body": "{\\"event\\":{\\"uuid\\":\\"b3a1fe86-b10c-43cc-acaf-d208977608d0\\",\\"name\\":\\"$pageview\\",\\"distinct_id\\":\\"distinct_id_1\\",\\"properties\\":{\\"$lib_version\\":\\"1.0.0\\",\\"$elements_chain\\":\\"[]\\"},\\"timestamp\\":null,\\"url\\":\\"http://localhost:8000/project/2/events/b3a1fe86-b10c-43cc-acaf-d208977608d0/null\\"},\\"groups\\":null,\\"nested\\":{\\"foo\\":\\"http://localhost:8000/project/2/events/b3a1fe86-b10c-43cc-acaf-d208977608d0/null\\"},\\"person\\":null,\\"event_url\\":\\"http://localhost:8000/project/2/events/b3a1fe86-b10c-43cc-acaf-d208977608d0/null-test\\"}",
                     "headers": Object {
                       "version": "v=1.0.0",
                     },
@@ -243,7 +225,7 @@ describe('CDP Processed Events Consuner', () => {
                             'https://example.com/posthog-webhook',
                             {
                                 headers: { version: 'v=1.0.0' },
-                                body: {
+                                body: JSON.stringify({
                                     event: {
                                         uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d0',
                                         name: '$pageview',
@@ -252,14 +234,14 @@ describe('CDP Processed Events Consuner', () => {
                                         timestamp: null,
                                         url: 'http://localhost:8000/project/2/events/b3a1fe86-b10c-43cc-acaf-d208977608d0/null',
                                     },
-                                    event_url:
-                                        'http://localhost:8000/project/2/events/b3a1fe86-b10c-43cc-acaf-d208977608d0/null-test',
                                     groups: null,
                                     nested: {
                                         foo: 'http://localhost:8000/project/2/events/b3a1fe86-b10c-43cc-acaf-d208977608d0/null',
                                     },
                                     person: null,
-                                },
+                                    event_url:
+                                        'http://localhost:8000/project/2/events/b3a1fe86-b10c-43cc-acaf-d208977608d0/null-test',
+                                }),
                                 method: 'POST',
                             },
                         ],
