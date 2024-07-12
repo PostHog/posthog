@@ -252,7 +252,7 @@ projects_router.register(
 
 # Organizations nested endpoints
 organizations_router = router.register(r"organizations", organization.OrganizationViewSet, "organizations")
-organizations_router.register(r"projects", team.TeamViewSet, "projects", ["organization_id"])
+organizations_router.register(r"projects", team.TeamViewSet, "organization_projects", ["organization_id"])
 organizations_router.register(
     r"batch_exports", batch_exports.BatchExportOrganizationViewSet, "batch_exports", ["organization_id"]
 )
@@ -316,10 +316,10 @@ organizations_router.register(
 
 # General endpoints (shared across CH & PG)
 router.register(r"login", authentication.LoginViewSet, "login")
-router.register(r"login/token", authentication.TwoFactorViewSet)
-router.register(r"login/precheck", authentication.LoginPrecheckViewSet)
+router.register(r"login/token", authentication.TwoFactorViewSet, "login_token")
+router.register(r"login/precheck", authentication.LoginPrecheckViewSet, "login_precheck")
 router.register(r"reset", authentication.PasswordResetViewSet, "password_reset")
-router.register(r"users", user.UserViewSet)
+router.register(r"users", user.UserViewSet, "users")
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
 router.register(r"instance_status", instance_status.InstanceStatusViewSet, "instance_status")
 router.register(r"dead_letter_queue", dead_letter_queue.DeadLetterQueueViewSet, "dead_letter_queue")
@@ -347,7 +347,6 @@ router.register(r"event", LegacyEventViewSet, basename="event")
 projects_router.register(r"events", EventViewSet, "environment_events", ["team_id"])
 projects_router.register(r"actions", ActionViewSet, "project_actions", ["project_id"])
 projects_router.register(r"cohorts", CohortViewSet, "project_cohorts", ["project_id"])
-projects_router.register(r"persons", PersonViewSet, "environment_persons", ["team_id"])
 projects_router.register(r"elements", ElementViewSet, "environment_elements", ["team_id"])  # TODO: Can be removed?
 project_session_recordings_router = projects_router.register(
     r"session_recordings",
@@ -371,11 +370,11 @@ if EE_AVAILABLE:
         r"insights", EnterpriseInsightsViewSet, "project_insights", ["project_id"]
     )
     projects_router.register(r"persons", EnterprisePersonViewSet, "environment_persons", ["team_id"])
-    router.register(r"person", LegacyEnterprisePersonViewSet, basename="person")
+    router.register(r"person", LegacyEnterprisePersonViewSet, "persons")
 else:
     project_insights_router = projects_router.register(r"insights", InsightViewSet, "project_insights", ["project_id"])
     projects_router.register(r"persons", PersonViewSet, "environment_persons", ["team_id"])
-    router.register(r"person", LegacyPersonViewSet, basename="person")
+    router.register(r"person", LegacyPersonViewSet, "persons")
 
 
 project_dashboards_router.register(
