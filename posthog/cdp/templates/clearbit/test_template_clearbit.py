@@ -1,3 +1,4 @@
+from inline_snapshot import snapshot
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.clearbit.template_clearbit import template as template_clearbit
 
@@ -59,31 +60,35 @@ class TestTemplateClearbit(BaseHogFunctionTemplateTest):
         )
 
         assert self.get_mock_print_calls() == [("Clearbit data found - sending event to PostHog",)]
-        assert self.get_mock_posthog_capture_calls() == [
-            (
-                {
-                    "event": "clearbit_enriched",
-                    "distinct_id": "distinct-id",
-                    "properties": {
-                        "$set_once": {
-                            "clearbit_enriched": True,
-                            "person": {
-                                "id": "1234",
-                                "name": {
-                                    "fullName": "Max the Hedgehog",
-                                    "givenName": "Max",
-                                    "familyName": "the Hedgehog",
+        assert self.get_mock_posthog_capture_calls() == snapshot(
+            [
+                (
+                    {
+                        "event": "$set",
+                        "distinct_id": "distinct-id",
+                        "properties": {
+                            "$lib": "hog_function",
+                            "$hog_function_source": "https://us.posthog.com/hog_functions/1234",
+                            "$set_once": {
+                                "person": {
+                                    "id": "1234",
+                                    "name": {
+                                        "fullName": "Max the Hedgehog",
+                                        "givenName": "Max",
+                                        "familyName": "the Hedgehog",
+                                    },
+                                    "email": "max@posthog.com",
                                 },
-                                "email": "max@posthog.com",
+                                "company": {
+                                    "id": "1234",
+                                    "name": "PostHog",
+                                    "legalName": "PostHog Inc.",
+                                    "domain": "posthog.com",
+                                },
+                                "clearbit_enriched": True,
                             },
-                            "company": {
-                                "id": "1234",
-                                "name": "PostHog",
-                                "legalName": "PostHog Inc.",
-                                "domain": "posthog.com",
-                            },
-                        }
+                        },
                     },
-                },
-            )
-        ]
+                )
+            ]
+        )

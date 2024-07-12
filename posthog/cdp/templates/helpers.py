@@ -49,6 +49,7 @@ class BaseHogFunctionTemplateTest(BaseTest):
                 "properties": {"$current_url": "https://example.com"},
             },
             "person": {"id": "person-id", "properties": {"email": "example@posthog.com"}},
+            "source": {"url": "https://us.posthog.com/hog_functions/1234"},
         }
 
         if globals:
