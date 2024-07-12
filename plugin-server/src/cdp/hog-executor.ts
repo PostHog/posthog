@@ -310,6 +310,11 @@ export class HogExecutor {
                                 throw new Error("[HogFunction] - postHogCapture call missing 'event' property")
                             }
 
+                            if (result.capturedPostHogEvents!.length > 0) {
+                                throw new Error(
+                                    'postHogCapture was called more than once. Only one call is allowed per function'
+                                )
+                            }
                             const executionCount = globals.event.properties?.$hog_function_execution_count ?? 0
 
                             if (executionCount > 0) {
