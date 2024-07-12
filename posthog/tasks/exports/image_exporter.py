@@ -151,8 +151,18 @@ def _screenshot_asset(
                 except Exception:
                     pass
                 capture_exception()
+        width = driver.execute_script("""
+            let innerElement = document.querySelector('.ScrollableShadows__inner');
+            let exporterElement = document.querySelector('.Exporter--insight');
+            if (innerElement && exporterElement) {
+                const contentWidth = innerElement.scrollWidth;
+                exporterElement.style.width = (contentWidth + 20) + 'px';
+                exporterElement.style.height = innerElement.scrollHeight + 'px';
+                return contentWidth;
+            }
+        """)
         height = driver.execute_script("return document.body.scrollHeight")
-        driver.set_window_size(screenshot_width, height)
+        driver.set_window_size(max(int(screenshot_width), min(1800, width or screenshot_width)), height)
         driver.save_screenshot(image_path)
     except Exception as e:
         # To help with debugging, add a screenshot and any chrome logs
