@@ -33,6 +33,7 @@ import {
     EventType,
     Experiment,
     ExportedAssetType,
+    ExternalDataJob,
     ExternalDataSourceCreatePayload,
     ExternalDataSourceSchema,
     ExternalDataSourceSyncSchema,
@@ -880,6 +881,12 @@ const api = {
                 )
                 .get()
         },
+        async create(data: any): Promise<InsightModel> {
+            return await new ApiRequest().insights().create({ data })
+        },
+        async update(id: number, data: any): Promise<InsightModel> {
+            return await new ApiRequest().insight(id).update({ data })
+        },
     },
 
     featureFlags: {
@@ -1625,7 +1632,7 @@ const api = {
             data: {
                 configuration: Partial<HogFunctionType>
                 mock_async_functions: boolean
-                event: any
+                globals: any
             }
         ): Promise<any> {
             return await new ApiRequest().hogFunction(id).withAction('invocations').create({ data })
@@ -1972,10 +1979,12 @@ const api = {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).update({ data })
         },
     },
-
     externalDataSources: {
         async list(options?: ApiMethodOptions | undefined): Promise<PaginatedResponse<ExternalDataStripeSource>> {
             return await new ApiRequest().externalDataSources().get(options)
+        },
+        async get(sourceId: ExternalDataStripeSource['id']): Promise<ExternalDataStripeSource> {
+            return await new ApiRequest().externalDataSource(sourceId).get()
         },
         async create(data: Partial<ExternalDataSourceCreatePayload>): Promise<{ id: string }> {
             return await new ApiRequest().externalDataSources().create({ data })
@@ -2009,6 +2018,9 @@ const api = {
                 .externalDataSources()
                 .withAction('source_prefix')
                 .create({ data: { source_type, prefix } })
+        },
+        async jobs(sourceId: ExternalDataStripeSource['id']): Promise<ExternalDataJob[]> {
+            return await new ApiRequest().externalDataSource(sourceId).withAction('jobs').get()
         },
     },
 
