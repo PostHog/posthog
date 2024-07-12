@@ -9,7 +9,6 @@ from django.db.models.query import QuerySet
 from django.db.models.query_utils import Q
 from django.dispatch import receiver
 from django.utils import timezone
-from jsonschema import ValidationError
 from rest_framework import exceptions
 
 from posthog.cloud_utils import is_cloud
@@ -323,16 +322,16 @@ def validate_private_project_access(value):
     from ee.models.explicit_team_membership import ExplicitTeamMembership
 
     if not isinstance(value, list):
-        raise ValidationError("The field must be a list of dictionaries.")
+        raise exceptions.ValidationError("The field must be a list of dictionaries.")
     for item in value:
         if not isinstance(item, dict):
-            raise ValidationError("Each item in the list must be a dictionary.")
+            raise exceptions.ValidationError("Each item in the list must be a dictionary.")
         if "id" not in item or "level" not in item:
-            raise ValidationError('Each dictionary must contain "id" and "level" keys.')
+            raise exceptions.ValidationError('Each dictionary must contain "id" and "level" keys.')
         if not isinstance(item["id"], int):
-            raise ValidationError('The "id" field must be an integer.')
+            raise exceptions.ValidationError('The "id" field must be an integer.')
         if item["level"] not in ExplicitTeamMembership.Level.values:
-            raise ValidationError('The "level" field must be either "member" or "admin".')
+            raise exceptions.ValidationError('The "level" field must be either "member" or "admin".')
 
 
 class OrganizationInvite(UUIDModel):
