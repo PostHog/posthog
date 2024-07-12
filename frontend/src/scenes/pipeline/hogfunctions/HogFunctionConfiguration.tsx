@@ -45,6 +45,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
         loaded,
         hogFunction,
         willReEnableOnSave,
+        exampleInvocationGlobalsWithInputs,
     } = useValues(logic)
     const {
         submitConfiguration,
@@ -333,6 +334,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                                             language="hog"
                                                             value={value ?? ''}
                                                             onChange={(v) => onChange(v ?? '')}
+                                                            globals={exampleInvocationGlobalsWithInputs}
                                                             options={{
                                                                 minimap: {
                                                                     enabled: false,

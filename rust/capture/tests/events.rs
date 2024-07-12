@@ -1,13 +1,13 @@
 use std::num::NonZeroU32;
 use time::Duration;
 
+use crate::common::*;
 use anyhow::Result;
 use assert_json_diff::assert_json_include;
 use capture::limiters::billing::QuotaResource;
 use reqwest::StatusCode;
 use serde_json::json;
-
-use crate::common::*;
+use uuid::Uuid;
 mod common;
 
 #[tokio::test]
@@ -409,5 +409,106 @@ async fn it_applies_billing_limits() -> Result<()> {
         })
     );
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn it_routes_exceptions_and_heapmaps_to_separate_topics() -> Result<()> {
+    setup_tracing();
+
+    let token = random_string("token", 16);
+    let distinct_id = random_string("id", 16);
+    let uuids: [Uuid; 5] = core::array::from_fn(|_| Uuid::now_v7());
+
+    let main_topic = EphemeralTopic::new().await;
+    let warnings_topic = EphemeralTopic::new().await;
+    let exceptions_topic = EphemeralTopic::new().await;
+    let heatmaps_topic = EphemeralTopic::new().await;
+
+    let mut config = DEFAULT_CONFIG.clone();
+    config.kafka.kafka_topic = main_topic.topic_name().to_string();
+    config.kafka.kafka_client_ingestion_warning_topic = warnings_topic.topic_name().to_string();
+    config.kafka.kafka_exceptions_topic = exceptions_topic.topic_name().to_string();
+    config.kafka.kafka_heatmaps_topic = heatmaps_topic.topic_name().to_string();
+
+    let server = ServerHandle::for_config(config).await;
+
+    let event = json!([{
+        "token": token,
+        "event": "$$client_ingestion_warning",
+        "uuid": uuids[4],
+        "distinct_id": distinct_id
+    },{
+        "token": token,
+        "event": "event1",
+        "uuid": uuids[0],
+        "distinct_id": distinct_id
+    },{
+        "token": token,
+        "event": "$$heatmap",
+        "uuid": uuids[1],
+        "distinct_id": distinct_id
+    },{
+        "token": token,
+        "event": "$exception",
+        "uuid": uuids[2],
+        "distinct_id": distinct_id
+    },{
+        "token": token,
+        "event": "event2",
+        "uuid": uuids[3],
+        "distinct_id": distinct_id
+    }]);
+
+    let res = server.capture_events(event.to_string()).await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    // Regular events are pushed to the main analytics topic
+    assert_json_include!(
+        actual: main_topic.next_event()?,
+        expected: json!({
+            "token": token,
+        "uuid": uuids[0],
+            "distinct_id": distinct_id
+        })
+    );
+    assert_json_include!(
+        actual: main_topic.next_event()?,
+        expected: json!({
+            "token": token,
+        "uuid": uuids[3],
+            "distinct_id": distinct_id
+        })
+    );
+    main_topic.assert_empty();
+
+    // Special-cased events are pushed to their own topics
+    assert_json_include!(
+        actual: exceptions_topic.next_event()?,
+        expected: json!({
+            "token": token,
+        "uuid": uuids[2],
+            "distinct_id": distinct_id
+        })
+    );
+    exceptions_topic.assert_empty();
+    assert_json_include!(
+        actual: heatmaps_topic.next_event()?,
+        expected: json!({
+            "token": token,
+        "uuid": uuids[1],
+            "distinct_id": distinct_id
+        })
+    );
+    heatmaps_topic.assert_empty();
+    assert_json_include!(
+        actual: warnings_topic.next_event()?,
+        expected: json!({
+            "token": token,
+        "uuid": uuids[4],
+            "distinct_id": distinct_id
+        })
+    );
+    warnings_topic.assert_empty();
     Ok(())
 }

@@ -536,7 +536,7 @@ class FeatureFlagViewSet(
         methods=["GET"], detail=False, throttle_classes=[FeatureFlagThrottle], required_scopes=["feature_flag:read"]
     )
     def local_evaluation(self, request: request.Request, **kwargs):
-        feature_flags: QuerySet[FeatureFlag] = FeatureFlag.objects.using(DATABASE_FOR_LOCAL_EVALUATION).filter(
+        feature_flags: QuerySet[FeatureFlag] = FeatureFlag.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION).filter(
             team_id=self.team_id, deleted=False, active=True
         )
 
@@ -548,7 +548,7 @@ class FeatureFlagViewSet(
         if should_send_cohorts:
             seen_cohorts_cache = {
                 cohort.pk: cohort
-                for cohort in Cohort.objects.using(DATABASE_FOR_LOCAL_EVALUATION).filter(
+                for cohort in Cohort.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION).filter(
                     team_id=self.team_id, deleted=False
                 )
             }
@@ -591,7 +591,7 @@ class FeatureFlagViewSet(
                             cohort = seen_cohorts_cache[id]
                         else:
                             cohort = (
-                                Cohort.objects.using(DATABASE_FOR_LOCAL_EVALUATION)
+                                Cohort.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
                                 .filter(id=id, team_id=self.team_id, deleted=False)
                                 .first()
                             )
@@ -611,7 +611,7 @@ class FeatureFlagViewSet(
                 ],
                 "group_type_mapping": {
                     str(row.group_type_index): row.group_type
-                    for row in GroupTypeMapping.objects.using(DATABASE_FOR_LOCAL_EVALUATION).filter(
+                    for row in GroupTypeMapping.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION).filter(
                         team_id=self.team_id
                     )
                 },

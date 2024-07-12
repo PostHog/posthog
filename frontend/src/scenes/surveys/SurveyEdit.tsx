@@ -229,6 +229,7 @@ export default function SurveyEdit(): JSX.Element {
                                                             index: number
                                                         ) => ({
                                                             key: index,
+                                                            dataAttr: `survey-question-panel-${index}`,
                                                             header: (
                                                                 <SurveyEditQuestionHeader
                                                                     index={index}
@@ -403,6 +404,7 @@ export default function SurveyEdit(): JSX.Element {
                                     <div className="flex gap-2">
                                         <div className="flex items-center gap-2 mt-2">
                                             <LemonButton
+                                                data-attr="add-question"
                                                 type="secondary"
                                                 className="w-max"
                                                 icon={<IconPlus />}
@@ -491,8 +493,8 @@ export default function SurveyEdit(): JSX.Element {
                               ]
                             : []),
                         {
-                            key: SurveyEditSection.Targeting,
-                            header: 'Targeting',
+                            key: SurveyEditSection.DisplayConditions,
+                            header: 'Display conditions',
                             content: (
                                 <LemonField.Pure>
                                     <LemonSelect
