@@ -32,6 +32,7 @@ import {
     PersonsNode,
     RetentionQuery,
     SavedInsightNode,
+    SessionAttributionExplorerQuery,
     StickinessQuery,
     TrendsQuery,
     WebOverviewQuery,
@@ -126,6 +127,12 @@ export function isWebStatsTableQuery(node?: Record<string, any> | null): node is
 
 export function isWebTopClicksQuery(node?: Record<string, any> | null): node is WebTopClicksQuery {
     return node?.kind === NodeKind.WebTopClicksQuery
+}
+
+export function isSessionAttributionExplorerQuery(
+    node?: Record<string, any> | null
+): node is SessionAttributionExplorerQuery {
+    return node?.kind === NodeKind.SessionAttributionExplorerQuery
 }
 
 export function containsHogQLQuery(node?: Record<string, any> | null): boolean {

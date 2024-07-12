@@ -1,4 +1,4 @@
-import { IconCheckCircle, IconChevronDown, IconDocument, IconPlus } from '@posthog/icons'
+import { IconCheckCircle, IconChevronDown, IconDocument, IconInfo, IconPlus } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -214,6 +214,9 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                 )}
                                                 <div className="grow">
                                                     <BillingGauge items={billingGaugeItems} product={product} />
+                                                    {!product.subscribed && (
+                                                        <FeatureFlagUsageNotice product={product} />
+                                                    )}
                                                 </div>
                                             </div>
                                             {product.subscribed ? (
@@ -291,6 +294,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         <div className="grow">
                                             <div className="grow">
                                                 <BillingGauge items={billingGaugeItems} product={product} />
+                                                <FeatureFlagUsageNotice product={product} />
                                             </div>
                                             {/* TODO: rms: remove this notice after August 8 2024 */}
                                             {product.type == ProductKey.DATA_WAREHOUSE &&
@@ -487,4 +491,17 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
             />
         </div>
     )
+}
+
+export const FeatureFlagUsageNotice = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
+    return product.type === 'feature_flags' ? (
+        <p className="mt-4 ml-0 text-sm text-muted italic">
+            <IconInfo className="mr-1" />
+            Questions? Here's{' '}
+            <Link to="https://posthog.com/docs/feature-flags/common-questions#billing--usage" className="italic">
+                how we calculate usage
+            </Link>{' '}
+            for feature flags.
+        </p>
+    ) : null
 }

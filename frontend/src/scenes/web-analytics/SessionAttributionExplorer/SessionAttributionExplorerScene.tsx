@@ -1,4 +1,5 @@
-import { IconCollapse, IconExpand } from '@posthog/icons'
+import { IconCollapse, IconExpand, IconPlus } from '@posthog/icons'
+import { LemonMenu, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { IconFeedback } from 'lib/lemon-ui/icons'
@@ -11,7 +12,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { Query } from '~/queries/Query/Query'
-import { DataTableNode, HogQLQuery } from '~/queries/schema'
+import { DataTableNode, HogQLQuery, SessionAttributionGroupBy } from '~/queries/schema'
 import { isSessionPropertyFilters } from '~/queries/schema-guards'
 import { QueryContext, QueryContextColumnComponent } from '~/queries/types'
 
@@ -103,7 +104,7 @@ const queryContext: QueryContext = {
             title: 'UTM campaign',
             render: ExpandableDataCell,
         },
-        has_ad_id: {
+        ad_ids: {
             title: 'Ad IDs',
             render: ExpandableDataCell,
         },
@@ -112,6 +113,73 @@ const queryContext: QueryContext = {
             render: ExpandableDataCell,
         },
     },
+    emptyStateHeading: 'There are no matching sessions for this query',
+    emptyStateDetail: 'Try changing the date range, or changing the property filters.',
+}
+
+const groupByOptions = [
+    {
+        label: 'Channel type',
+        value: SessionAttributionGroupBy.ChannelType,
+    },
+    {
+        label: 'Referring domain',
+        value: SessionAttributionGroupBy.ReferringDomain,
+    },
+    {
+        label: 'UTM source',
+        value: SessionAttributionGroupBy.Source,
+    },
+    {
+        label: 'UTM medium',
+        value: SessionAttributionGroupBy.Medium,
+    },
+    {
+        label: 'UTM campaign',
+        value: SessionAttributionGroupBy.Campaign,
+    },
+    {
+        label: 'Ad IDs',
+        value: SessionAttributionGroupBy.AdIds,
+    },
+    {
+        label: 'Entry URL',
+        value: SessionAttributionGroupBy.InitialURL,
+    },
+]
+
+export const GroupByFilter = (): JSX.Element => {
+    const { groupBy } = useValues(sessionAttributionExplorerLogic)
+    const { enableGroupBy, disableGroupBy } = useActions(sessionAttributionExplorerLogic)
+
+    return (
+        <div className="mb-2">
+            <LemonMenu
+                items={groupByOptions.map(({ label, value }) => {
+                    return {
+                        label: () => (
+                            <LemonSwitch
+                                checked={groupBy.includes(value)}
+                                onChange={(val) => {
+                                    if (val) {
+                                        enableGroupBy(value)
+                                    } else {
+                                        disableGroupBy(value)
+                                    }
+                                }}
+                                fullWidth={true}
+                                label={label}
+                            />
+                        ),
+                    }
+                })}
+            >
+                <LemonButton icon={<IconPlus />} size="small" type="secondary">
+                    Group by
+                </LemonButton>
+            </LemonMenu>
+        </div>
+    )
 }
 
 export function SessionAttributionExplorer(): JSX.Element {
@@ -134,9 +202,8 @@ export function SessionAttributionExplorer(): JSX.Element {
                             <Link to="https://posthog.com/docs/data/channel-type">Channel type</Link>.
                         </p>
                         <p>
-                            The table below groups sessions with the same value for Channel type, referring domain,
-                            source, medium, and which ad ids are present. It shows the count of sessions in each group,
-                            and some example entry URLs from that group.
+                            The table below shows sessions that are grouped, and you can change how they are grouped.
+                            Any columns that are not used in the grouping will show example values.
                         </p>
                         <p>If you believe that a session is attributed incorrectly, please let us know!</p>
                     </div>
@@ -159,17 +226,18 @@ export function SessionAttributionExplorer(): JSX.Element {
                     ) : null}
                 </div>
             </LemonBanner>
+            <GroupByFilter />
             <Query<DataTableNode>
                 context={queryContext}
                 query={query}
                 setQuery={(query) => {
                     const source = query.source as HogQLQuery
-                    if (source.filters?.properties && isSessionPropertyFilters(source.filters.properties)) {
+                    if (source.filters && isSessionPropertyFilters(source.filters.properties)) {
                         setProperties(source.filters.properties)
+                    } else {
+                        setProperties([])
                     }
-                    if (source.filters?.dateRange) {
-                        setDateRange(source.filters.dateRange)
-                    }
+                    setDateRange(source.filters?.dateRange ?? null)
                 }}
             />
         </div>

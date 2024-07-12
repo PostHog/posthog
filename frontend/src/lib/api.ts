@@ -14,7 +14,6 @@ import {
     ActivityScope,
     AlertType,
     BatchExportConfiguration,
-    BatchExportLogEntry,
     BatchExportRun,
     CohortType,
     CommentType,
@@ -34,6 +33,7 @@ import {
     EventType,
     Experiment,
     ExportedAssetType,
+    ExternalDataJob,
     ExternalDataSourceCreatePayload,
     ExternalDataSourceSchema,
     ExternalDataSourceSyncSchema,
@@ -51,6 +51,7 @@ import {
     IntegrationType,
     ListOrganizationMembersParams,
     LogEntry,
+    LogEntryRequestParams,
     MediaUploadResponse,
     NewEarlyAccessFeatureType,
     NotebookListItemType,
@@ -321,10 +322,6 @@ class ApiRequest {
 
     public pluginConfig(id: number, teamId?: TeamType['id']): ApiRequest {
         return this.pluginConfigs(teamId).addPathComponent(id)
-    }
-
-    public pluginLogs(pluginConfigId: number, teamId?: TeamType['id']): ApiRequest {
-        return this.pluginConfig(pluginConfigId, teamId).addPathComponent('logs')
     }
 
     public hogFunctions(teamId?: TeamType['id']): ApiRequest {
@@ -753,10 +750,6 @@ class ApiRequest {
         return this.batchExports(teamId).addPathComponent(id)
     }
 
-    public batchExportLogs(id: BatchExportConfiguration['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.batchExport(id, teamId).addPathComponent('logs')
-    }
-
     public batchExportRuns(id: BatchExportConfiguration['id'], teamId?: TeamType['id']): ApiRequest {
         return this.batchExports(teamId).addPathComponent(id).addPathComponent('runs')
     }
@@ -767,14 +760,6 @@ class ApiRequest {
         teamId?: TeamType['id']
     ): ApiRequest {
         return this.batchExportRuns(id, teamId).addPathComponent(runId)
-    }
-
-    public batchExportRunLogs(
-        id: BatchExportConfiguration['id'],
-        runId: BatchExportRun['id'],
-        teamId?: TeamType['id']
-    ): ApiRequest {
-        return this.batchExportRun(id, runId, teamId).addPathComponent('logs')
     }
 
     // External Data Source
@@ -1574,85 +1559,34 @@ const api = {
         async list(): Promise<PaginatedResponse<PluginConfigTypeNew>> {
             return await new ApiRequest().pluginConfigs().get()
         },
-    },
-
-    pluginLogs: {
-        async search(
-            pluginConfigId: number,
-            searchTerm: string | null = null,
-            typeFilters: CheckboxValueType[] = [],
-            trailingEntry: PluginLogEntry | null = null,
-            leadingEntry: PluginLogEntry | null = null
-        ): Promise<PluginLogEntry[]> {
-            const params = toParams(
-                {
-                    limit: LOGS_PORTION_LIMIT,
-                    type_filter: typeFilters,
-                    search: searchTerm || undefined,
-                    before: trailingEntry?.timestamp,
-                    after: leadingEntry?.timestamp,
-                },
-                true
-            )
-
-            const response = await new ApiRequest().pluginLogs(pluginConfigId).withQueryString(params).get()
-
-            return response.results
-        },
-    },
-
-    batchExportLogs: {
-        async search(
-            batchExportId: string,
-            searchTerm: string | null = null,
-            typeFilters: CheckboxValueType[] = [],
-            trailingEntry: BatchExportLogEntry | null = null,
-            leadingEntry: BatchExportLogEntry | null = null
-        ): Promise<BatchExportLogEntry[]> {
-            const params = toParams(
-                {
-                    limit: LOGS_PORTION_LIMIT,
-                    level_filter: typeFilters,
-                    search: searchTerm || undefined,
-                    before: trailingEntry?.timestamp,
-                    after: leadingEntry?.timestamp,
-                },
-                true
-            )
-
-            const response = await new ApiRequest().batchExportLogs(batchExportId).withQueryString(params).get()
-
-            return response.results
-        },
-    },
-
-    batchExportRunLogs: {
-        async search(
-            batchExportId: string,
-            batchExportRunId: string,
-            currentTeamId: number | null,
-            searchTerm: string | null = null,
-            typeFilters: CheckboxValueType[] = [],
-            trailingEntry: BatchExportLogEntry | null = null,
-            leadingEntry: BatchExportLogEntry | null = null
-        ): Promise<BatchExportLogEntry[]> {
-            const params = toParams(
-                {
-                    limit: LOGS_PORTION_LIMIT,
-                    type_filter: typeFilters,
-                    search: searchTerm || undefined,
-                    before: trailingEntry?.timestamp,
-                    after: leadingEntry?.timestamp,
-                },
-                true
-            )
-
+        async logs(pluginConfigId: number, params: LogEntryRequestParams): Promise<LogEntry[]> {
+            const levels = (params.level?.split(',') ?? []).filter((x) => x !== 'WARNING')
             const response = await new ApiRequest()
-                .batchExportRunLogs(batchExportId, batchExportRunId, currentTeamId || undefined)
-                .withQueryString(params)
+                .pluginConfig(pluginConfigId)
+                .withAction('logs')
+                .withQueryString(
+                    toParams(
+                        {
+                            limit: LOGS_PORTION_LIMIT,
+                            type_filter: levels,
+                            search: params.search,
+                            before: params.before,
+                            after: params.after,
+                        },
+                        true
+                    )
+                )
                 .get()
 
-            return response.results
+            const results = response.results.map((entry: PluginLogEntry) => ({
+                log_source_id: `${entry.plugin_config_id}`,
+                instance_id: entry.source,
+                timestamp: entry.timestamp,
+                level: entry.type,
+                message: entry.message,
+            }))
+
+            return results
         },
     },
 
@@ -1669,9 +1603,9 @@ const api = {
         async update(id: HogFunctionType['id'], data: Partial<HogFunctionType>): Promise<HogFunctionType> {
             return await new ApiRequest().hogFunction(id).update({ data })
         },
-        async searchLogs(
+        async logs(
             id: HogFunctionType['id'],
-            params: Record<string, any> = {}
+            params: LogEntryRequestParams = {}
         ): Promise<PaginatedResponse<LogEntry>> {
             return await new ApiRequest().hogFunction(id).withAction('logs').withQueryString(params).get()
         },
@@ -1942,6 +1876,12 @@ const api = {
         ): Promise<BatchExportRun> {
             return await new ApiRequest().batchExport(id).withAction('backfill').create({ data })
         },
+        async logs(
+            id: BatchExportConfiguration['id'],
+            params: LogEntryRequestParams = {}
+        ): Promise<PaginatedResponse<LogEntry>> {
+            return await new ApiRequest().batchExport(id).withAction('logs').withQueryString(params).get()
+        },
     },
 
     earlyAccessFeatures: {
@@ -2033,10 +1973,12 @@ const api = {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).update({ data })
         },
     },
-
     externalDataSources: {
         async list(options?: ApiMethodOptions | undefined): Promise<PaginatedResponse<ExternalDataStripeSource>> {
             return await new ApiRequest().externalDataSources().get(options)
+        },
+        async get(sourceId: ExternalDataStripeSource['id']): Promise<ExternalDataStripeSource> {
+            return await new ApiRequest().externalDataSource(sourceId).get()
         },
         async create(data: Partial<ExternalDataSourceCreatePayload>): Promise<{ id: string }> {
             return await new ApiRequest().externalDataSources().create({ data })
@@ -2070,6 +2012,9 @@ const api = {
                 .externalDataSources()
                 .withAction('source_prefix')
                 .create({ data: { source_type, prefix } })
+        },
+        async jobs(sourceId: ExternalDataStripeSource['id']): Promise<ExternalDataJob[]> {
+            return await new ApiRequest().externalDataSource(sourceId).withAction('jobs').get()
         },
     },
 

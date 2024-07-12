@@ -16,7 +16,7 @@ clickhouse-driver==0.2.7
 clickhouse-pool==0.5.3
 cryptography==39.0.2
 dj-database-url==0.5.0
-Django~=4.2.11
+Django~=4.2.14
 django-axes==5.9.0
 django-cors-headers==3.5.0
 django-deprecate-fields==0.1.1
@@ -93,7 +93,7 @@ phonenumberslite==8.13.6
 openai==1.10.0
 tiktoken==0.6.0
 nh3==0.2.14
-hogql-parser==1.0.27
+hogql-parser==1.0.28
 zxcvbn==4.4.28
 zstd==1.5.5.1
 xmlsec==1.3.13 # Do not change this version - it will break SAML

@@ -38,7 +38,7 @@ export enum SurveyEditSection {
     Presentation = 'presentation',
     Appearance = 'appearance',
     Customization = 'customization',
-    Targeting = 'targeting',
+    DisplayConditions = 'DisplayConditions',
     Scheduling = 'scheduling',
     CompletionConditions = 'CompletionConditions',
 }
@@ -613,7 +613,7 @@ export const surveyLogic = kea<surveyLogicType>([
         submitSurveyFailure: async () => {
             // When errors occur, scroll to the error, but wait for errors to be set in the DOM first
             if (hasFormErrors(values.flagPropertyErrors) || values.urlMatchTypeValidationError) {
-                actions.setSelectedSection(SurveyEditSection.Targeting)
+                actions.setSelectedSection(SurveyEditSection.DisplayConditions)
             } else {
                 actions.setSelectedSection(SurveyEditSection.Steps)
             }

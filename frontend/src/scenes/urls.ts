@@ -164,6 +164,8 @@ export const urls = {
     dataWarehouseSettings: (tab?: DataWarehouseSettingsTab | ':tab'): string =>
         `/data-warehouse/settings/${tab ? tab : DataWarehouseSettingsTab.Managed}`,
     dataWarehouseRedirect: (kind: string): string => `/data-warehouse/${kind}/redirect`,
+    dataWarehouseSourceSettings: (id: string, tab?: DataWarehouseSettingsTab | ':tab'): string =>
+        `/data-warehouse/settings/${tab ? tab : DataWarehouseSettingsTab.Managed}/${id}`,
     annotations: (): string => '/data-management/annotations',
     annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,
     projectApps: (tab?: PluginTab): string => `/apps${tab ? `?tab=${tab}` : ''}`,

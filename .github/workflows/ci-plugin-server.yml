@@ -151,9 +151,11 @@ jobs:
               if: needs.changes.outputs.plugin-server == 'true'
               run: cd plugin-server && pnpm i
 
-            - name: Wait for Clickhouse & Kafka
+            - name: Wait for Clickhouse, Redis & Kafka
               if: needs.changes.outputs.plugin-server == 'true'
-              run: bin/check_kafka_clickhouse_up
+              run: |
+                  docker compose -f docker-compose.dev.yml up kafka redis clickhouse -d --wait
+                  bin/check_kafka_clickhouse_up
 
             - name: Set up databases
               if: needs.changes.outputs.plugin-server == 'true'
@@ -173,15 +175,10 @@ jobs:
               run: cd plugin-server && pnpm test -- --runInBand --forceExit tests/ --shard=${{matrix.shard}}
 
     functional-tests:
-        name: Functional tests (POE=${{matrix.POE_EMBRACE_JOIN_FOR_TEAMS}},RDK=${{matrix.KAFKA_CONSUMPTION_USE_RDKAFKA}})
+        name: Functional tests
         needs: changes
         if: needs.changes.outputs.plugin-server == 'true'
         runs-on: ubuntu-latest
-
-        strategy:
-            fail-fast: false
-            matrix:
-                POE_EMBRACE_JOIN_FOR_TEAMS: ['', '*']
 
         env:
             REDIS_URL: 'redis://localhost'
@@ -190,7 +187,6 @@ jobs:
             KAFKA_HOSTS: 'kafka:9092'
             DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
             RELOAD_PLUGIN_JITTER_MAX_MS: 0
-            POE_EMBRACE_JOIN_FOR_TEAMS: ${{matrix.POE_EMBRACE_JOIN_FOR_TEAMS}}
 
         steps:
             - name: Code check out
@@ -241,8 +237,10 @@ jobs:
                   pnpm install --frozen-lockfile
                   pnpm build
 
-            - name: Wait for Clickhouse & Kafka
-              run: bin/check_kafka_clickhouse_up
+            - name: Wait for Clickhouse, Redis & Kafka
+              run: |
+                  docker compose -f docker-compose.dev.yml up kafka redis clickhouse -d --wait
+                  bin/check_kafka_clickhouse_up
 
             - name: Set up databases
               env:

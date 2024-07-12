@@ -10,6 +10,7 @@ import { normalizeProcessPerson } from '../../../utils/event'
 import { status } from '../../../utils/status'
 import { captureIngestionWarning, generateEventDeadLetterQueueMessage } from '../utils'
 import { createEventStep } from './createEventStep'
+import { enrichExceptionEventStep } from './enrichExceptionEventStep'
 import { extractHeatmapDataStep } from './extractHeatmapDataStep'
 import {
     eventProcessedAndIngestedCounter,
@@ -50,12 +51,8 @@ export class EventPipelineRunner {
     hub: Hub
     originalEvent: PipelineEvent
 
-    // See https://docs.google.com/document/d/12Q1KcJ41TicIwySCfNJV5ZPKXWVtxT7pzpB3r9ivz_0
-    poEEmbraceJoin: boolean
-
-    constructor(hub: Hub, event: PipelineEvent, poEEmbraceJoin = false) {
+    constructor(hub: Hub, event: PipelineEvent) {
         this.hub = hub
-        this.poEEmbraceJoin = poEEmbraceJoin
         this.originalEvent = event
     }
 
@@ -139,19 +136,6 @@ export class EventPipelineRunner {
     }
 
     async runEventPipelineSteps(event: PluginEvent): Promise<EventPipelineResult> {
-        if (
-            this.hub.poeEmbraceJoinForTeams?.(event.team_id) ||
-            (event.team_id <= this.hub.POE_WRITES_ENABLED_MAX_TEAM_ID && !this.hub.poeWritesExcludeTeams(event.team_id))
-        ) {
-            // https://docs.google.com/document/d/12Q1KcJ41TicIwySCfNJV5ZPKXWVtxT7pzpB3r9ivz_0
-            // We're not using the buffer anymore
-            // instead we'll (if within timeframe) merge into the newer personId
-
-            // TODO: remove this step and runner env once we're confident that the new
-            // ingestion pipeline is working well for all teams.
-            this.poEEmbraceJoin = true
-        }
-
         const kafkaAcks: Promise<void>[] = []
 
         let processPerson = true // The default.
@@ -264,9 +248,15 @@ export class EventPipelineRunner {
             kafkaAcks.push(...heatmapKafkaAcks)
         }
 
+        const enrichedIfErrorEvent = await this.runStep(
+            enrichExceptionEventStep,
+            [this, preparedEventWithoutHeatmaps],
+            event.team_id
+        )
+
         const [rawClickhouseEvent, eventAck] = await this.runStep(
             createEventStep,
-            [this, preparedEventWithoutHeatmaps, person, processPerson],
+            [this, enrichedIfErrorEvent, person, processPerson],
             event.team_id
         )
 

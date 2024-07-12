@@ -289,7 +289,7 @@ export const NewSurveyTargetingSection: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.survey('new?edit=true'))
         surveyLogic({ id: 'new' }).mount()
-        surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Targeting)
+        surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.DisplayConditions)
         surveyLogic({ id: 'new' }).actions.setSurveyValue('conditions', { url: 'kiki' })
         surveyLogic({ id: 'new' }).actions.setSurveyValue('targeting_flag_filters', {
             groups: [

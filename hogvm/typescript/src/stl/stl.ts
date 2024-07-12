@@ -149,6 +149,32 @@ export const STL: Record<string, (args: any[], name: string, timeout: number) =>
             return v.toString(16)
         })
     },
+    keys(args) {
+        const obj = args[0]
+        if (typeof obj === 'object') {
+            if (Array.isArray(obj)) {
+                return Array.from(obj.keys())
+            } else if (obj instanceof Map) {
+                return Array.from(obj.keys())
+            } else {
+                return Object.keys(obj)
+            }
+        }
+        return []
+    },
+    values(args) {
+        const obj = args[0]
+        if (typeof obj === 'object') {
+            if (Array.isArray(obj)) {
+                return [...obj]
+            } else if (obj instanceof Map) {
+                return Array.from(obj.values())
+            } else {
+                return Object.values(obj)
+            }
+        }
+        return []
+    },
 }
 
 export const ASYNC_STL: Record<string, (args: any[], name: string, timeout: number) => Promise<any>> = {

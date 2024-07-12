@@ -180,7 +180,7 @@ class FeatureFlag(models.Model):
                                 if not cohort:
                                     return self.conditions
                             else:
-                                cohort = Cohort.objects.using(using_database).get(
+                                cohort = Cohort.objects.db_manager(using_database).get(
                                     pk=cohort_id, team_id=self.team_id, deleted=False
                                 )
                                 seen_cohorts_cache[cohort_id] = cohort
@@ -284,7 +284,7 @@ class FeatureFlag(models.Model):
                             if not cohort:
                                 continue
                         else:
-                            cohort = Cohort.objects.using(using_database).get(
+                            cohort = Cohort.objects.db_manager(using_database).get(
                                 pk=cohort_id, team_id=self.team_id, deleted=False
                             )
                             seen_cohorts_cache[cohort_id] = cohort
@@ -407,7 +407,7 @@ def set_feature_flags_for_team_in_cache(
         all_feature_flags = feature_flags
     else:
         all_feature_flags = list(
-            FeatureFlag.objects.using(using_database).filter(team_id=team_id, active=True, deleted=False)
+            FeatureFlag.objects.db_manager(using_database).filter(team_id=team_id, active=True, deleted=False)
         )
 
     serialized_flags = MinimalFeatureFlagSerializer(all_feature_flags, many=True).data

@@ -4,8 +4,6 @@ import { clsx } from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { DatabaseTableTree, TreeItem } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useState } from 'react'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -65,7 +63,6 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
         useValues(dataWarehouseSceneLogic)
     const { selectRow, deleteDataWarehouseSavedQuery, deleteDataWarehouseTable, toggleSchemaModal } =
         useActions(dataWarehouseSceneLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const [collapsed, setCollapsed] = useState(false)
     const { toggleJoinTableModal, selectSourceTable } = useActions(viewLinkLogic)
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
@@ -159,10 +156,7 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                     })),
                     isLoading: databaseLoading,
                 },
-            ]
-
-            if (featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE]) {
-                items.push({
+                {
                     name: 'Views',
                     items: views.map((table) => ({
                         name: table.name,
@@ -176,8 +170,8 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                     })),
                     emptyLabel: <span className="text-muted">No views found</span>,
                     isLoading: databaseLoading,
-                })
-            }
+                },
+            ]
 
             return items
         }
@@ -203,10 +197,7 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                 })),
                 isLoading: databaseLoading,
             },
-        ]
-
-        if (featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE]) {
-            items.push({
+            {
                 name: 'Views',
                 items: views.map((table) => ({
                     table: table,
@@ -214,8 +205,8 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                 })),
                 emptyLabel: <span className="text-muted">No views found</span>,
                 isLoading: databaseLoading,
-            })
-        }
+            },
+        ]
 
         return items
     }

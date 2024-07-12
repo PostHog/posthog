@@ -83,12 +83,10 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
 
     return (
         <div className="flex items-start gap-2">
-            <FlaggedFeature flag={FEATURE_FLAGS.DATA_WAREHOUSE}>
-                {/* eslint-disable-next-line react/forbid-dom-props */}
-                <div className="flex max-sm:hidden" style={{ maxHeight: panelHeight }}>
-                    <DatabaseTableTreeWithItems inline />
-                </div>
-            </FlaggedFeature>
+            {/* eslint-disable-next-line react/forbid-dom-props */}
+            <div className="flex max-sm:hidden" style={{ maxHeight: panelHeight }}>
+                <DatabaseTableTreeWithItems inline />
+            </div>
             <div
                 data-attr="hogql-query-editor"
                 className={clsx(
@@ -212,46 +210,41 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                     {!props.setQuery ? 'No permission to update' : 'Update and run'}
                                 </LemonButton>
                             </div>
-                            {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] ? (
-                                <LemonButton
-                                    className="ml-2"
-                                    onClick={saveAsView}
-                                    type="primary"
-                                    center
-                                    disabledReason={
-                                        hasErrors
-                                            ? error ?? 'Query has errors'
-                                            : !isValidView
-                                            ? 'All fields must have an alias'
-                                            : ''
-                                    }
-                                    data-attr="hogql-query-editor-save-as-view"
-                                >
-                                    Save as view
-                                </LemonButton>
-                            ) : null}
-                            {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] && (
-                                <LemonButtonWithDropdown
-                                    className="ml-2"
-                                    icon={<IconInfo />}
-                                    type="secondary"
-                                    size="small"
-                                    dropdown={{
-                                        overlay: (
-                                            <div>
-                                                Save a query as a view that can be referenced in another query. This is
-                                                useful for modeling data and organizing large queries into readable
-                                                chunks.{' '}
-                                                <Link to="https://posthog.com/docs/data-warehouse">More Info</Link>{' '}
-                                            </div>
-                                        ),
-                                        placement: 'right-start',
-                                        fallbackPlacements: ['left-start'],
-                                        actionable: true,
-                                        closeParentPopoverOnClickInside: true,
-                                    }}
-                                />
-                            )}
+                            <LemonButton
+                                className="ml-2"
+                                onClick={saveAsView}
+                                type="primary"
+                                center
+                                disabledReason={
+                                    hasErrors
+                                        ? error ?? 'Query has errors'
+                                        : !isValidView
+                                        ? 'All fields must have an alias'
+                                        : ''
+                                }
+                                data-attr="hogql-query-editor-save-as-view"
+                            >
+                                Save as view
+                            </LemonButton>
+                            <LemonButtonWithDropdown
+                                className="ml-2"
+                                icon={<IconInfo />}
+                                type="secondary"
+                                size="small"
+                                dropdown={{
+                                    overlay: (
+                                        <div>
+                                            Save a query as a view that can be referenced in another query. This is
+                                            useful for modeling data and organizing large queries into readable chunks.{' '}
+                                            <Link to="https://posthog.com/docs/data-warehouse">More Info</Link>{' '}
+                                        </div>
+                                    ),
+                                    placement: 'right-start',
+                                    fallbackPlacements: ['left-start'],
+                                    actionable: true,
+                                    closeParentPopoverOnClickInside: true,
+                                }}
+                            />
                         </>
                     )}
                 </div>

@@ -1,4 +1,4 @@
-import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonDialog, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ExperimentsHog } from 'lib/components/hedgehogs'
@@ -112,7 +112,28 @@ export function Experiments(): JSX.Element {
                                     experiment?.end_date &&
                                     dayjs().isSameOrAfter(dayjs(experiment.end_date), 'day') && (
                                         <LemonButton
-                                            onClick={() => archiveExperiment(experiment.id as number)}
+                                            onClick={() => {
+                                                LemonDialog.open({
+                                                    title: 'Archive this experiment?',
+                                                    content: (
+                                                        <div className="text-sm text-muted">
+                                                            This action will move the experiment to the archived tab. It
+                                                            can be restored at any time.
+                                                        </div>
+                                                    ),
+                                                    primaryButton: {
+                                                        children: 'Archive',
+                                                        type: 'primary',
+                                                        onClick: () => archiveExperiment(experiment.id as number),
+                                                        size: 'small',
+                                                    },
+                                                    secondaryButton: {
+                                                        children: 'Cancel',
+                                                        type: 'tertiary',
+                                                        size: 'small',
+                                                    },
+                                                })
+                                            }}
                                             data-attr={`experiment-${experiment.id}-dropdown-archive`}
                                             fullWidth
                                         >
@@ -122,7 +143,28 @@ export function Experiments(): JSX.Element {
                                 <LemonDivider />
                                 <LemonButton
                                     status="danger"
-                                    onClick={() => deleteExperiment(experiment.id as number)}
+                                    onClick={() => {
+                                        LemonDialog.open({
+                                            title: 'Delete this experiment?',
+                                            content: (
+                                                <div className="text-sm text-muted">
+                                                    This action cannot be undone. All experiment data will be
+                                                    permanently removed.
+                                                </div>
+                                            ),
+                                            primaryButton: {
+                                                children: 'Delete',
+                                                type: 'primary',
+                                                onClick: () => deleteExperiment(experiment.id as number),
+                                                size: 'small',
+                                            },
+                                            secondaryButton: {
+                                                children: 'Cancel',
+                                                type: 'tertiary',
+                                                size: 'small',
+                                            },
+                                        })
+                                    }}
                                     data-attr={`experiment-${experiment.id}-dropdown-remove`}
                                     fullWidth
                                 >
