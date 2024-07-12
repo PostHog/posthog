@@ -8,9 +8,12 @@ import {
     HumanizedChange,
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
-import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
+
+import { Survey } from '~/types'
+
+const isEmptyOrUndefined = (value: any): boolean => value === undefined || value === null || value === ''
 
 const nameOrLinkToSurvey = (
     id: string | undefined,
@@ -19,7 +22,6 @@ const nameOrLinkToSurvey = (
 ): string | JSX.Element => {
     const displayName = name || '(empty string)'
     if (activity === 'deleted') {
-        // Don't show a link to a deleted survey, since the user can't view it
         return <strong>{displayName}</strong>
     }
     return id ? <Link to={urls.survey(id)}>{displayName}</Link> : displayName
@@ -31,39 +33,38 @@ const surveyActionsMapping: Record<
 > = {
     name: function onName() {
         return {
-            description: [<>changed the name of survey:</>],
+            description: [<>changed the name</>],
         }
     },
     description: function onDescription() {
         return {
-            description: [<>updated the description of survey:</>],
+            description: [<>updated the description</>],
         }
     },
     type: function onType(change) {
         return {
             description: [
                 <>
-                    changed the survey type to <span className="highlighted-activity">{change?.after as string}</span>
+                    changed the type to <strong>{change?.after as string}</strong>
                 </>,
             ],
         }
     },
     questions: function onQuestions() {
         return {
-            description: [<>updated the questions of survey:</>],
+            description: [<>updated the questions</>],
         }
     },
     archived: function onArchived(change) {
         const isArchived = detectBoolean(change?.after)
-        const describeChange: string = isArchived ? 'archived' : 'unarchived'
         return {
-            description: [<>{describeChange}</>],
+            description: [isArchived ? <>archived</> : <>unarchived</>],
         }
     },
     start_date: function onStartDate(change) {
         if (change?.before === null && change?.after !== null) {
             return {
-                description: [<>launched survey:</>],
+                description: [<>launched</>],
             }
         }
         return null
@@ -71,24 +72,174 @@ const surveyActionsMapping: Record<
     end_date: function onEndDate(change) {
         if (change?.before === null && change?.after !== null) {
             return {
-                description: [<>stopped survey:</>],
+                description: [<>stopped</>],
             }
         }
         return null
     },
     appearance: function onAppearance() {
         return {
-            description: [<>customized the appearance of survey:</>],
+            description: [<>customized the appearance</>],
         }
     },
-    conditions: function onConditions() {
+    conditions: function onConditions(change) {
+        const beforeConditions = change?.before as Survey['conditions']
+        const afterConditions = change?.after as Survey['conditions']
+        const changes: JSX.Element[] = []
+
+        if (!isEmptyOrUndefined(beforeConditions?.url) || !isEmptyOrUndefined(afterConditions?.url)) {
+            if (isEmptyOrUndefined(beforeConditions?.url) && !isEmptyOrUndefined(afterConditions?.url)) {
+                changes.push(
+                    <>
+                        set URL condition to <strong>{afterConditions?.url}</strong>
+                    </>
+                )
+            } else if (!isEmptyOrUndefined(beforeConditions?.url) && isEmptyOrUndefined(afterConditions?.url)) {
+                changes.push(
+                    <>
+                        removed URL condition (was <strong>{beforeConditions?.url}</strong>)
+                    </>
+                )
+            } else if (beforeConditions?.url !== afterConditions?.url) {
+                changes.push(
+                    <>
+                        changed URL condition from{' '}
+                        {!isEmptyOrUndefined(beforeConditions?.url) ? (
+                            <strong>{beforeConditions?.url}</strong>
+                        ) : (
+                            <i>unset</i>
+                        )}{' '}
+                        to <strong>{afterConditions?.url}</strong>
+                    </>
+                )
+            }
+        }
+
+        if (!isEmptyOrUndefined(beforeConditions?.selector) || !isEmptyOrUndefined(afterConditions?.selector)) {
+            if (isEmptyOrUndefined(beforeConditions?.selector) && !isEmptyOrUndefined(afterConditions?.selector)) {
+                changes.push(
+                    <>
+                        set selector to <strong>{afterConditions?.selector}</strong>
+                    </>
+                )
+            } else if (
+                !isEmptyOrUndefined(beforeConditions?.selector) &&
+                isEmptyOrUndefined(afterConditions?.selector)
+            ) {
+                changes.push(
+                    <>
+                        removed selector (was <strong>{beforeConditions?.selector}</strong>)
+                    </>
+                )
+            } else if (beforeConditions?.selector !== afterConditions?.selector) {
+                changes.push(
+                    <>
+                        changed selector from{' '}
+                        {!isEmptyOrUndefined(beforeConditions?.selector) ? (
+                            <strong>{beforeConditions?.selector}</strong>
+                        ) : (
+                            <i>unset</i>
+                        )}{' '}
+                        to <strong>{afterConditions?.selector}</strong>
+                    </>
+                )
+            }
+        }
+
+        if (
+            !isEmptyOrUndefined(beforeConditions?.seenSurveyWaitPeriodInDays) ||
+            !isEmptyOrUndefined(afterConditions?.seenSurveyWaitPeriodInDays)
+        ) {
+            if (
+                isEmptyOrUndefined(beforeConditions?.seenSurveyWaitPeriodInDays) &&
+                !isEmptyOrUndefined(afterConditions?.seenSurveyWaitPeriodInDays)
+            ) {
+                changes.push(
+                    <>
+                        set wait period to <strong>{afterConditions?.seenSurveyWaitPeriodInDays} days</strong>
+                    </>
+                )
+            } else if (
+                !isEmptyOrUndefined(beforeConditions?.seenSurveyWaitPeriodInDays) &&
+                isEmptyOrUndefined(afterConditions?.seenSurveyWaitPeriodInDays)
+            ) {
+                changes.push(
+                    <>
+                        removed wait period (was <strong>{beforeConditions?.seenSurveyWaitPeriodInDays} days</strong>)
+                    </>
+                )
+            } else if (beforeConditions?.seenSurveyWaitPeriodInDays !== afterConditions?.seenSurveyWaitPeriodInDays) {
+                changes.push(
+                    <>
+                        changed wait period from{' '}
+                        {!isEmptyOrUndefined(beforeConditions?.seenSurveyWaitPeriodInDays) ? (
+                            <strong>{beforeConditions?.seenSurveyWaitPeriodInDays} days</strong>
+                        ) : (
+                            <i>unset</i>
+                        )}{' '}
+                        to <strong>{afterConditions?.seenSurveyWaitPeriodInDays} days</strong>
+                    </>
+                )
+            }
+        }
+
+        if (!isEmptyOrUndefined(beforeConditions?.urlMatchType) || !isEmptyOrUndefined(afterConditions?.urlMatchType)) {
+            if (beforeConditions?.urlMatchType !== afterConditions?.urlMatchType) {
+                changes.push(
+                    <>
+                        changed URL match type from{' '}
+                        {!isEmptyOrUndefined(beforeConditions?.urlMatchType) ? (
+                            <strong>{beforeConditions?.urlMatchType}</strong>
+                        ) : (
+                            <i>unset</i>
+                        )}{' '}
+                        to <strong>{afterConditions?.urlMatchType}</strong>
+                    </>
+                )
+            }
+        }
+
+        // Use JSON.stringify for deep comparison of objects
+        if (JSON.stringify(beforeConditions?.events) !== JSON.stringify(afterConditions?.events)) {
+            changes.push(<>modified event conditions</>)
+        }
+
+        return changes.length > 0
+            ? {
+                  description: changes,
+              }
+            : null
+    },
+    responses_limit: function onResponsesLimit(change) {
+        if (isEmptyOrUndefined(change?.after)) {
+            return {
+                description: [<>removed response limit</>],
+            }
+        }
         return {
-            description: [<>modified the display conditions of survey:</>],
+            description: [
+                <>
+                    set response limit to <strong>{change?.after as number}</strong>
+                </>,
+            ],
         }
     },
-    responses_limit: function onResponsesLimit() {
+    iteration_count: function onIterationCount(change) {
         return {
-            description: [<>modified the completion conditions of survey:</>],
+            description: [
+                <>
+                    changed the iteration count to <strong>{change?.after as number}</strong>
+                </>,
+            ],
+        }
+    },
+    iteration_frequency_days: function onIterationFrequency(change) {
+        return {
+            description: [
+                <>
+                    changed the iteration frequency to <strong>{change?.after as number} days</strong>
+                </>,
+            ],
         }
     },
 }
@@ -99,36 +250,31 @@ export function surveyActivityDescriber(logItem: ActivityLogItem, asNotification
         return { description: null }
     }
 
+    const user = <strong>{userNameForLogItem(logItem)}</strong>
+    const surveyLink = nameOrLinkToSurvey(logItem?.item_id, logItem?.detail.name, logItem.activity)
+
     if (logItem.activity === 'created') {
         return {
             description: (
-                <SentenceList
-                    listParts={[<>created a new survey:</>]}
-                    prefix={
-                        <>
-                            <strong>{userNameForLogItem(logItem)}</strong>
-                        </>
-                    }
-                    suffix={
-                        <>
-                            <strong>
-                                {nameOrLinkToSurvey(logItem?.item_id, logItem?.detail.name, logItem.activity)}
-                            </strong>
-                        </>
-                    }
-                />
+                <>
+                    {user} created {surveyLink}
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity === 'deleted') {
+        return {
+            description: (
+                <>
+                    {user} deleted {surveyLink}
+                </>
             ),
         }
     }
 
     if (logItem.activity === 'updated') {
-        let changes: Description[] = []
-        let changeSuffix: Description = (
-            <>
-                {asNotification && ' the survey '}
-                <strong>{nameOrLinkToSurvey(logItem?.item_id, logItem?.detail.name, logItem.activity)}</strong>
-            </>
-        )
+        const changes: { field: string; description: Description }[] = []
 
         for (const change of logItem.detail.changes || []) {
             if (!change?.field) {
@@ -136,37 +282,68 @@ export function surveyActivityDescriber(logItem: ActivityLogItem, asNotification
             }
 
             const possibleLogItem = surveyActionsMapping[change.field]?.(change, logItem)
-            if (possibleLogItem) {
-                const { description, suffix } = possibleLogItem
-                if (description) {
-                    changes = changes.concat(description)
-                }
-                if (suffix) {
-                    changeSuffix = suffix
+            if (possibleLogItem?.description) {
+                if (Array.isArray(possibleLogItem.description) && possibleLogItem.description.length > 1) {
+                    // This is for conditions, which may have multiple changes
+                    changes.push(
+                        ...possibleLogItem.description.map((desc) => ({
+                            field: 'conditions',
+                            description: desc,
+                        }))
+                    )
+                } else {
+                    changes.push({
+                        field: change.field,
+                        description: possibleLogItem.description[0],
+                    })
                 }
             }
         }
 
-        if (changes.length) {
+        if (changes.length === 1) {
+            const { field, description } = changes[0]
+            const preposition = field === 'conditions' ? 'for' : getPreposition(field)
             return {
                 description: (
-                    <SentenceList
-                        listParts={changes}
-                        prefix={
-                            <>
-                                <strong>{userNameForLogItem(logItem)}</strong>
-                            </>
-                        }
-                        suffix={changeSuffix}
-                    />
+                    <>
+                        {user} {description} {preposition} {surveyLink}
+                    </>
+                ),
+            }
+        } else if (changes.length > 1) {
+            return {
+                description: (
+                    <>
+                        {user} made multiple changes to {surveyLink}:
+                        <ul className="bullet-list">
+                            {changes.map(({ description }, index) => (
+                                <li key={index}>{description}</li>
+                            ))}
+                        </ul>
+                    </>
                 ),
             }
         }
     }
 
-    return defaultDescriber(
-        logItem,
-        asNotification,
-        nameOrLinkToSurvey(logItem?.item_id, logItem?.detail.name, logItem.activity)
-    )
+    return defaultDescriber(logItem, asNotification, surveyLink)
+}
+function getPreposition(field: string): string {
+    switch (field) {
+        case 'name':
+        case 'description':
+        case 'questions':
+        case 'appearance':
+        case 'type':
+            return 'of'
+        case 'responses_limit':
+        case 'iteration_count':
+        case 'iteration_frequency_days':
+            return 'for'
+        case 'archived':
+        case 'start_date':
+        case 'end_date':
+        default:
+            return 'of'
+    }
 }
