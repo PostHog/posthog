@@ -1,6 +1,6 @@
 import './CodeEditor.scss'
 
-import MonacoEditor, { type EditorProps, Monaco } from '@monaco-editor/react'
+import MonacoEditor, { type EditorProps, loader, Monaco } from '@monaco-editor/react'
 import { BuiltLogic, useMountedLogic, useValues } from 'kea'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
@@ -13,10 +13,15 @@ import * as hogQL from 'lib/monaco/languages/hogQL'
 import * as hogTemplate from 'lib/monaco/languages/hogTemplate'
 import { inStorybookTestRunner } from 'lib/utils'
 import { editor, editor as importedEditor, IDisposable } from 'monaco-editor'
+import * as monaco from 'monaco-editor'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { AnyDataNode, HogLanguage } from '~/queries/schema'
+
+if (loader) {
+    loader.config({ monaco })
+}
 
 export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> {
     queryKey?: string
