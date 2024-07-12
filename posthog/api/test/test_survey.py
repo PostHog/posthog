@@ -1173,7 +1173,6 @@ class TestSurvey(APIBaseTest):
         survey_id = response.json()["id"]
 
         self._assert_survey_activity(
-            survey_id,
             [
                 {
                     "user": {"first_name": self.user.first_name, "email": self.user.email},
@@ -1209,7 +1208,6 @@ class TestSurvey(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         self._assert_survey_activity(
-            survey.id,
             [
                 {
                     "user": {"first_name": self.user.first_name, "email": self.user.email},
@@ -1256,7 +1254,6 @@ class TestSurvey(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
         self._assert_survey_activity(
-            None,  # can't query directly for deleted survey
             [
                 {
                     "user": {"first_name": self.user.first_name, "email": self.user.email},
