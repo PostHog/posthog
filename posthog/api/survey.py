@@ -476,14 +476,29 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return Response(counts)
 
-    @action(methods=["GET"], detail=True)
+    @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
+    def all_activity(self, request: request.Request, **kwargs):
+        limit = int(request.query_params.get("limit", "10"))
+        page = int(request.query_params.get("page", "1"))
+
+        activity_page = load_activity(scope="Survey", team_id=self.team_id, limit=limit, page=page)
+
+        return activity_page_response(activity_page, limit, page, request)
+
+    @action(methods=["GET"], detail=True, required_scopes=["activity_log:read"])
     def activity(self, request: request.Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))
         page = int(request.query_params.get("page", "1"))
 
+        item_id = kwargs["pk"]
+
+        if not Survey.objects.filter(id=item_id, team_id=self.team_id).exists():
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
         activity_page = load_activity(
             scope="Survey",
             team_id=self.team_id,
+            item_ids=[item_id],
             limit=limit,
             page=page,
         )

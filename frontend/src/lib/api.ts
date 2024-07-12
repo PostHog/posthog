@@ -647,7 +647,7 @@ class ApiRequest {
         return this.surveys(teamId).addPathComponent(id)
     }
 
-    public surveyActivity(id: Survey['id'], teamId?: TeamType['id']): ApiRequest {
+    public surveyActivity(id: Survey['id'] | undefined, teamId?: TeamType['id']): ApiRequest {
         if (id) {
             return this.survey(id, teamId).addPathComponent('activity')
         }
