@@ -5,9 +5,8 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { isAnyPropertyfilter } from 'lib/components/PropertyFilters/utils'
-import { UniversalFiltersGroup, UniversalFilterValue } from 'lib/components/UniversalFilters/UniversalFilters'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
-import { isActionFilter, isEventFilter } from 'lib/components/UniversalFilters/utils'
+import { isActionFilter, isEventFilter, isRecordingPropertyFilter } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectClean, objectsEqual } from 'lib/utils'
@@ -128,8 +127,7 @@ const capturePartialFilters = (filters: Partial<RecordingFilters>): void => {
 }
 
 export function convertUniversalFiltersToLegacyFilters(universalFilters: RecordingUniversalFilters): RecordingFilters {
-    const nestedFilters = universalFilters.filter_group.values[0] as UniversalFiltersGroup
-    const filters = nestedFilters.values as UniversalFilterValue[]
+    const filters = filtersFromUniversalFilterGroups(universalFilters)
 
     const properties: AnyPropertyFilter[] = []
     const events: FilterType['events'] = []
@@ -187,7 +185,7 @@ export function convertUniversalFiltersToLegacyFilters(universalFilters: Recordi
         console_search_query,
         console_logs,
         snapshot_source,
-        operand: nestedFilters.type,
+        operand: universalFilters.filter_group.type,
     }
 }
 
@@ -684,6 +682,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
                 const eventFilters = filterValues.filter(isEventFilter)
                 const actionFilters = filterValues.filter(isActionFilter)
+                const hasVisitedPageFilter = filterValues
+                    .filter(isRecordingPropertyFilter)
+                    .some((f) => f.key === 'visited_page')
 
                 const hasEvents = !!eventFilters.length
                 const hasActions = !!actionFilters.length
@@ -693,7 +694,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     .filter(Boolean) as string[]
                 const hasSimpleEventsFilters = !!simpleEventsFilters.length
 
-                if (hasActions) {
+                if (hasActions || hasVisitedPageFilter) {
                     return { matchType: 'backend', filters }
                 }
                 if (!hasEvents) {

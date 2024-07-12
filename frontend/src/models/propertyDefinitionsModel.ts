@@ -115,43 +115,24 @@ const checkOrLoadPropertyDefinition = (
     return null
 }
 
-const getEndpoint = (
+const constructValuesEndpoint = (
+    endpoint: string | undefined,
     teamId: number,
     type: PropertyDefinitionType,
     propertyKey: string,
     eventNames: string[] | undefined,
     newInput: string | undefined
 ): string => {
+    const basePath =
+        type === PropertyDefinitionType.Session ? `api/projects/${teamId}/${type}s/values` : `api/${type}/values`
+    const path = endpoint ? endpoint : basePath + `?key=${encodeURIComponent(propertyKey)}`
+
     let eventParams = ''
     for (const eventName of eventNames || []) {
         eventParams += `&event_name=${eventName}`
     }
 
-    if (type === PropertyDefinitionType.Session) {
-        if (propertyKey === 'visited_page') {
-            return (
-                'api/event/values?key=' +
-                encodeURIComponent('$current_url') +
-                (newInput ? '&value=' + encodeURIComponent(newInput) : '')
-            )
-        }
-
-        return (
-            `api/projects/${teamId}/${type}s/values/?key=` +
-            encodeURIComponent(propertyKey) +
-            (newInput ? '&value=' + encodeURIComponent(newInput) : '') +
-            eventParams
-        )
-    }
-
-    return (
-        'api/' +
-        type +
-        '/values/?key=' +
-        encodeURIComponent(propertyKey) +
-        (newInput ? '&value=' + encodeURIComponent(newInput) : '') +
-        eventParams
-    )
+    return path + (newInput ? '&value=' + encodeURIComponent(newInput) : '') + eventParams
 }
 
 export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
@@ -369,7 +350,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             }
 
             const propValues: PropValue[] = await api.get(
-                endpoint || getEndpoint(values.currentTeamId, type, propertyKey, eventNames, newInput),
+                constructValuesEndpoint(endpoint, values.currentTeamId, type, propertyKey, eventNames, newInput),
                 methodOptions
             )
             breakpoint()
