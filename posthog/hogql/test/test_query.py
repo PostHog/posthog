@@ -18,7 +18,7 @@ from posthog.models.utils import UUIDT, uuid7
 from posthog.session_recordings.queries.test.session_replay_sql import (
     produce_replay_summary,
 )
-from posthog.schema import HogQLFilters, EventPropertyFilter, DateRange, QueryTiming
+from posthog.schema import HogQLFilters, EventPropertyFilter, DateRange, QueryTiming, SessionPropertyFilter
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.base import (
     APIBaseTest,
@@ -1436,6 +1436,74 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             f"SELECT event FROM events LIMIT 100 UNION ALL SELECT event FROM events LIMIT 100",
         )
         assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_hogql_query_session_filters(self):
+        with freeze_time("2024-07-05"):
+            s1 = str(uuid7("2024-07-03", 42))
+            s2 = str(uuid7("2024-07-04", 43))
+            _create_event(
+                distinct_id=s1,
+                event="$pageview",
+                team=self.team,
+                properties={"$session_id": s1, "$current_url": "https://example.com/1"},
+            )
+            _create_event(
+                distinct_id=s2,
+                event="$pageview",
+                team=self.team,
+                properties={"$session_id": s2, "$current_url": "https://example.com/2"},
+            )
+            query = "SELECT session_id, $entry_current_url from sessions WHERE {filters}"
+            filters = HogQLFilters(
+                properties=[
+                    SessionPropertyFilter(key="$entry_current_url", operator="exact", value="https://example.com/1")
+                ]
+            )
+            response = execute_hogql_query(
+                query,
+                team=self.team,
+                filters=filters,
+                placeholders={},
+                pretty=False,
+            )
+            assert response.hogql is not None
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
+            self.assertEqual(response.results, [(s1, "https://example.com/1")])
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_hogql_query_filters_session_date_range(self):
+        with freeze_time("2024-07-05"):
+            s1 = str(uuid7("2024-07-03", 42))
+            s2 = str(uuid7("2024-07-05", 43))
+            _create_event(
+                distinct_id=s1,
+                event="$pageview",
+                team=self.team,
+                properties={"$session_id": s1, "$current_url": "https://example.com/1"},
+                timestamp="2024-07-03T00:00:00Z",
+            )
+            _create_event(
+                distinct_id=s2,
+                event="$pageview",
+                team=self.team,
+                properties={"$session_id": s2, "$current_url": "https://example.com/2"},
+                timestamp="2024-07-05T00:00:00Z",
+            )
+            query = "SELECT session_id, $entry_current_url from sessions WHERE {filters}"
+            filters = HogQLFilters(dateRange=DateRange(date_from="2024-07-04", date_to="2024-07-06"))
+            response = execute_hogql_query(
+                query,
+                team=self.team,
+                filters=filters,
+                placeholders={},
+                pretty=False,
+            )
+            assert response.hogql is not None
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
+            self.assertEqual(response.results, [(s2, "https://example.com/2")])
 
     def test_events_sessions_table(self):
         with freeze_time("2020-01-10 12:00:00"):

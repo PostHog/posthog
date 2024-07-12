@@ -14,7 +14,6 @@ import {
     PluginConfigTypeNew,
     PluginConfigWithPluginInfoNew,
     PluginType,
-    ProductKey,
 } from '~/types'
 
 import type { pipelineDestinationsLogicType } from './destinationsLogicType'
@@ -225,26 +224,20 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                 )
 
                 const rawDestinations: (PluginConfigWithPluginInfoNew | BatchExportConfiguration | HogFunctionType)[] =
-                    Object.values(pluginConfigs)
-                        .map<PluginConfigWithPluginInfoNew | BatchExportConfiguration | HogFunctionType>(
-                            (pluginConfig) => ({
+                    ([] as (PluginConfigWithPluginInfoNew | BatchExportConfiguration | HogFunctionType)[])
+                        .concat(hogFunctions)
+                        .concat(
+                            Object.values(pluginConfigs).map((pluginConfig) => ({
                                 ...pluginConfig,
                                 plugin_info: plugins[pluginConfig.plugin] || null,
-                            })
+                            }))
                         )
                         .concat(rawBatchExports)
-                        .concat(hogFunctions)
                 const convertedDestinations = rawDestinations.map((d) =>
                     convertToPipelineNode(d, PipelineStage.Destination)
                 )
                 const enabledFirst = convertedDestinations.sort((a, b) => Number(b.enabled) - Number(a.enabled))
                 return enabledFirst
-            },
-        ],
-        shouldShowProductIntroduction: [
-            (s) => [s.user],
-            (user): boolean => {
-                return !user?.has_seen_product_intro_for?.[ProductKey.PIPELINE_DESTINATIONS]
             },
         ],
     }),

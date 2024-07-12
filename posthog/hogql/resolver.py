@@ -18,8 +18,9 @@ from posthog.hogql.functions.action import matches_action
 from posthog.hogql.functions.cohort import cohort_query_node
 from posthog.hogql.functions.mapping import validate_function_args, HOGQL_CLICKHOUSE_FUNCTIONS, compare_types
 from posthog.hogql.functions.sparkline import sparkline
+from posthog.hogql.hogqlx import convert_to_hx, HOGQLX_COMPONENTS
 from posthog.hogql.parser import parse_select
-from posthog.hogql.resolver_utils import convert_hogqlx_tag, lookup_cte_by_name, lookup_field_by_name
+from posthog.hogql.resolver_utils import expand_hogqlx_query, lookup_cte_by_name, lookup_field_by_name
 from posthog.hogql.visitor import CloningVisitor, clone_expr, TraversingVisitor
 from posthog.models.utils import UUIDT
 from posthog.hogql.database.schema.events import EventsTable
@@ -277,11 +278,11 @@ class Resolver(CloningVisitor):
         scope = self.scopes[-1]
 
         if isinstance(node.table, ast.HogQLXTag):
-            node.table = convert_hogqlx_tag(node.table, self.context.team_id)
+            node.table = expand_hogqlx_query(node.table, self.context.team_id)
 
         # If selecting from a CTE, expand and visit the new node
         if isinstance(node.table, ast.Field) and len(node.table.chain) == 1:
-            table_name = node.table.chain[0]
+            table_name = str(node.table.chain[0])
             cte = lookup_cte_by_name(self.scopes, table_name)
             if cte:
                 node = cast(ast.JoinExpr, clone_expr(node))
@@ -295,7 +296,7 @@ class Resolver(CloningVisitor):
                 return response
 
         if isinstance(node.table, ast.Field):
-            table_name = node.table.chain[0]
+            table_name = str(node.table.chain[0])
             table_alias = node.alias or table_name
             if table_alias in scope.tables:
                 raise QueryError(f'Already have joined a table called "{table_alias}". Can\'t redefine.')
@@ -407,7 +408,9 @@ class Resolver(CloningVisitor):
             raise QueryError(f"A {type(node.table).__name__} cannot be used as a SELECT source")
 
     def visit_hogqlx_tag(self, node: ast.HogQLXTag):
-        return self.visit(convert_hogqlx_tag(node, self.context.team_id))
+        if node.kind in HOGQLX_COMPONENTS:
+            return self.visit(convert_to_hx(node))
+        return self.visit(expand_hogqlx_query(node, self.context.team_id))
 
     def visit_alias(self, node: ast.Alias):
         """Visit column aliases. SELECT 1, (select 3 as y) as x."""
@@ -587,6 +590,29 @@ class Resolver(CloningVisitor):
                 return response
 
         if not type:
+            if self.context.globals is not None and name in self.context.globals:
+                parsed_chain: list[str] = []
+                value = self.context.globals
+                for link in node.chain:
+                    parsed_chain.append(str(link))
+                    if isinstance(value, dict):
+                        value = value.get(str(link), None)
+                    elif isinstance(value, list):
+                        try:
+                            value = value[int(link)]
+                        except (ValueError, IndexError):
+                            raise QueryError(f"Cannot resolve field: {'.'.join(parsed_chain)}")
+                    else:
+                        raise QueryError(f"Cannot resolve field: {'.'.join(parsed_chain)}")
+                global_type = resolve_constant_data_type(value)
+                if global_type:
+                    self.context.add_notice(
+                        start=node.start,
+                        end=node.end,
+                        message=f"Field '{'.'.join([str(c) for c in node.chain])}' is of type '{global_type.print_type()}'",
+                    )
+                return ast.Constant(value=value, type=global_type)
+
             if self.dialect == "clickhouse":
                 raise QueryError(f"Unable to resolve field: {name}")
             else:
@@ -627,7 +653,14 @@ class Resolver(CloningVisitor):
             if self.dialect == "clickhouse":
                 new_expr = clone_expr(node.type.expr)
                 new_node: ast.Expr = ast.Alias(alias=node.type.name, expr=new_expr, hidden=True)
+
+                if node.type.isolate_scope:
+                    self.scopes.append(ast.SelectQueryType(tables={node.type.name: node.type.table_type}))
+
                 new_node = self.visit(new_node)
+
+                if node.type.isolate_scope:
+                    self.scopes.pop()
                 return new_node
 
         if isinstance(node.type, ast.FieldType) and node.start is not None and node.end is not None:
@@ -702,6 +735,9 @@ class Resolver(CloningVisitor):
             return tuple
 
         return node
+
+    def visit_dict(self, node: ast.Dict):
+        return self.visit(convert_to_hx(node))
 
     def visit_constant(self, node: ast.Constant):
         node = super().visit_constant(node)

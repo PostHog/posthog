@@ -81,7 +81,11 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
     def destroy(self, request, *args, pk=None, **kwargs):
         record = self.organization.proxy_records.get(id=pk)
 
-        if record and record.status in (ProxyRecord.Status.WAITING, ProxyRecord.Status.ERRORING):
+        if record and record.status in (
+            ProxyRecord.Status.WAITING,
+            ProxyRecord.Status.ERRORING,
+            ProxyRecord.Status.TIMED_OUT,
+        ):
             record.delete()
         elif record:
             temporal = sync_connect()

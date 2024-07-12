@@ -1,6 +1,7 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import api from 'lib/api'
+import posthog from 'posthog-js'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
 import { DatabaseSchemaTable, DatabaseSerializedFieldType } from '~/queries/schema'
@@ -189,6 +190,13 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             try {
                 await api.dataWarehouseTables.updateSchema(tableId, schemaUpdates)
                 actions.loadDatabase()
+
+                if (values.selectedRow) {
+                    posthog.capture('source schema saved', {
+                        name: values.selectedRow.name,
+                        tableType: values.selectedRow.type,
+                    })
+                }
             } catch (e: any) {
                 lemonToast.error(e.message)
                 actions.setEditSchemaIsLoading(false)
@@ -211,6 +219,14 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             await api.dataWarehouseTables.delete(tableId)
             actions.selectRow(null)
             lemonToast.success('Table successfully deleted')
+        },
+        toggleSchemaModal: () => {
+            if (values.schemaModalIsOpen && values.selectedRow) {
+                posthog.capture('source schema viewed', {
+                    name: values.selectedRow.name,
+                    tableType: values.selectedRow.type,
+                })
+            }
         },
     })),
 ])

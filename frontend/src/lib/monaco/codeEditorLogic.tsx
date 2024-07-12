@@ -11,10 +11,19 @@ import { loaders } from 'kea-loaders'
 import { editor, MarkerSeverity } from 'monaco-editor'
 
 import { performQuery } from '~/queries/query'
-import { DataNode, HogQLFilters, HogQLMetadata, HogQLMetadataResponse, HogQLNotice, NodeKind } from '~/queries/schema'
-import { isActorsQuery, isHogQLQuery } from '~/queries/utils'
+import {
+    AnyDataNode,
+    HogLanguage,
+    HogQLFilters,
+    HogQLMetadata,
+    HogQLMetadataResponse,
+    HogQLNotice,
+    NodeKind,
+} from '~/queries/schema'
 
 import type { codeEditorLogicType } from './codeEditorLogicType'
+
+const METADATA_LANGUAGES = [HogLanguage.hog, HogLanguage.hogQL, HogLanguage.hogQLExpr, HogLanguage.hogTemplate]
 
 export interface ModelMarker extends editor.IMarkerData {
     hogQLFix?: string
@@ -25,19 +34,12 @@ export interface ModelMarker extends editor.IMarkerData {
 export interface CodeEditorLogicProps {
     key: string
     query: string
-    language?: string
-    metadataSource?: DataNode
+    language: string
+    sourceQuery?: AnyDataNode
     metadataFilters?: HogQLFilters
     monaco?: Monaco | null
     editor?: editor.IStandaloneCodeEditor | null
-}
-
-export function metadataSourceToQuery(metadataSource?: DataNode): string {
-    return metadataSource && isActorsQuery(metadataSource)
-        ? 'select * from persons'
-        : isHogQLQuery(metadataSource)
-        ? metadataSource.query
-        : 'select * from events'
+    globals?: Record<string, any>
 }
 
 export const codeEditorLogic = kea<codeEditorLogicType>([
@@ -53,11 +55,7 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
             {
                 reloadMetadata: async (_, breakpoint) => {
                     const model = props.editor?.getModel()
-                    if (
-                        !model ||
-                        !props.monaco ||
-                        !['hog', 'hogQL', 'hogQLExpr', 'hogTemplate'].includes(props.language ?? '')
-                    ) {
+                    if (!model || !props.monaco || !METADATA_LANGUAGES.includes(props.language as HogLanguage)) {
                         return null
                     }
                     await breakpoint(300)
@@ -65,25 +63,14 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                     if (query === '') {
                         return null
                     }
-                    const response = await performQuery<HogQLMetadata>(
-                        props.language === 'hogQL'
-                            ? { kind: NodeKind.HogQLMetadata, select: query, filters: props.metadataFilters }
-                            : props.language === 'hogTemplate'
-                            ? {
-                                  kind: NodeKind.HogQLMetadata,
-                                  template: query,
-                                  exprSource: metadataSourceToQuery(props.metadataSource),
-                                  filters: props.metadataFilters,
-                              }
-                            : props.language === 'hogQLExpr'
-                            ? {
-                                  kind: NodeKind.HogQLMetadata,
-                                  expr: query,
-                                  exprSource: metadataSourceToQuery(props.metadataSource),
-                                  filters: props.metadataFilters,
-                              }
-                            : { kind: NodeKind.HogQLMetadata, program: query, filters: props.metadataFilters }
-                    )
+                    const response = await performQuery<HogQLMetadata>({
+                        kind: NodeKind.HogQLMetadata,
+                        language: props.language as HogLanguage,
+                        query: query,
+                        filters: props.metadataFilters,
+                        globals: props.globals,
+                        sourceQuery: props.sourceQuery,
+                    })
                     breakpoint()
                     return [query, response]
                 },

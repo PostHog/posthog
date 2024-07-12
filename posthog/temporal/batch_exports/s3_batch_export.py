@@ -45,7 +45,7 @@ from posthog.temporal.batch_exports.temporary_file import (
 from posthog.temporal.batch_exports.utils import (
     apeek_first_and_rewind,
     cast_record_batch_json_columns,
-    try_set_batch_export_run_to_running,
+    set_status_to_running_task,
 )
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -440,97 +440,99 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
         get_s3_key(inputs),
     )
 
-    async with Heartbeater() as heartbeater:
-        await try_set_batch_export_run_to_running(run_id=inputs.run_id, logger=logger)
+    async with (
+        Heartbeater() as heartbeater,
+        set_status_to_running_task(run_id=inputs.run_id, logger=logger),
+        get_client(team_id=inputs.team_id) as client,
+    ):
+        if not await client.is_alive():
+            raise ConnectionError("Cannot establish connection to ClickHouse")
 
-        async with get_client(team_id=inputs.team_id) as client:
-            if not await client.is_alive():
-                raise ConnectionError("Cannot establish connection to ClickHouse")
+        s3_upload, interval_start = await initialize_and_resume_multipart_upload(inputs)
 
-            s3_upload, interval_start = await initialize_and_resume_multipart_upload(inputs)
+        model: BatchExportModel | BatchExportSchema | None = None
+        if inputs.batch_export_schema is None and "batch_export_model" in {
+            field.name for field in dataclasses.fields(inputs)
+        }:
+            model = inputs.batch_export_model
+        else:
+            model = inputs.batch_export_schema
 
-            model: BatchExportModel | BatchExportSchema | None = None
-            if inputs.batch_export_schema is None and "batch_export_model" in {
-                field.name for field in dataclasses.fields(inputs)
-            }:
-                model = inputs.batch_export_model
-            else:
-                model = inputs.batch_export_schema
+        record_iterator = iter_model_records(
+            model=model,
+            client=client,
+            team_id=inputs.team_id,
+            interval_start=interval_start,
+            interval_end=inputs.data_interval_end,
+            exclude_events=inputs.exclude_events,
+            include_events=inputs.include_events,
+            is_backfill=inputs.is_backfill,
+            destination_default_fields=s3_default_fields(),
+        )
 
-            record_iterator = iter_model_records(
-                model=model,
-                client=client,
-                team_id=inputs.team_id,
-                interval_start=interval_start,
-                interval_end=inputs.data_interval_end,
-                exclude_events=inputs.exclude_events,
-                include_events=inputs.include_events,
-                is_backfill=inputs.is_backfill,
-                destination_default_fields=s3_default_fields(),
+        first_record_batch, record_iterator = await apeek_first_and_rewind(record_iterator)
+
+        records_completed = 0
+        if first_record_batch is None:
+            return records_completed
+
+        async with s3_upload as s3_upload:
+
+            async def flush_to_s3(
+                local_results_file,
+                records_since_last_flush: int,
+                bytes_since_last_flush: int,
+                flush_counter: int,
+                last_inserted_at: dt.datetime,
+                last: bool,
+            ):
+                logger.debug(
+                    "Uploading %s part %s containing %s records with size %s bytes",
+                    "last " if last else "",
+                    s3_upload.part_number + 1,
+                    records_since_last_flush,
+                    bytes_since_last_flush,
+                )
+
+                await s3_upload.upload_part(local_results_file)
+                rows_exported.add(records_since_last_flush)
+                bytes_exported.add(bytes_since_last_flush)
+
+                heartbeater.details = (str(last_inserted_at), s3_upload.to_state())
+
+            first_record_batch = cast_record_batch_json_columns(first_record_batch)
+            column_names = first_record_batch.column_names
+            column_names.pop(column_names.index("_inserted_at"))
+
+            schema = pa.schema(
+                # NOTE: For some reason, some batches set non-nullable fields as non-nullable, whereas other
+                # record batches have them as nullable.
+                # Until we figure it out, we set all fields to nullable. There are some fields we know
+                # are not nullable, but I'm opting for the more flexible option until we out why schemas differ
+                # between batches.
+                [field.with_nullable(True) for field in first_record_batch.select(column_names).schema]
             )
 
-            first_record_batch, record_iterator = await apeek_first_and_rewind(record_iterator)
+            writer = get_batch_export_writer(
+                inputs,
+                flush_callable=flush_to_s3,
+                max_bytes=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
+                schema=schema,
+            )
 
-            records_completed = 0
-            if first_record_batch is None:
-                return records_completed
+            async with writer.open_temporary_file():
+                rows_exported = get_rows_exported_metric()
+                bytes_exported = get_bytes_exported_metric()
 
-            async with s3_upload as s3_upload:
+                async for record_batch in record_iterator:
+                    record_batch = cast_record_batch_json_columns(record_batch)
 
-                async def flush_to_s3(
-                    local_results_file,
-                    records_since_last_flush: int,
-                    bytes_since_last_flush: int,
-                    last_inserted_at: dt.datetime,
-                    last: bool,
-                ):
-                    logger.debug(
-                        "Uploading %s part %s containing %s records with size %s bytes",
-                        "last " if last else "",
-                        s3_upload.part_number + 1,
-                        records_since_last_flush,
-                        bytes_since_last_flush,
-                    )
+                    await writer.write_record_batch(record_batch)
 
-                    await s3_upload.upload_part(local_results_file)
-                    rows_exported.add(records_since_last_flush)
-                    bytes_exported.add(bytes_since_last_flush)
+            records_completed = writer.records_total
+            await s3_upload.complete()
 
-                    heartbeater.details = (str(last_inserted_at), s3_upload.to_state())
-
-                first_record_batch = cast_record_batch_json_columns(first_record_batch)
-                column_names = first_record_batch.column_names
-                column_names.pop(column_names.index("_inserted_at"))
-
-                schema = pa.schema(
-                    # NOTE: For some reason, some batches set non-nullable fields as non-nullable, whereas other
-                    # record batches have them as nullable.
-                    # Until we figure it out, we set all fields to nullable. There are some fields we know
-                    # are not nullable, but I'm opting for the more flexible option until we out why schemas differ
-                    # between batches.
-                    [field.with_nullable(True) for field in first_record_batch.select(column_names).schema]
-                )
-
-                writer = get_batch_export_writer(
-                    inputs,
-                    flush_callable=flush_to_s3,
-                    max_bytes=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
-                    schema=schema,
-                )
-
-                async with writer.open_temporary_file():
-                    rows_exported = get_rows_exported_metric()
-                    bytes_exported = get_bytes_exported_metric()
-
-                    async for record_batch in record_iterator:
-                        record_batch = cast_record_batch_json_columns(record_batch)
-
-                        await writer.write_record_batch(record_batch)
-
-                records_completed = writer.records_total
-                await s3_upload.complete()
-
-            return records_completed
+        return records_completed
 
 
 def get_batch_export_writer(

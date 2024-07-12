@@ -83,6 +83,48 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
         def test_null(self):
             self.assertEqual(self._expr("null"), ast.Constant(value=None))
 
+        def test_nullish(self):
+            self.assertEqual(
+                self._expr("1 ?? 2"),
+                ast.Call(
+                    name="ifNull",
+                    args=[
+                        ast.Constant(value=1),
+                        ast.Constant(value=2),
+                    ],
+                ),
+            )
+
+        def test_null_property(self):
+            self.assertEqual(
+                self._expr("a?.b"),
+                ast.ArrayAccess(
+                    array=ast.Field(chain=["a"]),
+                    property=ast.Constant(value="b"),
+                    nullish=True,
+                ),
+            )
+
+        def test_null_tuple(self):
+            self.assertEqual(
+                self._expr("a?.1"),
+                ast.TupleAccess(
+                    tuple=ast.Field(chain=["a"]),
+                    index=1,
+                    nullish=True,
+                ),
+            )
+
+        def test_null_property_nested(self):
+            self.assertEqual(
+                self._expr("a?.b?.['c']"),
+                ast.ArrayAccess(
+                    array=ast.ArrayAccess(array=ast.Field(chain=["a"]), property=ast.Constant(value="b"), nullish=True),
+                    property=ast.Constant(value="c"),
+                    nullish=True,
+                ),
+            )
+
         def test_conditional(self):
             self.assertEqual(
                 self._expr("1 > 2 ? 1 : 2"),
@@ -2211,5 +2253,46 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             with self.assertRaises(SyntaxError) as e:
                 self._select("select } from events")
             self.assertEqual(str(e.exception), "Unmatched curly bracket")
+
+        def test_for_in_loops(self):
+            code = """
+                for (let i in [1, 2, 3]) {
+                    print(a);
+                }
+            """
+            program = self._program(code)
+            expected = ast.Program(
+                declarations=[
+                    ast.ForInStatement(
+                        keyVar=None,
+                        valueVar="i",
+                        expr=ast.Array(exprs=[Constant(value=1), Constant(value=2), Constant(value=3)]),
+                        body=ast.Block(
+                            declarations=[ast.ExprStatement(expr=Call(name="print", args=[Field(chain=["a"])]))]
+                        ),
+                    )
+                ]
+            )
+            self.assertEqual(program, expected)
+
+            code = """
+                for (let key, value in [1, 2, 3]) {
+                    print(a);
+                }
+            """
+            program = self._program(code)
+            expected = ast.Program(
+                declarations=[
+                    ast.ForInStatement(
+                        keyVar="key",
+                        valueVar="value",
+                        expr=ast.Array(exprs=[Constant(value=1), Constant(value=2), Constant(value=3)]),
+                        body=ast.Block(
+                            declarations=[ast.ExprStatement(expr=Call(name="print", args=[Field(chain=["a"])]))]
+                        ),
+                    )
+                ]
+            )
+            self.assertEqual(program, expected)
 
     return TestParser

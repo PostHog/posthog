@@ -286,7 +286,11 @@ def create_hogql_database(
     warehouse_tables: dict[str, Table] = {}
     views: dict[str, Table] = {}
 
-    for table in DataWarehouseTable.objects.filter(team_id=team.pk).exclude(deleted=True):
+    for table in (
+        DataWarehouseTable.objects.filter(team_id=team.pk)
+        .exclude(deleted=True)
+        .select_related("credential", "external_data_source")
+    ):
         s3_table = table.hogql_definition(modifiers)
 
         # If the warehouse table has no _properties_ field, then set it as a virtual table
@@ -365,7 +369,9 @@ def create_hogql_database(
                     warehouse_tables,
                     lambda team, warehouse_modifier: DataWarehouseTable.objects.filter(
                         team_id=team.pk, name=warehouse_modifier.table_name
-                    ).latest("created_at"),
+                    )
+                    .select_related("credential", "external_data_source")
+                    .latest("created_at"),
                 )
 
     database.add_warehouse_tables(**warehouse_tables)
@@ -487,7 +493,7 @@ def serialize_database(
     warehouse_table_names = context.database.get_warehouse_tables()
     warehouse_tables = (
         list(
-            DataWarehouseTable.objects.prefetch_related("external_data_source")
+            DataWarehouseTable.objects.select_related("credential", "external_data_source")
             .filter(Q(deleted=False) | Q(deleted__isnull=True), team_id=context.team_id, name__in=warehouse_table_names)
             .all()
         )

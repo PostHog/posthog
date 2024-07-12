@@ -1,5 +1,6 @@
 import { ComponentType, HTMLProps } from 'react'
 
+import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import { DataTableNode } from '~/queries/schema'
 import { ChartDisplayType, GraphPointPayload, InsightLogicProps, TrendResult } from '~/types'
 
@@ -20,6 +21,8 @@ export interface QueryContext {
     chartRenderingMetadata?: ChartRenderingMetadata
     /** Whether queries should always be refreshed. */
     alwaysRefresh?: boolean
+    /** Extra source feature for Data Tables */
+    extraDataTableQueryFeatures?: QueryFeature[]
 }
 
 /** Pass custom rendering metadata to specific kinds of charts **/

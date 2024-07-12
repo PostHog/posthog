@@ -17,6 +17,7 @@ identifierList: identifier (COMMA identifier)* COMMA?;
 statement      : returnStmt
                | ifStmt
                | whileStmt
+               | forInStmt
                | forStmt
                | funcStmt
                | varAssignment
@@ -33,6 +34,7 @@ forStmt        : FOR LPAREN
                  condition=expression? SEMICOLON
                  (incrementVarDeclr=varDecl | incrementVarAssignment=varAssignment | incrementExpression=expression)?
                  RPAREN statement SEMICOLON?;
+forInStmt      : FOR LPAREN LET identifier (COMMA identifier)? IN expression RPAREN statement SEMICOLON?;
 funcStmt       : FN identifier LPAREN identifierList? RPAREN block;
 varAssignment  : expression COLON EQ_SINGLE expression ;
 exprStmt       : expression SEMICOLON?;
@@ -155,6 +157,9 @@ columnExpr
     | columnExpr LBRACKET columnExpr RBRACKET                                             # ColumnExprArrayAccess
     | columnExpr DOT DECIMAL_LITERAL                                                      # ColumnExprTupleAccess
     | columnExpr DOT identifier                                                           # ColumnExprPropertyAccess
+    | columnExpr NULL_PROPERTY LBRACKET columnExpr RBRACKET                               # ColumnExprNullArrayAccess
+    | columnExpr NULL_PROPERTY DECIMAL_LITERAL                                            # ColumnExprNullTupleAccess
+    | columnExpr NULL_PROPERTY identifier                                                 # ColumnExprNullPropertyAccess
     | DASH columnExpr                                                                     # ColumnExprNegate
     | left=columnExpr ( operator=ASTERISK                                                 // *
                  | operator=SLASH                                                         // /

@@ -74,6 +74,7 @@ class UsageReportCounters:
     event_count_in_period: int
     enhanced_persons_event_count_in_period: int
     event_count_with_groups_in_period: int
+    anonymous_personful_event_count_in_period: int
     # Recordings
     recording_count_in_period: int
     mobile_recording_count_in_period: int
@@ -418,6 +419,41 @@ def get_teams_with_billable_enhanced_persons_event_count_in_period(
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_anonymous_personful_event_count_in_period(
+    begin: datetime, end: datetime, count_distinct: bool = False
+) -> list[tuple[int, int]]:
+    # anonymous events that are still personfull.
+    # count only unique events
+    # Duplicate events will be eventually removed by ClickHouse and likely came from our library or pipeline.
+    # We shouldn't bill for these. However counting unique events is more expensive, and likely to fail on longer time ranges.
+    # So, we count uniques in small time periods only, controlled by the count_distinct parameter.
+    if count_distinct:
+        # Uses the same expression as the one used to de-duplicate events on the merge tree:
+        # https://github.com/PostHog/posthog/blob/master/posthog/models/event/sql.py#L92
+        distinct_expression = "distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)"
+    else:
+        distinct_expression = "1"
+
+    result = sync_execute(
+        f"""
+        SELECT team_id, count({distinct_expression}) as count
+        FROM events
+        WHERE timestamp between %(begin)s AND %(end)s
+            AND event != '$feature_flag_called' AND event NOT IN ('survey sent', 'survey shown', 'survey dismissed')
+            AND person_mode IN ('full', 'force_upgrade')
+            AND JSONExtractBool(properties, '$is_identified') = 0
+            AND JSONExtractString(properties, '$lib') = 'web'
+        GROUP BY team_id
+    """,
+        {"begin": begin, "end": end},
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
+    )
+    return result
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datetime) -> list[tuple[int, int]]:
     result = sync_execute(
         """
@@ -575,7 +611,7 @@ def get_teams_with_rows_synced_in_period(begin: datetime, end: datetime) -> list
         SELECT team, sum(rows_synced) FROM (
             SELECT JSONExtractString(properties, 'job_id') AS job_id, distinct_id AS team, any(JSONExtractInt(properties, 'count')) AS rows_synced
             FROM events
-            WHERE team_id = %(team_to_query)s AND event = '$data_sync_job_completed' AND parseDateTimeBestEffort(JSONExtractString(properties, 'start_time')) BETWEEN %(begin)s AND %(end)s
+            WHERE team_id = %(team_to_query)s AND event = '$data_sync_job_completed' AND JSONExtractString(properties, 'start_time') != '' AND parseDateTimeBestEffort(JSONExtractString(properties, 'start_time')) BETWEEN %(begin)s AND %(end)s
             GROUP BY job_id, team
         )
         GROUP BY team
@@ -647,6 +683,9 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
             period_start, period_end, count_distinct=True
         ),
         "teams_with_enhanced_persons_event_count_in_period": get_teams_with_billable_enhanced_persons_event_count_in_period(
+            period_start, period_end, count_distinct=True
+        ),
+        "teams_with_anonymous_personful_event_count_in_period": get_teams_with_anonymous_personful_event_count_in_period(
             period_start, period_end, count_distinct=True
         ),
         "teams_with_event_count_with_groups_in_period": get_teams_with_event_count_with_groups_in_period(
@@ -813,6 +852,9 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
     return UsageReportCounters(
         event_count_in_period=all_data["teams_with_event_count_in_period"].get(team.id, 0),
         enhanced_persons_event_count_in_period=all_data["teams_with_enhanced_persons_event_count_in_period"].get(
+            team.id, 0
+        ),
+        anonymous_personful_event_count_in_period=all_data["teams_with_anonymous_personful_event_count_in_period"].get(
             team.id, 0
         ),
         event_count_with_groups_in_period=all_data["teams_with_event_count_with_groups_in_period"].get(team.id, 0),

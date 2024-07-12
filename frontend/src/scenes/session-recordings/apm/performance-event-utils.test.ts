@@ -1,4 +1,4 @@
-import { matchNetworkEvents } from 'scenes/session-recordings/apm/performance-event-utils'
+import { getPerformanceEvents } from 'scenes/session-recordings/apm/performance-event-utils'
 
 const aSingleSnapshotWithNetworkPayloads = {
     windowId: '018d5247-079c-7126-8e43-464605576a62',
@@ -277,7 +277,7 @@ describe('performance-event-utils', () => {
         ])
         // there are 13 requests in the sample data
         // only 5 should remain after collapsing server timings
-        const actual = matchNetworkEvents(someData)
+        const actual = getPerformanceEvents(someData)
         // we're collapsing server timings into their parent, so we'll have no top-level server timings
         expect(actual.map((a) => a.entry_type)).toEqual(['navigation', 'resource', 'resource', 'resource', 'resource'])
 

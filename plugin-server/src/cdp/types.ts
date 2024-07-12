@@ -211,6 +211,7 @@ export type HogFunctionType = {
 
 export type HogFunctionInputType = {
     value: any
+    secret?: boolean
     bytecode?: HogBytecode | object
 }
 

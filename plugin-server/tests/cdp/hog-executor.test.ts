@@ -63,7 +63,9 @@ describe('Hog Executor', () => {
 
         it('can parse incoming messages correctly', () => {
             const globals = createHogExecutionGlobals()
-            const results = executor.executeFunctions(globals, executor.findMatchingFunctions(globals).functions)
+            const results = executor
+                .findMatchingFunctions(createHogExecutionGlobals())
+                .functions.map((x) => executor.executeFunction(globals, x) as HogFunctionInvocationResult)
             expect(results).toHaveLength(1)
             expect(results[0]).toMatchObject({
                 id: expect.any(String),
@@ -73,7 +75,9 @@ describe('Hog Executor', () => {
 
         it('collects logs from the function', () => {
             const globals = createHogExecutionGlobals()
-            const results = executor.executeFunctions(globals, executor.findMatchingFunctions(globals).functions)
+            const results = executor
+                .findMatchingFunctions(createHogExecutionGlobals())
+                .functions.map((x) => executor.executeFunction(globals, x) as HogFunctionInvocationResult)
             expect(results[0].logs).toMatchObject([
                 {
                     team_id: 1,
@@ -104,9 +108,33 @@ describe('Hog Executor', () => {
             )
         })
 
+        it('redacts secret values from the logs', () => {
+            const fn = createHogFunction({
+                ...HOG_EXAMPLES.input_printer,
+                ...HOG_INPUTS_EXAMPLES.secret_inputs,
+            })
+
+            mockFunctionManager.getTeamHogFunctions.mockReturnValue([fn])
+
+            const result = executor.executeFunction(createHogExecutionGlobals(), fn) as HogFunctionInvocationResult
+            expect(result.logs.map((x) => x.message)).toMatchInlineSnapshot(`
+                Array [
+                  "Executing function",
+                  "test",
+                  "{\\"nested\\":{\\"foo\\":\\"***REDACTED***\\"}}",
+                  "{\\"foo\\":\\"***REDACTED***\\"}",
+                  "substring: ***REDACTED***",
+                  "{\\"input_1\\":\\"test\\",\\"secret_input_2\\":{\\"foo\\":\\"***REDACTED***\\"},\\"secret_input_3\\":\\"***REDACTED***\\"}",
+                  "Function completed. Processing time 0ms",
+                ]
+            `)
+        })
+
         it('queues up an async function call', () => {
             const globals = createHogExecutionGlobals()
-            const results = executor.executeFunctions(globals, executor.findMatchingFunctions(globals).functions)
+            const results = executor
+                .findMatchingFunctions(createHogExecutionGlobals())
+                .functions.map((x) => executor.executeFunction(globals, x) as HogFunctionInvocationResult)
             expect(results[0]).toMatchObject({
                 id: results[0].id,
                 globals: {
@@ -163,7 +191,9 @@ describe('Hog Executor', () => {
         it('executes the full function in a loop', () => {
             const logs: HogFunctionLogEntry[] = []
             const globals = createHogExecutionGlobals()
-            const results = executor.executeFunctions(globals, executor.findMatchingFunctions(globals).functions)
+            const results = executor
+                .findMatchingFunctions(createHogExecutionGlobals())
+                .functions.map((x) => executor.executeFunction(globals, x) as HogFunctionInvocationResult)
             const splicedLogs = results[0].logs.splice(0, 100)
             logs.push(...splicedLogs)
 
@@ -225,7 +255,9 @@ describe('Hog Executor', () => {
 
             // Simulate the recusive loop
             const globals = createHogExecutionGlobals()
-            const results = executor.executeFunctions(globals, executor.findMatchingFunctions(globals).functions)
+            const results = executor
+                .findMatchingFunctions(createHogExecutionGlobals())
+                .functions.map((x) => executor.executeFunction(globals, x) as HogFunctionInvocationResult)
             expect(results).toHaveLength(1)
 
             // Run the result one time simulating a successful fetch
@@ -258,7 +290,9 @@ describe('Hog Executor', () => {
             mockFunctionManager.getTeamHogFunctions.mockReturnValue([fn])
 
             const globals = createHogExecutionGlobals()
-            const results = executor.executeFunctions(globals, executor.findMatchingFunctions(globals).functions)
+            const results = executor
+                .findMatchingFunctions(createHogExecutionGlobals())
+                .functions.map((x) => executor.executeFunction(globals, x) as HogFunctionInvocationResult)
             expect(results).toHaveLength(1)
             expect(results[0].error).toContain('Execution timed out after 0.1 seconds. Performed ')
 

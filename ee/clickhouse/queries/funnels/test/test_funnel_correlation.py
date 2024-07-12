@@ -819,7 +819,6 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
     @also_test_with_materialized_columns(
         event_properties=[],
         person_properties=["$browser"],
-        group_properties=[(0, "industry")],
         verify_no_jsonextract=False,
     )
     @also_test_with_person_on_events_v2

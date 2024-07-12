@@ -1,8 +1,9 @@
 import { lemonToast, Link } from '@posthog/lemon-ui'
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
+import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -337,8 +338,13 @@ const manualLinkSourceMap: Record<ManualLinkSourceType, string> = {
     'cloudflare-r2': 'Cloudflare R2',
 }
 
+export interface SourceWizardLogicProps {
+    onComplete?: () => void
+}
+
 export const sourceWizardLogic = kea<sourceWizardLogicType>([
     path(['scenes', 'data-warehouse', 'external', 'sourceWizardLogic']),
+    props({} as SourceWizardLogicProps),
     actions({
         selectConnector: (connector: SourceConfig | null) => ({ connector }),
         toggleManualLinkFormVisible: (visible: boolean) => ({ visible }),
@@ -525,8 +531,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
         ],
         nextButtonText: [
-            (s) => [s.currentStep, s.isManualLinkingSelected],
-            (currentStep, isManualLinkingSelected): string => {
+            (s) => [s.currentStep, s.isManualLinkingSelected, (_, props) => props.onComplete],
+            (currentStep, isManualLinkingSelected, onComplete): string => {
                 if (currentStep === 3 && isManualLinkingSelected) {
                     return 'Link'
                 }
@@ -536,6 +542,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 }
 
                 if (currentStep === 4) {
+                    if (onComplete) {
+                        return 'Next'
+                    }
                     return 'Return to settings'
                 }
 
@@ -640,8 +649,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 return ''
             },
         ],
+        // determines if the wizard is wrapped in another component
+        isWrapped: [() => [(_, props) => props.onComplete], (onComplete) => !!onComplete],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         onBack: () => {
             if (values.currentStep <= 1) {
                 actions.onClear()
@@ -666,6 +677,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 actions.submitSourceConnectionDetails()
             } else if (values.currentStep === 2 && values.isManualLinkFormVisible) {
                 dataWarehouseTableLogic.actions.submitTable()
+                posthog.capture('source created', { sourceType: 'Manual' })
             }
 
             if (values.currentStep === 3 && values.selectedConnector?.name) {
@@ -682,10 +694,15 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 })
                 actions.setIsLoading(true)
                 actions.createSource()
+                posthog.capture('source created', { sourceType: values.selectedConnector.name })
             }
 
             if (values.currentStep === 4) {
-                actions.closeWizard()
+                if (props.onComplete) {
+                    props.onComplete()
+                } else {
+                    actions.closeWizard()
+                }
             }
         },
         createTableSuccess: () => {
