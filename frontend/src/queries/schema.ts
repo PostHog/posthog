@@ -1527,8 +1527,8 @@ export interface DashboardFilter {
 }
 
 export interface AbsoluteThreshold {
-    lower: number | null
-    upper: number | null
+    lower?: number | null
+    upper?: number | null
 }
 
 export interface AnomalyCondition {

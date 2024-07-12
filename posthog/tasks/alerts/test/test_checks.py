@@ -1,25 +1,25 @@
 import pytest
-from typing import Any, Optional
+from typing import Optional
 from unittest.mock import MagicMock, patch
 
 from freezegun import freeze_time
 
 from posthog.models.instance_setting import set_instance_setting
-from posthog.tasks.alerts.checks import check_all_alerts
+from posthog.tasks.alerts.checks import send_notifications, check_alert
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events, ClickhouseDestroyTablesMixin
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.schema import ChartDisplayType, EventsNode, TrendsQuery, TrendsFilter
 from posthog.tasks.test.utils_email_tests import mock_email_messages
+from posthog.models import Alert
 
 
 @freeze_time("2024-06-02T08:55:00.000Z")
-@patch("posthog.tasks.alerts.checks.EmailMessage")
-class TestDetectAlertsAnomaliesTasks(APIBaseTest, ClickhouseDestroyTablesMixin):
+@patch("posthog.tasks.alerts.checks.send_notifications")
+class TestCheckAlertsTasks(APIBaseTest, ClickhouseDestroyTablesMixin):
     def setUp(self) -> None:
         super().setUp()
         set_instance_setting("EMAIL_HOST", "fake_host")
         set_instance_setting("EMAIL_ENABLED", True)
-        self.settings(CELERY_TASK_ALWAYS_EAGER=True)
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
         query_dict = TrendsQuery(
             series=[
@@ -52,12 +52,10 @@ class TestDetectAlertsAnomaliesTasks(APIBaseTest, ClickhouseDestroyTablesMixin):
             data={"anomaly_condition": {"absoluteThreshold": {"lower": lower, "upper": upper}}},
         )
 
-    def get_recepients(self, mocked_email_messages: list[Any]) -> list[list[str]]:
-        recipients = [sorted([to["recipient"] for to in message.to]) for message in mocked_email_messages]
-        return sorted(recipients)
+    def get_anomalies_descriptions(self, mock_send_notifications: MagicMock, call_index: int) -> list[str]:
+        return mock_send_notifications.call_args_list[call_index].args[1]
 
-    def test_alert_is_triggered_for_values_above_higher_threshold(self, MockEmailMessage: MagicMock) -> None:
-        mocked_email_messages = mock_email_messages(MockEmailMessage)
+    def test_alert_is_triggered_for_values_above_higher_threshold(self, mock_send_notifications: MagicMock) -> None:
         self.set_thresholds(upper=0)
 
         with freeze_time("2024-06-02T07:55:00.000Z"):
@@ -68,14 +66,17 @@ class TestDetectAlertsAnomaliesTasks(APIBaseTest, ClickhouseDestroyTablesMixin):
             )
             flush_persons_and_events()
 
-        check_all_alerts()
+        check_alert(self.alert["id"])
 
-        assert len(mocked_email_messages) == 1
-        assert self.get_recepients(mocked_email_messages) == [["a@b.c", "d@e.f"]]
-        assert "The trend value (1) is above the upper threshold (0.0)" in mocked_email_messages[0].html_body
+        assert mock_send_notifications.call_count == 1
+        alert = mock_send_notifications.call_args_list[0].args[0]
+        assert alert.id == self.alert["id"]
 
-    def test_alert_is_not_triggered_for_events_beyond_interval(self, MockEmailMessage: MagicMock) -> None:
-        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        anomalies_descriptions = self.get_anomalies_descriptions(mock_send_notifications, call_index=0)
+        assert len(anomalies_descriptions) == 1
+        assert "The trend value (1) is above the upper threshold (0.0)" in anomalies_descriptions[0]
+
+    def test_alert_is_not_triggered_for_events_beyond_interval(self, mock_send_notifications: MagicMock) -> None:
         self.set_thresholds(upper=0)
 
         with freeze_time("2024-05-02T07:55:00.000Z"):
@@ -86,35 +87,35 @@ class TestDetectAlertsAnomaliesTasks(APIBaseTest, ClickhouseDestroyTablesMixin):
             )
             flush_persons_and_events()
 
-        check_all_alerts()
+        check_alert(self.alert["id"])
 
-        assert len(mocked_email_messages) == 0
+        assert mock_send_notifications.call_count == 0
 
-    def test_alert_is_triggered_for_value_below_lower_threshold(self, MockEmailMessage: MagicMock) -> None:
-        mocked_email_messages = mock_email_messages(MockEmailMessage)
+    def test_alert_is_triggered_for_value_below_lower_threshold(self, mock_send_notifications: MagicMock) -> None:
         self.set_thresholds(lower=1)
 
-        check_all_alerts()
+        check_alert(self.alert["id"])
 
-        assert len(mocked_email_messages) == 1
-        assert "The trend value (0) is below the lower threshold (1.0)" in mocked_email_messages[0].html_body
+        assert mock_send_notifications.call_count == 1
+        anomalies = self.get_anomalies_descriptions(mock_send_notifications, call_index=0)
+        assert "The trend value (0) is below the lower threshold (1.0)" in anomalies
 
-    def test_alert_is_not_triggered_for_normal_values(self, MockEmailMessage: MagicMock) -> None:
-        mocked_email_messages = mock_email_messages(MockEmailMessage)
+    def test_alert_is_not_triggered_for_normal_values(self, mock_send_notifications: MagicMock) -> None:
         self.set_thresholds(lower=0, upper=1)
 
-        check_all_alerts()
+        check_alert(self.alert["id"])
 
-        assert len(mocked_email_messages) == 0
+        assert mock_send_notifications.call_count == 0
 
-    def test_error_while_calculating_no_alert(self, MockEmailMessage: MagicMock) -> None:
-        mocked_email_messages = mock_email_messages(MockEmailMessage)
+    def test_error_while_calculating_no_alert(self, mock_send_notifications: MagicMock) -> None:
         query_dict = TrendsQuery(
             series=[
                 EventsNode(
                     event="$pageview",
                 ),
             ],
+            # This query is not represented as a bold number, so calculating the insight aggregated value
+            # causes an error
         ).model_dump()
         insight = self.dashboard_api.create_insight(
             data={
@@ -125,35 +126,11 @@ class TestDetectAlertsAnomaliesTasks(APIBaseTest, ClickhouseDestroyTablesMixin):
 
         self.client.patch(f"/api/projects/{self.team.id}/alerts/{self.alert['id']}", data={"insight": insight["id"]})
 
-        # in production failure of a single alert won't cause an exception in check_all_alerts
-        # because the execution won't be eager (see CELERY_TASK_ALWAYS_EAGER in the set up)
         with pytest.raises(KeyError):
-            check_all_alerts()
+            check_alert(self.alert["id"])
+        assert mock_send_notifications.call_count == 0
 
-        assert len(mocked_email_messages) == 0
-
-    def test_two_alerts_are_triggered(self, MockEmailMessage: MagicMock) -> None:
-        mocked_email_messages = mock_email_messages(MockEmailMessage)
-        self.set_thresholds(lower=1)
-        self.client.post(
-            f"/api/projects/{self.team.id}/alerts",
-            data={
-                "name": "another alert name",
-                "insight": self.insight["id"],
-                "target_value": "email@address.com",
-                "anomaly_condition": {"absoluteThreshold": {"lower": 1}},
-            },
-        ).json()
-
-        check_all_alerts()
-
-        assert len(mocked_email_messages) == 2
-        assert "The trend value (0) is below the lower threshold (1.0)" in mocked_email_messages[0].html_body
-        assert "The trend value (0) is below the lower threshold (1.0)" in mocked_email_messages[1].html_body
-        assert self.get_recepients(mocked_email_messages) == [["a@b.c", "d@e.f"], ["email@address.com"]]
-
-    def test_alert_with_insight_with_filter(self, MockEmailMessage: MagicMock) -> None:
-        mocked_email_messages = mock_email_messages(MockEmailMessage)
+    def test_alert_with_insight_with_filter(self, mock_send_notifications: MagicMock) -> None:
         insight = self.dashboard_api.create_insight(
             data={"name": "insight", "filters": {"events": [{"id": "$pageview"}], "display": "BoldNumber"}}
         )[1]
@@ -161,7 +138,22 @@ class TestDetectAlertsAnomaliesTasks(APIBaseTest, ClickhouseDestroyTablesMixin):
         self.client.patch(f"/api/projects/{self.team.id}/alerts/{self.alert['id']}", data={"insight": insight["id"]})
         self.set_thresholds(lower=1)
 
-        check_all_alerts()
+        check_alert(self.alert["id"])
+
+        assert mock_send_notifications.call_count == 1
+        anomalies = self.get_anomalies_descriptions(mock_send_notifications, call_index=0)
+        assert "The trend value (0) is below the lower threshold (1.0)" in anomalies
+
+    @patch("posthog.tasks.alerts.checks.EmailMessage")
+    def test_send_emails(self, MockEmailMessage: MagicMock, mock_send_notifications: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        alert = Alert.objects.get(pk=self.alert["id"])
+        send_notifications(alert, ["first anomaly description", "second anomaly description"])
 
         assert len(mocked_email_messages) == 1
-        assert "The trend value (0) is below the lower threshold (1.0)" in mocked_email_messages[0].html_body
+        email = mocked_email_messages[0]
+        assert len(email.to) == 2
+        assert email.to[0]["recipient"] == "a@b.c"
+        assert email.to[1]["recipient"] == "d@e.f"
+        assert "first anomaly description" in email.html_body
+        assert "second anomaly description" in email.html_body

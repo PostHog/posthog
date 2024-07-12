@@ -2,6 +2,7 @@ import structlog
 from celery import shared_task
 from celery.canvas import group, chain
 from django.utils import timezone
+import math
 
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
@@ -19,15 +20,17 @@ def check_all_alerts() -> None:
     alert_ids = list(Alert.objects.all().values_list("id", flat=True))
 
     group_count = 10
-    chunk_size = 10
+    # All groups but the last one will have a group_size size.
+    # The last group will have at most group_size size.
+    group_size = int(math.ceil(len(alert_ids) / group_count))
 
-    alert_id_groups = [alert_ids[i : i + group_count] for i in range(0, len(alert_ids), group_count)]
-    task_groups = group(
-        chain(check_alert_task.chunks([(alert_id,) for alert_id in alert_id_group], chunk_size))
-        for alert_id_group in alert_id_groups
-    )
+    groups = []
+    for i in range(0, len(alert_ids), group_size):
+        alert_id_group = alert_ids[i : i + group_size]
+        chained_calls = chain([check_alert_task.s(alert_id=alert_id) for alert_id in alert_id_group])
+        groups.append(chained_calls)
 
-    task_groups.apply_async()
+    group(groups).apply_async()
 
 
 def check_alert(alert_id: int) -> None:
@@ -72,9 +75,11 @@ def check_all_alerts_task() -> None:
     check_all_alerts()
 
 
+# Note, check_alert_task is used in Celery chains. Celery chains pass the previous
+# function call result to the next function as an argument, hence args and kwargs.
 @shared_task(ignore_result=True)
-def check_alert_task(alert_id: int) -> None:
-    check_alert(alert_id)
+def check_alert_task(*args, **kwargs) -> None:
+    check_alert(**kwargs)
 
 
 # TODO: make it a task

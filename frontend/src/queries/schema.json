@@ -11,7 +11,6 @@
                     "type": ["number", "null"]
                 }
             },
-            "required": ["lower", "upper"],
             "type": "object"
         },
         "ActionsNode": {
