@@ -359,22 +359,16 @@ projects_router.register(r"heatmaps", HeatmapViewSet, "environment_heatmaps", ["
 projects_router.register(r"sessions", SessionViewSet, "environment_sessions", ["team_id"])
 
 if EE_AVAILABLE:
-    from ee.clickhouse.views.experiments import ClickhouseExperimentsViewSet
-    from ee.clickhouse.views.groups import (
-        ClickhouseGroupsTypesView,
-        ClickhouseGroupsView,
-    )
-    from ee.clickhouse.views.insights import ClickhouseInsightsViewSet
-    from ee.clickhouse.views.person import (
-        EnterprisePersonViewSet,
-        LegacyEnterprisePersonViewSet,
-    )
+    from ee.clickhouse.views.experiments import EnterpriseExperimentsViewSet
+    from ee.clickhouse.views.groups import GroupsTypesViewSet, GroupsViewSet
+    from ee.clickhouse.views.insights import EnterpriseInsightsViewSet
+    from ee.clickhouse.views.person import EnterprisePersonViewSet, LegacyEnterprisePersonViewSet
 
-    projects_router.register(r"experiments", ClickhouseExperimentsViewSet, "project_experiments", ["project_id"])
-    projects_router.register(r"groups", ClickhouseGroupsView, "environment_groups", ["team_id"])
-    projects_router.register(r"groups_types", ClickhouseGroupsTypesView, "project_groups_types", ["project_id"])
+    projects_router.register(r"experiments", EnterpriseExperimentsViewSet, "project_experiments", ["project_id"])
+    projects_router.register(r"groups", GroupsViewSet, "environment_groups", ["team_id"])
+    projects_router.register(r"groups_types", GroupsTypesViewSet, "project_groups_types", ["project_id"])
     project_insights_router = projects_router.register(
-        r"insights", ClickhouseInsightsViewSet, "project_insights", ["project_id"]
+        r"insights", EnterpriseInsightsViewSet, "project_insights", ["project_id"]
     )
     projects_router.register(r"persons", EnterprisePersonViewSet, "environment_persons", ["team_id"])
     router.register(r"person", LegacyEnterprisePersonViewSet, basename="person")
