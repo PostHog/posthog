@@ -29,6 +29,7 @@ export class AsyncFunctionExecutor {
         status.info('🦔', `[AsyncFunctionExecutor] Executing async function`, loggingContext)
 
         switch (request.asyncFunctionRequest.name) {
+            // TODO: Add error case here - if we don't get a valid queued message then we should log something against the function
             case 'fetch':
                 return await this.asyncFunctionFetch(request, options)
             default:
