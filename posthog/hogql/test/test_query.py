@@ -8,7 +8,7 @@ from freezegun import freeze_time
 
 from posthog import datetime
 from posthog.hogql import ast
-from posthog.hogql.errors import SyntaxError, QueryError
+from posthog.hogql.errors import QueryError
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_in_tests, pretty_print_response_in_tests
@@ -1022,14 +1022,14 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     def test_property_access_with_arrays_zero_index_error(self):
         query = f"SELECT properties.something[0] FROM events"
-        with self.assertRaises(SyntaxError) as e:
+        with self.assertRaises(QueryError) as e:
             execute_hogql_query(query, team=self.team)
         self.assertEqual(str(e.exception), "SQL indexes start from one, not from zero. E.g: array[1]")
 
         query = f"SELECT properties.something.0 FROM events"
-        with self.assertRaises(SyntaxError) as e:
+        with self.assertRaises(QueryError) as e:
             execute_hogql_query(query, team=self.team)
-        self.assertEqual(str(e.exception), "SQL indexes start from one, not from zero. E.g: array[1]")
+        self.assertEqual(str(e.exception), "SQL indexes start from one, not from zero. E.g: array.1")
 
     def test_time_window_functions(self):
         query = """

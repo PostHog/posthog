@@ -1563,26 +1563,6 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             )
             self.assertEqual(expr, expected)
 
-        def test_property_access_with_arrays_zero_index_error(self):
-            query = f"SELECT properties.something[0] FROM events"
-            with self.assertRaisesMessage(
-                SyntaxError,
-                "SQL indexes start from one, not from zero. E.g: array[1]",
-            ) as e:
-                self._select(query)
-            self.assertEqual(e.exception.start, 7)
-            self.assertEqual(e.exception.end, 30)
-
-        def test_property_access_with_tuples_zero_index_error(self):
-            query = f"SELECT properties.something.0 FROM events"
-            with self.assertRaisesMessage(
-                SyntaxError,
-                "SQL indexes start from one, not from zero. E.g: array[1]",
-            ) as e:
-                self._select(query)
-            self.assertEqual(e.exception.start, 7)
-            self.assertEqual(e.exception.end, 29)
-
         def test_reserved_keyword_alias_error(self):
             query = f"SELECT 0 AS trUE FROM events"
             with self.assertRaisesMessage(
