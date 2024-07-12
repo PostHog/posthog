@@ -24,6 +24,10 @@ class QueryCacheManager:
         self.insight_id = insight_id
         self.dashboard_id = dashboard_id
 
+    @property
+    def identifier(self):
+        return f"{self.insight_id}:{self.dashboard_id or ''}"
+
     @staticmethod
     def get_stale_insights(*, team_id: int, limit: Optional[int] = None) -> list[str]:
         """
@@ -66,15 +70,16 @@ class QueryCacheManager:
         if not self.insight_id:
             return
 
-        identifier = f"{self.insight_id}:{self.dashboard_id or ''}"
-        self.redis_client.zadd(f"cache_timestamps:{self.team_id}", {identifier: target_age.timestamp()})
+        self.redis_client.zadd(
+            f"cache_timestamps:{self.team_id}",
+            {self.identifier: target_age.timestamp()},
+        )
 
     def remove_last_refresh(self) -> None:
         if not self.insight_id:
             return
 
-        identifier = f"{self.insight_id}:{self.dashboard_id or ''}"
-        self.redis_client.zrem(f"cache_timestamps:{self.team_id}", identifier)
+        self.redis_client.zrem(f"cache_timestamps:{self.team_id}", self.identifier)
 
     def set_cache_data(self, *, response: dict, target_age: Optional[datetime]) -> None:
         fresh_response_serialized = OrjsonJsonSerializer({}).dumps(response)
