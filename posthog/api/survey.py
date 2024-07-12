@@ -13,6 +13,7 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.action import ActionSerializer
 from posthog.api.feature_flag import (
     BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
     FeatureFlagSerializer,
@@ -22,6 +23,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import get_token
 from posthog.client import sync_execute
+from posthog.models import Action
 from posthog.constants import AvailableFeature
 from posthog.exceptions import generate_exception_response
 from posthog.models.feature_flag.feature_flag import FeatureFlag
@@ -39,6 +41,7 @@ class SurveySerializer(serializers.ModelSerializer):
     targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
     internal_targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
     created_by = UserBasicSerializer(read_only=True)
+    conditions = serializers.SerializerMethodField(method_name="get_conditions", read_only=True)
 
     class Meta:
         model = Survey
@@ -68,12 +71,25 @@ class SurveySerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "created_at", "created_by"]
 
+    def get_conditions(self, survey: Survey):
+        actions = survey.actions.all()
+        if len(actions) > 0:
+            # actionNames can change between when the survey is created and when its retrieved.
+            # update the actionNames in the response from the real names of the actions as defined
+            # in data management.
+            survey.conditions["actions"] = {"values": ActionSerializer(actions, many=True).data}
+        return survey.conditions
 
-class SurveySerializerCreateUpdateOnly(SurveySerializer):
+
+class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
+    linked_flag = MinimalFeatureFlagSerializer(read_only=True)
     linked_flag_id = serializers.IntegerField(required=False, write_only=True, allow_null=True)
     targeting_flag_id = serializers.IntegerField(required=False, write_only=True)
     targeting_flag_filters = serializers.JSONField(required=False, write_only=True, allow_null=True)
     remove_targeting_flag = serializers.BooleanField(required=False, write_only=True, allow_null=True)
+    targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
+    internal_targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
+    created_by = UserBasicSerializer(read_only=True)
 
     class Meta:
         model = Survey
@@ -86,6 +102,7 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
             "linked_flag_id",
             "targeting_flag_id",
             "targeting_flag",
+            "internal_targeting_flag",
             "targeting_flag_filters",
             "remove_targeting_flag",
             "questions",
@@ -136,6 +153,30 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
         survey_popup_delay_seconds = value.get("surveyPopupDelaySeconds")
         if survey_popup_delay_seconds and survey_popup_delay_seconds < 0:
             raise serializers.ValidationError("Survey popup delay seconds must be a positive integer")
+
+        return value
+
+    def validate_conditions(self, value):
+        if value is None:
+            return value
+
+        actions = value.get("actions")
+        if actions is None:
+            return value
+
+        values = actions.get("values")
+        if values is None or len(values) == 0:
+            return value
+
+        action_ids = (value.get("id") for value in values)
+        project_actions = Action.objects.filter(team_id=self.context["team_id"], id__in=action_ids)
+
+        for project_action in project_actions:
+            for step in project_action.steps:
+                if step.properties is not None and len(step.properties) > 0:
+                    raise serializers.ValidationError(
+                        "Survey cannot be activated by an Action with property filters defined on it."
+                    )
 
         return value
 
@@ -254,6 +295,7 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
         validated_data["created_by"] = self.context["request"].user
         instance = super().create(validated_data)
         self._add_user_survey_interacted_filters(instance)
+        self._associate_actions(instance, validated_data.get("conditions"))
 
         return instance
 
@@ -305,7 +347,28 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
         instance = super().update(instance, validated_data)
 
         self._add_user_survey_interacted_filters(instance, end_date)
+        self._associate_actions(instance, validated_data.get("conditions"))
         return instance
+
+    def _associate_actions(self, instance: Survey, conditions):
+        if conditions is None:
+            instance.actions.clear()
+            return
+
+        actions = conditions.get("actions")
+        if actions is None:
+            instance.actions.clear()
+            return
+
+        values = actions.get("values")
+        if values is None or len(values) == 0:
+            instance.actions.clear()
+            return
+
+        action_ids = (value.get("id") for value in values)
+
+        instance.actions.set(Action.objects.filter(team_id=self.context["team_id"], id__in=action_ids))
+        instance.save()
 
     def _add_user_survey_interacted_filters(self, instance: Survey, end_date=None):
         survey_key = f"{instance.id}"
@@ -444,6 +507,7 @@ class SurveyAPISerializer(serializers.ModelSerializer):
     linked_flag_key = serializers.CharField(source="linked_flag.key", read_only=True)
     targeting_flag_key = serializers.CharField(source="targeting_flag.key", read_only=True)
     internal_targeting_flag_key = serializers.CharField(source="internal_targeting_flag.key", read_only=True)
+    conditions = serializers.SerializerMethodField(method_name="get_conditions")
 
     class Meta:
         model = Survey
@@ -469,11 +533,22 @@ class SurveyAPISerializer(serializers.ModelSerializer):
         ]
         read_only_fields = fields
 
+    def get_conditions(self, survey: Survey):
+        actions = survey.actions.all()
+        if len(actions) > 0:
+            # action names can change between when the survey is created and when its retrieved.
+            # update the actionNames in the response from the real names of the actions as defined
+            # in data management.
+            if survey.conditions is None:
+                survey.conditions = {}
+
+            survey.conditions["actions"] = {"values": ActionSerializer(actions, many=True).data}
+        return survey.conditions
+
 
 @csrf_exempt
 def surveys(request: Request):
     token = get_token(None, request)
-
     if request.method == "OPTIONS":
         return cors_response(request, HttpResponse(""))
 
@@ -505,7 +580,8 @@ def surveys(request: Request):
     surveys = SurveyAPISerializer(
         Survey.objects.filter(team_id=team.id)
         .exclude(archived=True)
-        .select_related("linked_flag", "targeting_flag", "internal_targeting_flag"),
+        .select_related("linked_flag", "targeting_flag", "internal_targeting_flag")
+        .prefetch_related("actions"),
         many=True,
     ).data
 
