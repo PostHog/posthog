@@ -184,7 +184,7 @@ export const startBatchConsumer = async ({
     }
 
     if (debug) {
-        // NOTE: If the key exists with value undefined the consumer will throw which is annoying so we define it here instead
+        // NOTE: If the key exists with value undefined the consumer will throw which is annoying, so we define it here instead
         consumerConfig.debug = debug
     }
 

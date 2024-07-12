@@ -165,7 +165,7 @@ describe('Surveys', () => {
         cy.get('tbody').should('not.exist')
     })
 
-    it('Delete survey', () => {
+    it('deletes a survey', () => {
         cy.get('h1').should('contain', 'Surveys')
         cy.get('[data-attr=new-survey]').click()
         cy.get('[data-attr=new-blank-survey]').click()
@@ -277,5 +277,155 @@ describe('Surveys', () => {
 
         cy.reload()
         cy.contains('The survey will be stopped once 228 responses are received.').should('be.visible')
+    })
+
+    it('creates a new survey with branching logic', () => {
+        cy.window().then((win) => {
+            win.POSTHOG_APP_CONTEXT.current_user.organization.available_product_features = [
+                {
+                    key: 'surveys_multiple_questions',
+                    name: 'Multiple questions',
+                    description: 'Ask up to 10 questions in a single survey.',
+                    unit: null,
+                    limit: null,
+                    note: null,
+                },
+            ]
+
+            cy.get('h1').should('contain', 'Surveys')
+            cy.title().should('equal', 'Surveys • PostHog')
+
+            cy.get('[data-attr="new-survey"]').click()
+            cy.get('[data-attr="new-blank-survey"]').click()
+            cy.get('[data-attr="survey-name"]').type(name)
+
+            // Prepare questions
+            cy.get('[data-attr=survey-question-label-0]')
+                .focus()
+                .clear()
+                .type('How happy are you?', { delay: 0 })
+                .should('have.value', 'How happy are you?')
+            cy.get('[data-attr=survey-question-type-0]').click()
+            cy.get('[data-attr=survey-question-type-0-rating]').click()
+            cy.get('[data-attr="add-question"]').click()
+
+            cy.get('[data-attr=survey-question-label-1]')
+                .focus()
+                .clear()
+                .type('Sorry to hear that. Please tell us more!', { delay: 0 })
+                .should('have.value', 'Sorry to hear that. Please tell us more!')
+            cy.get('[data-attr="add-question"]').click()
+
+            cy.get('[data-attr=survey-question-label-2]')
+                .focus()
+                .clear()
+                .type('Seems you are not completely happy. Please tell us more!', { delay: 0 })
+                .should('have.value', 'Seems you are not completely happy. Please tell us more!')
+            cy.get('[data-attr="add-question"]').click()
+
+            cy.get('[data-attr=survey-question-label-3]')
+                .focus()
+                .clear()
+                .type('Glad to hear that! Please tell us more', { delay: 0 })
+                .should('have.value', 'Glad to hear that! Please tell us more')
+            cy.get('[data-attr="add-question"]').click()
+
+            cy.get('[data-attr=survey-question-label-4]')
+                .focus()
+                .clear()
+                .type('Would you like to leave us a review?', { delay: 0 })
+                .should('have.value', 'Would you like to leave us a review?')
+            cy.get('[data-attr=survey-question-type-4]').click()
+            cy.get('[data-attr=survey-question-type-4-single_choice]').click()
+            cy.get('[data-attr="add-question"]').click()
+
+            cy.get('[data-attr=survey-question-label-5]')
+                .focus()
+                .clear()
+                .type('Please write your review here', { delay: 0 })
+                .should('have.value', 'Please write your review here')
+
+            // Set branching
+            // Question 1 - How happy are you?
+            cy.get('[data-attr=survey-question-panel-0]').click()
+            // Default branching is always "Next question"
+            cy.get('button[data-attr="survey-question-0-branching-select"]').find('span').contains('Next question')
+            cy.get('[data-attr=survey-question-0-branching-select]').click()
+            cy.get('.Popover__box button').contains('span', 'Specific question based on answer').click()
+            cy.get('button[data-attr="survey-question-0-branching-select"]')
+                .find('span')
+                .contains('Specific question based on answer')
+
+            cy.get('[data-attr=survey-question-0-branching-response_based-select-0]').click()
+            cy.get('.Popover__box button').contains('span', '2.').click()
+            cy.get('button[data-attr="survey-question-0-branching-response_based-select-0"]')
+                .find('span')
+                .contains('2.')
+
+            cy.get('[data-attr=survey-question-0-branching-response_based-select-1]').click()
+            cy.get('.Popover__box button').contains('span', '3.').click()
+            cy.get('button[data-attr="survey-question-0-branching-response_based-select-1"]')
+                .find('span')
+                .contains('3.')
+
+            cy.get('[data-attr=survey-question-0-branching-response_based-select-2]').click()
+            cy.get('.Popover__box button').contains('span', '4.').click()
+            cy.get('button[data-attr="survey-question-0-branching-response_based-select-2"]')
+                .find('span')
+                .contains('4.')
+
+            // Question 2 - Sorry to hear that...
+            cy.get('[data-attr=survey-question-panel-1]').click()
+            cy.get('[data-attr=survey-question-1-branching-select]').click()
+            cy.get('.Popover__box button').contains('span', 'Confirmation message').click()
+            cy.get('button[data-attr="survey-question-1-branching-select"]')
+                .find('span')
+                .contains('Confirmation message')
+
+            // Question 3 - Seems you are not completely happy...
+            cy.get('[data-attr=survey-question-panel-2]').click()
+            cy.get('[data-attr=survey-question-2-branching-select]').click()
+            cy.get('.Popover__box button').contains('span', 'Confirmation message').click()
+            cy.get('button[data-attr="survey-question-2-branching-select"]')
+                .find('span')
+                .contains('Confirmation message')
+
+            // Question 4 - Glad to hear that...
+            cy.get('[data-attr=survey-question-panel-3]').click()
+            cy.get('[data-attr=survey-question-3-branching-select]').click()
+            // "Would you like to leave us a review?"
+            cy.get('.Popover__box button').contains('span', '5.').click()
+            cy.get('button[data-attr="survey-question-3-branching-select"]').find('span').contains('5.')
+
+            // Question 5 - Would you like to leave us a review?
+            cy.get('[data-attr=survey-question-panel-4]').click()
+            cy.get('[data-attr=survey-question-4-branching-select]').click()
+            cy.get('.Popover__box button').contains('span', 'Specific question based on answer').click()
+            cy.get('button[data-attr="survey-question-4-branching-select"]')
+                .find('span')
+                .contains('Specific question based on answer')
+
+            cy.get('[data-attr=survey-question-4-branching-response_based-select-0]').click()
+            cy.get('.Popover__box button').contains('span', 'Next question').click()
+            cy.get('button[data-attr="survey-question-4-branching-response_based-select-0"]')
+                .find('span')
+                .contains('Next question')
+
+            cy.get('[data-attr=survey-question-4-branching-response_based-select-1]').click()
+            cy.get('.Popover__box button').contains('span', 'Confirmation message').click()
+            cy.get('button[data-attr="survey-question-4-branching-response_based-select-1"]')
+                .find('span')
+                .contains('Confirmation message')
+
+            // Question 6 - Please write your review here
+            cy.get('[data-attr=survey-question-panel-5]').click()
+            cy.get('button[data-attr="survey-question-5-branching-select"]')
+                .find('span')
+                .contains('Confirmation message')
+
+            // Save
+            cy.get('[data-attr="save-survey"]').eq(0).click()
+            cy.get('[data-attr=success-toast]').contains('created').should('exist')
+        })
     })
 })

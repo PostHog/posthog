@@ -641,6 +641,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
     ) -> ast.Expr:
         series = self.series
         filters: list[ast.Expr] = []
+        is_data_warehouse_series = isinstance(series, DataWarehouseNode)
 
         # Dates
         if not self._aggregation_operation.requires_query_orchestration():
@@ -673,7 +674,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 filters.append(property_to_expr(property, self.team))
 
         # Properties
-        if self.query.properties is not None and self.query.properties != []:
+        if self.query.properties is not None and self.query.properties != [] and not is_data_warehouse_series:
             filters.append(property_to_expr(self.query.properties, self.team))
 
         # Series Filters

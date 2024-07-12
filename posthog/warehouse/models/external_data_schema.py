@@ -23,6 +23,11 @@ class ExternalDataSchema(CreatedMetaFields, UUIDModel):
         FULL_REFRESH = "full_refresh", "full_refresh"
         INCREMENTAL = "incremental", "incremental"
 
+    class SyncFrequency(models.TextChoices):
+        DAILY = "day", "Daily"
+        WEEKLY = "week", "Weekly"
+        MONTHLY = "month", "Monthly"
+
     name: models.CharField = models.CharField(max_length=400)
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
     source: models.ForeignKey = models.ForeignKey(
@@ -41,6 +46,9 @@ class ExternalDataSchema(CreatedMetaFields, UUIDModel):
     sync_type_config: models.JSONField = models.JSONField(
         default=dict,
         blank=True,
+    )
+    sync_frequency: models.CharField = models.CharField(
+        max_length=128, choices=SyncFrequency.choices, default=SyncFrequency.DAILY, blank=True
     )
 
     __repr__ = sane_repr("name")
