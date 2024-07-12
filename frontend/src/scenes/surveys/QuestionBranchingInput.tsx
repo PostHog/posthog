@@ -35,7 +35,7 @@ export function QuestionBranchingInput({
                 <LemonSelect
                     className="max-w-80 whitespace-nowrap"
                     value={branchingDropdownValue}
-                    data-attr={`branching-question-${questionIndex}`}
+                    data-attr={`survey-question-${questionIndex}-branching-select`}
                     onSelect={(type) => {
                         const handleSelect = (): void => {
                             let specificQuestionIndex
@@ -164,7 +164,7 @@ function QuestionResponseBasedBranchingInput({
                         <LemonSelect
                             className="w-full whitespace-nowrap"
                             value={getResponseBasedBranchingDropdownValue(questionIndex, question, value)}
-                            data-attr={`branching-question-${questionIndex}`}
+                            data-attr={`survey-question-${questionIndex}-branching-response_based-select-${i}`}
                             onSelect={(nextStep) => {
                                 let specificQuestionIndex
                                 if (nextStep.startsWith(SurveyQuestionBranchingType.SpecificQuestion)) {

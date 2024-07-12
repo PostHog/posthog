@@ -13,7 +13,7 @@ MAX_LIMIT_DISTINCT_IDS = 2500
 
 class PersonManager(models.Manager):
     def create(self, *args: Any, **kwargs: Any):
-        with transaction.atomic():
+        with transaction.atomic(using=self.db):
             if not kwargs.get("distinct_ids"):
                 return super().create(*args, **kwargs)
             distinct_ids = kwargs.pop("distinct_ids")
