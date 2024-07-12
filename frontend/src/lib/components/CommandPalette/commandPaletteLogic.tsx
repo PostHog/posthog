@@ -567,17 +567,13 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                             push(urls.webAnalytics())
                         },
                     },
-                    ...(values.featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE]
-                        ? [
-                              {
-                                  icon: IconServer,
-                                  display: 'Go to Data warehouse',
-                                  executor: () => {
-                                      push(urls.dataWarehouse())
-                                  },
-                              },
-                          ]
-                        : []),
+                    {
+                        icon: IconServer,
+                        display: 'Go to Data warehouse',
+                        executor: () => {
+                            push(urls.dataWarehouse())
+                        },
+                    },
                     ...(values.featureFlags[FEATURE_FLAGS.ERROR_TRACKING]
                         ? [
                               {

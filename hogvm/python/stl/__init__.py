@@ -175,6 +175,24 @@ def generateUUIDv4(
     return str(uuid.uuid4())
 
 
+def keys(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int) -> list:
+    obj = args[0]
+    if isinstance(obj, dict):
+        return list(obj.keys())
+    if isinstance(obj, list) or isinstance(obj, tuple):
+        return list(range(len(obj)))
+    return []
+
+
+def values(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int) -> list:
+    obj = args[0]
+    if isinstance(obj, dict):
+        return list(obj.values())
+    if isinstance(obj, list) or isinstance(obj, tuple):
+        return list(obj)
+    return []
+
+
 STL: dict[str, Callable[[str, list[Any], Optional["Team"], list[str] | None, int], Any]] = {
     "concat": concat,
     "match": match,
@@ -202,4 +220,6 @@ STL: dict[str, Callable[[str, list[Any], Optional["Team"], list[str] | None, int
     "replaceOne": replaceOne,
     "replaceAll": replaceAll,
     "generateUUIDv4": generateUUIDv4,
+    "keys": keys,
+    "values": values,
 }

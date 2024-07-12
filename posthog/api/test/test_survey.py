@@ -1586,6 +1586,27 @@ class TestSurveyQuestionValidation(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
         assert response_data["detail"] == "Question choices must be a list of strings"
 
+    def test_validate_malformed_question_choices_as_array_of_empty_strings(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks beta release survey",
+                "description": "Get feedback on the new notebooks feature",
+                "type": "popover",
+                "questions": [
+                    {
+                        "question": "this is my question",
+                        "type": "multiple_choice",
+                        "choices": ["", ""],
+                    }
+                ],
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
+        assert response_data["detail"] == "Question choices cannot be empty"
+
 
 class TestSurveyQuestionValidationWithEnterpriseFeatures(APIBaseTest):
     def setUp(self):
@@ -2062,7 +2083,6 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                     {
                         "id": str(basic_survey.id),
                         "name": "Survey 1",
-                        "description": "",
                         "type": "popover",
                         "questions": [{"type": "open", "question": "What's a survey?"}],
                         "conditions": None,
@@ -2075,7 +2095,6 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                     {
                         "id": str(survey_with_flags.id),
                         "name": "Survey 2",
-                        "description": "",
                         "type": "popover",
                         "conditions": None,
                         "appearance": None,
@@ -2090,6 +2109,39 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                     },
                 ],
             )
+
+    def test_list_surveys_excludes_description(self):
+        Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Survey 1",
+            description="This description should not be returned",
+            type="popover",
+            questions=[{"type": "open", "question": "What's a survey?"}],
+        )
+        Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Survey 2",
+            description="Another description that should be excluded",
+            type="popover",
+            questions=[{"type": "open", "question": "What's a hedgehog?"}],
+        )
+        self.client.logout()
+
+        with self.assertNumQueries(2):
+            response = self._get_surveys()
+            assert response.status_code == status.HTTP_200_OK
+            assert response.get("access-control-allow-origin") == "http://127.0.0.1:8000"
+
+            surveys = response.json()["surveys"]
+            assert len(surveys) == 2
+
+            for survey in surveys:
+                assert "description" not in survey, f"Description field should not be present in survey: {survey}"
+
+            assert surveys[0]["name"] == "Survey 1"
+            assert surveys[1]["name"] == "Survey 2"
 
 
 class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):

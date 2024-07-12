@@ -616,7 +616,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
     }),
     listeners(({ actions, values, props }) => ({
         selectItem: ({ group, value, item }) => {
-            if (item) {
+            if (item || group.type === TaxonomicFilterGroupType.HogQLExpression) {
                 props.onChange?.(group, value, item)
             }
             actions.setSearchQuery('')

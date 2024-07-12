@@ -251,6 +251,11 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         name: 'Data warehouse settings',
         defaultDocsPath: '/docs/data-warehouse',
     },
+    [Scene.dataWarehouseSourceSettings]: {
+        projectBased: true,
+        name: 'Data warehouse source settings',
+        defaultDocsPath: '/docs/data-warehouse',
+    },
     [Scene.DataWarehouseRedirect]: {
         name: 'Data warehouse redirect',
     },
@@ -558,9 +563,11 @@ export const routes: Record<string, Scene> = {
     [urls.survey(':id')]: Scene.Survey,
     [urls.surveyTemplates()]: Scene.SurveyTemplates,
     [urls.dataWarehouse()]: Scene.DataWarehouse,
+    [urls.dataWarehouseView(':id')]: Scene.DataWarehouse,
     [urls.dataWarehouseTable()]: Scene.DataWarehouseTable,
     [urls.dataWarehouseSettings(':tab')]: Scene.DataWarehouseSettings,
     [urls.dataWarehouseRedirect(':kind')]: Scene.DataWarehouseRedirect,
+    [urls.dataWarehouseSourceSettings(':id', ':tab')]: Scene.dataWarehouseSourceSettings,
     [urls.featureFlags()]: Scene.FeatureFlags,
     [urls.featureFlag(':id')]: Scene.FeatureFlag,
     [urls.annotations()]: Scene.DataManagement,

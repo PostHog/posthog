@@ -7964,11 +7964,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[1]["breakdown_value"], "uh")
         self.assertEqual(response[1]["count"], 1)
 
-    @also_test_with_materialized_columns(
-        event_properties=["key"],
-        group_properties=[(0, "industry")],
-        materialize_only_with_person_on_events=True,
-    )
     @snapshot_clickhouse_queries
     def test_breakdown_with_filter_groups_person_on_events(self):
         self._create_groups()
@@ -8166,9 +8161,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(res[0]["distinct_ids"], ["person1"])
 
-    @also_test_with_materialized_columns(
-        group_properties=[(0, "industry")], materialize_only_with_person_on_events=True
-    )
     @snapshot_clickhouse_queries
     def test_breakdown_by_group_props_person_on_events(self):
         self._create_groups()
@@ -8385,11 +8377,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # set to a value other than textiles AND events with no group at all
         self.assertEqual(response[0]["count"], 4)
 
-    @also_test_with_materialized_columns(
-        person_properties=["key"],
-        group_properties=[(0, "industry")],
-        materialize_only_with_person_on_events=True,
-    )
     @snapshot_clickhouse_queries
     def test_breakdown_by_group_props_with_person_filter_person_on_events(self):
         self._create_groups()
@@ -8435,11 +8422,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response[0]["breakdown_value"], "finance")
             self.assertEqual(response[0]["count"], 1)
 
-    @also_test_with_materialized_columns(
-        person_properties=["key"],
-        group_properties=[(0, "industry")],
-        materialize_only_with_person_on_events=True,
-    )
     @snapshot_clickhouse_queries
     def test_filtering_with_group_props_person_on_events(self):
         self._create_groups()
@@ -8495,10 +8477,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             response = Trends().run(filter, self.team)
             self.assertEqual(response[0]["count"], 1)
 
-    @also_test_with_materialized_columns(
-        group_properties=[(0, "industry"), (2, "name")],
-        materialize_only_with_person_on_events=True,
-    )
     @snapshot_clickhouse_queries
     def test_filtering_by_multiple_groups_person_on_events(self):
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)

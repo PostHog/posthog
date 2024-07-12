@@ -63,7 +63,7 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
             kind="HogQLAutocomplete",
             query=query,
             language=HogLanguage.HOG,
-            sourceQuery=HogQLQuery(query="select * from events"),
+            globals={"event": "$pageview"},
             startPosition=start,
             endPosition=end,
         )
@@ -314,7 +314,7 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         database = create_hogql_database(team_id=self.team.pk, team_arg=self.team)
 
         query = "this isn't a string {concat(eve)} <- this is"
-        results = self._template(query=query, start=31, end=31, database=database)
+        results = self._template(query=query, start=28, end=31, database=database)
 
         suggestions = list(filter(lambda x: x.label == "event", results.suggestions))
         assert len(suggestions) == 1
@@ -327,12 +327,26 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
     def test_autocomplete_hog(self):
         database = create_hogql_database(team_id=self.team.pk, team_arg=self.team)
 
+        # 1
         query = "let var1 := 3; let otherVar := 5; print(v)"
         results = self._program(query=query, start=41, end=41, database=database)
 
         suggestions = list(filter(lambda x: x.kind == Kind.VARIABLE, results.suggestions))
-        assert len(suggestions) == 2
-        assert sorted([suggestion.label for suggestion in suggestions]) == ["otherVar", "var1"]
+        assert sorted([suggestion.label for suggestion in suggestions]) == ["event", "otherVar", "var1"]
 
         suggestions = list(filter(lambda x: x.kind == Kind.FUNCTION, results.suggestions))
         assert len(suggestions) > 0
+
+        # 2
+        query = "let var1 := 3; let otherVar := 5; print(v)"
+        results = self._program(query=query, start=16, end=16, database=database)
+
+        suggestions = list(filter(lambda x: x.kind == Kind.VARIABLE, results.suggestions))
+        assert sorted([suggestion.label for suggestion in suggestions]) == ["event", "var1"]
+
+        # 3
+        query = "let var1 := 3; let otherVar := 5; print(v)"
+        results = self._program(query=query, start=34, end=34, database=database)
+
+        suggestions = list(filter(lambda x: x.kind == Kind.VARIABLE, results.suggestions))
+        assert sorted([suggestion.label for suggestion in suggestions]) == ["event", "otherVar", "var1"]
