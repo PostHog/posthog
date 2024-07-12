@@ -96,10 +96,6 @@ class FOSSColumnOptimizer:
         return set()
 
     @cached_property
-    def group_on_event_columns_to_query(self) -> set[ColumnName]:
-        return set()
-
-    @cached_property
     def properties_used_in_filter(self) -> TCounter[PropertyIdentifier]:
         "Returns collection of properties + types that this query would use"
         counter: TCounter[PropertyIdentifier] = extract_tables_and_properties(self.filter.property_groups.flat)
