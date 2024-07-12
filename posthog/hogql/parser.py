@@ -258,6 +258,16 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             body=self.visit(ctx.statement()) if ctx.statement() else None,
         )
 
+    def visitForInStmt(self, ctx: HogQLParser.ForInStmtContext):
+        first_identifier = ctx.identifier(0).getText()
+        second_identifier = ctx.identifier(1).getText() if ctx.identifier(1) else None
+        return ast.ForInStatement(
+            valueVar=second_identifier if second_identifier is not None else first_identifier,
+            keyVar=first_identifier if second_identifier is not None else None,
+            expr=self.visit(ctx.expression()),
+            body=self.visit(ctx.statement()),
+        )
+
     def visitForStmt(self, ctx: HogQLParser.ForStmtContext):
         initializer = ctx.initializerVarDeclr or ctx.initializerVarAssignment or ctx.initializerExpression
         increment = ctx.incrementVarDeclr or ctx.incrementVarAssignment or ctx.incrementExpression

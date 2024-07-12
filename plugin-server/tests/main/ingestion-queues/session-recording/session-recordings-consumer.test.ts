@@ -159,9 +159,17 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
         afterEach(async () => {
             await ingester.stop()
         })
-        it('can parse debug partition config', () => {
+
+        it.each([
+            ['103', 103, true],
+            ['103', 102, false],
+            ['*', 101, true],
+            ['', 99, false],
+            ['102, 103, 104', 102, true],
+            ['102, 103, 104', 101, false],
+        ])('can parse debug partition config', (partition_config, partition, expected) => {
             const config = {
-                SESSION_RECORDING_DEBUG_PARTITION: '103',
+                SESSION_RECORDING_DEBUG_PARTITION: partition_config,
                 KAFKA_HOSTS: 'localhost:9092',
             } satisfies Partial<PluginsServerConfig> as PluginsServerConfig
 
@@ -172,7 +180,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
                 consumeOverflow,
                 undefined
             )
-            expect(ingester['debugPartition']).toEqual(103)
+            expect(ingester['isDebugLoggingEnabled'](partition)).toEqual(expected)
         })
 
         it('can parse absence of debug partition config', () => {
