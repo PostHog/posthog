@@ -35,6 +35,8 @@ DEV_APP_STRINGS = [
     "test",
     "prototype",
     "preview",
+    "releasecandidate",
+    "nightly",
 ]
 
 
@@ -224,25 +226,8 @@ class Command(BaseCommand):
                 continue
             app_ids, entry = record
             for app_id in app_ids:
-                # try to filter dev apps, if we exclude something that we want to keep, we can explictly add it below
-                if any(
-                    s in app_id
-                    for s in [
-                        "dev",
-                        "staging",
-                        "qa",
-                        "internal",
-                        "feedback",
-                        "inhouse",
-                        "debug",
-                        "beta",
-                        "alpha",
-                        "dogfood",
-                        "sample",
-                        "canary",
-                        "test",
-                    ]
-                ):
+                # try to filter dev apps, if we exclude something that we want to keep, we can explicitly add it below
+                if any(s in app_id for s in DEV_APP_STRINGS):
                     continue
 
                 # google apps are a bit tricky so we have some special code to handle them
@@ -314,6 +299,10 @@ class Command(BaseCommand):
             # deviant art - contains the "dev" string so excluded by our search above
             "com.deviantart.android.damobile",
             "com.deviantart.deviantart",
+            # yahoo
+            "com.yahoo.mobile.client.android.flickr",
+            "com.flickr.android",
+            "com.yahoo.mobile.client.android.fantasyfootball",
         ):
             entries[app.lower(), EntryKind.source] = SourceEntry(
                 "Social", "Paid Social", "Organic Social", is_reverse_dns=True
@@ -336,6 +325,11 @@ class Command(BaseCommand):
         for app in (
             # android search widget
             "com.google.android.googlequicksearchbox",
+            # yahoo
+            "com.yahoo.apps.yahooapp",
+            "com.yahoo.mobile.client.android.yahoo",
+            "com.yahoo.www.twa",
+            "com.yahoo.frontpage" "com.yahoo.weather",
         ):
             entries[app.lower(), EntryKind.source] = SourceEntry(
                 "Search", "Paid Search", "Organic Search", is_reverse_dns=True
