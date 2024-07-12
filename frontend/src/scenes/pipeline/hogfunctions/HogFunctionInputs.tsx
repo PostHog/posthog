@@ -180,8 +180,8 @@ function JsonConfigField(props: {
 }
 
 function HogFunctionTemplateInput(props: Omit<CodeEditorInlineProps, 'globals'>): JSX.Element {
-    const { inputGlobals } = useValues(hogFunctionConfigurationLogic)
-    return <CodeEditorInline {...props} globals={inputGlobals} />
+    const { exampleInvocationGlobalsWithInputs } = useValues(hogFunctionConfigurationLogic)
+    return <CodeEditorInline {...props} globals={exampleInvocationGlobalsWithInputs} />
 }
 
 function DictionaryField({ onChange, value }: { onChange?: (value: any) => void; value: any }): JSX.Element {

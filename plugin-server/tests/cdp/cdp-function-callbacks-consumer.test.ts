@@ -103,11 +103,13 @@ describe('CDP Processed Events Consuner', () => {
         let app: express.Express
         let hogFunction: HogFunctionType
 
-        const event = {
-            uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d0',
-            event: '$pageview',
-            properties: {
-                $lib_version: '1.0.0',
+        const globals = {
+            event: {
+                uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d0',
+                name: '$pageview',
+                properties: {
+                    $lib_version: '1.0.0',
+                },
             },
         }
 
@@ -127,7 +129,7 @@ describe('CDP Processed Events Consuner', () => {
         it('errors if missing hog function or team', async () => {
             const res = await supertest(app)
                 .post(`/api/projects/${hogFunction.team_id}/hog_functions/missing/invocations`)
-                .send({ event })
+                .send({ globals })
 
             expect(res.status).toEqual(404)
         })
@@ -146,7 +148,7 @@ describe('CDP Processed Events Consuner', () => {
         it('can invoke a function via the API with mocks', async () => {
             const res = await supertest(app)
                 .post(`/api/projects/${hogFunction.team_id}/hog_functions/${hogFunction.id}/invocations`)
-                .send({ event, mock_async_functions: true })
+                .send({ globals, mock_async_functions: true })
 
             expect(res.status).toEqual(200)
             expect(res.body).toMatchObject({
@@ -166,7 +168,12 @@ describe('CDP Processed Events Consuner', () => {
                     {
                         log_source: 'hog_function',
                         level: 'info',
-                        message: "Async function 'fetch' was mocked",
+                        message: "Async function 'fetch' was mocked with arguments:",
+                    },
+                    {
+                        log_source: 'hog_function',
+                        level: 'info',
+                        message: expect.stringContaining('fetch("https://example.com/posthog-webhook",'),
                     },
                     {
                         log_source: 'hog_function',
@@ -196,7 +203,7 @@ describe('CDP Processed Events Consuner', () => {
             )
             const res = await supertest(app)
                 .post(`/api/projects/${hogFunction.team_id}/hog_functions/${hogFunction.id}/invocations`)
-                .send({ event, mock_async_functions: false })
+                .send({ globals, mock_async_functions: false })
 
             expect(res.status).toEqual(200)
             expect(res.body).toMatchObject({

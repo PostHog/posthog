@@ -881,6 +881,12 @@ const api = {
                 )
                 .get()
         },
+        async create(data: any): Promise<InsightModel> {
+            return await new ApiRequest().insights().create({ data })
+        },
+        async update(id: number, data: any): Promise<InsightModel> {
+            return await new ApiRequest().insight(id).update({ data })
+        },
     },
 
     featureFlags: {
@@ -1626,7 +1632,7 @@ const api = {
             data: {
                 configuration: Partial<HogFunctionType>
                 mock_async_functions: boolean
-                event: any
+                globals: any
             }
         ): Promise<any> {
             return await new ApiRequest().hogFunction(id).withAction('invocations').create({ data })
