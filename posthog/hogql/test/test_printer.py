@@ -874,7 +874,7 @@ class TestPrinter(BaseTest):
                 "SELECT now(), toDateTime(timestamp), toDate(test_date), toDateTime('2020-02-02') FROM events",
                 context,
             ),
-            f"SELECT now64(6, %(hogql_val_0)s), toDateTime(toTimeZone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s), toDate(events.test_date, %(hogql_val_3)s), parseDateTime64BestEffortOrNull(%(hogql_val_4)s, 6, %(hogql_val_5)s) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+            f"SELECT now64(6, %(hogql_val_0)s), toDateTime(toTimeZone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s), toDate(events.test_date), parseDateTime64BestEffortOrNull(%(hogql_val_3)s, 6, %(hogql_val_4)s) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
         self.assertEqual(
             context.values,
@@ -882,9 +882,8 @@ class TestPrinter(BaseTest):
                 "hogql_val_0": "UTC",
                 "hogql_val_1": "UTC",
                 "hogql_val_2": "UTC",
-                "hogql_val_3": "UTC",
-                "hogql_val_4": "2020-02-02",
-                "hogql_val_5": "UTC",
+                "hogql_val_3": "2020-02-02",
+                "hogql_val_4": "UTC",
             },
         )
 
