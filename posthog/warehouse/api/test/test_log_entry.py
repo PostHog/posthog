@@ -1,11 +1,9 @@
 import datetime as dt
-
 import pytest
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
-from posthog.logging.log_entry import LogEntryLevel
 from posthog.client import sync_execute
 from django.test.client import Client as TestClient
 from posthog.warehouse.models import (
@@ -15,6 +13,7 @@ from posthog.warehouse.models import (
     DataWarehouseTable,
     DataWarehouseCredential,
 )
+from posthog.utils import encode_get_request_params
 
 
 def create_external_data_job_log_entry(
@@ -23,7 +22,7 @@ def create_external_data_job_log_entry(
     external_data_schema_id: str,
     run_id: str | None,
     message: str,
-    level: LogEntryLevel,
+    level: str,
 ):
     from posthog.clickhouse.log_entries import INSERT_LOG_ENTRY_SQL
 
@@ -103,7 +102,10 @@ def external_data_resources(client, organization, team):
 
 
 def get_external_data_schema_run_log_entries(client: TestClient, team_id: int, external_data_schema_id: str, **extra):
-    return client.get(f"/api/projects/{team_id}/external_data_schemas/{external_data_schema_id}/logs", extra)
+    return client.get(
+        f"/api/projects/{team_id}/external_data_schemas/{external_data_schema_id}/logs",
+        data=encode_get_request_params(extra),
+    )
 
 
 @pytest.mark.django_db
@@ -117,7 +119,7 @@ def test_external_data_schema_log_api_with_level_filter(client, external_data_re
         external_data_schema_id=schema_id,
         run_id=run_id,
         message="Test log. Much INFO.",
-        level=LogEntryLevel.INFO,
+        level="INFO",
     )
 
     create_external_data_job_log_entry(
@@ -125,14 +127,14 @@ def test_external_data_schema_log_api_with_level_filter(client, external_data_re
         external_data_schema_id=schema_id,
         run_id=run_id,
         message="Test log. Much DEBUG.",
-        level=LogEntryLevel.DEBUG,
+        level="DEBUG",
     )
 
     response = get_external_data_schema_run_log_entries(
         client,
         team_id=team.pk,
         external_data_schema_id=schema_id,
-        level_filter="info",
+        level="INFO",
     )
 
     json_response = response.json()
@@ -142,5 +144,5 @@ def test_external_data_schema_log_api_with_level_filter(client, external_data_re
     assert json_response["count"] == 1
     assert len(results) == 1
     assert results[0]["message"] == "Test log. Much INFO."
-    assert results[0]["level"] == LogEntryLevel.INFO
-    assert results[0]["external_data_schema_id"] == str(schema_id)
+    assert results[0]["level"] == "INFO"
+    assert results[0]["log_source_id"] == str(schema_id)

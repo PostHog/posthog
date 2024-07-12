@@ -9,7 +9,6 @@ from posthog.warehouse.api import (
     table,
     view_link,
     external_data_schema,
-    logging as external_data_job_logging,
 )
 from ..heatmaps.heatmaps_api import LegacyHeatmapViewSet, HeatmapViewSet
 from .session import SessionViewSet
@@ -292,18 +291,11 @@ projects_router.register(
     ["team_id"],
 )
 
-external_data_schema_router = projects_router.register(
+projects_router.register(
     r"external_data_schemas",
     external_data_schema.ExternalDataSchemaViewset,
     "project_external_data_schemas",
     ["team_id"],
-)
-
-external_data_schema_router.register(
-    r"logs",
-    external_data_job_logging.ExternalDataSchemaLogViewSet,
-    "external_data_schema_logs",
-    ["team_id", "external_data_schema_id"],
 )
 
 # General endpoints (shared across CH & PG)
