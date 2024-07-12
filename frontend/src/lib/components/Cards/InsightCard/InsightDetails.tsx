@@ -39,6 +39,7 @@ import {
     isLifecycleQuery,
     isPathsQuery,
     isTrendsQuery,
+    isValidBreakdown,
 } from '~/queries/utils'
 import {
     AnyPropertyFilter,
@@ -155,11 +156,7 @@ function SeriesDisplay({
     const { mathDefinitions } = useValues(mathsLogic)
     const filter = query.series[seriesIndex]
 
-    const hasBreakdown =
-        isInsightQueryWithBreakdown(query) &&
-        query.breakdownFilter != null &&
-        ((query.breakdownFilter.breakdown_type != null && query.breakdownFilter.breakdown != null) ||
-            Array.isArray(query.breakdownFilter.breakdowns))
+    const hasBreakdown = isInsightQueryWithBreakdown(query) && isValidBreakdown(query.breakdownFilter)
 
     const mathDefinition = mathDefinitions[
         isLifecycleQuery(query)
@@ -338,12 +335,7 @@ export function LEGACY_FilterBasedBreakdownSummary({ filters }: { filters: Parti
 }
 
 export function BreakdownSummary({ query }: { query: InsightQueryNode }): JSX.Element | null {
-    if (
-        !isInsightQueryWithBreakdown(query) ||
-        !query.breakdownFilter ||
-        ((query.breakdownFilter.breakdown == null || query.breakdownFilter.breakdown_type == null) &&
-            !query.breakdownFilter.breakdowns?.length)
-    ) {
+    if (!isInsightQueryWithBreakdown(query) || !isValidBreakdown(query.breakdownFilter)) {
         return null
     }
 
