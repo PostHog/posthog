@@ -5,6 +5,8 @@ from posthog.models import Insight
 
 
 class InsightAdmin(admin.ModelAdmin):
+    exclude = ("layouts",)
+
     list_display = (
         "id",
         "short_id",
