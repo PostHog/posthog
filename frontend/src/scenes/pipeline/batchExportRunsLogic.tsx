@@ -1,7 +1,9 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import api, { PaginatedResponse } from 'lib/api'
+import { Dayjs, dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { BatchExportRun, GroupedBatchExportRuns } from '~/types'
@@ -34,6 +36,8 @@ export const batchExportRunsLogic = kea<batchExportRunsLogicType>([
         switchLatestRuns: (enabled: boolean) => ({ enabled }),
         loadRuns: true,
         retryRun: (run: BatchExportRun) => ({ run }),
+        openBackfillModal: true,
+        closeBackfillModal: true,
     }),
     loaders(({ props, values }) => ({
         runsPaginatedResponse: [
@@ -77,7 +81,50 @@ export const batchExportRunsLogic = kea<batchExportRunsLogicType>([
                 switchLatestRuns: (_, { enabled }) => enabled,
             },
         ],
+        isBackfillModalOpen: [
+            false,
+            {
+                openBackfillModal: () => true,
+                closeBackfillModal: () => false,
+            },
+        ],
     }),
+    forms(({ props, actions }) => ({
+        backfillForm: {
+            defaults: { end_at: dayjs() } as {
+                start_at?: Dayjs
+                end_at?: Dayjs
+            },
+            errors: ({ start_at, end_at }) => ({
+                start_at: !start_at ? 'Start date is required' : undefined,
+                end_at: !end_at ? 'End date is required' : undefined,
+            }),
+            submit: async ({ start_at, end_at }) => {
+                await new Promise((resolve) => setTimeout(resolve, 1000))
+                await api.batchExports
+                    .createBackfill(props.id, {
+                        start_at: start_at?.toISOString() ?? null,
+                        end_at: end_at?.toISOString() ?? null,
+                    })
+                    .catch((e) => {
+                        if (e.detail) {
+                            actions.setBackfillFormManualErrors({
+                                [e.attr ?? 'start_at']: e.detail,
+                            })
+                        } else {
+                            lemonToast.error('Unknown error occurred')
+                        }
+
+                        throw e
+                    })
+
+                actions.closeBackfillModal()
+                actions.loadRuns()
+
+                return
+            },
+        },
+    })),
     selectors({
         hasMoreRunsToLoad: [(s) => [s.runsPaginatedResponse], (runsPaginatedResponse) => !!runsPaginatedResponse?.next],
         loading: [
