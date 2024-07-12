@@ -192,7 +192,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self._update_team({"capture_performance_opt_in": True})
 
         response = self._post_decide().json()
-        self.assertEqual(response["capturePerformance"], True)
+        self.assertEqual(response["capturePerformance"], {"network_timing": True, "web_vitals": False})
 
     def test_session_recording_sample_rate(self, *args):
         # :TRICKY: Test for regression around caching
@@ -370,6 +370,18 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.assertEqual(
             response["autocaptureExceptions"],
             {"endpoint": "/e/"},
+        )
+
+    def test_web_vitals_autocapture_opt_in(self, *args):
+        response = self._post_decide().json()
+        self.assertEqual(response["capturePerformance"], False)
+
+        self._update_team({"autocapture_web_vitals_opt_in": True})
+
+        response = self._post_decide().json()
+        self.assertEqual(
+            response["capturePerformance"],
+            {"web_vitals": True, "network_timing": False},
         )
 
     def test_user_session_recording_opt_in_wildcard_domain(self, *args):
@@ -2834,7 +2846,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
         self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
         self.assertEqual(response["siteApps"], [])
-        self.assertEqual(response["capturePerformance"], True)
+        self.assertEqual(response["capturePerformance"], {"network_timing": True, "web_vitals": False})
         self.assertEqual(response["featureFlags"], {})
         self.assertEqual(
             response["autocaptureExceptions"],
@@ -2859,7 +2871,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             )
             self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
             self.assertEqual(response["siteApps"], [])
-            self.assertEqual(response["capturePerformance"], True)
+            self.assertEqual(response["capturePerformance"], {"network_timing": True, "web_vitals": False})
             self.assertEqual(
                 response["autocaptureExceptions"],
                 {"endpoint": "/e/"},
@@ -3609,7 +3621,7 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
             )
             self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
             self.assertEqual(response["siteApps"], [])
-            self.assertEqual(response["capturePerformance"], True)
+            self.assertEqual(response["capturePerformance"], {"network_timing": True, "web_vitals": False})
             self.assertEqual(response["featureFlags"], {"no-props": True})
             self.assertEqual(response["errorsWhileComputingFlags"], True)
 
@@ -3648,16 +3660,16 @@ class TestDecideUsesReadReplica(TransactionTestCase):
     databases = {"default", "replica"}
 
     def setup_user_and_team_in_db(self, dbname: str = "default"):
-        organization = Organization.objects.using(dbname).create(
+        organization = Organization.objects.db_manager(dbname).create(
             name="Org 1", slug=f"org-{dbname}-{random.randint(1, 1000000)}"
         )
-        team = Team.objects.using(dbname).create(organization=organization, name="Team 1 org 1")
-        user = User.objects.using(dbname).create(
+        team = Team.objects.db_manager(dbname).create(organization=organization, name="Team 1 org 1")
+        user = User.objects.db_manager(dbname).create(
             email=f"test-{random.randint(1, 100000)}@posthog.com",
             password="password",
             first_name="first_name",
         )
-        OrganizationMembership.objects.using(dbname).create(
+        OrganizationMembership.objects.db_manager(dbname).create(
             user=user,
             organization=organization,
             level=OrganizationMembership.Level.OWNER,
@@ -3669,7 +3681,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         created_flags = []
         created_persons = []
         for flag in flags:
-            f = FeatureFlag.objects.using(dbname).create(
+            f = FeatureFlag.objects.db_manager(dbname).create(
                 team=team,
                 rollout_percentage=flag.get("rollout_percentage") or None,
                 filters=flag.get("filters") or {},
@@ -3680,13 +3692,13 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             )
             created_flags.append(f)
         for person in persons:
-            p = Person.objects.using(dbname).create(
+            p = Person.objects.db_manager(dbname).create(
                 team=team,
                 properties=person["properties"],
             )
             created_persons.append(p)
             for distinct_id in person["distinct_ids"]:
-                PersonDistinctId.objects.using(dbname).create(person=p, distinct_id=distinct_id, team=team)
+                PersonDistinctId.objects.db_manager(dbname).create(person=p, distinct_id=distinct_id, team=team)
 
         return created_flags, created_persons
 
@@ -4120,15 +4132,15 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             )  # assigned by distinct_id hash
 
         # new person, merged from old distinct ID
-        PersonDistinctId.objects.using("default").create(person=person, distinct_id="other_id", team=self.team)
+        PersonDistinctId.objects.db_manager("default").create(person=person, distinct_id="other_id", team=self.team)
         # hash key override already exists
-        FeatureFlagHashKeyOverride.objects.using("default").create(
+        FeatureFlagHashKeyOverride.objects.db_manager("default").create(
             team=self.team,
             person=person,
             hash_key="example_id",
             feature_flag_key="beta-feature",
         )
-        FeatureFlagHashKeyOverride.objects.using("default").create(
+        FeatureFlagHashKeyOverride.objects.db_manager("default").create(
             team=self.team,
             person=person,
             hash_key="example_id",
@@ -4293,7 +4305,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             )  # assigned by distinct_id hash
 
         # new person, merged from old distinct ID
-        PersonDistinctId.objects.using("default").create(person=person, distinct_id="other_id", team=self.team)
+        PersonDistinctId.objects.db_manager("default").create(person=person, distinct_id="other_id", team=self.team)
 
         # request with hash key overrides and _new_ writes should go to main database
         with self.assertNumQueries(8, using="replica"), self.assertNumQueries(9, using="default"):
@@ -4376,10 +4388,12 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         ]
         self.setup_flags_in_db("replica", team, user, flags, persons)
 
-        GroupTypeMapping.objects.using("replica").create(team=self.team, group_type="organization", group_type_index=0)
-        GroupTypeMapping.objects.using("default").create(team=self.team, group_type="project", group_type_index=1)
+        GroupTypeMapping.objects.db_manager("replica").create(
+            team=self.team, group_type="organization", group_type_index=0
+        )
+        GroupTypeMapping.objects.db_manager("default").create(team=self.team, group_type="project", group_type_index=1)
 
-        Group.objects.using("replica").create(
+        Group.objects.db_manager("replica").create(
             team_id=self.team.pk,
             group_type_index=0,
             group_key="foo",

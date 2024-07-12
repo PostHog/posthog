@@ -102,7 +102,7 @@ class TeamManager(models.Manager):
     def create(self, *args, **kwargs) -> "Team":
         from ..project import Project
 
-        with transaction.atomic():
+        with transaction.atomic(using=self.db):
             if "id" not in kwargs:
                 kwargs["id"] = self.increment_id_sequence()
             if kwargs.get("project") is None and kwargs.get("project_id") is None:
@@ -115,7 +115,7 @@ class TeamManager(models.Manager):
                     project_kwargs["organization_id"] = organization_id
                 if name := kwargs.get("name"):
                     project_kwargs["name"] = name
-                kwargs["project"] = Project.objects.create(id=kwargs["id"], **project_kwargs)
+                kwargs["project"] = Project.objects.db_manager(self.db).create(id=kwargs["id"], **project_kwargs)
             return super().create(*args, **kwargs)
 
     def get_team_from_token(self, token: Optional[str]) -> Optional["Team"]:
@@ -201,6 +201,7 @@ class Team(UUIDClassicModel):
     has_completed_onboarding_for: models.JSONField = models.JSONField(null=True, blank=True)
     ingested_event: models.BooleanField = models.BooleanField(default=False)
     autocapture_opt_out: models.BooleanField = models.BooleanField(null=True, blank=True)
+    autocapture_web_vitals_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
     autocapture_exceptions_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
     autocapture_exceptions_errors_to_ignore: models.JSONField = models.JSONField(null=True, blank=True)
     session_recording_opt_in: models.BooleanField = models.BooleanField(default=False)

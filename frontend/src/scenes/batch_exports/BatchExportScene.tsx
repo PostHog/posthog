@@ -24,15 +24,15 @@ import { capitalizeFirstLetter, identifierToHuman } from 'lib/utils'
 import { pluralize } from 'lib/utils'
 import { useEffect, useState } from 'react'
 import { BatchExportRunsGrouped } from 'scenes/pipeline/BatchExportRuns'
-import { PipelineLogLevel } from 'scenes/pipeline/pipelineNodeLogsLogic'
+import { LogLevelDisplay } from 'scenes/pipeline/utils'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { BatchExportLogEntry } from '~/types'
+import { LogEntry } from '~/types'
 
 import { BatchExportBackfillModal } from './BatchExportBackfillModal'
 import { batchExportLogic, BatchExportLogicProps, BatchExportTab } from './batchExportLogic'
-import { batchExportLogsLogic, BatchExportLogsProps, LOGS_PORTION_LIMIT } from './batchExportLogsLogic'
+import { ALL_LOG_LEVELS, batchExportLogsLogic, BatchExportLogsProps, LOGS_PORTION_LIMIT } from './batchExportLogsLogic'
 import { BatchExportTag } from './components'
 import { humanizeDestination, intervalToFrequency, showBatchExports } from './utils'
 
@@ -114,52 +114,27 @@ export function RunsTab(): JSX.Element {
     )
 }
 
-function BatchExportLogEntryLevelDisplay(type: PipelineLogLevel): JSX.Element {
-    let color: string | undefined
-    switch (type) {
-        case PipelineLogLevel.Debug:
-            color = 'var(--muted)'
-            break
-        case PipelineLogLevel.Log:
-            color = 'var(--text-3000)'
-            break
-        case PipelineLogLevel.Info:
-            color = 'var(--blue)'
-            break
-        case PipelineLogLevel.Warning:
-            color = 'var(--warning)'
-            break
-        case PipelineLogLevel.Error:
-            color = 'var(--danger)'
-            break
-        default:
-            break
-    }
-    // eslint-disable-next-line react/forbid-dom-props
-    return <span style={{ color }}>{type}</span>
-}
-
-const columns: LemonTableColumns<BatchExportLogEntry> = [
+const columns: LemonTableColumns<LogEntry> = [
     {
         title: 'Timestamp',
         key: 'timestamp',
         dataIndex: 'timestamp',
         width: 1,
-        render: (_, entry: BatchExportLogEntry) => dayjs(entry.timestamp).format('YYYY-MM-DD HH:mm:ss.SSS UTC'),
+        render: (_, entry) => dayjs(entry.timestamp).format('YYYY-MM-DD HH:mm:ss.SSS UTC'),
     },
     {
         title: 'Level',
         key: 'level',
         dataIndex: 'level',
         width: 1,
-        render: (_, entry: BatchExportLogEntry) => BatchExportLogEntryLevelDisplay(entry.level),
+        render: (_, entry) => LogLevelDisplay(entry.level),
     },
     {
         title: 'Run ID',
         key: 'run_id',
-        dataIndex: 'run_id',
+        dataIndex: 'instance_id',
         width: 1,
-        render: (_, entry) => entry.run_id,
+        render: (_, entry) => entry.instance_id,
     },
     {
         title: 'Message',
@@ -197,7 +172,8 @@ export function LogsTab({ batchExportId }: BatchExportLogsProps): JSX.Element {
             />
             <div className="flex items-center gap-4">
                 <span>Show logs of type:&nbsp;</span>
-                {Object.values(PipelineLogLevel).map((type) => {
+
+                {ALL_LOG_LEVELS.map((type) => {
                     return (
                         <LemonCheckbox
                             key={type}

@@ -152,7 +152,7 @@ POSSIBLE_CHANNEL_TYPES = [
     "Paid Search",
     "Paid Video",
     "Paid Shopping",
-    "Paid Other",
+    "Paid Unknown",
     "Direct",
     "Organic Search",
     "Organic Video",
@@ -163,5 +163,5 @@ POSSIBLE_CHANNEL_TYPES = [
     "Email",
     "Referral",
     "Affiliate",
-    "Other",
+    "Unknown",
 ]

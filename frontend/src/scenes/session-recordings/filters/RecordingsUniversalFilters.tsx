@@ -36,7 +36,6 @@ export const RecordingsUniversalFilters = ({
                     <DateFilter
                         dateFrom={filters.date_from ?? '-3d'}
                         dateTo={filters.date_to}
-                        disabled={filters.live_mode}
                         onChange={(changedDateFrom, changedDateTo) => {
                             setFilters({
                                 date_from: changedDateFrom,

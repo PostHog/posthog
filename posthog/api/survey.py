@@ -179,8 +179,11 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
                 )
 
             choices = raw_question.get("choices")
-            if choices and not isinstance(choices, list):
-                raise serializers.ValidationError("Question choices must be a list of strings")
+            if choices:
+                if not isinstance(choices, list):
+                    raise serializers.ValidationError("Question choices must be a list of strings")
+                if any(not choice.strip() for choice in choices):
+                    raise serializers.ValidationError("Question choices cannot be empty")
 
             link = raw_question.get("link")
             if link:
@@ -447,7 +450,11 @@ class SurveyAPISerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "name",
-            "description",
+            # NB: The "description" field is serialized on Create/Update request, and used to be serialized on the next line,
+            # But we had a user write in complaining that we were exposing the description in the API
+            # (https://posthoghelp.zendesk.com/agent/tickets/15210), which was a problem for them
+            # since they were using it as a way to store sensitive information. Given that we don't ever use
+            # that field to render the survey, we can safely remove it from the API response.
             "type",
             "linked_flag_key",
             "targeting_flag_key",

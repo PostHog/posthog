@@ -6,14 +6,14 @@ from unittest.mock import patch
 from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
 )
-from posthog.warehouse.data_load.service import get_sync_schedule
 from django.test import override_settings
 from django.conf import settings
 from posthog.models import Team
 import psycopg
 from rest_framework import status
 
-import datetime
+
+from posthog.warehouse.models.external_data_job import ExternalDataJob
 
 
 class TestExternalDataSource(APIBaseTest):
@@ -396,7 +396,6 @@ class TestExternalDataSource(APIBaseTest):
                 "prefix",
                 "last_run_at",
                 "schemas",
-                "sync_frequency",
             ],
         )
         self.assertEqual(
@@ -414,6 +413,7 @@ class TestExternalDataSource(APIBaseTest):
                     "status": schema.status,
                     "sync_type": schema.sync_type,
                     "table": schema.table,
+                    "sync_frequency": schema.sync_frequency,
                 }
             ],
         )
@@ -598,35 +598,22 @@ class TestExternalDataSource(APIBaseTest):
             self.assertEqual(response.status_code, 400)
             self.assertEqual(response.json(), {"message": "Cannot use internal Postgres database"})
 
-    @patch("posthog.warehouse.data_load.service.sync_external_data_job_workflow")
-    def test_update_source_sync_frequency(self, _patch_sync_external_data_job_workflow):
+    def test_source_jobs(self):
         source = self._create_external_data_source()
         schema = self._create_external_data_schema(source.pk)
-
-        self.assertEqual(source.sync_frequency, ExternalDataSource.SyncFrequency.DAILY)
-        # test schedule
-        schedule = get_sync_schedule(schema)
-        self.assertEqual(
-            schedule.spec.intervals[0].every,
-            datetime.timedelta(days=1),
+        job = ExternalDataJob.objects.create(
+            team=self.team, pipeline=source, schema=schema, status=ExternalDataJob.Status.COMPLETED, rows_synced=100
         )
 
-        # test api
-        response = self.client.patch(
-            f"/api/projects/{self.team.pk}/external_data_sources/{source.pk}/",
-            data={"sync_frequency": ExternalDataSource.SyncFrequency.WEEKLY},
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/external_data_sources/{source.pk}/jobs",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        source.refresh_from_db()
-        schema.refresh_from_db()
+        data = response.json()
 
-        self.assertEqual(source.sync_frequency, ExternalDataSource.SyncFrequency.WEEKLY)
-        self.assertEqual(_patch_sync_external_data_job_workflow.call_count, 1)
-
-        # test schedule
-        schedule = get_sync_schedule(schema)
-        self.assertEqual(
-            schedule.spec.intervals[0].every,
-            datetime.timedelta(days=7),
-        )
+        assert response.status_code, status.HTTP_200_OK
+        assert len(data) == 1
+        assert data[0]["id"] == str(job.pk)
+        assert data[0]["status"] == "Completed"
+        assert data[0]["rows_synced"] == 100
+        assert data[0]["schema"]["id"] == str(schema.pk)
