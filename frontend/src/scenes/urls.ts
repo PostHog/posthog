@@ -160,7 +160,7 @@ export const urls = {
     dataWarehouse: (query?: string | Record<string, any>): string =>
         combineUrl('/data-warehouse', {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {})
             .url,
-    dataWarehouseView: (id: string, query: string | Record<string, any>): string =>
+    dataWarehouseView: (id: string, query?: string | Record<string, any>): string =>
         combineUrl(
             `/data-warehouse/view/${id}`,
             {},

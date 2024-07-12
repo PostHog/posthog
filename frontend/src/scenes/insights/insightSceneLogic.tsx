@@ -17,7 +17,7 @@ import { ActivityFilters } from '~/layout/navigation-3000/sidepanel/panels/activ
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { examples } from '~/queries/examples'
-import { NodeKind } from '~/queries/schema'
+import { DataVisualizationNode, NodeKind } from '~/queries/schema'
 import { ActivityScope, Breadcrumb, FilterType, InsightShortId, InsightType, ItemMode } from '~/types'
 
 import { insightDataLogic } from './insightDataLogic'
@@ -208,7 +208,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             values.insightDataLogicRef?.logic.actions.setQuery({
                 kind: NodeKind.DataVisualizationNode,
                 source: JSON.parse(q),
-            })
+            } as DataVisualizationNode)
         },
         '/insights/:shortId(/:mode)(/:subscriptionId)': (
             { shortId, mode, subscriptionId }, // url params
