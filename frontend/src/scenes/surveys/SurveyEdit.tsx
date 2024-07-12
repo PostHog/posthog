@@ -793,7 +793,6 @@ export default function SurveyEdit(): JSX.Element {
                                                 >
                                                     <EventSelect
                                                         filterGroupTypes={[TaxonomicFilterGroupType.Actions]}
-                                                        itemProperty="name"
                                                         onItemChange={(items: ActionType[]) => {
                                                             setSurveyValue('conditions', {
                                                                 ...survey.conditions,
