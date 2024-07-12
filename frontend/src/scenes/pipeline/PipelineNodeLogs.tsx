@@ -5,7 +5,7 @@ import { LOGS_PORTION_LIMIT } from 'lib/constants'
 import { pluralize } from 'lib/utils'
 
 import { PipelineNodeLogicProps } from './pipelineNodeLogic'
-import { PipelineLogLevel, pipelineNodeLogsLogic } from './pipelineNodeLogsLogic'
+import { ALL_LOG_LEVELS, pipelineNodeLogsLogic } from './pipelineNodeLogsLogic'
 
 export function PipelineNodeLogs({ id, stage }: PipelineNodeLogicProps): JSX.Element {
     const logic = pipelineNodeLogsLogic({ id, stage })
@@ -32,7 +32,7 @@ export function PipelineNodeLogs({ id, stage }: PipelineNodeLogicProps): JSX.Ele
             />
             <div className="flex items-center gap-4">
                 <span className="mr-1">Show logs of level:</span>
-                {Object.values(PipelineLogLevel).map((level) => {
+                {ALL_LOG_LEVELS.map((level) => {
                     return (
                         <LemonCheckbox
                             key={level}
@@ -66,7 +66,7 @@ export function PipelineNodeLogs({ id, stage }: PipelineNodeLogicProps): JSX.Ele
                 columns={columns}
                 loading={logsLoading}
                 className="ph-no-capture"
-                rowKey="timestamp"
+                rowKey={(record) => `${record.log_source_id}:${record.instance_id}:${record.timestamp}`}
                 pagination={{ pageSize: 200, hideOnSinglePage: true }}
             />
             {!!logs.length && (

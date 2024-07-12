@@ -2,6 +2,7 @@ from typing import Any
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
+
 from posthog.models.utils import sane_repr
 
 from posthog.utils import absolute_uri
@@ -13,9 +14,6 @@ class DashboardManager(models.Manager):
 
 
 class Dashboard(models.Model):
-    objects = DashboardManager()
-    objects_including_soft_deleted = models.Manager()
-
     class CreationMode(models.TextChoices):
         DEFAULT = "default", "Default"
         TEMPLATE = (
@@ -78,7 +76,19 @@ class Dashboard(models.Model):
     # DEPRECATED: using the new "is_sharing_enabled" relation instead
     is_shared: models.BooleanField = models.BooleanField(default=False)
 
+    objects = DashboardManager()
+    objects_including_soft_deleted: models.Manager["Dashboard"] = models.Manager()
+
     __repr__ = sane_repr("team_id", "id", "name")
+
+    class Meta:
+        indexes = [
+            models.Index(
+                name="idx_dashboard_deleted_team_id",
+                fields=["-pinned", "name", "deleted", "team_id"],
+                condition=models.Q(deleted=False),
+            ),
+        ]
 
     def __str__(self):
         return self.name or str(self.id)

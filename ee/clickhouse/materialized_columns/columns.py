@@ -200,7 +200,7 @@ def _materialized_column_name(
 ) -> str:
     "Returns a sanitized and unique column name to use for materialized column"
 
-    prefix = "mat_" if table == "events" or table == "groups" else "pmat_"
+    prefix = "pmat_" if table == "person" else "mat_"
 
     if table_column != DEFAULT_TABLE_COLUMN:
         prefix += f"{SHORT_TABLE_COLUMN_NAME[table_column]}_"

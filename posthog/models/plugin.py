@@ -200,6 +200,13 @@ class Plugin(models.Model):
 
     objects: PluginManager = PluginManager()
 
+    __repr__ = sane_repr("id", "name", "organization_id", "is_global")
+
+    def __str__(self) -> str:
+        if not self.name:
+            return f"ID {self.id}"
+        return self.name
+
     def get_default_config(self) -> dict[str, Any]:
         config: dict[str, Any] = {}
         config_schema = self.config_schema
@@ -215,21 +222,8 @@ class Plugin(models.Model):
                     config[config_entry["key"]] = default
         return config
 
-    def __str__(self) -> str:
-        if not self.name:
-            return f"ID {self.id}"
-        return self.name
-
-    __repr__ = sane_repr("id", "name", "organization_id", "is_global")
-
 
 class PluginConfig(models.Model):
-    class Meta:
-        indexes = [
-            models.Index(fields=["web_token"]),
-            models.Index(fields=["enabled"]),
-        ]
-
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE, null=True)
     plugin: models.ForeignKey = models.ForeignKey("Plugin", on_delete=models.CASCADE)
     enabled: models.BooleanField = models.BooleanField(default=False)
@@ -262,6 +256,12 @@ class PluginConfig(models.Model):
         blank=True,
         null=True,
     )
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["web_token"]),
+            models.Index(fields=["enabled"]),
+        ]
 
 
 class PluginAttachment(models.Model):

@@ -15,19 +15,19 @@ from django.views.decorators.csrf import csrf_exempt
 from enum import Enum
 from kafka.errors import KafkaError, MessageSizeTooLargeError, KafkaTimeoutError
 from kafka.producer.future import FutureRecordMetadata
-from prometheus_client import Counter, Gauge
+from prometheus_client import Counter, Gauge, Histogram
 from rest_framework import status
 from sentry_sdk import configure_scope
 from sentry_sdk.api import capture_exception, start_span
 from statshog.defaults.django import statsd
 from token_bucket import Limiter, MemoryStorage
-from typing import Any, Optional
+from typing import Any, Optional, Literal
 
 from ee.billing.quota_limiting import QuotaLimitingCaches
 from posthog.api.utils import get_data, get_token, safe_clickhouse_string
 from posthog.cache_utils import cache_for
 from posthog.exceptions import generate_exception_response
-from posthog.kafka_client.client import KafkaProducer, sessionRecordingKafkaProducer
+from posthog.kafka_client.client import KafkaProducer, session_recording_kafka_producer
 from posthog.kafka_client.topics import (
     KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
     KAFKA_SESSION_RECORDING_EVENTS,
@@ -41,6 +41,7 @@ from posthog.redis import get_client
 from posthog.session_recordings.session_recording_helpers import (
     preprocess_replay_events_for_blob_ingestion,
     split_replay_events,
+    byte_size_dict,
 )
 from posthog.storage import object_storage
 from posthog.utils import get_ip_address
@@ -113,6 +114,11 @@ KAFKA_TIMEOUT_ERROR_COUNTER = Counter(
     # retry_count should only have 0, 1, or 2
     # and status_code only has 400 or 502
     labelnames=["retry_count", "status_code"],
+)
+
+REPLAY_MESSAGE_PRODUCTION_TIMER = Histogram(
+    "capture_replay_message_production_seconds",
+    "Time taken to produce a set of replay messages",
 )
 
 # This is a heuristic of ids we have seen used as anonymous. As they frequently
@@ -207,7 +213,7 @@ def log_event(
     # TODO: Handle Kafka being unavailable with exponential backoff retries
     try:
         if event_name in SESSION_RECORDING_DEDICATED_KAFKA_EVENTS:
-            producer = sessionRecordingKafkaProducer()
+            producer = session_recording_kafka_producer()
         else:
             producer = KafkaProducer()
 
@@ -555,36 +561,39 @@ def get_event(request):
             # This is mostly a copy of above except we only log, we don't error out
             if alternative_replay_events:
                 processed_events = list(preprocess_events(alternative_replay_events))
-                for event, event_uuid, distinct_id in processed_events:
-                    capture_args = (
-                        event,
-                        distinct_id,
-                        ip,
-                        site_url,
-                        now,
-                        sent_at,
-                        event_uuid,
-                        token,
-                    )
-                    capture_kwargs = {
-                        "extra_headers": [("lib_version", lib_version)],
-                    }
-                    this_future = capture_internal(*capture_args, **capture_kwargs)
-                    replay_futures.append((this_future, capture_args, capture_kwargs))
+                with REPLAY_MESSAGE_PRODUCTION_TIMER.time():
+                    for event, event_uuid, distinct_id in processed_events:
+                        capture_args = (
+                            event,
+                            distinct_id,
+                            ip,
+                            site_url,
+                            now,
+                            sent_at,
+                            event_uuid,
+                            token,
+                        )
+                        capture_kwargs = {
+                            "extra_headers": [
+                                ("lib_version", lib_version),
+                            ],
+                        }
+                        this_future = capture_internal(*capture_args, **capture_kwargs)
+                        replay_futures.append((this_future, capture_args, capture_kwargs))
 
-                start_time = time.monotonic()
-                for future, args, kwargs in replay_futures:
-                    if future is not None:
-                        try:
-                            future.get(
-                                timeout=settings.KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS - (time.monotonic() - start_time)
-                            )
-                        except MessageSizeTooLargeError:
-                            REPLAY_MESSAGE_SIZE_TOO_LARGE_COUNTER.inc()
-                            warning_event = replace_with_warning(args[0])
-                            if warning_event:
-                                warning_future = capture_internal(warning_event, *args[1:], **kwargs)
-                                warning_future.get(timeout=settings.KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS)
+                    start_time = time.monotonic()
+                    for future, args, kwargs in replay_futures:
+                        if future is not None:
+                            try:
+                                future.get(
+                                    timeout=settings.KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS - (time.monotonic() - start_time)
+                                )
+                            except MessageSizeTooLargeError as mstle:
+                                REPLAY_MESSAGE_SIZE_TOO_LARGE_COUNTER.inc()
+                                warning_event = replace_with_warning(args[0], token, mstle, lib_version)
+                                if warning_event:
+                                    warning_future = capture_internal(warning_event, *args[1:], **kwargs)
+                                    warning_future.get(timeout=settings.KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS)
 
     except ValueError as e:
         with sentry_sdk.push_scope() as scope:
@@ -634,14 +643,18 @@ def get_event(request):
     return cors_response(request, JsonResponse({"status": 1}))
 
 
-def replace_with_warning(event: dict[str, Any]) -> dict[str, Any] | None:
+def replace_with_warning(
+    event: dict[str, Any], token: str, mstle: MessageSizeTooLargeError, lib_version: str
+) -> dict[str, Any] | None:
     """
     Replace the event with a warning message if the event is too large to be sent to Kafka.
     The event passed in should be safe to discard (because we know kafka won't accept it).
     We do this so that when we're playing back the recording we can insert useful info in the UI.
     """
     try:
-        sample_replay_data_to_object_storage(event, random())
+        sample_replay_data_to_object_storage(event, random(), token, lib_version)
+
+        posthog_size_calculation = byte_size_dict(event)
 
         properties = event.pop("properties", {})
         snapshot_items = properties.pop("$snapshot_items", [])
@@ -655,6 +668,23 @@ def replace_with_warning(event: dict[str, Any]) -> dict[str, Any] | None:
             return None
 
         only_meta_events = [x for x in snapshot_items if isinstance(x, dict) and ("type" in x and x["type"] == 4)]
+
+        kafka_size: int | None = None
+        size_difference: int | Literal["unknown"] = "unknown"
+        try:
+            kafka_size = int(mstle.args[0].split(" ")[3])
+            size_difference = kafka_size - posthog_size_calculation
+        except:
+            pass
+
+        logger.info(
+            "REPLAY_MESSAGE_TOO_LARGE",
+            session_id=properties.get("$session_id"),
+            kafka_size=kafka_size,
+            posthog_calculation=posthog_size_calculation,
+            lib_version=lib_version,
+        )
+
         return {
             **event,
             "properties": {
@@ -666,6 +696,14 @@ def replace_with_warning(event: dict[str, Any]) -> dict[str, Any] | None:
                         "type": 5,
                         "data": {
                             "tag": "Message too large",
+                            "payload": {
+                                "error_message": mstle.message,
+                                "error": str(mstle),
+                                "kafka_size": kafka_size,
+                                "posthog_calculation": posthog_size_calculation,
+                                "lib_version": lib_version,
+                                "size_difference": size_difference,
+                            },
                         },
                         "$window_id": first_item.get("$window_id"),
                         "timestamp": first_item.get("timestamp"),
@@ -680,20 +718,29 @@ def replace_with_warning(event: dict[str, Any]) -> dict[str, Any] | None:
         return None
 
 
-def sample_replay_data_to_object_storage(event: dict[str, Any], random_number: float) -> None:
+def sample_replay_data_to_object_storage(
+    event: dict[str, Any], random_number: float, token: str, lib_version: str
+) -> None:
     """
     the random number is passed in to make testing easier
     both the random number and the sample rate must be between 0 and 0.01
     if the random number is less than the sample_rate then we write the event to S3
     """
     try:
-        sample_rate = settings.REPLAY_MESSAGE_TOO_LARGE_SAMPLE_RATE
-        if 0 < random_number < sample_rate <= 0.01:
-            object_key = f"session_id/{event.get('properties', {}).get('$session_id', 'unknown')}.json"
+        # capture more of posthog message too large since we know we're using latest versions
+        max_sample_rate = 0.6 if token == "sTMFPsFhdP1Ssg" else 0.01
+        sample_rate = 0.5 if token == "sTMFPsFhdP1Ssg" else settings.REPLAY_MESSAGE_TOO_LARGE_SAMPLE_RATE
+
+        if 0 < random_number < sample_rate <= max_sample_rate:
+            if "properties" in event:
+                event["properties"]["$lib_version"] = lib_version
+
+            object_key = f"token-{token}-session_id-{event.get('properties', {}).get('$session_id', 'unknown')}.json"
             object_storage.write(object_key, json.dumps(event), bucket=settings.REPLAY_MESSAGE_TOO_LARGE_SAMPLE_BUCKET)
     except Exception as ex:
         with sentry_sdk.push_scope() as scope:
             scope.set_tag("capture-pathway", "replay")
+            scope.set_tag("ph-team-token", token)
             capture_exception(ex)
 
 
@@ -771,7 +818,11 @@ def capture_internal(
             overflowing = session_id in _list_overflowing_keys(InputType.REPLAY)
 
         return log_event(
-            parsed_event, event["event"], partition_key=session_id, headers=headers, overflowing=overflowing
+            parsed_event,
+            event["event"],
+            partition_key=session_id,
+            headers=headers,
+            overflowing=overflowing,
         )
 
     # We aim to always partition by {team_id}:{distinct_id} but allow

@@ -43,7 +43,7 @@ from posthog.api.capture import (
 )
 from posthog.api.test.mock_sentry import mock_sentry_context_for_tagging
 from posthog.api.test.openapi_validation import validate_response
-from posthog.kafka_client.client import KafkaProducer, sessionRecordingKafkaProducer
+from posthog.kafka_client.client import KafkaProducer, session_recording_kafka_producer
 from posthog.kafka_client.topics import (
     KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
@@ -496,8 +496,10 @@ class TestCapture(BaseTest):
                     "timestamp": 1234567890,
                 },
                 {"type": 2, "data": {"lots": "of data"}, "$window_id": "the window id", "timestamp": 1234567890},
-            ]
+            ],
+            query_params="ver=1.2.3",
         )
+
         assert response.status_code == 200
 
         expected_data = make_processed_recording_event(
@@ -511,7 +513,17 @@ class TestCapture(BaseTest):
                 },
                 {
                     "type": 5,
-                    "data": {"tag": "Message too large"},
+                    "data": {
+                        "tag": "Message too large",
+                        "payload": {
+                            "error": "[Error 10] MessageSizeTooLargeError: Message size too large",
+                            "error_message": "MESSAGE_SIZE_TOO_LARGE",
+                            "kafka_size": None,  # none here because we're not really throwing MessageSizeTooLargeError
+                            "lib_version": "1.2.3",
+                            "posthog_calculation": 425,
+                            "size_difference": "unknown",
+                        },
+                    },
                     "timestamp": 1234567890,
                     "$window_id": "the window id",
                 },
@@ -1730,6 +1742,7 @@ class TestCapture(BaseTest):
                 "highlight",
                 ["x-highlight-request"],
             ),
+            ("DateDome", ["x-datadome-clientid"]),
         ]
     )
     def test_cors_allows_tracing_headers(self, _: str, path: str, headers: list[str]) -> None:
@@ -1934,7 +1947,7 @@ class TestCapture(BaseTest):
             self._send_august_2023_version_session_recording_event(event_data=None)
 
             session_recording_producer_singleton_mock.assert_called_with(
-                compression_type=None,
+                compression_type="gzip",
                 kafka_hosts=[
                     "another-server:9092",
                     "a-fourth.server:9092",
@@ -1943,7 +1956,7 @@ class TestCapture(BaseTest):
                 max_request_size=1234,
             )
 
-    @patch("posthog.api.capture.sessionRecordingKafkaProducer")
+    @patch("posthog.api.capture.session_recording_kafka_producer")
     @patch("posthog.api.capture.KafkaProducer")
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_can_redirect_session_recordings_to_alternative_kafka(
@@ -1960,7 +1973,7 @@ class TestCapture(BaseTest):
             ],
         ):
             default_kafka_producer_mock.return_value = KafkaProducer()
-            session_recording_producer_factory_mock.return_value = sessionRecordingKafkaProducer()
+            session_recording_producer_factory_mock.return_value = session_recording_kafka_producer()
 
             session_id = "test_can_redirect_session_recordings_to_alternative_kafka"
             # just a single thing to send (it should be an rrweb event but capture doesn't validate that)
@@ -2230,8 +2243,8 @@ class TestCapture(BaseTest):
                     },
                 ],
             )
-            sample_replay_data_to_object_storage(event, random_number)
-            contents = object_storage.read("session_id/abcdefgh.json", bucket=TEST_SAMPLES_BUCKET)
+            sample_replay_data_to_object_storage(event, random_number, "the-team-token", "1.2.3")
+            contents = object_storage.read("token-the-team-token-session_id-abcdefgh.json", bucket=TEST_SAMPLES_BUCKET)
             assert contents == json.dumps(event)
 
     @parameterized.expand(
@@ -2262,7 +2275,7 @@ class TestCapture(BaseTest):
                     },
                 ],
             )
-            sample_replay_data_to_object_storage(event, random_number)
+            sample_replay_data_to_object_storage(event, random_number, "another-team-token", "1.2.3")
 
             with pytest.raises(ObjectStorageError):
-                object_storage.read("session_id/abcdefgh.json", bucket=TEST_SAMPLES_BUCKET)
+                object_storage.read("token-another-team-token-session_id-abcdefgh.json", bucket=TEST_SAMPLES_BUCKET)

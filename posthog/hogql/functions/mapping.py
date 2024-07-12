@@ -394,9 +394,8 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "toDate": HogQLFunctionMeta(
         "toDateOrNull",
         1,
-        2,
+        1,
         overloads=[((ast.DateTimeType, ast.DateType), "toDate")],
-        tz_aware=True,
     ),
     "toDateTime": HogQLFunctionMeta(
         "parseDateTime64BestEffortOrNull",
@@ -877,7 +876,7 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "avgWeighted": HogQLFunctionMeta("avgWeighted", 2, 2, aggregate=True),
     "avgWeightedIf": HogQLFunctionMeta("avgWeightedIf", 3, 3, aggregate=True),
     "avgArray": HogQLFunctionMeta("avgArrayOrNull", 1, 1, aggregate=True),
-    # "topK": HogQLFunctionMeta("topK", 1, 1, aggregate=True),
+    "topK": HogQLFunctionMeta("topK", 1, 1, min_params=1, max_params=1, aggregate=True),
     # "topKIf": HogQLFunctionMeta("topKIf", 2, 2, aggregate=True),
     # "topKWeighted": HogQLFunctionMeta("topKWeighted", 1, 1, aggregate=True),
     # "topKWeightedIf": HogQLFunctionMeta("topKWeightedIf", 2, 2, aggregate=True),

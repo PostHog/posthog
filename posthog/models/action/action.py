@@ -41,7 +41,7 @@ class Action(models.Model):
     deleted: models.BooleanField = models.BooleanField(default=False)
     events: models.ManyToManyField = models.ManyToManyField("Event", blank=True)
     post_to_slack: models.BooleanField = models.BooleanField(default=False)
-    slack_message_format: models.CharField = models.CharField(default="", max_length=600, blank=True)
+    slack_message_format: models.CharField = models.CharField(default="", max_length=1200, blank=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     bytecode: models.JSONField = models.JSONField(null=True, blank=True)
     bytecode_error: models.TextField = models.TextField(blank=True, null=True)
@@ -53,6 +53,10 @@ class Action(models.Model):
 
     def __str__(self):
         return self.name
+
+    def save(self, *args, **kwargs):
+        self.refresh_bytecode()
+        super().save(*args, **kwargs)
 
     def get_analytics_metadata(self):
         return {
@@ -96,10 +100,6 @@ class Action(models.Model):
             if self.bytecode is not None or self.bytecode_error != str(e):
                 self.bytecode = None
                 self.bytecode_error = str(e)
-
-    def save(self, *args, **kwargs):
-        self.refresh_bytecode()
-        super().save(*args, **kwargs)
 
 
 @receiver(post_save, sender=Action)

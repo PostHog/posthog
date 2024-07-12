@@ -222,7 +222,15 @@ async def assert_clickhouse_records_in_s3(
         if batch_export_schema is not None:
             schema_column_names = [field["alias"] for field in batch_export_schema["fields"]]
         elif isinstance(batch_export_model, BatchExportModel) and batch_export_model.name == "persons":
-            schema_column_names = ["team_id", "distinct_id", "person_id", "properties", "version", "_inserted_at"]
+            schema_column_names = [
+                "team_id",
+                "distinct_id",
+                "person_id",
+                "properties",
+                "person_version",
+                "person_distinct_id_version",
+                "_inserted_at",
+            ]
 
     expected_records = []
     async for record_batch in iter_model_records(
@@ -320,7 +328,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
     Once we have these events, we pass them to the assert_clickhouse_records_in_s3 function to check
     that they appear in the expected S3 bucket and key.
     """
-    if isinstance(model, BatchExportModel) and model.name == "person" and exclude_events is not None:
+    if isinstance(model, BatchExportModel) and model.name == "persons" and exclude_events is not None:
         pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
 
     prefix = str(uuid.uuid4())
@@ -451,7 +459,7 @@ async def test_s3_export_workflow_with_minio_bucket(
     will require its prescense in the database when running. This model is indirectly parametrized
     by several fixtures. Refer to them for more information.
     """
-    if isinstance(model, BatchExportModel) and model.name == "person" and exclude_events is not None:
+    if isinstance(model, BatchExportModel) and model.name == "persons" and exclude_events is not None:
         # Eventually, this setting should be part of the model via some "filters" attribute.
         pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
 
@@ -644,7 +652,7 @@ async def test_s3_export_workflow_with_s3_bucket(
     will require its prescense in the database when running. This model is indirectly parametrized
     by several fixtures. Refer to them for more information.
     """
-    if isinstance(model, BatchExportModel) and model.name == "person" and exclude_events is not None:
+    if isinstance(model, BatchExportModel) and model.name == "persons" and exclude_events is not None:
         pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
 
     batch_export_schema: BatchExportSchema | None = None

@@ -388,6 +388,11 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       return visit(for_stmt_ctx);
     }
 
+    auto for_in_stmt_ctx = ctx->forInStmt();
+    if (for_in_stmt_ctx) {
+      return visit(for_in_stmt_ctx);
+    }
+
     auto func_stmt_ctx = ctx->funcStmt();
     if (func_stmt_ctx) {
       return visit(func_stmt_ctx);
@@ -413,8 +418,8 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       return visit(empty_stmt_ctx);
     }
 
-    throw ParsingError("Statement must be one of returnStmt, ifStmt, whileStmt, forStmt, funcStmt, varAssignment, "
-                       "block, exprStmt, or emptyStmt");
+    throw ParsingError("Statement must be one of returnStmt, ifStmt, whileStmt, forStmt, forInStmt, funcStmt, "
+                       "varAssignment, block, exprStmt, or emptyStmt");
   }
 
   VISIT(ExprStmt) {
@@ -574,6 +579,43 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       Py_DECREF(initializer);
       Py_DECREF(condition);
       Py_DECREF(increment);
+      Py_DECREF(body);
+      throw PyInternalError();
+    }
+    return ret;
+  }
+
+  VISIT(ForInStmt) {
+    string first_identifier = visitAsString(ctx->identifier(0));
+    string second_identifier;
+    if (ctx->identifier(1)) {
+      second_identifier = visitAsString(ctx->identifier(1));
+    }
+    PyObject* expr = visitAsPyObject(ctx->expression());
+    PyObject* body;
+    try {
+      body = visitAsPyObject(ctx->statement());
+    } catch (...) {
+      Py_DECREF(expr);
+      throw;
+    }
+    PyObject* ret = second_identifier.empty()
+        ? build_ast_node(
+            "ForInStatement", "{s:O,s:s#,s:N,s:N}",
+            "keyVar", Py_None,
+            "valueVar", first_identifier.data(), first_identifier.size(),
+            "expr", expr,
+            "body", body
+        )
+        : build_ast_node(
+            "ForInStatement", "{s:s#,s:s#,s:N,s:N}",
+            "keyVar", first_identifier.data(), first_identifier.size(),
+            "valueVar", second_identifier.data(), second_identifier.size(),
+            "expr", expr,
+            "body", body
+        );
+    if (!ret) {
+      Py_DECREF(expr);
       Py_DECREF(body);
       throw PyInternalError();
     }
@@ -1819,6 +1861,47 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     RETURN_NEW_AST_NODE("ArrayAccess", "{s:N,s:N}", "array", object, "property", property);
   }
 
+  VISIT(ColumnExprNullArrayAccess) {
+    PyObject* property = visitAsPyObject(ctx->columnExpr(1));
+    int is_property_a_constant = is_ast_node_instance(property, "Constant");
+    if (is_property_a_constant == -1) {
+      Py_DECREF(property);
+      throw PyInternalError();
+    }
+    if (is_property_a_constant) {
+      PyObject* property_value = PyObject_GetAttrString(property, "value");
+      if (!property_value) {
+        Py_DECREF(property);
+        throw PyInternalError();
+      }
+      PyObject* zero = PyLong_FromLong(0);
+      if (!zero) {
+        Py_DECREF(property_value);
+        Py_DECREF(property);
+        throw PyInternalError();
+      }
+      int is_property_zero = PyObject_RichCompareBool(property_value, zero, Py_EQ);
+      Py_DECREF(zero);
+      Py_DECREF(property_value);
+      if (is_property_zero == -1) {
+        Py_DECREF(property);
+        throw PyInternalError();
+      }
+      if (is_property_zero) {
+        Py_DECREF(property);
+        throw SyntaxError("SQL indexes start from one, not from zero. E.g: array[1]");
+      }
+    }
+    PyObject* object;
+    try {
+      object = visitAsPyObject(ctx->columnExpr(0));
+    } catch (...) {
+      Py_DECREF(property);
+      throw;
+    }
+    RETURN_NEW_AST_NODE("ArrayAccess", "{s:N,s:N,s:O}", "array", object, "property", property, "nullish", Py_True);
+  }
+
   VISIT(ColumnExprPropertyAccess) {
     string identifier = visitAsString(ctx->identifier());
     PyObject* property = build_ast_node("Constant", "{s:s#}", "value", identifier.data(), identifier.size());
@@ -1833,6 +1916,22 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       throw;
     }
     RETURN_NEW_AST_NODE("ArrayAccess", "{s:N,s:N}", "array", object, "property", property);
+  }
+
+  VISIT(ColumnExprNullPropertyAccess) {
+    string identifier = visitAsString(ctx->identifier());
+    PyObject* property = build_ast_node("Constant", "{s:s#}", "value", identifier.data(), identifier.size());
+    if (!property) {
+      throw PyInternalError();
+    }
+    PyObject* object;
+    try {
+      object = visitAsPyObject(ctx->columnExpr());
+    } catch (...) {
+      Py_DECREF(property);
+      throw;
+    }
+    RETURN_NEW_AST_NODE("ArrayAccess", "{s:N,s:N,s:O}", "array", object, "property", property, "nullish", Py_True);
   }
 
   VISIT_UNSUPPORTED(ColumnExprBetween)
@@ -1953,6 +2052,34 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       throw;
     }
     RETURN_NEW_AST_NODE("TupleAccess", "{s:N,s:N}", "tuple", tuple, "index", index);
+  }
+
+  VISIT(ColumnExprNullTupleAccess) {
+    PyObject* index = PyLong_FromString(ctx->DECIMAL_LITERAL()->getText().c_str(), NULL, 10);
+    if (!index) throw PyInternalError();
+    PyObject* zero = PyLong_FromLong(0);
+    if (!zero) {
+      Py_DECREF(index);
+      throw PyInternalError();
+    }
+    int is_index_zero = PyObject_RichCompareBool(index, zero, Py_EQ);
+    Py_DECREF(zero);
+    if (is_index_zero == -1) {
+      Py_DECREF(index);
+      throw PyInternalError();
+    }
+    if (is_index_zero) {
+      Py_DECREF(index);
+      throw SyntaxError("SQL indexes start from one, not from zero. E.g: array[1]");
+    }
+    PyObject* tuple;
+    try {
+      tuple = visitAsPyObject(ctx->columnExpr());
+    } catch (...) {
+      Py_DECREF(index);
+      throw;
+    }
+    RETURN_NEW_AST_NODE("TupleAccess", "{s:N,s:N,s:O}", "tuple", tuple, "index", index, "nullish", Py_True);
   }
 
   VISIT(ColumnExprCase) {
