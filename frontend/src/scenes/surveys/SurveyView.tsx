@@ -407,7 +407,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                             },
                             {
                                 label: 'History',
-                                key: 'History', // TODO convert this to an enum
+                                key: 'History',
                                 content: <ActivityLog scope={ActivityScope.SURVEY} id={survey.id} />,
                             },
                         ]}
