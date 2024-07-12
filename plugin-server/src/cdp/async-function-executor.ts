@@ -44,82 +44,76 @@ export class AsyncFunctionExecutor {
         request: HogFunctionInvocationResult,
         options?: AsyncFunctionExecutorOptions
     ): Promise<HogFunctionInvocationAsyncResponse | undefined> {
-        // TODO: validate the args
-        const args = request.asyncFunctionRequest!.args ?? []
-        const url: string = args[0]
-        const fetchOptions = args[1]
+        if (!request.asyncFunctionRequest) {
+            return
+        }
+
+        // Sanitize the args
+        const [url, fetchOptions] = request.asyncFunctionRequest.args
+
+        if (typeof url !== 'string') {
+            status.error('🦔', `[HogExecutor] Invalid URL`, { ...request, url })
+            return
+        }
 
         const method = fetchOptions.method || 'POST'
         const headers = fetchOptions.headers || {
             'Content-Type': 'application/json',
         }
-        const body = fetchOptions.body
+        let body = fetchOptions.body
+        // Modify the body to ensure it is a string (we allow Hog to send an object to keep things simple)
+        body = body ? (typeof body === 'string' ? body : JSON.stringify(body, undefined, 4)) : body
 
-        const webhook: Webhook = {
-            url,
-            method: method,
-            headers: headers,
-            body: body ? (typeof body === 'string' ? body : JSON.stringify(body, undefined, 4)) : undefined,
-        }
-
-        const success = false
+        // Finally overwrite the args with the sanitized ones
+        request.asyncFunctionRequest.args = [url, { method, headers, body }]
 
         if (!options?.sync === false) {
-            // NOTE: Purposefully disabled for now - once we have callback support we can re-enable
-            // const SPECIAL_CONFIG_ID = -3 // Hardcoded to mean Hog
-            // const success = await this.rustyHook.enqueueIfEnabledForTeam({
-            //     webhook: webhook,
-            //     teamId: hogFunction.team_id,
-            //     pluginId: SPECIAL_CONFIG_ID,
-            //     pluginConfigId: SPECIAL_CONFIG_ID,
-            // })
+            // TODO: Add rusty hook support
         }
 
-        if (!success) {
-            status.info('🦔', `[HogExecutor] Webhook not sent via rustyhook, sending directly instead`)
+        status.info('🦔', `[HogExecutor] Webhook not sent via rustyhook, sending directly instead`)
 
-            const asyncFunctionResponse: HogFunctionInvocationAsyncResponse['asyncFunctionResponse'] = {
-                timings: [],
-            }
+        const asyncFunctionResponse: HogFunctionInvocationAsyncResponse['asyncFunctionResponse'] = {
+            timings: [],
+        }
 
+        try {
+            const start = performance.now()
+            const fetchResponse = await trackedFetch(url, {
+                method,
+                body,
+                headers,
+                timeout: this.serverConfig.EXTERNAL_REQUEST_TIMEOUT_MS,
+            })
+
+            let responseBody = await fetchResponse.text()
             try {
-                const start = performance.now()
-                const fetchResponse = await trackedFetch(url, {
-                    method: webhook.method,
-                    body: webhook.body,
-                    headers: webhook.headers,
-                    timeout: this.serverConfig.EXTERNAL_REQUEST_TIMEOUT_MS,
-                })
-
-                let body = await fetchResponse.text()
-                try {
-                    body = JSON.parse(body)
-                } catch (err) {
-                    // Ignore
-                }
-
-                const duration = performance.now() - start
-
-                asyncFunctionResponse.timings.push({
-                    kind: 'async_function',
-                    duration_ms: duration,
-                })
-
-                asyncFunctionResponse.vmResponse = {
-                    status: fetchResponse.status,
-                    body: body,
-                }
+                responseBody = JSON.parse(responseBody)
             } catch (err) {
-                status.error('🦔', `[HogExecutor] Error during fetch`, { ...request, error: String(err) })
-                asyncFunctionResponse.error = 'Something went wrong with the fetch request.'
+                // Ignore
             }
 
-            const response: HogFunctionInvocationAsyncResponse = {
-                ...request,
-                asyncFunctionResponse,
-            }
+            const duration = performance.now() - start
 
-            return response
+            asyncFunctionResponse.timings.push({
+                kind: 'async_function',
+                duration_ms: duration,
+            })
+
+            asyncFunctionResponse.vmResponse = {
+                status: fetchResponse.status,
+                body: responseBody,
+            }
+        } catch (err) {
+            status.error('🦔', `[HogExecutor] Error during fetch`, { ...request, error: String(err) })
+            asyncFunctionResponse.error = 'Something went wrong with the fetch request.'
         }
+
+        const response: HogFunctionInvocationAsyncResponse = {
+            ...request,
+            asyncFunctionResponse,
+        }
+
+        return response
     }
 }
