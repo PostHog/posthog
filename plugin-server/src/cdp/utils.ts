@@ -154,7 +154,6 @@ export const convertToCaptureEvent = (event: HogFunctionCapturedEvent, team: Tea
     return {
         uuid: new UUIDT().toString(),
         distinct_id: safeClickhouseString(event.distinct_id),
-        // "site_url": safeClickhouseString(process.env.SITE_URL),
         data: JSON.stringify({
             event: event.event,
             distinct_id: event.distinct_id,
