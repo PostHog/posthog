@@ -60,6 +60,7 @@ class OrganizationInvite(UUIDModel):
     )
     private_project_access: models.JSONField = models.JSONField(
         default=list,
+        null=True,
         blank=True,
         help_text="List of team IDs and corresponding access levels to private projects.",
         validators=[validate_private_project_access],
