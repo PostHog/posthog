@@ -9,7 +9,7 @@ from django.utils.timezone import now
 from prometheus_client import Counter
 
 from posthog.caching.calculate_results import calculate_cache_key
-from posthog.caching.utils import active_teams, largest_teams
+from posthog.caching.utils import active_teams
 from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import conversion_to_query_based
 from posthog.hogql_queries.query_runner import get_query_runner_or_none
 from posthog.models.dashboard_tile import DashboardTile
@@ -71,10 +71,6 @@ class LazyLoader:
     @cached_property
     def active_teams(self):
         return active_teams()
-
-    @cached_property
-    def largest_teams(self):
-        return largest_teams()
 
     @cached_property
     def recently_viewed_insights(self):

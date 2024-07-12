@@ -123,7 +123,7 @@ class TestScheduleWarmingForTeamsTask(APIBaseTest):
         self.team1 = self.create_team_with_organization(organization=self.organization)
         self.team2 = self.create_team_with_organization(organization=self.organization)
 
-    @patch("posthog.caching.utils.largest_teams")
+    @patch("posthog.caching.warming.largest_teams")
     @patch("posthog.caching.warming.priority_insights")
     @patch("posthog.caching.warming.warm_insight_cache_task.si")
     def test_schedule_warming_for_teams_task_with_empty_insight_tuples(
@@ -137,7 +137,7 @@ class TestScheduleWarmingForTeamsTask(APIBaseTest):
         mock_priority_insights.assert_called()
         mock_warm_insight_cache_task_si.assert_not_called()
 
-    @patch("posthog.caching.utils.largest_teams")
+    @patch("posthog.caching.warming.largest_teams")
     @patch("posthog.caching.warming.priority_insights")
     @patch("posthog.caching.warming.warm_insight_cache_task.si")
     def test_schedule_warming_for_teams_task_with_non_empty_insight_tuples(
