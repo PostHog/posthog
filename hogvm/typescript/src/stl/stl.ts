@@ -1,4 +1,16 @@
 import { printHogStringOutput } from './print'
+import {
+    isHogDate,
+    isHogDateTime,
+    toHogDate,
+    toHogDateTime,
+    now,
+    toUnixTimestamp,
+    fromUnixTimestamp,
+    toTimeZone,
+    toDate,
+    toDateTime,
+} from './date'
 
 export const STL: Record<string, (args: any[], name: string, timeout: number) => any> = {
     concat: (args) => {
@@ -9,6 +21,14 @@ export const STL: Record<string, (args: any[], name: string, timeout: number) =>
         return regex.test(args[0])
     },
     toString: (args: any[]) => {
+        if (isHogDate(args[0])) {
+            const month = args[0].month
+            const day = args[0].day
+            return `${args[0].year}-${month < 10 ? '0' : ''}${month}-${day < 10 ? '0' : ''}${day}`
+        }
+        if (isHogDateTime(args[0])) {
+            return args[0].dt.toISO()
+        }
         return String(args[0])
     },
     toUUID: (args) => {
@@ -68,6 +88,11 @@ export const STL: Record<string, (args: any[], name: string, timeout: number) =>
             if (Array.isArray(x)) {
                 return x.map(convert)
             } else if (typeof x === 'object' && x !== null) {
+                if (x.__hogDateTime__) {
+                    return toHogDateTime(x.dt, x.zone)
+                } else if (x.__hogDate__) {
+                    return toHogDate(x.year, x.month, x.day)
+                }
                 const map = new Map()
                 for (const key in x) {
                     map.set(key, convert(x[key]))
@@ -97,10 +122,24 @@ export const STL: Record<string, (args: any[], name: string, timeout: number) =>
                         })
                         return obj
                     }
-                    if (typeof x === 'object' && Array.isArray(x)) {
+                    if (Array.isArray(x)) {
                         return x.map((v) => convert(v, marked))
                     }
-
+                    if (isHogDateTime(x)) {
+                        return {
+                            __hogDateTime__: true,
+                            dt: x.dt.toMillis(),
+                            zone: x.dt.zone.name,
+                        }
+                    }
+                    if (isHogDate(x)) {
+                        return {
+                            __hogDate__: true,
+                            year: x.year,
+                            month: x.month,
+                            day: x.day,
+                        }
+                    }
                     const obj: Record<string, any> = {}
                     for (const key in x) {
                         obj[key] = convert(x[key], marked)
@@ -176,7 +215,22 @@ export const STL: Record<string, (args: any[], name: string, timeout: number) =>
         return []
     },
     now() {
-        return Date.now()
+        return now()
+    },
+    toUnixTimestamp(args) {
+        return toUnixTimestamp(args[0], args[1])
+    },
+    fromUnixTimestamp(args) {
+        return fromUnixTimestamp(args[0])
+    },
+    toTimeZone(args) {
+        return toTimeZone(args[0], args[1])
+    },
+    toDate(args) {
+        return toDate(args[0])
+    },
+    toDateTime(args) {
+        return toDateTime(args[0], args[1])
     },
 }
 

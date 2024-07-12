@@ -1,3 +1,4 @@
+import datetime
 import re
 
 # Copied from clickhouse_driver.util.escape, adapted only from single quotes to backquotes.
@@ -49,6 +50,11 @@ def print_hog_value(obj, marked: set | None = None):
                 return f"({', '.join([print_hog_value(o, marked) for o in obj])})"
         finally:
             marked.remove(id(obj))
+    if isinstance(obj, datetime.datetime):
+        return f"DateTime({float(obj.timestamp())}, {escape_string(obj.tzinfo if obj.tzinfo is not None else 'UTC')})"
+    elif isinstance(obj, datetime.date):
+        return f"Date({obj.year}, {obj.month}, {obj.day})"
+
     if obj is True:
         return "true"
     if obj is False:

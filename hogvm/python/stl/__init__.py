@@ -1,3 +1,4 @@
+import datetime
 import time
 from typing import Any, Optional, TYPE_CHECKING
 from collections.abc import Callable
@@ -5,6 +6,7 @@ import re
 import json
 
 from .print import print_hog_string_output
+from .date import now, toUnixTimestamp, fromUnixTimestamp, toTimeZone, toDate, toDateTime
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -28,7 +30,13 @@ def match(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[l
 
 
 def toString(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int):
-    if args[0] is True:
+    if isinstance(args[0], datetime.datetime):
+        if args[0].tzinfo == datetime.UTC:
+            return args[0].isoformat("T", "milliseconds").replace("+00:00", "") + "Z"
+        return args[0].isoformat("T", "milliseconds")
+    elif isinstance(args[0], datetime.date):
+        return args[0].strftime("%Y-%m-%d")
+    elif args[0] is True:
         return "true"
     elif args[0] is False:
         return "false"
@@ -193,6 +201,34 @@ def values(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[
     return []
 
 
+def _now(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int) -> Any:
+    return now()
+
+
+def _toUnixTimestamp(
+    name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int
+) -> Any:
+    return toUnixTimestamp(args[0], args[1] if len(args) > 1 else None)
+
+
+def _fromUnixTimestamp(
+    name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int
+) -> Any:
+    return fromUnixTimestamp(args[0])
+
+
+def _toTimeZone(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int) -> Any:
+    return toTimeZone(args[0], args[1])
+
+
+def _toDate(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int) -> Any:
+    return toDate(args[0])
+
+
+def _toDateTime(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int) -> Any:
+    return toDateTime(args[0])
+
+
 STL: dict[str, Callable[[str, list[Any], Optional["Team"], list[str] | None, int], Any]] = {
     "concat": concat,
     "match": match,
@@ -222,4 +258,10 @@ STL: dict[str, Callable[[str, list[Any], Optional["Team"], list[str] | None, int
     "generateUUIDv4": generateUUIDv4,
     "keys": keys,
     "values": values,
+    "now": _now,
+    "toUnixTimestamp": _toUnixTimestamp,
+    "fromUnixTimestamp": _fromUnixTimestamp,
+    "toTimeZone": _toTimeZone,
+    "toDate": _toDate,
+    "toDateTime": _toDateTime,
 }
