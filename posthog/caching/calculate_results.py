@@ -171,6 +171,7 @@ def calculate_for_query_based_insight(
         cache_target_age=response.get("cache_target_age"),
         timings=response.get("timings"),
         query_status=response.get("query_status"),
+        hogql=response.get("hogql"),
     )
 
 

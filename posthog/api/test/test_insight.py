@@ -43,6 +43,8 @@ from posthog.schema import (
     FilterLogicalOperator,
     HogQLFilters,
     HogQLQuery,
+    InsightNodeKind,
+    NodeKind,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
     TrendsQuery,
@@ -3446,3 +3448,69 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["result"][0]["data"], [0, 0, 0, 0, 0, 0, 0, 0])
         self.assertTrue(response.json()["is_cached"])
+
+    # @patch(
+    #     "posthog.caching.insight_caching_state.calculate_target_age_insight",
+    #     # The tested insight normally wouldn't satisfy the criteria for being refreshed in the background,
+    #     # this patch means it will be treated as if it did satisfy them
+    #     return_value=TargetCacheAge.MID_PRIORITY,
+    # )
+    def test_insight_returns_cached_hogql(self) -> None:
+        # with freeze_time("2012-01-14T03:21:34.000Z"):
+        #     _create_event(
+        #         team=self.team,
+        #         event="$pageview",
+        #         distinct_id="1",
+        #     )
+        #     _create_event(
+        #         team=self.team,
+        #         event="$pageview",
+        #         distinct_id="2",
+        #     )
+        #     _create_event(
+        #         team=self.team,
+        #         event="$pageview",
+        #         distinct_id="2",
+        #     )
+        #     flush_persons_and_events()
+
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+            insight = Insight.objects.create(
+                query={
+                    "kind": NodeKind.INSIGHT_VIZ_NODE.value,
+                    "source": {
+                        "filterTestAccounts": False,
+                        "kind": InsightNodeKind.TRENDS_QUERY.value,
+                        "series": [
+                            {
+                                "kind": NodeKind.EVENTS_NODE.value,
+                                "event": "$pageview",
+                                "name": "$pageview",
+                                "math": "total",
+                            }
+                        ],
+                        "interval": "day",
+                    },
+                },
+                team=self.team,
+                created_by=self.user,
+            )
+
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/insights",
+                data={
+                    "short_id": insight.short_id,
+                },
+            ).json()
+
+            self.assertNotIn("code", response)  # Watching out for an error code
+            self.assertEqual(response["results"][0]["last_refresh"], None)
+            self.assertIsNone(response["results"][0]["hogql"])
+
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/insights",
+                data={"short_id": insight.short_id, "refresh": True},
+            ).json()
+
+            self.assertNotIn("code", response)
+            self.assertIsNotNone(response["results"][0]["hogql"])

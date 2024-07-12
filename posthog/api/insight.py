@@ -272,6 +272,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
     )
     query = serializers.JSONField(required=False, allow_null=True, help_text="Query node JSON string")
     query_status = serializers.SerializerMethodField()
+    hogql = serializers.SerializerMethodField()
 
     class Meta:
         model = Insight
@@ -306,6 +307,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             "timezone",
             "is_cached",
             "query_status",
+            "hogql",
         ]
         read_only_fields = (
             "created_at",
@@ -503,6 +505,9 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
     def get_query_status(self, insight: Insight):
         return self.insight_result(insight).query_status
+
+    def get_hogql(self, insight: Insight):
+        return self.insight_result(insight).hogql
 
     def get_effective_restriction_level(self, insight: Insight) -> Dashboard.RestrictionLevel:
         if self.context.get("is_shared"):
