@@ -54,7 +54,7 @@ print('Error sending event:', res.status, res.body)
             "key": "access_token",
             "type": "string",
             "label": "Intercom access token",
-            "description": " an [Intercom app](https://developers.intercom.com/building-apps/), then go to Configure > Authentication to find your key.",
+            "description": "Create an Intercom app (https://developers.intercom.com/docs/build-an-integration/learn-more/authentication), then go to Configure > Authentication to find your token.",
             "secret": True,
             "required": True,
         },
