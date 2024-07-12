@@ -227,14 +227,14 @@ async fn process_batch<'a>(
     // We have to `take` the Vec of jobs from the batch to avoid a borrow checker
     // error below when we commit.
     for mut job in std::mem::take(&mut batch.jobs) {
-        let client = http_client.clone();
+        let http_client = http_client.clone();
         let retry_policy = retry_policy.clone();
 
         metadata_vec.push(job.take_metadata());
 
         let read_body = hog_mode;
         let future =
-            async move { process_webhook_job(client, job, &retry_policy, read_body).await };
+            async move { process_webhook_job(http_client, job, &retry_policy, read_body).await };
 
         futures.push(future);
     }
@@ -360,7 +360,7 @@ enum WebhookResult {
 /// * `webhook_job`: The webhook job to process as dequeued from `hook_common::pgqueue::PgQueue`.
 /// * `retry_policy`: The retry policy used to set retry parameters if a job fails and has remaining attempts.
 async fn process_webhook_job<W: WebhookJob>(
-    client: reqwest::Client,
+    http_client: reqwest::Client,
     webhook_job: W,
     retry_policy: &RetryPolicy,
     read_body: bool,
@@ -373,7 +373,7 @@ async fn process_webhook_job<W: WebhookJob>(
     let now = tokio::time::Instant::now();
 
     let send_result = send_webhook(
-        client,
+        http_client,
         &parameters.method,
         &parameters.url,
         &parameters.headers,
@@ -790,6 +790,124 @@ mod tests {
         batch.commit().await.expect("failed to commit batch");
 
         assert!(registry.get_status().healthy)
+    }
+
+    #[sqlx::test(migrations = "../migrations")]
+    async fn test_hoghook_sends_kafka_payload(db: PgPool) {
+        use httpmock::prelude::*;
+        use rdkafka::consumer::{Consumer, StreamConsumer};
+        use rdkafka::{ClientConfig, Message};
+
+        let worker_id = worker_id();
+        let queue_name = "test_hoghook_sends_kafka_payload".to_string();
+        let queue = PgQueue::new_from_pool(&queue_name, db).await;
+        let topic = "cdp_function_callbacks";
+
+        let server = MockServer::start();
+
+        server.mock(|when, then| {
+            when.method(POST).path("/");
+            then.status(200)
+                .header("content-type", "application/json; charset=UTF-8")
+                .body(r#"{"message": "hello, world"}"#);
+        });
+
+        let mock_url = server.url("/");
+
+        let webhook_job_parameters = WebhookJobParameters {
+            body: "".to_owned(),
+            headers: collections::HashMap::new(),
+            method: HttpMethod::POST,
+            url: mock_url,
+        };
+
+        let webhook_job_metadata = json!({"someOtherField": true});
+
+        enqueue_job(
+            &queue,
+            1,
+            webhook_job_parameters.clone(),
+            serde_json::to_value(webhook_job_metadata).unwrap(),
+        )
+        .await
+        .expect("failed to enqueue job");
+
+        let registry = HealthRegistry::new("liveness");
+        let liveness = registry
+            .register("worker".to_string(), ::time::Duration::seconds(30))
+            .await;
+
+        let (mock_cluster, mock_producer) = create_mock_kafka().await;
+        let hog_mode = true;
+        let worker = WebhookWorker::new(
+            &worker_id,
+            &queue,
+            1,
+            time::Duration::from_millis(100),
+            time::Duration::from_millis(5000),
+            10,
+            RetryPolicy::default(),
+            false,
+            mock_producer,
+            topic.to_string(),
+            hog_mode,
+            liveness,
+        );
+
+        let batch = worker.wait_for_jobs_tx().await;
+
+        process_batch(
+            batch,
+            worker.http_client,
+            worker.retry_policy,
+            worker.kafka_producer,
+            worker.cdp_function_callbacks_topic,
+            hog_mode,
+        )
+        .await;
+
+        let consumer: StreamConsumer = ClientConfig::new()
+            .set("bootstrap.servers", mock_cluster.bootstrap_servers())
+            .set("group.id", "mock")
+            .set("auto.offset.reset", "earliest")
+            .create()
+            .expect("failed to create mock consumer");
+        consumer.subscribe(&[topic]).unwrap();
+
+        let kafka_msg = consumer.recv().await.unwrap();
+        let kafka_payload_str = String::from_utf8(kafka_msg.payload().unwrap().to_vec()).unwrap();
+
+        let received = serde_json::from_str::<Value>(&kafka_payload_str).unwrap();
+
+        // Verify data is passed through, and that response and timings are correct.
+        assert!(received.get("someOtherField").unwrap().as_bool().unwrap());
+
+        let async_function_response = received.get("asyncFunctionResponse").unwrap();
+        let received_response = async_function_response.get("response").unwrap();
+        assert_eq!(
+            json!({
+                "body": "{\"message\": \"hello, world\"}",
+                "status": 200
+            }),
+            *received_response
+        );
+
+        let first_timing = async_function_response
+            .get("timings")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .get(0)
+            .unwrap();
+        first_timing
+            .get("duration_ms")
+            .unwrap()
+            .as_number()
+            .unwrap();
+        assert_eq!(
+            "async_function",
+            first_timing.get("kind").unwrap().as_str().unwrap()
+        );
     }
 
     #[tokio::test]
