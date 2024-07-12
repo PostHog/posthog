@@ -57,6 +57,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "sync_type",
             "incremental_field",
             "incremental_field_type",
+            "sync_frequency",
         ]
 
         read_only_fields = [
@@ -131,6 +132,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             validated_data["sync_type_config"] = payload
 
         should_sync = validated_data.get("should_sync", None)
+        sync_frequency = validated_data.get("sync_frequency", None)
 
         if should_sync is True and sync_type is None and instance.sync_type is None:
             raise ValidationError("Sync type must be set up first before enabling schema")
@@ -145,6 +147,9 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         else:
             if should_sync is True:
                 sync_external_data_job_workflow(instance, create=True)
+
+        if sync_frequency:
+            sync_external_data_job_workflow(instance, create=False)
 
         if trigger_refresh:
             source: ExternalDataSource = instance.source
