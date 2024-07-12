@@ -2,6 +2,7 @@ import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 
 import { Hub, PluginCapabilities, PluginConfig, PluginLogLevel } from '../../../types'
 import { upsertInlinePlugin } from '../../../utils/db/sql'
+import { status } from '../../../utils/status'
 import { PluginInstance } from '../lazy'
 import { NoopInlinePlugin } from './noop'
 
@@ -58,6 +59,7 @@ export interface InlinePluginDescription {
 }
 
 export async function syncInlinePlugins(hub: Hub): Promise<void> {
+    status.info('⚡', 'Syncing inline plugins')
     for (const [_, plugin] of INLINE_PLUGIN_MAP) {
         await upsertInlinePlugin(hub, plugin.description)
     }
