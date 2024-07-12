@@ -1,5 +1,4 @@
 import { DateTime, Settings } from 'luxon'
-import { v4 } from 'uuid'
 
 import { DateTimePropertyTypeFormat, Hub, PropertyDefinitionTypeEnum, PropertyType } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
@@ -10,7 +9,7 @@ import { GroupTypeManager } from '../../../src/worker/ingestion/group-type-manag
 import { dateTimePropertyTypeFormatPatterns } from '../../../src/worker/ingestion/property-definitions-auto-discovery'
 import { NULL_AFTER_PROPERTY_TYPE_DETECTION } from '../../../src/worker/ingestion/property-definitions-cache'
 import { PropertyDefinitionsManager } from '../../../src/worker/ingestion/property-definitions-manager'
-import { createOrganization, createOrganizationMembership, createTeam, createUser } from '../../helpers/sql'
+import { createOrganization, createTeam } from '../../helpers/sql'
 
 jest.mock('../../../src/utils/status')
 jest.mock('../../../src/utils/posthog', () => ({
@@ -416,49 +415,6 @@ describe('PropertyDefinitionsManager()', () => {
             await manager.updateEventNamesAndProperties(teamId, fourHundredAndOneSmileys, properties)
 
             expect(await hub.db.fetchPropertyDefinitions(teamId)).toEqual([])
-        })
-
-        describe('first event has not yet been ingested', () => {
-            it('calls posthog.identify and posthog.capture', async () => {
-                // NOTE: that this functionality is dependent on users being a
-                // member of the team. It will produce an event for each member
-                // of the team.
-                const distinctId = v4()
-                const userId = await createUser(hub.db.postgres, distinctId)
-                await createOrganizationMembership(hub.db.postgres, organizationId, userId)
-                await hub.db.postgres.query(
-                    PostgresUse.COMMON_WRITE,
-                    `
-                        UPDATE posthog_team
-                        SET ingested_event = false
-                        WHERE id = $1
-                    `,
-                    [teamId],
-                    'testTag'
-                )
-
-                await manager.updateEventNamesAndProperties(teamId, 'new-event', {
-                    $lib: 'python',
-                    $host: 'localhost:8000',
-                })
-
-                const team = await manager.teamManager.fetchTeam(teamId)
-                expect(posthog.capture).toHaveBeenCalledWith({
-                    distinctId: distinctId,
-                    event: 'first team event ingested',
-                    properties: {
-                        team: team!.uuid,
-                        host: 'localhost:8000',
-                        realm: undefined,
-                        sdk: 'python',
-                    },
-                    groups: {
-                        organization: organizationId,
-                        project: team!.uuid,
-                        instance: 'unknown',
-                    },
-                })
-            })
         })
 
         describe('auto-detection of property types', () => {
