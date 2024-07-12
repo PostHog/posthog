@@ -8,7 +8,7 @@ use health::HealthHandle;
 use http::StatusCode;
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use reqwest::{header, Client};
-use serde_json::{Map, Number, Value};
+use serde_json::{json, Value};
 use tokio::sync;
 use tokio::time::{sleep, Duration};
 use tracing::error;
@@ -200,7 +200,7 @@ impl<'p> WebhookWorker<'p> {
                 let _permits = permits;
 
                 let mut futures = Vec::with_capacity(batch.jobs.len());
-                let mut metadatas = Vec::with_capacity(batch.jobs.len());
+                let mut metadata_vec = Vec::with_capacity(batch.jobs.len());
 
                 // We have to `take` the Vec of jobs from the batch to avoid a borrow checker
                 // error below when we commit.
@@ -208,10 +208,12 @@ impl<'p> WebhookWorker<'p> {
                     let client = client.clone();
                     let retry_policy = retry_policy.clone();
 
-                    metadatas.push(job.take_metadata());
+                    metadata_vec.push(job.take_metadata());
 
-                    let future =
-                        async move { process_webhook_job(client, job, &retry_policy).await };
+                    let read_body = hog_mode;
+                    let future = async move {
+                        process_webhook_job(client, job, &retry_policy, read_body).await
+                    };
 
                     futures.push(future);
                 }
@@ -219,73 +221,34 @@ impl<'p> WebhookWorker<'p> {
                 let results = join_all(futures).await;
 
                 let mut kafka_ack_futures = Vec::new();
-                for (result, mut metadata) in iter::zip(results, metadatas) {
-                    if let Err(e) = result {
-                        error!("error processing webhook job: {}", e);
-                    } else if hog_mode {
-                        if let Value::Object(ref mut object) = metadata {
-                            if let Ok(result) = result {
-                                // Add the response or error in the `asyncFunctionResponse` field.
-                                match result {
-                                    WebhookResult::Success(response) => {
-                                        // TODO: Add timing info
-                                        let mut map = Map::new();
-                                        map.insert(
-                                            "status".to_owned(),
-                                            Value::Number(Number::from(response.status().as_u16())),
-                                        );
-                                        // TODO: Get body in `process_webhook_job` (?) and add timeout
-                                        match response.text().await {
-                                            Ok(body) => {
-                                                map.insert("body".to_owned(), Value::String(body));
-                                            }
-                                            Err(_) => {
-                                                // TODO: Handle error
-                                                continue;
-                                            }
+                for (result, mut metadata) in iter::zip(results, metadata_vec) {
+                    match result {
+                        Ok(result) => {
+                            if hog_mode {
+                                if let Some(payload) =
+                                    create_hoghook_kafka_payload(result, &mut metadata).await
+                                {
+                                    match kafka_producer.send_result(FutureRecord {
+                                        topic: &cdp_function_callbacks_topic,
+                                        payload: Some(&payload),
+                                        partition: None,
+                                        key: None::<&str>,
+                                        timestamp: None,
+                                        headers: None,
+                                    }) {
+                                        Ok(future) => kafka_ack_futures.push(future),
+                                        Err((error, _)) => {
+                                            error!("error producing kafka message: {}", error);
+                                            sleep(Duration::from_secs(30)).await;
+                                            return; // Return early to avoid committing the batch.
                                         }
-                                        object.insert(
-                                            "asyncFunctionResponse".to_owned(),
-                                            Value::Object(map),
-                                        );
-                                    }
-                                    WebhookResult::Failed(error) => {
-                                        let mut map = Map::new();
-                                        map.insert(
-                                            "error".to_owned(),
-                                            Value::String(error.to_string()),
-                                        );
-                                        object.insert(
-                                            "asyncFunctionResponse".to_owned(),
-                                            Value::Object(map),
-                                        );
-                                    }
-                                    WebhookResult::WillRetry => {
-                                        // Nothing to do, and we don't want to produce anything
-                                        // to Kafka.
-                                        continue;
-                                    }
+                                    };
                                 }
                             }
                         }
-
-                        let payload = serde_json::to_string(&metadata).unwrap();
-
-                        match kafka_producer.send_result(FutureRecord {
-                            topic: &cdp_function_callbacks_topic,
-                            payload: Some(&payload),
-                            partition: None,
-                            key: None::<&str>,
-                            timestamp: None,
-                            headers: None,
-                        }) {
-                            Ok(future) => kafka_ack_futures.push(future),
-                            Err((error, _)) => {
-                                error!("error producing kafka message: {}", error);
-                                sleep(Duration::from_secs(30)).await;
-                                return; // Return early to avoid committing the batch.
-                            }
-                        };
+                        Err(e) => {
+                            error!("error processing webhook job: {}", e)
+                        }
                     }
                 }
 
@@ -314,8 +277,53 @@ impl<'p> WebhookWorker<'p> {
     }
 }
 
+async fn create_hoghook_kafka_payload(
+    result: WebhookResult,
+    metadata: &mut Value,
+) -> Option<String> {
+    if let Value::Object(ref mut object) = metadata {
+        // Add the response or error in the `asyncFunctionResponse` field.
+        match result {
+            WebhookResult::Success(response) => {
+                let async_function_response = json!({
+                    "timings": [{
+                        "kind": "async_function",
+                        "duration_ms": response.duration.as_millis().try_into().unwrap_or(u32::MAX)
+                    }],
+                    "response": {
+                        "status": response.status_code,
+                        "body": response.body
+                    }
+                });
+
+                object.insert("asyncFunctionResponse".to_owned(), async_function_response);
+            }
+            WebhookResult::Failed(error) => {
+                let async_function_response = json!({
+                    "error": error.to_string(),
+                });
+
+                object.insert("asyncFunctionResponse".to_owned(), async_function_response);
+            }
+            WebhookResult::WillRetry => {
+                // Nothing to do, and we don't want to produce anything
+                // to Kafka.
+                return None;
+            }
+        }
+    }
+
+    Some(serde_json::to_string(&metadata).expect("unable to serialize metadata"))
+}
+
+struct WebhookSuccess {
+    status_code: u16,
+    duration: Duration,
+    body: Option<String>,
+}
+
 enum WebhookResult {
-    Success(reqwest::Response),
+    Success(WebhookSuccess),
     WillRetry,
     Failed(String),
 }
@@ -338,6 +346,7 @@ async fn process_webhook_job<W: WebhookJob>(
     client: reqwest::Client,
     webhook_job: W,
     retry_policy: &RetryPolicy,
+    read_body: bool,
 ) -> Result<WebhookResult, WorkerError> {
     let parameters = webhook_job.parameters();
 
@@ -355,10 +364,36 @@ async fn process_webhook_job<W: WebhookJob>(
     )
     .await;
 
-    let elapsed = now.elapsed().as_secs_f64();
-
     match send_result {
         Ok(response) => {
+            // First, read the body if needed so that the read time is included in `duration`.
+            let status = response.status();
+            let body = if read_body {
+                match first_n_bytes_of_response(response, 1024 * 1024).await {
+                    Ok(body) => Some(body), // Once told me...
+                    Err(e) => {
+                        webhook_job
+                            .fail(WebhookJobError::new_parse(&e.to_string()))
+                            .await
+                            .map_err(|job_error| {
+                                metrics::counter!("webhook_jobs_database_error", &labels)
+                                    .increment(1);
+                                job_error
+                            })?;
+
+                        metrics::counter!("webhook_jobs_failed", &labels).increment(1);
+
+                        return Ok(WebhookResult::Failed(
+                            "failed to read response body".to_owned(),
+                        ));
+                    }
+                }
+            } else {
+                None
+            };
+
+            let duration = now.elapsed();
+
             let created_at = webhook_job.job().created_at;
             let retries = webhook_job.job().attempt - 1;
             let labels_with_retries = [
@@ -379,9 +414,13 @@ async fn process_webhook_job<W: WebhookJob>(
             .record((insert_to_complete_duration.num_milliseconds() as f64) / 1_000_f64);
             metrics::counter!("webhook_jobs_completed", &labels).increment(1);
             metrics::histogram!("webhook_jobs_processing_duration_seconds", &labels)
-                .record(elapsed);
+                .record(duration.as_secs_f64());
 
-            Ok(WebhookResult::Success(response))
+            Ok(WebhookResult::Success(WebhookSuccess {
+                status_code: status.as_u16(),
+                duration,
+                body,
+            }))
         }
         Err(WebhookError::Parse(WebhookParseError::ParseHeadersError(e))) => {
             webhook_job
