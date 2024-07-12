@@ -73,8 +73,6 @@ class ActivityDetailEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, Detail | Change | Trigger):
             return obj.__dict__
-        # if isinstance(obj, FeatureFlag):
-        #     return obj.to_dict()
         if isinstance(obj, datetime):
             return obj.isoformat()
         if isinstance(obj, UUIDT):
