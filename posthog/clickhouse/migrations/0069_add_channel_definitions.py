@@ -1,8 +1,9 @@
-from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
+from infi.clickhouse_orm import migrations
+
 from posthog.models.channel_type.sql import (
-    CHANNEL_DEFINITION_DATA_SQL,
+    add_missing_channel_types,
 )
 
 operations = [
-    run_sql_with_exceptions(CHANNEL_DEFINITION_DATA_SQL()),
+    migrations.RunPython(add_missing_channel_types),
 ]
