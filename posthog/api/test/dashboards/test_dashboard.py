@@ -1297,6 +1297,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     "tags": [],
                     "timezone": None,
                     "updated_at": ANY,
+                    "hogql": ANY,
                 },
                 "is_cached": False,
                 "last_refresh": None,
