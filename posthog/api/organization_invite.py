@@ -53,7 +53,9 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         local_part, domain = email.split("@")
         return f"{local_part}@{domain.lower()}"
 
-    def validate_private_project_access(self, private_project_access: Optional[list[dict[str, Any]]]):
+    def validate_private_project_access(
+        self, private_project_access: Optional[list[dict[str, Any]]]
+    ) -> Optional[list[dict[str, Any]]]:
         team_error = "Team does not exist on this organization, or it is private and you do not have access to it."
         if not private_project_access:
             return None

@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Optional
 import structlog
 from django.db import models
 from django.utils import timezone
-from rest_framework import exceptions, serializers
+from rest_framework import exceptions
 
 from ee.models.explicit_team_membership import ExplicitTeamMembership
 from posthog.constants import INVITE_DAYS_VALIDITY
@@ -22,8 +22,6 @@ logger = structlog.get_logger(__name__)
 
 
 def validate_private_project_access(value):
-    from ee.models.explicit_team_membership import ExplicitTeamMembership
-
     if not isinstance(value, list):
         raise exceptions.ValidationError("The field must be a list of dictionaries.")
     for item in value:
@@ -109,8 +107,6 @@ class OrganizationInvite(UUIDModel):
             )
 
     def use(self, user: "User", *, prevalidated: bool = False) -> None:
-        from ee.models.explicit_team_membership import ExplicitTeamMembership
-
         if not prevalidated:
             self.validate(user=user)
         user.join(organization=self.organization, level=self.level)
@@ -151,10 +147,3 @@ class OrganizationInvite(UUIDModel):
         return absolute_uri(f"/signup/{self.id}")
 
     __repr__ = sane_repr("organization", "target_email", "created_by")
-
-    class PrivateProjectAccessSerializer(serializers.Serializer):
-        id = serializers.PrimaryKeyRelatedField(queryset=Team.objects.all())
-        level = serializers.ChoiceField(choices=ExplicitTeamMembership.Level.choices)
-
-        def validate(self, data):
-            pass
