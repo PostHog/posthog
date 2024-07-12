@@ -179,7 +179,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
     def get_log_entry_instance_id(self) -> str:
         obj = self.get_object()
         latest_job = ExternalDataJob.objects.filter(team_id=self.team_id, schema_id=obj.id).latest("created_at")
-        return latest_job.pk
+        return str(latest_job.pk)
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
