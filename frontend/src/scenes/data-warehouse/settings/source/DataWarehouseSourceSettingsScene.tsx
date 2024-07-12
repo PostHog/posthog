@@ -11,6 +11,7 @@ import {
     DataWarehouseSourceSettingsLogicProps,
     DataWarehouseSourceSettingsTabs,
 } from './dataWarehouseSourceSettingsLogic'
+import { Logs } from './Logs'
 import { Schemas } from './Schemas'
 import { Syncs } from './Syncs'
 
@@ -38,11 +39,13 @@ export const scene: SceneExport = {
 const TabContent: Record<DataWarehouseSourceSettingsTabs, () => JSX.Element> = {
     [DataWarehouseSourceSettingsTabs.Schemas]: Schemas,
     [DataWarehouseSourceSettingsTabs.Syncs]: Syncs,
+    [DataWarehouseSourceSettingsTabs.Logs]: Logs,
 }
 
 const FriendlyTabNames: Record<DataWarehouseSourceSettingsTabs, string> = {
     [DataWarehouseSourceSettingsTabs.Schemas]: 'Schemas',
     [DataWarehouseSourceSettingsTabs.Syncs]: 'Syncs',
+    [DataWarehouseSourceSettingsTabs.Logs]: 'Logs',
 }
 
 export function DataWarehouseSourceSettingsScene(): JSX.Element {
@@ -62,7 +65,7 @@ export function DataWarehouseSourceSettingsScene(): JSX.Element {
                 activeKey={currentTab}
                 onChange={(tab) => setCurrentTab(tab as DataWarehouseSourceSettingsTabs)}
                 tabs={Object.entries(TabContent).map(([tab, ContentComponent]) => ({
-                    label: FriendlyTabNames[tab],
+                    label: FriendlyTabNames[tab as DataWarehouseSourceSettingsTabs],
                     key: tab,
                     content: <ContentComponent />,
                 }))}

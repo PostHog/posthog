@@ -18,6 +18,7 @@ import type { dataWarehouseSourceSettingsLogicType } from './dataWarehouseSource
 export enum DataWarehouseSourceSettingsTabs {
     Schemas = 'schemas',
     Syncs = 'syncs',
+    Logs = 'logs',
 }
 
 export interface DataWarehouseSourceSettingsLogicProps {
