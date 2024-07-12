@@ -13,7 +13,10 @@ jest.spyOn(Storage.prototype, 'getItem')
 
 const MOCK_INSIGHT_SHORT_ID = 'abcdef' as InsightShortId
 const MOCK_INSIGHT_NUMERIC_ID = 1
+const MOCK_INSIGHT_NUMERIC_ID_2 = 2
 const MOCK_DASHBOARD_ID = 1
+const MOCK_DASHBOARD_ID_2 = 2
+const MOCK_DASHBOARD_ID_3 = 2
 
 const BASE_MOCK_ANNOTATION: Pick<
     RawAnnotationType,
@@ -126,7 +129,31 @@ const MOCK_ANNOTATION_DASHBOARD_SCOPED: RawAnnotationType = {
     content: 'MOCK_ANNOTATION_DASHBOARD_SCOPED',
     date_marker: '2022-08-10T04:00:00.000Z',
     dashboard: MOCK_DASHBOARD_ID,
-    dashboard_item: null,
+    dashboard_item: MOCK_INSIGHT_NUMERIC_ID,
+    insight_short_id: null,
+    insight_name: null,
+    scope: AnnotationScope.Dashboard,
+    ...BASE_MOCK_ANNOTATION,
+}
+/** ID 24 at 2022-08-10T04:00:00.000Z */
+const MOCK_ANNOTATION_DASHBOARD_SCOPED_2: RawAnnotationType = {
+    id: 24,
+    content: 'MOCK_ANNOTATION_DASHBOARD_SCOPED_2',
+    date_marker: '2022-08-10T04:00:00.000Z',
+    dashboard: MOCK_DASHBOARD_ID_2,
+    dashboard_item: MOCK_INSIGHT_NUMERIC_ID_2,
+    insight_short_id: null,
+    insight_name: null,
+    scope: AnnotationScope.Dashboard,
+    ...BASE_MOCK_ANNOTATION,
+}
+/** ID 25 at 2022-08-10T04:00:00.000Z */
+const MOCK_ANNOTATION_DASHBOARD_SCOPED_3: RawAnnotationType = {
+    id: 25,
+    content: 'MOCK_ANNOTATION_DASHBOARD_SCOPED_3',
+    date_marker: '2022-08-10T04:00:00.000Z',
+    dashboard: MOCK_DASHBOARD_ID_3,
+    dashboard_item: MOCK_INSIGHT_NUMERIC_ID_2,
     insight_short_id: null,
     insight_name: null,
     scope: AnnotationScope.Dashboard,
@@ -173,6 +200,8 @@ function useAnnotationsMocks(): void {
                     MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1,
                     MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3,
                     MOCK_ANNOTATION_DASHBOARD_SCOPED,
+                    MOCK_ANNOTATION_DASHBOARD_SCOPED_2,
+                    MOCK_ANNOTATION_DASHBOARD_SCOPED_3,
                 ],
             },
             '/api/users/@me/': [200, {}],
@@ -240,13 +269,80 @@ describe('annotationsOverlayLogic', () => {
             })
         })
 
+        it('returns annotations scoped to the dashboard or matching insight', async () => {
+            useInsightMocks()
+
+            logic = annotationsOverlayLogic({
+                dashboardItemId: MOCK_INSIGHT_SHORT_ID,
+                insightNumericId: MOCK_INSIGHT_NUMERIC_ID,
+                dates: ['2022-01-01', '2023-01-01'],
+                ticks: [{ value: 0 }, { value: 1 }],
+                dashboardId: MOCK_DASHBOARD_ID,
+            })
+            logic.mount()
+            await expectLogic(annotationsModel).toDispatchActions(['loadAnnotationsSuccess'])
+            await expectLogic(
+                insightLogic({
+                    dashboardItemId: MOCK_INSIGHT_SHORT_ID,
+                    dashboardId: MOCK_DASHBOARD_ID,
+                })
+            ).toDispatchActions(['loadInsightSuccess'])
+            await expectLogic(logic).toMatchValues({
+                relevantAnnotations: [
+                    // The annotation scoped to insight 3 should be omitted
+                    MOCK_ANNOTATION_ORG_SCOPED,
+                    MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3,
+                    MOCK_ANNOTATION_PROJECT_SCOPED,
+                    MOCK_ANNOTATION_INSIGHT_1_SCOPED,
+                    MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1,
+                    MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1,
+                    MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3,
+                    MOCK_ANNOTATION_DASHBOARD_SCOPED,
+                ].map((annotation) => deserializeAnnotation(annotation, 'UTC')),
+            })
+        })
+
+        it("returns only annotations scoped to the dashboard when insight id doesn't match", async () => {
+            useInsightMocks()
+
+            logic = annotationsOverlayLogic({
+                dashboardItemId: MOCK_INSIGHT_SHORT_ID,
+                insightNumericId: MOCK_INSIGHT_NUMERIC_ID_2,
+                dates: ['2022-01-01', '2023-01-01'],
+                ticks: [{ value: 0 }, { value: 1 }],
+                dashboardId: MOCK_DASHBOARD_ID_2,
+            })
+            logic.mount()
+            await expectLogic(annotationsModel).toDispatchActions(['loadAnnotationsSuccess'])
+            await expectLogic(
+                insightLogic({
+                    dashboardItemId: MOCK_INSIGHT_SHORT_ID,
+                    dashboardId: MOCK_DASHBOARD_ID_2,
+                })
+            ).toDispatchActions(['loadInsightSuccess'])
+            await expectLogic(logic).toMatchValues({
+                relevantAnnotations: [
+                    MOCK_ANNOTATION_ORG_SCOPED,
+                    MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3,
+                    MOCK_ANNOTATION_PROJECT_SCOPED,
+                    MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1,
+                    MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1,
+                    MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3,
+                    // dashboard id matches
+                    MOCK_ANNOTATION_DASHBOARD_SCOPED_2,
+                    // insightNumericId == dashboard_item for 3
+                    MOCK_ANNOTATION_DASHBOARD_SCOPED_3,
+                ].map((annotation) => deserializeAnnotation(annotation, 'UTC')),
+            })
+        })
+
         it('returns annotations scoped to the project for a new insight', async () => {
             useInsightMocks()
 
             logic = annotationsOverlayLogic({
                 dashboardItemId: 'new',
                 insightNumericId: 'new',
-                dashboardId: MOCK_DASHBOARD_ID,
+                dashboardId: 0,
                 dates: ['2022-01-01', '2023-01-01'],
                 ticks: [{ value: 0 }, { value: 1 }],
             })
@@ -261,7 +357,6 @@ describe('annotationsOverlayLogic', () => {
                     MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1,
                     MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1,
                     MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3,
-                    MOCK_ANNOTATION_DASHBOARD_SCOPED,
                 ].map((annotation) => deserializeAnnotation(annotation, 'UTC')),
             })
         })
