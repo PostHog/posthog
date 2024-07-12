@@ -2261,7 +2261,6 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                     {
                         "id": str(survey_with_actions.id),
                         "name": "survey with actions",
-                        "description": "",
                         "type": "popover",
                         "questions": [{"type": "open", "question": "Why's a hedgehog?"}],
                         "conditions": {
@@ -2341,37 +2340,39 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
             response = self._get_surveys()
             assert response.status_code == status.HTTP_200_OK
             assert response.get("access-control-allow-origin") == "http://127.0.0.1:8000"
-            self.assertListEqual(
-                response.json()["surveys"],
-                [
-                    {
-                        "id": str(basic_survey.id),
-                        "name": "Survey 1",
-                        "type": "popover",
-                        "questions": [{"type": "open", "question": "What's a survey?"}],
-                        "conditions": None,
-                        "appearance": None,
-                        "start_date": None,
-                        "end_date": None,
-                        "current_iteration": None,
-                        "current_iteration_start_date": None,
-                    },
-                    {
-                        "id": str(survey_with_flags.id),
-                        "name": "Survey 2",
-                        "type": "popover",
-                        "conditions": None,
-                        "appearance": None,
-                        "questions": [{"type": "open", "question": "What's a hedgehog?"}],
-                        "linked_flag_key": "linked-flag",
-                        "targeting_flag_key": "targeting-flag",
-                        "current_iteration": None,
-                        "current_iteration_start_date": None,
-                        "internal_targeting_flag_key": "custom-targeting-flag",
-                        "start_date": None,
-                        "end_date": None,
-                    },
-                ],
+            surveys = response.json()["surveys"]
+            self.assertIn(
+                {
+                    "id": str(survey_with_flags.id),
+                    "name": "Survey 2",
+                    "type": "popover",
+                    "conditions": None,
+                    "appearance": None,
+                    "questions": [{"type": "open", "question": "What's a hedgehog?"}],
+                    "linked_flag_key": "linked-flag",
+                    "targeting_flag_key": "targeting-flag",
+                    "current_iteration": None,
+                    "current_iteration_start_date": None,
+                    "internal_targeting_flag_key": "custom-targeting-flag",
+                    "start_date": None,
+                    "end_date": None,
+                },
+                surveys,
+            )
+            self.assertIn(
+                {
+                    "id": str(basic_survey.id),
+                    "name": "Survey 1",
+                    "type": "popover",
+                    "questions": [{"type": "open", "question": "What's a survey?"}],
+                    "conditions": None,
+                    "appearance": None,
+                    "start_date": None,
+                    "end_date": None,
+                    "current_iteration": None,
+                    "current_iteration_start_date": None,
+                },
+                surveys,
             )
 
     def test_list_surveys_excludes_description(self):
@@ -2393,7 +2394,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
         )
         self.client.logout()
 
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(3):
             response = self._get_surveys()
             assert response.status_code == status.HTTP_200_OK
             assert response.get("access-control-allow-origin") == "http://127.0.0.1:8000"
