@@ -113,6 +113,12 @@ export class TeamManager {
                 'setTeamIngestedEvent'
             )
 
+            // This doesn't totally stop the first event from being spammed if a
+            // new team suddenly gets a lot of events, since other pods will still
+            // wait a while before pulling the team data from the DB, but it might
+            // help a bit.
+            this.teamCache.set(team.id, { ...team, ingested_event: true })
+
             // First event for the team captured
             const organizationMembers = await this.postgres.query(
                 PostgresUse.COMMON_WRITE,
